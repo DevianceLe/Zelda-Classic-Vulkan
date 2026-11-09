@@ -607,7 +607,7 @@ bool create_window(int w, int h, std::string *error)
          SDL_Log("zcport: Vulkan unavailable (%s), using the window surface", err.c_str());
          destroy_presenter();
          SDL_DestroyWindow(g->window);
-         g->window = SDL_CreateWindow(title.c_str(), w, h, SDL_WINDOW_HIDDEN);
+         g->window = SDL_CreateWindow(title.c_str(), w, h, flags & ~SDL_WINDOW_VULKAN);
          if (!g->window) {
             *error = SDL_GetError();
             return false;
@@ -1202,6 +1202,29 @@ void do_audio_close()
 // the platform thread
 // ---------------------------------------------------------------------------
 
+#ifdef _WIN32
+// A window under the test driver must never hold the keyboard, but Windows can
+// still hand it the foreground on its own, despite WS_EX_NOACTIVATE. While it
+// is in front this process is allowed to give the foreground back. Other
+// no-activate windows (parallel test runs) are never the ones to return to.
+static void give_back_foreground()
+{
+   static HWND last_other = NULL;
+   if (!g->window || !(SDL_GetWindowFlags(g->window) & SDL_WINDOW_NOT_FOCUSABLE))
+      return;
+   HWND own = (HWND)g->hwnd.load();
+   HWND front = GetForegroundWindow();
+   if (!own || !front)
+      return;
+   if (front != own) {
+      if (!(GetWindowLongPtr(front, GWL_EXSTYLE) & WS_EX_NOACTIVATE))
+         last_other = front;
+   }
+   else if (last_other && IsWindow(last_other))
+      SetForegroundWindow(last_other);
+}
+#endif
+
 void platform_thread_main()
 {
    SDL_SetHint(SDL_HINT_TIMER_RESOLUTION, "0");          // rest() like the reference
@@ -1258,6 +1281,9 @@ void platform_thread_main()
       run_commands();
       update_cursor();
       maybe_present();
+#ifdef _WIN32
+      give_back_foreground();
+#endif
    }
 
    run_commands();

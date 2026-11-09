@@ -567,6 +567,8 @@ static long z30_load_dir(const std::string &user)
     return 0;
 }
 
+static void z30_reset_paldatas();
+
 static void z30_reset_script_objects()
 {
     for(int n = 0; n < Z30_MAX_FILES; ++n)
@@ -583,6 +585,7 @@ static void z30_reset_script_objects()
 
     zasm30_stacks.clear();
     zasm30_next_stack = 1;
+    z30_reset_paldatas();
 }
 
 // A stack can hold the only reference to an array.
@@ -623,6 +626,9 @@ static bool zasm30_family_get(const long arg, long &ret)
         ret = z30_new_bitmap(ri->d[1] / 10000, ri->d[0] / 10000);
         return true;
     }
+    case Z30R_ALLOCATEBITMAPR:
+        ret = z30_new_bitmap(1, 1);     // bitmap->Create sizes it
+        return true;
     case Z30R_DROPSETCHOOSE:
     {
         extern int select_dropitem(int item_set, int x, int y);
@@ -688,6 +694,504 @@ static void z30_list_del(sprite_list &list, long uid)
 
 int q30_enemy_slide(enemy *e);
 void q30_enemy_fire(enemy *e);
+void q30_enemy_constant_walk(enemy *e, int rate, int homing, int special);
+void q30_enemy_constant_walk_8(enemy *e, int rate, int homing, int special);
+
+// ---- paldata objects ----------------------------------------------------------------------------
+// Upstream's user_paldata. Colours are in the script's own range: 0-255, or 0-63 with
+// qr_SCRIPTS_6_BIT_COLOR. This engine's palette and quest colour data are 6-bit.
+
+enum { Z30_QR_SCRIPTS_6_BIT_COLOR = 443, Z30_PALDATA_COLORS = 256, Z30_MAX_PALDATAS = 4096 };
+
+struct Z30PalData
+{
+    RGB c[Z30_PALDATA_COLORS];
+    bool used[Z30_PALDATA_COLORS];
+
+    Z30PalData() { memset(this, 0, sizeof(*this)); }
+};
+
+static std::map<long, Z30PalData> zasm30_paldatas;
+static long zasm30_next_paldata = 1;
+
+static int z30_color_max() { return q30_quest_rule(Z30_QR_SCRIPTS_6_BIT_COLOR) ? 63 : 255; }
+
+// The engine's stored 6-bit component <-> the number scripts see.
+static int z30_color_to_script(int c) { return z30_color_max() == 255 ? c * 255 / 63 : c; }
+static int z30_color_from_script(int c) { return z30_color_max() == 255 ? vbound(c, 0, 255) * 63 / 255 : vbound(c, 0, 63); }
+
+static Z30PalData *z30_paldata(long ref)
+{
+    std::map<long, Z30PalData>::iterator it = zasm30_paldatas.find(ref);
+    return it == zasm30_paldatas.end() ? NULL : &it->second;
+}
+
+// 0 when the script already holds as many as this will keep.
+static long z30_new_paldata()
+{
+    if(zasm30_paldatas.size() >= (size_t)Z30_MAX_PALDATAS)
+    {
+        Z_scripterrlog("Scripts have created the most paldata objects this engine keeps (%d).\n", (int)Z30_MAX_PALDATAS);
+        return 0;
+    }
+
+    const long id = zasm30_next_paldata++;
+    zasm30_paldatas[id];
+    return id;
+}
+
+static int z30_round_color(double v)
+{
+    const double max = z30_color_max();
+    return int((v < 0 ? 0 : v > max ? max : v) + 0.5);
+}
+
+// From easyrgb.com, as upstream's are.
+enum { Z30_CSPACE_RGB, Z30_CSPACE_CMYK, Z30_CSPACE_HSV, Z30_CSPACE_HSV_CW, Z30_CSPACE_HSV_CCW,
+       Z30_CSPACE_HSL, Z30_CSPACE_HSL_CW, Z30_CSPACE_HSL_CCW };
+
+static void z30_rgb_to_space(const RGB &c, double *out, int space)
+{
+    const double upper = z30_color_max();
+    const double r = c.r / upper, g = c.g / upper, b = c.b / upper;
+    const double lo = zc_min(zc_min(r, g), b), hi = zc_max(zc_max(r, g), b), del = hi - lo;
+
+    if(space == Z30_CSPACE_CMYK)
+    {
+        double C = 1 - r, M = 1 - g, Y = 1 - b, K = zc_min(zc_min(C, M), Y);
+
+        if(K >= 1)
+            C = M = Y = 0;
+        else
+        {
+            C = (C - K) / (1 - K);
+            M = (M - K) / (1 - K);
+            Y = (Y - K) / (1 - K);
+        }
+
+        out[0] = C;
+        out[1] = M;
+        out[2] = Y;
+        out[3] = K;
+        return;
+    }
+
+    double h = 0;
+
+    if(del != 0)
+    {
+        const double dr = ((hi - r) / 6 + del / 2) / del;
+        const double dg = ((hi - g) / 6 + del / 2) / del;
+        const double db = ((hi - b) / 6 + del / 2) / del;
+
+        if(r == hi) h = db - dg;
+        else if(g == hi) h = 1.0 / 3 + dr - db;
+        else h = 2.0 / 3 + dg - dr;
+
+        if(h < 0) ++h;
+        if(h > 1) --h;
+    }
+
+    if(space == Z30_CSPACE_HSV || space == Z30_CSPACE_HSV_CW || space == Z30_CSPACE_HSV_CCW)
+    {
+        out[0] = h;
+        out[1] = del == 0 ? 0 : del / hi;
+        out[2] = hi;
+        return;
+    }
+
+    const double l = (hi + lo) / 2;
+    out[0] = h;
+    out[1] = del == 0 ? 0 : (l < 0.5 ? del / (hi + lo) : del / (2 - hi - lo));
+    out[2] = l;
+}
+
+static double z30_hue_to_rgb(double v1, double v2, double h)
+{
+    if(h < 0) h += 1;
+    if(h > 1) h -= 1;
+    if(6 * h < 1) return v1 + (v2 - v1) * 6 * h;
+    if(2 * h < 1) return v2;
+    if(3 * h < 2) return v1 + (v2 - v1) * (2.0 / 3 - h) * 6;
+    return v1;
+}
+
+static RGB z30_rgb_from_space(const double *a, int space)
+{
+    const double upper = z30_color_max();
+    double r = 0, g = 0, b = 0;
+
+    if(space == Z30_CSPACE_CMYK)
+    {
+        r = 1 - (a[0] * (1 - a[3]) + a[3]);
+        g = 1 - (a[1] * (1 - a[3]) + a[3]);
+        b = 1 - (a[2] * (1 - a[3]) + a[3]);
+    }
+    else if(space == Z30_CSPACE_HSV || space == Z30_CSPACE_HSV_CW || space == Z30_CSPACE_HSV_CCW)
+    {
+        const double h = a[0], s = a[1], v = a[2];
+
+        if(s == 0)
+            r = g = b = v;
+        else
+        {
+            double hv = h * 6;
+            if(hv >= 6) hv = 0;
+            const int i = int(floor(hv));
+            const double p = v * (1 - s), q = v * (1 - s * (hv - i)), t = v * (1 - s * (1 - (hv - i)));
+
+            switch(i)
+            {
+            case 0: r = v; g = t; b = p; break;
+            case 1: r = q; g = v; b = p; break;
+            case 2: r = p; g = v; b = t; break;
+            case 3: r = p; g = q; b = v; break;
+            case 4: r = t; g = p; b = v; break;
+            default: r = v; g = p; b = q; break;
+            }
+        }
+    }
+    else
+    {
+        const double h = a[0], s = a[1], l = a[2];
+
+        if(s == 0)
+            r = g = b = l;
+        else
+        {
+            const double v2 = l < 0.5 ? l * (1 + s) : (l + s) - (s * l);
+            const double v1 = 2 * l - v2;
+            r = z30_hue_to_rgb(v1, v2, h + 1.0 / 3);
+            g = z30_hue_to_rgb(v1, v2, h);
+            b = z30_hue_to_rgb(v1, v2, h - 1.0 / 3);
+        }
+    }
+
+    RGB out;
+    out.r = z30_round_color(r * upper);
+    out.g = z30_round_color(g * upper);
+    out.b = z30_round_color(b * upper);
+    out.filler = 0;
+    return out;
+}
+
+static double z30_lerp(double a, double b, double t) { return a + (b - a) * t; }
+
+// The hue interpolation that goes the way the colour space says around the wheel.
+static double z30_wrap_lerp(double a, double b, double t, int direction)
+{
+    double dif = fabs(a - b);
+
+    if(direction == 0)
+    {
+        if(dif > 0.5)
+            dif = 1 - dif;
+        direction = (a + dif == b) ? 1 : -1;
+    }
+    else if((direction > 0 && b < a) || (direction < 0 && b > a))
+        dif = 1 - dif;
+
+    double ret = z30_lerp(a, a + dif * direction, t);
+
+    if(ret <= 0) ret += 1;
+    else if(ret >= 1) ret -= 1;
+
+    return ret;
+}
+
+// RGB, CMYK, HSV and HSL mix as upstream's do. Upstream's LAB and LCH spaces are mixed as RGB here.
+static RGB z30_mix_color(const RGB &start, const RGB &end, double percent, int space)
+{
+    switch(space)
+    {
+    case Z30_CSPACE_CMYK:
+    case Z30_CSPACE_HSV:
+    case Z30_CSPACE_HSV_CW:
+    case Z30_CSPACE_HSV_CCW:
+    case Z30_CSPACE_HSL:
+    case Z30_CSPACE_HSL_CW:
+    case Z30_CSPACE_HSL_CCW:
+    {
+        double s[4] = { 0, 0, 0, 0 }, e[4] = { 0, 0, 0, 0 }, m[4];
+        z30_rgb_to_space(start, s, space);
+        z30_rgb_to_space(end, e, space);
+
+        if(space == Z30_CSPACE_CMYK)
+        {
+            for(int q = 0; q < 4; ++q)
+                m[q] = z30_lerp(s[q], e[q], percent);
+        }
+        else
+        {
+            const int direction = (space == Z30_CSPACE_HSV_CW || space == Z30_CSPACE_HSL_CW) ? 1
+                                  : (space == Z30_CSPACE_HSV_CCW || space == Z30_CSPACE_HSL_CCW) ? -1 : 0;
+            m[0] = z30_wrap_lerp(s[0], e[0], percent, direction);
+            m[1] = z30_lerp(s[1], e[1], percent);
+            m[2] = z30_lerp(s[2], e[2], percent);
+            m[3] = 0;
+        }
+
+        return z30_rgb_from_space(m, space);
+    }
+
+    default:
+    {
+        RGB out;
+        out.r = z30_round_color(z30_lerp(start.r, end.r, percent));
+        out.g = z30_round_color(z30_lerp(start.g, end.g, percent));
+        out.b = z30_round_color(z30_lerp(start.b, end.b, percent));
+        out.filler = 0;
+        return out;
+    }
+    }
+}
+
+static void z30_pal_load_cset(Z30PalData &p, int cset, int dataset)
+{
+    const byte *si = colordata + CSET(dataset) * 3;
+
+    for(int q = 0; q < 16; ++q, si += 3)
+    {
+        const int ind = CSET(cset) + q;
+        p.c[ind].r = z30_color_to_script(si[0]);
+        p.c[ind].g = z30_color_to_script(si[1]);
+        p.c[ind].b = z30_color_to_script(si[2]);
+        p.used[ind] = true;
+    }
+}
+
+static void z30_pal_load_cset_main(Z30PalData &p, int cset)
+{
+    for(int q = 0; q < 16; ++q)
+    {
+        const int ind = CSET(cset) + q;
+        p.c[ind].r = z30_color_to_script(RAMpal[ind].r);
+        p.c[ind].g = z30_color_to_script(RAMpal[ind].g);
+        p.c[ind].b = z30_color_to_script(RAMpal[ind].b);
+        p.used[ind] = true;
+    }
+}
+
+// False if the cset holds what the colour data already does.
+static bool z30_pal_write_cset(const Z30PalData &p, int cset, int dataset)
+{
+    byte *si = colordata + CSET(dataset) * 3;
+    bool changed = false;
+
+    for(int q = 0; q < 16; ++q, si += 3)
+    {
+        const int ind = CSET(cset) + q;
+
+        if(!p.used[ind])
+            continue;
+
+        const byte nr = (byte)z30_color_from_script(p.c[ind].r), ng = (byte)z30_color_from_script(p.c[ind].g), nb = (byte)z30_color_from_script(p.c[ind].b);
+
+        if(si[0] != nr || si[1] != ng || si[2] != nb)
+            changed = true;
+
+        si[0] = nr;
+        si[1] = ng;
+        si[2] = nb;
+    }
+
+    return changed;
+}
+
+static bool z30_pal_write_cset_main(const Z30PalData &p, int cset)
+{
+    bool changed = false;
+
+    for(int q = 0; q < 16; ++q)
+    {
+        const int ind = CSET(cset) + q;
+
+        if(!p.used[ind])
+            continue;
+
+        RGB col;
+        col.r = (byte)z30_color_from_script(p.c[ind].r);
+        col.g = (byte)z30_color_from_script(p.c[ind].g);
+        col.b = (byte)z30_color_from_script(p.c[ind].b);
+        col.filler = 0;
+
+        if(RAMpal[ind].r != col.r || RAMpal[ind].g != col.g || RAMpal[ind].b != col.b)
+            changed = true;
+
+        RAMpal[ind] = col;
+    }
+
+    return changed;
+}
+
+static bool z30_valid_level(long level)
+{
+    return level >= 0 && level < MAXLEVELS;
+}
+
+// Reload the current DMap's level palette, if it's the one that changed.
+static void z30_pal_level_refresh(long level)
+{
+    if(DMaps[currdmap].color == level)
+    {
+        loadlvlpal(level);
+        currcset = level;
+
+        if(darkroom && !get_bit(quest_rules, qr_FADE))
+            loadfadepal(level * pdLEVEL + poFADE3);
+    }
+}
+
+// Palette and bitmap scripts' colour commands that need the stack, in upstream's argument order.
+static void z30_paldata_load_level(long level)
+{
+    Z30PalData *pd = z30_paldata(Z30_REF(PALDATA));
+
+    if(!pd || !z30_valid_level(level))
+        return;
+
+    z30_pal_load_cset(*pd, 2, level * pdLEVEL + poLEVEL);
+    z30_pal_load_cset(*pd, 3, level * pdLEVEL + poLEVEL + 1);
+    z30_pal_load_cset(*pd, 4, level * pdLEVEL + poLEVEL + 2);
+    z30_pal_load_cset(*pd, 9, level * pdLEVEL + poLEVEL + 3);
+
+    // Upstream's level data also holds CSets 1, 5, 7 and 8; this engine keeps those only in the main palette.
+    z30_pal_load_cset(*pd, 1, 1);
+    z30_pal_load_cset(*pd, 5, 5);
+    z30_pal_load_cset(*pd, 7, 7);
+    z30_pal_load_cset(*pd, 8, 8);
+}
+
+static void z30_paldata_write_level(long level, bool one_cset, int cset)
+{
+    Z30PalData *pd = z30_paldata(Z30_REF(PALDATA));
+
+    if(!pd || !z30_valid_level(level))
+        return;
+
+    static const int csets[4] = { 2, 3, 4, 9 };
+    static const int sets[4] = { 0, 1, 2, 3 };
+    bool changed = false;
+
+    for(int q = 0; q < 4; ++q)
+    {
+        if(one_cset && csets[q] != cset)
+            continue;
+
+        if(z30_pal_write_cset(*pd, csets[q], level * pdLEVEL + poLEVEL + sets[q]))
+            changed = true;
+    }
+
+    if(changed)
+        z30_pal_level_refresh(level);
+}
+
+static void z30_paldata_write_cycle(long level, int cset)
+{
+    Z30PalData *pd = z30_paldata(Z30_REF(PALDATA));
+
+    if(!pd || !z30_valid_level(level))
+        return;
+
+    bool changed = false;
+
+    for(int q = 4; q <= 12; ++q)
+    {
+        if(cset >= 0 && q != cset)
+            continue;
+
+        if(z30_pal_write_cset(*pd, q, level * pdLEVEL + poLEVEL + q))
+            changed = true;
+    }
+
+    if(changed && cset >= 0)
+        z30_pal_level_refresh(level);
+}
+
+static bool zasm30_paldata_get(const long arg, long &ret)
+{
+    Z30PalData *pd = z30_paldata(Z30_REF(PALDATA));
+    const long n = Z30_INDEX;
+    ret = -10000;
+
+    if(!pd || n < 0 || n >= Z30_PALDATA_COLORS || !pd->used[n])
+        return true;
+
+    const RGB &c = pd->c[n];
+
+    if(arg == Z30R_PALDATACOLOR)
+        ret = (long(c.r) << 16) | (long(c.g) << 8) | c.b;
+    else
+        ret = (arg == Z30R_PALDATAR ? c.r : arg == Z30R_PALDATAG ? c.g : c.b) * 10000;
+
+    return true;
+}
+
+static bool zasm30_paldata_set(const long arg, const long value)
+{
+    Z30PalData *pd = z30_paldata(Z30_REF(PALDATA));
+    const long n = Z30_INDEX;
+
+    if(!pd || n < 0 || n >= Z30_PALDATA_COLORS)
+        return true;
+
+    if(arg == Z30R_PALDATACOLOR)
+    {
+        pd->c[n].r = (byte)((value >> 16) & 0xFF);
+        pd->c[n].g = (byte)((value >> 8) & 0xFF);
+        pd->c[n].b = (byte)(value & 0xFF);
+        pd->used[n] = true;
+        return true;
+    }
+
+    if(pd->used[n])
+    {
+        const byte v = (byte)vbound(value / 10000, 0, z30_color_max());
+
+        if(arg == Z30R_PALDATAR) pd->c[n].r = v;
+        else if(arg == Z30R_PALDATAG) pd->c[n].g = v;
+        else pd->c[n].b = v;
+    }
+
+    return true;
+}
+
+static void z30_reset_paldatas()
+{
+    zasm30_paldatas.clear();
+    zasm30_next_paldata = 1;
+}
+
+// bitmap->ReplaceColors, ShiftColors and MaskDraw, on the script's own bitmaps.
+static void z30_replace_colors(BITMAP *bmp, int newcol, int start, int end, bool shift)
+{
+    for(int y = 0; y < bmp->h; ++y)
+    {
+        for(int x = 0; x < bmp->w; ++x)
+        {
+            const int c = bmp->line[y][x];
+
+            if(c >= start && c <= end)
+                bmp->line[y][x] = shift ? (byte)(c + newcol) : (byte)newcol;
+        }
+    }
+}
+
+static void z30_mask_draw(BITMAP *dest, BITMAP *mask, int color, int start, int end)
+{
+    const int w = zc_min(dest->w, mask->w), h = zc_min(dest->h, mask->h);
+
+    for(int y = 0; y < h; ++y)
+    {
+        for(int x = 0; x < w; ++x)
+        {
+            const int c = mask->line[y][x];
+
+            if(c >= start && c <= end)
+                dest->line[y][x] = (byte)color;
+        }
+    }
+}
 
 // ---- helpers for commands --------------------------------------------------------------------
 
@@ -2106,15 +2610,45 @@ static bool zasm30_command(word cmd)
 
     // -- hero movement and others ---------------------------------------------------------------
     case Z30C_HEROMOVEXY:
-    {
-        Link.setX(int(Link.getX()) + SH::read_stack(SPR + 4) / 10000);
-        Link.setY(int(Link.getY()) + SH::read_stack(SPR + 3) / 10000);
-        ri->d[2] = 10000;
-        return true;
-    }
     case Z30C_HEROCANMOVEXY:
+    case Z30C_HEROMOVEATANGLE:
+    case Z30C_HEROCANMOVEATANGLE:
+    case Z30C_HEROMOVE:
+    case Z30C_HEROCANMOVE:
     {
-        ri->d[2] = 10000;
+        const double a = SH::read_stack(SPR + 4) / 10000.0, b = SH::read_stack(SPR + 3) / 10000.0;
+        const bool shove = SH::read_stack(SPR) != 0;
+        double dx = 0, dy = 0;
+        bool valid = true;
+
+        switch(cmd)
+        {
+        case Z30C_HEROMOVEXY:
+        case Z30C_HEROCANMOVEXY:
+            dx = a;
+            dy = b;
+            break;
+
+        case Z30C_HEROMOVEATANGLE:
+        case Z30C_HEROCANMOVEATANGLE:
+            dx = cos(a * 3.14159265358979 / 180.0) * b;
+            dy = sin(a * 3.14159265358979 / 180.0) * b;
+            break;
+
+        default:
+            valid = z30_npc_dir_delta(SH::read_stack(SPR + 4) / 10000, b, dx, dy);
+            break;
+        }
+
+        if(!valid)
+        {
+            ri->d[2] = 0;
+            return true;
+        }
+
+        const bool moves = cmd == Z30C_HEROMOVEXY || cmd == Z30C_HEROMOVEATANGLE || cmd == Z30C_HEROMOVE;
+        const bool ok = moves ? Link.q30_script_move_xy(dx, dy, shove) : Link.q30_script_can_move(dx, dy);
+        ri->d[2] = ok ? 10000 : 0;
         return true;
     }
     case Z30C_HEROLIFTGRAB:
@@ -2359,8 +2893,265 @@ static bool zasm30_command(word cmd)
         return true;
     }
 
+    // -- bitmap colours (bitmap->ReplaceColors, ShiftColors, MaskDraw) -------------------------
+    case Z30C_BMPREPLCOLOR:
+    case Z30C_BMPSHIFTCOLOR:
+    {
+        BITMAP *bmp = z30_bitmap(SH::read_stack(SPR + 4));
+
+        if(bmp)
+            z30_replace_colors(bmp, SH::read_stack(SPR + 2) / 10000, SH::read_stack(SPR + 1) / 10000,
+                               SH::read_stack(SPR) / 10000, cmd == Z30C_BMPSHIFTCOLOR);
+        return true;
+    }
+    case Z30C_BMPMASKDRAW:
+    case Z30C_BMPMASKDRAW2:
+    case Z30C_BMPMASKDRAW3:
+    {
+        const int numargs = cmd == Z30C_BMPMASKDRAW ? 3 : cmd == Z30C_BMPMASKDRAW2 ? 4 : 5;
+        BITMAP *dest = z30_bitmap(SH::read_stack(SPR + numargs));
+        BITMAP *mask = z30_bitmap(SH::read_stack(SPR + numargs - 2));
+        const long color = SH::read_stack(SPR + numargs - 3) / 10000;
+        long start = 0x01, end = 0xFF;
+
+        if(numargs >= 4)
+            start = SH::read_stack(SPR + numargs - 4) / 10000;
+
+        if(numargs == 4)
+            end = start;
+        else if(numargs == 5)
+            end = SH::read_stack(SPR) / 10000;
+
+        if(dest && mask && unsigned(color) <= 0xFF)
+            z30_mask_draw(dest, mask, color, vbound(start, 0, 255), vbound(end, 0, 255));
+
+        return true;
+    }
+
+    // -- sounds ---------------------------------------------------------------------------------
+    case Z30C_ENDSOUNDR:
+    case Z30C_ENDSOUNDV:
+    {
+        const long id = SH::get_arg(sarg1, cmd == Z30C_ENDSOUNDV) / 10000;
+
+        if(BC::checkSFXID(id, "Audio->EndSound()") == SH::_NoError)
+            stop_sfx(id);
+
+        return true;
+    }
+    case Z30C_ADJUSTSFX:
+        q30_sfx_ex(SH::read_stack(SPR + 4) / 10000, SH::read_stack(SPR + 3), SH::read_stack(SPR + 2),
+                   SH::read_stack(SPR + 1), SH::read_stack(SPR), false);
+        return true;
+
+    // -- npc movement and sound -------------------------------------------------------------------
+    case Z30C_NPCSTOPBGSFX:
+        if(GuyH::loadNPC(ri->guyref, "npc->StopBGSFX()") == SH::_NoError)
+            GuyH::getNPC()->stop_bgsfx(GuyH::getNPCIndex(ri->guyref));
+        return true;
+    case Z30C_NPCCONSTWALK:
+    case Z30C_NPCCONSTWALK8:
+    {
+        ZScriptArray &a = ArrayH::getArray(get_register(sarg1) / 10000);
+
+        if(&a != &INVALIDARRAY && a.Size() == 3 && GuyH::loadNPC(ri->guyref, "npc->ConstantWalk()") == SH::_NoError)
+        {
+            const int rate = a[0] / 10000, homing = a[1] / 10000, special = a[2] / 10000;
+
+            if(cmd == Z30C_NPCCONSTWALK)
+                q30_enemy_constant_walk(GuyH::getNPC(), rate, homing, special);
+            else
+                q30_enemy_constant_walk_8(GuyH::getNPC(), rate, homing, special);
+        }
+        return true;
+    }
+
+    // -- palette data ----------------------------------------------------------------------------
+    case Z30C_CREATEPALDATA:
+        Z30_REF(PALDATA) = z30_new_paldata();
+        ri->d[2] = Z30_REF(PALDATA);
+        return true;
+    case Z30C_CREATEPALDATACLR:
+    {
+        const long clr = get_register(sarg1);
+        Z30_REF(PALDATA) = z30_new_paldata();
+
+        if(Z30PalData *pd = z30_paldata(Z30_REF(PALDATA)))
+        {
+            RGB c;
+            c.r = (byte)vbound((clr >> 16) & 0xFF, 0, z30_color_max());
+            c.g = (byte)vbound((clr >> 8) & 0xFF, 0, z30_color_max());
+            c.b = (byte)vbound(clr & 0xFF, 0, z30_color_max());
+            c.filler = 0;
+
+            for(int q = 0; q < 240; ++q)
+            {
+                pd->c[q] = c;
+                pd->used[q] = true;
+            }
+        }
+
+        ri->d[2] = Z30_REF(PALDATA);
+        return true;
+    }
+    case Z30C_CREATERGB:
+    {
+        const int max_value = z30_color_max();
+        const long r = vbound(SH::read_stack(SPR + 2) / 10000, 0, max_value);
+        const long g = vbound(SH::read_stack(SPR + 1) / 10000, 0, max_value);
+        const long b = vbound(SH::read_stack(SPR) / 10000, 0, max_value);
+        ri->d[2] = (r << 16) | (g << 8) | b;
+        return true;
+    }
+    case Z30C_CREATERGBHEX:
+    {
+        const long hex = get_register(sarg1);
+        const int shift = z30_color_max() == 255 ? 0 : 2;
+        ri->d[2] = ((((hex >> 16) & 0xFF) >> shift) << 16) | ((((hex >> 8) & 0xFF) >> shift) << 8) | ((hex & 0xFF) >> shift);
+        return true;
+    }
+    case Z30C_MIXCLR:
+    {
+        const long a = SH::read_stack(SPR + 3), b = SH::read_stack(SPR + 2);
+        RGB start, end;
+        start.r = (byte)((a >> 16) & 0xFF); start.g = (byte)((a >> 8) & 0xFF); start.b = (byte)(a & 0xFF); start.filler = 0;
+        end.r = (byte)((b >> 16) & 0xFF); end.g = (byte)((b >> 8) & 0xFF); end.b = (byte)(b & 0xFF); end.filler = 0;
+        const RGB out = z30_mix_color(start, end, SH::read_stack(SPR + 1) / 10000.0, SH::read_stack(SPR) / 10000);
+        ri->d[2] = (long(out.r) << 16) | (long(out.g) << 8) | out.b;
+        return true;
+    }
+    case Z30C_PALDATALOADLEVEL: z30_paldata_load_level(get_register(sarg1) / 10000); return true;
+    case Z30C_PALDATALOADSPRITE:
+    {
+        const long page = get_register(sarg1) / 10000;
+        Z30PalData *pd = z30_paldata(Z30_REF(PALDATA));
+
+        if(pd && (page == 0 || page == 1))
+            for(int q = 0; q < 15; ++q)
+                z30_pal_load_cset(*pd, q, pSprite(page * 15 + q));
+
+        return true;
+    }
+    case Z30C_PALDATALOADMAIN:
+        if(Z30PalData *pd = z30_paldata(Z30_REF(PALDATA)))
+            for(int q = 0; q < 16; ++q)
+                z30_pal_load_cset_main(*pd, q);
+        return true;
+    case Z30C_PALDATALOADCYCLE:
+    {
+        const long level = get_register(sarg1) / 10000;
+        Z30PalData *pd = z30_paldata(Z30_REF(PALDATA));
+
+        if(pd && z30_valid_level(level))
+            for(int q = 4; q <= 12; ++q)
+                z30_pal_load_cset(*pd, q, level * pdLEVEL + poLEVEL + q);
+
+        return true;
+    }
+    case Z30C_PALDATAWRITELEVEL: z30_paldata_write_level(get_register(sarg1) / 10000, false, 0); return true;
+    case Z30C_PALDATAWRITELEVELCS: z30_paldata_write_level(get_register(sarg1) / 10000, true, get_register(sarg2) / 10000); return true;
+    case Z30C_PALDATAWRITEMAIN:
+    case Z30C_PALDATAWRITEMAINCS:
+    {
+        Z30PalData *pd = z30_paldata(Z30_REF(PALDATA));
+        const long only = cmd == Z30C_PALDATAWRITEMAINCS ? get_register(sarg1) / 10000 : -1;
+        bool changed = false;
+
+        if(pd)
+        {
+            for(int q = 0; q < 16; ++q)
+                if((only < 0 || only == q) && z30_pal_write_cset_main(*pd, q))
+                    changed = true;
+        }
+
+        if(changed)
+            refreshpal = true;
+
+        return true;
+    }
+    case Z30C_PALDATAWRITECYCLE: z30_paldata_write_cycle(get_register(sarg1) / 10000, -1); return true;
+    case Z30C_PALDATAWRITECYCLECS: z30_paldata_write_cycle(get_register(sarg1) / 10000, get_register(sarg2) / 10000); return true;
+    case Z30C_PALDATAVALIDCLR:
+    {
+        Z30PalData *pd = z30_paldata(Z30_REF(PALDATA));
+        const long ind = get_register(sarg1) / 10000;
+        set_register(sarg1, (pd && ind >= 0 && ind < Z30_PALDATA_COLORS && pd->used[ind]) ? 10000 : 0);
+        return true;
+    }
+    case Z30C_PALDATACLEARCLR:
+    {
+        Z30PalData *pd = z30_paldata(Z30_REF(PALDATA));
+        const long ind = get_register(sarg1) / 10000;
+
+        if(pd && ind >= 0 && ind < Z30_PALDATA_COLORS)
+            pd->used[ind] = false;
+
+        return true;
+    }
+    case Z30C_PALDATACLEARCSET:
+    {
+        Z30PalData *pd = z30_paldata(Z30_REF(PALDATA));
+        const long cs = get_register(sarg1) / 10000;
+
+        if(pd && cs >= 0 && cs < 16)
+            for(int q = 0; q < 16; ++q)
+                pd->used[CSET(cs) + q] = false;
+
+        return true;
+    }
+    case Z30C_PALDATAMIX:
+    case Z30C_PALDATAMIXCS:
+    {
+        const int off = cmd == Z30C_PALDATAMIXCS ? 1 : 0;
+        Z30PalData *pd = z30_paldata(SH::read_stack(SPR + 4 + off));
+        Z30PalData *a = z30_paldata(SH::read_stack(SPR + 3 + off)), *b = z30_paldata(SH::read_stack(SPR + 2 + off));
+        const long cset = off ? SH::read_stack(SPR + 2) / 10000 : -1;
+        const double percent = SH::read_stack(SPR + 1) / 10000.0;
+        const long space = SH::read_stack(SPR) / 10000;
+
+        if(pd && a && b && (off == 0 || (cset >= 0 && cset < 16)))
+        {
+            const int first = off ? CSET(cset) : 0, last = off ? CSET(cset) + 16 : Z30_PALDATA_COLORS;
+
+            for(int q = first; q < last; ++q)
+                if(a->used[q] && b->used[q])
+                {
+                    pd->c[q] = z30_mix_color(a->c[q], b->c[q], percent, space);
+                    pd->used[q] = true;
+                }
+        }
+
+        return true;
+    }
+    case Z30C_PALDATACOPY:
+    {
+        Z30PalData *pd = z30_paldata(Z30_REF(PALDATA)), *dest = z30_paldata(get_register(sarg1));
+
+        if(pd && dest)
+            *dest = *pd;
+
+        return true;
+    }
+    case Z30C_PALDATACOPYCSET:
+    {
+        Z30PalData *pd = z30_paldata(SH::read_stack(SPR + 3)), *dest = z30_paldata(SH::read_stack(SPR + 2));
+        const long cs = SH::read_stack(SPR + 1) / 10000, cs2 = SH::read_stack(SPR) / 10000;
+
+        if(pd && dest && cs >= 0 && cs < 16 && cs2 >= 0 && cs2 < 16)
+            for(int q = 0; q < 16; ++q)
+            {
+                dest->c[CSET(cs2) + q] = pd->c[CSET(cs) + q];
+                dest->used[CSET(cs2) + q] = pd->used[CSET(cs) + q];
+            }
+
+        return true;
+    }
+    case Z30C_PALDATAFREE:
+        zasm30_paldatas.erase(Z30_REF(PALDATA));
+        return true;
+
     // -- misc no-effect commands: these only tell the engine about objects it doesn't keep ------
-    case Z30C_SUBPAGE_FIND_WIDGET_BY_LABEL:
+case Z30C_SUBPAGE_FIND_WIDGET_BY_LABEL:
     case Z30C_SUBWIDG_TY_SETTEXT:
     case Z30C_ZCLASS_FREE:
         zasm30_log_once("command", cmd);

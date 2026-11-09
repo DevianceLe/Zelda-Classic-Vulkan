@@ -24,11 +24,12 @@ struct Zasm30SpriteState
     long initd[8];
     long misc2[16];       // Misc[16..31]
     long fakez, fakefall, script_flip, script_tile, rotation, scale, gravity_strength, terminal_v;
-    long no_colldet, shadow_spr, shadow_xofs, shadow_yofs, invis_clk, drawstyle2, fall_clk, drown_clk;
+    long no_colldet, shadow_spr, shadow_xofs, shadow_yofs, invis_clk, move_flags, fall_clk, drown_clk;
     long glow_rad, glow_shape, glow_ofs;
     long spawn_spr, death_spr;
     long sw_hooked;
-    bool engine_animate, script_started;
+    long weapon_flags, level, pstring, weap_timeout, unblockable, knockback_speed;
+    bool engine_animate, script_started, auto_rotate, no_slide, no_script_kb;
 
     Zasm30SpriteState()
     {
@@ -55,6 +56,7 @@ static Zasm30SpriteState *zasm30_sprite_state_if(long uid)
 }
 
 static std::map<int, Q30ScriptRef> zasm30_guy_scripts, zasm30_guy_weapon_scripts;
+static std::map<int, dword> zasm30_guy_moveflags;       // what each enemy's editor data sets
 static std::map<int, Q30ScriptRef> zasm30_item_sprite_scripts, zasm30_item_weapon_scripts;
 
 static void zasm30_put_ref(std::map<int, Q30ScriptRef> &t, int key, word script, const long *initd)
@@ -78,7 +80,8 @@ static const Q30ScriptRef *zasm30_get_ref(std::map<int, Q30ScriptRef> &t, int ke
     return it == t.end() ? NULL : &it->second;
 }
 
-void q30_clear_guy_scripts() { zasm30_guy_scripts.clear(); zasm30_guy_weapon_scripts.clear(); }
+void q30_clear_guy_scripts() { zasm30_guy_scripts.clear(); zasm30_guy_weapon_scripts.clear(); zasm30_guy_moveflags.clear(); }
+void q30_set_guy_moveflags(int guy, dword flags) { if(flags) zasm30_guy_moveflags[guy] = flags; else zasm30_guy_moveflags.erase(guy); }
 void q30_set_guy_script(int guy, word script, const long *initd) { zasm30_put_ref(zasm30_guy_scripts, guy, script, initd); }
 const Q30ScriptRef *q30_guy_script(int guy) { return zasm30_get_ref(zasm30_guy_scripts, guy); }
 void q30_set_guy_weapon_script(int guy, word script, const long *initd) { zasm30_put_ref(zasm30_guy_weapon_scripts, guy, script, initd); }
@@ -455,6 +458,9 @@ static void zasm30_launch_generic_slot(word slot)
         zasm30_generic_launch(slot);
 }
 
+extern void (*q30_sprite_appearance_hook)(sprite *, int *, int *, fix *);
+void q30_sprite_appearance(sprite *s, int *tile, int *flip, fix *yofs);
+
 void q30_clear_engine()
 {
     if(quest_header_zelda_version < 0x255)
@@ -464,6 +470,7 @@ void q30_clear_engine()
     q30_set_generic_script_runner(zasm30_launch_generic_slot);
     q30_set_music_player(q30_play_music);
     q30_sprite_destroy_hook = q30_sprite_destroyed;
+    q30_sprite_appearance_hook = q30_sprite_appearance;
 }
 
 void q30_sprite_destroyed(long uid)
@@ -661,6 +668,26 @@ static void zasm30_items_init()
     }
 }
 
+// ---- FakeZ -------------------------------------------------------------------------------------
+
+// Gravity on a sprite's FakeZ, the way a real Z falls. FakeZ and its jump are in the script's numbers,
+// the jump scaled by 100 as z's is.
+static void zasm30_fake_gravity(Zasm30SpriteState &st)
+{
+    if(!st.fakez && !st.fakefall)
+        return;
+
+    st.fakez -= st.fakefall / 100;
+
+    if(st.fakez < 0)
+        st.fakez = st.fakefall = 0;
+    else if(st.fakefall <= (long)zinit.terminalv * 10 * 10000)
+        st.fakefall += (long)zinit.gravity * 10000;
+
+    if(st.fakez <= 0 && st.fakefall > 0)
+        st.fakefall = 0;
+}
+
 // ---- sprite scripts ---------------------------------------------------------------------------
 
 // Fills a new sprite's script in from the data it was made from, once.
@@ -671,7 +698,13 @@ static Zasm30SpriteState *zasm30_npc_state(sprite *spr)
     if(!st.script_started)
     {
         st.script_started = true;
-        const Q30ScriptRef *ref = q30_guy_script(spr->id & 0xFFF);
+        const int guy_id = spr->id & 0xFFF;
+        std::map<int, dword>::const_iterator flags = zasm30_guy_moveflags.find(guy_id);
+
+        if(flags != zasm30_guy_moveflags.end())
+            st.move_flags = flags->second;
+
+        const Q30ScriptRef *ref = q30_guy_script(guy_id);
 
         if(ref)
         {
@@ -772,6 +805,9 @@ bool q30_run_npc_script(sprite *spr)
     long uid = spr->getUID();
     Zasm30SpriteState *st = zasm30_npc_state(spr);
 
+    if((canfall(spr->id) || (st->move_flags & 1)) && e->fading != fade_flicker && e->clk >= 0 && !(st->move_flags & (1 << 8)))    // move_no_fake_z
+        zasm30_fake_gravity(*st);
+
     if(!st->script)
         return false;
 
@@ -811,6 +847,9 @@ void q30_run_lweapon_scripts(bool waitdraw)
         long uid = spr->getUID();
         Zasm30SpriteState *st = zasm30_lweapon_state((weapon *)spr);
 
+        if(!waitdraw && (st->move_flags & 1) && !(st->move_flags & (1 << 8)))
+            zasm30_fake_gravity(*st);
+
         if(st->script)
             zasm30_run_sprite(SCRIPT_LWPN, st->script, uid, waitdraw);
 
@@ -829,6 +868,9 @@ void q30_run_eweapon_scripts(bool waitdraw)
         sprite *spr = Ewpns.spr(i);
         long uid = spr->getUID();
         Zasm30SpriteState *st = zasm30_eweapon_state((weapon *)spr);
+
+        if(!waitdraw && (st->move_flags & 1) && !(st->move_flags & (1 << 8)))
+            zasm30_fake_gravity(*st);
 
         if(st->script)
             zasm30_run_sprite(SCRIPT_EWPN, st->script, uid, waitdraw);
@@ -872,7 +914,12 @@ static void zasm30_run_hero(int slot)
 void q30_run_hero_active()
 {
     if(zasm30_ffscript_version)
+    {
+        if(Zasm30SpriteState *hero = zasm30_sprite_state_if(Link.getUID()))
+            zasm30_fake_gravity(*hero);
+
         zasm30_run_hero(2);
+    }
 }
 
 void q30_run_hero_script(int slot)
@@ -1098,10 +1145,15 @@ void q30_run_continue()
     }
 }
 
+static void zasm30_update_input();
+
 void q30_gen_timing(int timing)
 {
     if(!zasm30_ffscript_version)
         return;
+
+    if(timing == Z30T_POST_POLL_INPUT)
+        zasm30_update_input();
 
     zasm30_generic_passive(timing);
 
@@ -1118,6 +1170,7 @@ bool q30_scripts_active()
 }
 
 static void z30_reset_script_objects();
+static void zasm30_reset_register_state();
 
 void q30_game_init(bool first)
 {
@@ -1125,6 +1178,7 @@ void q30_game_init(bool first)
         return;
 
     z30_reset_script_objects();
+    zasm30_reset_register_state();
     zasm30_items_init();
 
     // Newer scripts draw to the screen unless they ask otherwise. init_game runs before the

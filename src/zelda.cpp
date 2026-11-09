@@ -1427,7 +1427,20 @@ int init_game()
     }
     
     //setPackfilePassword(NULL);
-    
+
+    // A DMap can name a map the quest doesn't have, and the game would then read
+    // past the end of the list. Those maps get blank screens; map_count stays as is.
+    size_t maps_needed = map_count;
+
+    for(int d = 0; d < MAXDMAPS; ++d)
+    {
+        if((size_t)DMaps[d].map + 1 > maps_needed)
+            maps_needed = (size_t)DMaps[d].map + 1;
+    }
+
+    if(maps_needed * MAPSCRS > TheMaps.size())
+        TheMaps.resize(maps_needed * MAPSCRS);
+
 #ifdef ZC_PORT
     set_quest_window_title(true);
 #endif

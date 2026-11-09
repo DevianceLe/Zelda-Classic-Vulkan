@@ -97,6 +97,10 @@ static long z30_fixreg(fix f, bool as_float)
 
 static long z30_fl(fix f) { return (long)(double(f) * 10000.0); }
 
+// FakeJump and FakeZ are kept as the script's own numbers; the stored jump is in the scale Jump uses inside.
+static long z30_fake_jump_read(long raw) { return raw / -100; }
+static long z30_fake_jump_write(long value) { return (long)(int64_t(value) * -100); }
+
 // ---- SPRITE_* ----------------------------------------------------------------------------------
 
 static bool zasm30_sprite_read(const long arg, long &ret, const Z30Sprite &r)
@@ -156,7 +160,7 @@ static bool zasm30_sprite_read(const long arg, long &ret, const Z30Sprite &r)
         if(r.kind == Z30S_HERO) { ret = z30_fl(Link.getFall()) / -100; return true; }
         ret = s ? z30_fl(s->fall) / -100 : 0;
         return true;
-    case Z30R_SPRITE_FAKE_JUMP: ret = st ? st->fakefall : 0; return true;
+    case Z30R_SPRITE_FAKE_JUMP: ret = st ? z30_fake_jump_read(st->fakefall) : 0; return true;
     case Z30R_SPRITE_GRAVITY: ret = (st && st->gravity_strength >= 0) ? 10000 : 10000; return true;
     case Z30R_SPRITE_GRAVITY_STRENGTH: ret = st ? st->gravity_strength : 0; return true;
     case Z30R_SPRITE_TERMINAL_VELOCITY: ret = st ? st->terminal_v : 0; return true;
@@ -208,7 +212,7 @@ static bool zasm30_sprite_read(const long arg, long &ret, const Z30Sprite &r)
         return true;
     }
     case Z30R_SPRITE_MOVE_FLAGS:
-        ret = st ? ((st->drawstyle2 & (1 << Z30_INDEX)) ? 10000 : 0) : 0;
+        ret = (st && Z30_INDEX >= 0 && Z30_INDEX < 32 && (st->move_flags & (1L << Z30_INDEX))) ? 10000 : 0;
         return true;
     }
 
@@ -311,7 +315,7 @@ static bool zasm30_sprite_set(const long arg, const long value)
         if(ishero) Link.setFall(fix(-(value / 10000.0) * 100));
         else if(s) s->fall = fix(-(value / 10000.0) * 100);
         return true;
-    case Z30R_SPRITE_FAKE_JUMP: if(st) st->fakefall = value; return true;
+    case Z30R_SPRITE_FAKE_JUMP: if(st) st->fakefall = z30_fake_jump_write(value); return true;
     case Z30R_SPRITE_GRAVITY: return true;
     case Z30R_SPRITE_CUSTOM_GRAVITY_STRENGTH: if(st) st->gravity_strength = value; return true;
     case Z30R_SPRITE_CUSTOM_TERMINAL_VELOCITY: if(st) st->terminal_v = value; return true;
@@ -354,10 +358,10 @@ static bool zasm30_sprite_set(const long arg, const long value)
         return true;
     }
     case Z30R_SPRITE_MOVE_FLAGS:
-        if(st)
+        if(st && Z30_INDEX >= 0 && Z30_INDEX < 32)
         {
-            if(value) st->drawstyle2 |= (1 << Z30_INDEX);
-            else st->drawstyle2 &= ~(1 << Z30_INDEX);
+            if(value) st->move_flags |= (1L << Z30_INDEX);
+            else st->move_flags &= ~(1L << Z30_INDEX);
         }
         return true;
     }
@@ -475,6 +479,149 @@ static newcombo &z30_cdata()
     return blank;
 }
 
+// ---- what the registers below read and write --------------------------------------------------
+
+// Hero->HitBy[]: what hit the Hero this frame (upstream's HIT_BY_*). Filled from checkhit().
+enum { Z30_HITBY_COUNT = 17 };
+static long zasm30_hitby[Z30_HITBY_COUNT];
+
+static bool z30_hitby_is_uid(long n)
+{
+    return (n >= 4 && n <= 7) || (n >= 13 && n <= 15);
+}
+
+// Hero->ScriptTile and friends. Hero->ScriptTile is 0 when unset; the others are -1.
+static long zasm30_hero_script_tile = 0, zasm30_hero_script_flip = -1, zasm30_hero_script_cset = -1;
+static long zasm30_hero_move_flags = 0;
+static long zasm30_hero_immortal = 0, zasm30_hero_hurt_sfx = 0;     // 0: not set
+static bool zasm30_no_active_subscreen = false;
+static bool zasm30_key_input[127], zasm30_key_press[127], zasm30_key_disabled[127], zasm30_key_was_down[127];
+static bool zasm30_button_disabled[18];
+
+// Input->Key[] and KeyPress[] for this frame, from the keys as they stand right after polling.
+static void zasm30_update_input()
+{
+    for(int q = 0; q < 127; ++q)
+    {
+        const bool down = key[q] != 0;
+        zasm30_key_press[q] = down && !zasm30_key_was_down[q];
+        zasm30_key_input[q] = down;
+        zasm30_key_was_down[q] = down;
+    }
+
+    for(int q = 0; q < 18; ++q)
+    {
+        if(zasm30_button_disabled[q])
+        {
+            control_state[q] = false;
+            button_press[q] = false;
+        }
+    }
+}
+
+int q30_enemy_clk2(enemy *e);
+void q30_enemy_set_clk2(enemy *e, int value);
+int q30_enemy_hitdir(enemy *e);
+void q30_enemy_set_hitdir(enemy *e, int dir);
+int q30_enemy_lined_up(enemy *e, int range, bool dir8);
+
+static enemy *z30_npc_ref() { return (enemy *)guys.getByUID(ri->guyref); }
+static weapon *z30_lwpn_ref() { return (weapon *)Lwpns.getByUID(ri->lwpn); }
+static weapon *z30_ewpn_ref() { return (weapon *)Ewpns.getByUID(ri->ewpn); }
+static item *z30_item_ref() { return (item *)items.getByUID(ri->itemref); }
+
+// The script state of the sprite a register is about, or NULL if it no longer exists. A sprite that
+// has no entry yet gets one, which is why this asks for the sprite first.
+static Zasm30SpriteState *z30_state_of(sprite *s)
+{
+    return s ? &zasm30_sprite_state(s->getUID()) : NULL;
+}
+
+// A sprite's one-bit flag array (MoveFlags[]): the bit asked for, as 0 or 1.
+static bool z30_flag_get(long bits, long n, long count)
+{
+    return n >= 0 && n < count && (bits & (1L << n)) != 0;
+}
+
+static void z30_flag_set(long &bits, long n, long count, bool on)
+{
+    if(n < 0 || n >= count)
+        return;
+
+    if(on)
+        bits |= 1L << n;
+    else
+        bits &= ~(1L << n);
+}
+
+// What the sprite draws with this frame: the CSet that flashing and dying give it, as enemy::draw works it out.
+static int z30_flashing_cset(enemy *e)
+{
+    if(e->dying)
+        return (((q30_enemy_clk2(e) + 5) >> 1) & 3) + 6;
+
+    if(e->hclk <= 0)
+    {
+        if(e->flags & guy_flashing)
+            return (frame & 3) + 6;
+        return e->cs;
+    }
+
+    if(e->family == eeGANON)
+        return (((e->hclk - 1) >> 1) & 3) + 6;
+
+    if(e->hclk < 33 && !get_bit(quest_rules, qr_ENEMIESFLICKER))
+        return (((e->hclk - 1) >> 1) & 3) + 6;
+
+    return e->cs;
+}
+
+static mapscr *z30_mapdata_now() { return z30_mapdata(Z30_REF(MAPDATA)); }
+
+static const int Z30_FFC_COUNT = 32;
+
+// Which map screen a mapdata reference is, for state kept per screen; -1 if it has none.
+static int z30_mapdata_mi(long ref)
+{
+    if(ref <= 0)
+        return -1;
+
+    if(ref & Z30_MAPDATA_TMP)
+        return (ref & 0xFFFF) == 0 ? currmap * MAPSCRSNORMAL + currscr : -1;
+
+    const long index = ref - 1, screen = index % MAPSCRS;
+    return (index < (long)TheMaps.size() && screen < MAPSCRSNORMAL) ? (index / MAPSCRS) * MAPSCRSNORMAL + screen : -1;
+}
+
+// DMap MIDIs in this engine: 0 none, 1 overworld, 2 dungeon, 3 level 9, 4 up custom. Scripts number
+// them as 2.55 did, where -3 is none, -2 overworld, -1 dungeon, 0 level 9 and 1 up custom.
+static int z30_old_midi_id(int midi)
+{
+    switch(midi)
+    {
+    case 0: return -3;
+    case 1: return -2;
+    case 2: return -1;
+    case 3: return 0;
+    default: return midi - 3;
+    }
+}
+
+static int z30_new_midi_id(int id)
+{
+    switch(id)
+    {
+    case -3: return 0;
+    case -2: return 1;
+    case -1: return 2;
+    case 0: return 3;
+    default: return id > 0 && id <= 252 ? id + 3 : -1;
+    }
+}
+
+static bool zasm30_paldata_get(const long arg, long &ret);
+static bool zasm30_paldata_set(const long arg, const long value);
+
 // ---- reading registers -------------------------------------------------------------------------
 
 static bool zasm30_get_register(const long arg, long &ret)
@@ -553,10 +700,8 @@ static bool zasm30_get_register(const long arg, long &ret)
         ret = zasm30_store_get(arg, ri->guyref, Z30_INDEX);
         return true;
     case Z30R_NPCWEAPSPRITE: ret = zasm30_store_get(arg, ri->guyref, 0); return true;
-    case Z30R_NPCSCRIPTTILE:
-    case Z30R_NPCSCRIPTFLIP:
-        ret = -10000;
-        return true;
+    case Z30R_NPCSCRIPTTILE: { Zasm30SpriteState *st = z30_state_of(z30_npc_ref()); ret = st ? st->script_tile * 10000 : -10000; return true; }
+    case Z30R_NPCSCRIPTFLIP: { Zasm30SpriteState *st = z30_state_of(z30_npc_ref()); ret = st ? st->script_flip * 10000 : -10000; return true; }
 
     // LWeapon / EWeapon
     case Z30R_LWPNSCRIPT: { Zasm30SpriteState *st = zasm30_sprite_state_if(ri->lwpn); ret = st ? st->script * 10000 : 0; return true; }
@@ -905,6 +1050,383 @@ static bool zasm30_get_register(const long arg, long &ret)
     case Z30R_VIEWPORT_WIDTH: ret = 256 * 10000; return true;
     case Z30R_VIEWPORT_HEIGHT: ret = zasm30_store_get(arg, 0, 0) ? zasm30_store_get(arg, 0, 0) : 232 * 10000; return true;
 
+    // Hero
+    case Z30R_HEROFALLCLK:
+    case Z30R_NPCFALLCLK:
+        ret = 0;                // pits act at once in this engine: nothing is ever mid-fall
+        return true;
+    case Z30R_LINKCLIMBING:
+        ret = 0;                // this engine has no ladder climbing state on the Hero
+        return true;
+    case Z30R_LINKHITBY:
+    {
+        const long n = Z30_INDEX;
+        ret = 0;
+        if(n >= 0 && n < Z30_HITBY_COUNT)
+            ret = z30_hitby_is_uid(n) ? zasm30_hitby[n] : zasm30_hitby[n] * 10000;
+        return true;
+    }
+    case Z30R_LINKPUSH: ret = Link.getPushing() * 10000; return true;
+    case Z30R_LINKCSET: ret = Link.cs * 10000; return true;
+    case Z30R_LINKEATEN: ret = Link.getEaten() * 10000; return true;
+    case Z30R_LINKGRABBED: ret = Link.getInWallm() ? 10000 : 0; return true;
+    case Z30R_HEROISWARPING: ret = Link.ffwarp ? 10000 : 0; return true;
+    case Z30R_HEROIMMORTAL: ret = zasm30_hero_immortal * 10000; return true;
+    case Z30R_LINKHURTSFX: ret = (zasm30_hero_hurt_sfx > 0 ? zasm30_hero_hurt_sfx : WAV_OUCH) * 10000; return true;
+    case Z30R_LINKSCRIPTTILE: ret = zasm30_hero_script_tile * 10000; return true;
+    case Z30R_LINKSCRIPFLIP: ret = zasm30_hero_script_flip * 10000; return true;
+    case Z30R_HEROSCRIPTCSET: ret = zasm30_hero_script_cset * 10000; return true;
+    case Z30R_HEROMOVEFLAGS: ret = z30_flag_get(zasm30_hero_move_flags, Z30_INDEX, 11) ? 10000 : 0; return true;
+    case Z30R_HEROFAKEZ:
+    {
+        Zasm30SpriteState *st = zasm30_sprite_state_if(Link.getUID());
+        ret = st ? st->fakez : 0;
+        return true;
+    }
+    case Z30R_HEROFAKEJUMP:
+    {
+        Zasm30SpriteState *st = zasm30_sprite_state_if(Link.getUID());
+        ret = st ? z30_fake_jump_read(st->fakefall) : 0;
+        return true;
+    }
+
+    // Screen and game state
+    case Z30R_SCREENSECRETSTRIGGERED: ret = q30_secrets_triggered() ? 10000 : 0; return true;
+    case Z30R_SKIPF6: ret = get_bit(quest_rules, qr_NOCONTINUE) ? 10000 : 0; return true;
+    case Z30R_NOACTIVESUBSC: ret = zasm30_no_active_subscreen ? 10000 : 0; return true;
+    case Z30R_DEBUGTESTING: ret = 0; return true;   // only true when testing from the editor
+    case Z30R_GAMELSWITCH: ret = (Z30_INDEX >= 0 && Z30_INDEX < MAXLEVELS) ? (long)q30_level_state(Z30_INDEX) : 0; return true;
+    case Z30R_GAMEGSWITCH: ret = (Z30_INDEX >= 0 && Z30_INDEX < 256) ? q30_global_state(Z30_INDEX) * 10000 : 0; return true;
+    case Z30R_GAMETRIGGROUPS: ret = (Z30_INDEX >= 0 && Z30_INDEX < 256) ? q30_trigger_group_count(Z30_INDEX) * 10000 : 0; return true;
+
+    // Input
+    case Z30R_KEYPRESS:
+    case Z30R_KEYINPUT:
+    {
+        const long n = Z30_INDEX;
+        ret = 0;
+        if(n >= 0 && n < 127 && !zasm30_key_disabled[n])
+            ret = (arg == Z30R_KEYPRESS ? zasm30_key_press[n] : zasm30_key_input[n]) ? 10000 : 0;
+        return true;
+    }
+    case Z30R_DISABLEKEY: ret = (Z30_INDEX >= 0 && Z30_INDEX < 127 && zasm30_key_disabled[Z30_INDEX]) ? 10000 : 0; return true;
+    case Z30R_DISABLEBUTTON: ret = (Z30_INDEX >= 0 && Z30_INDEX < 18 && zasm30_button_disabled[Z30_INDEX]) ? 10000 : 0; return true;
+    case Z30R_MOUSEARR:
+        switch(Z30_INDEX)
+        {
+        case 0: ret = get_register(INPUTMOUSEX); break;
+        case 1: ret = get_register(INPUTMOUSEY); break;
+        case 2: ret = get_register(INPUTMOUSEZ); break;
+        case 3: ret = (gui_mouse_b() & 1) ? 10000 : 0; break;
+        case 4: ret = (gui_mouse_b() & 2) ? 10000 : 0; break;
+        case 5: ret = (gui_mouse_b() & 4) ? 10000 : 0; break;
+        default: ret = 0; break;
+        }
+        return true;
+
+    // messagedata->
+    case Z30R_MESSAGEDATATEXTLEN:
+        ret = BC::checkMessage(Z30_REF(MSGDATA), "messagedata->Length") == SH::_NoError ? (long)strlen(MsgStrings[Z30_REF(MSGDATA)].s) * 10000 : -10000;
+        return true;
+
+    // combodata->
+    case Z30R_COMBODEFFECT:
+    {
+        const Q30Combo *c = q30_combo(Z30_REF(COMBODATA));
+        ret = (Z30_REF(COMBODATA) >= 0 && Z30_REF(COMBODATA) < MAXCOMBOS) ? ((c ? c->walk : z30_cdata().walk) >> 4) * 10000 : -10000;
+        return true;
+    }
+    case Z30R_COMBODATTRISHORTS:
+        ret = long(z30_combo_attr_get(Z30_REF(COMBODATA), 16 + Z30_INDEX) / 10000) * 10000;
+        return true;
+    case Z30R_COMBODTRIGSPAWNITEM:
+    {
+        const Q30Combo *c = q30_combo(Z30_REF(COMBODATA));
+        ret = (c && !c->triggers.empty()) ? c->triggers[0].spawnitem * 10000 : -10000;
+        return true;
+    }
+    case Z30R_COMBODTRIGGERFLAGS2:
+    {
+        const Q30Combo *c = q30_combo(Z30_REF(COMBODATA));
+        const long n = Z30_INDEX;
+        ret = 0;
+        if(c && n >= 0 && n < 32 * 6)
+        {
+            if(n == Q30TF_ONLYGENTRIG) ret = c->only_gentrig ? 10000 : 0;
+            else if(!c->triggers.empty()) ret = c->triggers[0].flags.get(n) ? 10000 : 0;
+        }
+        return true;
+    }
+
+    // mapdata->
+    case Z30R_MAPDATACOMBOSD:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX;
+        ret = -10000;
+        if(m && n >= 0 && n < (long)m->data.size() && m->data[n] < MAXCOMBOS)
+            ret = (combobuf[m->data[n]].walk & 0xF) * 10000;
+        return true;
+    }
+    case Z30R_MAPDATAFFSCRIPT:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX;
+        ret = (m && n >= 0 && n < Z30_FFC_COUNT) ? m->ffscript[n] * 10000 : -10000;
+        return true;
+    }
+    case Z30R_MAPDATAFFX:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX;
+        ret = (m && n >= 0 && n < Z30_FFC_COUNT) ? m->ffx[n] : -10000;
+        return true;
+    }
+    case Z30R_MAPDATAFFY:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX;
+        ret = (m && n >= 0 && n < Z30_FFC_COUNT) ? m->ffy[n] : -10000;
+        return true;
+    }
+    case Z30R_MAPDATAENEMY:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX;
+        ret = (m && n >= 0 && n < 10) ? m->enemy[n] * 10000 : -10000;
+        return true;
+    }
+    case Z30R_MAPDATASIDEWARPDMAP:
+    case Z30R_MAPDATASIDEWARPSC:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX;
+        ret = -10000;
+        if(m && n >= 0 && n < 4)
+            ret = (arg == Z30R_MAPDATASIDEWARPDMAP ? m->sidewarpdmap[n] : m->sidewarpscr[n]) * 10000;
+        return true;
+    }
+    case Z30R_MAPDATASIDEWARPID:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX;
+        ret = -10000;
+        if(m && n >= 0 && n < 4)
+            ret = ((m->flags2 >> n) & 1) ? ((m->sidewarpindex >> (2 * n)) & 3) * 10000 : -10000;
+        return true;
+    }
+    case Z30R_MAPDATABOSSSFX:
+    case Z30R_MAPDATAOCEANSFX:
+    {
+        mapscr *m = z30_mapdata_now();
+        ret = m ? (arg == Z30R_MAPDATABOSSSFX ? m->bosssfx : m->oceansfx) * 10000 : -10000;
+        return true;
+    }
+    case Z30R_MAPDATACATCHALL: { mapscr *m = z30_mapdata_now(); ret = m ? m->catchall * 10000 : -10000; return true; }
+    case Z30R_MAPDATACOLOUR: { mapscr *m = z30_mapdata_now(); ret = m ? m->color * 10000 : -10000; return true; }
+    case Z30R_MAPDATASTRING: { mapscr *m = z30_mapdata_now(); ret = m ? m->str * 10000 : -10000; return true; }
+    case Z30R_MAPDATAROOM: { mapscr *m = z30_mapdata_now(); ret = m ? m->room * 10000 : -10000; return true; }
+    case Z30R_MAPDATAITEM: { mapscr *m = z30_mapdata_now(); ret = (m && m->hasitem) ? m->item * 10000 : -10000; return true; }
+    case Z30R_MAPDATAFLAGS:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX;
+        ret = (m && n >= 0 && n < 10) ? (&m->flags)[n] * 10000 : -10000;
+        return true;
+    }
+    case Z30R_MAPDATALAYEROPACITY:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX - 1;
+        ret = (m && n >= 0 && n < 6) ? m->layeropacity[n] * 10000 : -10000;
+        return true;
+    }
+    case Z30R_MAPDATAGUY:
+    {
+        const int mi = z30_mapdata_mi(Z30_REF(MAPDATA));
+        ret = mi >= 0 ? game->guys[mi] * 10000 : -10000;
+        return true;
+    }
+    case Z30R_MAPDATASCREENEFLAGSD:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = vbound(Z30_INDEX, 0, 2);
+        ret = m ? get_screeneflags(m, n) : -10000;
+        return true;
+    }
+    case Z30R_MAPDATAINITDARRAY:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX;
+        ret = 0;
+        if(m && n >= 0 && n < 8)
+        {
+            const long ref = Z30_REF(MAPDATA);
+            const int index = (ref & Z30_MAPDATA_TMP) ? currmap * MAPSCRS + currscr : ref - 1;
+            std::map<int, Zasm30ScreenScript>::const_iterator it = zasm30_screen_scripts.find(index);
+            if(it != zasm30_screen_scripts.end())
+                ret = it->second.initd[n];
+        }
+        return true;
+    }
+
+    // Screen-> extras
+    case Z30R_SCREENDATALAYERMAP:
+    {
+        const long n = Z30_INDEX - 1;
+        ret = (n >= 0 && n < 6) ? tmpscr->layermap[n] * 10000 : -10000;
+        return true;
+    }
+    case Z30R_SCREENDATALAYERSCREEN:
+    {
+        const long n = Z30_INDEX - 1;
+        ret = (n >= 0 && n < 6) ? tmpscr->layerscreen[n] * 10000 : -10000;
+        return true;
+    }
+    case Z30R_SCREENDATASECRETSFX: ret = tmpscr->secretsfx * 10000; return true;
+    case Z30R_CLOCKACTIVE: ret = watch ? 10000 : 0; return true;
+    case Z30R_LWPNFALLCLK: ret = 0; return true;     // weapons never fall here either
+    case Z30R_SCREENSIDEWARPID:
+    {
+        const long n = Z30_INDEX;
+        ret = -10000;
+        if(n >= 0 && n < 4)
+            ret = ((tmpscr->flags2 >> n) & 1) ? ((tmpscr->sidewarpindex >> (2 * n)) & 3) * 10000 : -10000;
+        return true;
+    }
+
+    // dmapdata->
+    case Z30R_DMAPLEVELPAL: ret = (Z30_INDEX >= 0 && Z30_INDEX < MAXDMAPS) ? DMaps[Z30_INDEX].color * 10000 : -10000; return true;
+    case Z30R_DMAPDATAMIDI:
+        ret = -10000;
+        if(unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS)
+            ret = z30_old_midi_id(DMaps[Z30_REF(DMAPDATA)].midi) * 10000;
+        return true;
+    case Z30R_DMAPDATASUBSCRA: ret = (unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS ? DMaps[Z30_REF(DMAPDATA)].active_subscreen : 0) * 10000; return true;
+    case Z30R_DMAPDATAFLAGS: ret = unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS ? DMaps[Z30_REF(DMAPDATA)].flags * 10000 : -10000; return true;
+    case Z30R_DMAPDATAGRID:
+    {
+        const long id = Z30_REF(DMAPDATA), n = Z30_INDEX;
+        ret = (unsigned(id) < MAXDMAPS && n >= 0 && n < 8) ? DMaps[id].grid[n] * 10000 : -10000;
+        return true;
+    }
+    case Z30R_DMAPDATADISABLEDITEMS:
+    {
+        const long id = Z30_REF(DMAPDATA), n = Z30_INDEX;
+        ret = (unsigned(id) < MAXDMAPS && n >= 0 && n < iMax) ? (DMaps[id].disableditems[n] ? 10000 : 0) : -10000;
+        return true;
+    }
+    case Z30R_DMAPDATAMAPINITD:
+    {
+        const Q30ScriptRef *r = q30_dmap_script(Z30_REF(DMAPDATA), q30_dmap_onmap);
+        ret = (r && Z30_INDEX >= 0 && Z30_INDEX < 8) ? r->initd[Z30_INDEX] : -10000;
+        return true;
+    }
+    case Z30R_DMAPSCRIPT:
+    case Z30R_DMAPDATAASUBSCRIPT:
+    {
+        const Q30ScriptRef *r = q30_dmap_script(Z30_REF(DMAPDATA), arg == Z30R_DMAPSCRIPT ? q30_dmap_active : q30_dmap_active_subscreen);
+        ret = r ? r->script * 10000 : 0;
+        return true;
+    }
+
+    // npc->
+    case Z30R_NPCHITDIR: { enemy *e = z30_npc_ref(); ret = e ? q30_enemy_hitdir(e) * 10000 : -10000; return true; }
+    case Z30R_NPCINVINC: { enemy *e = z30_npc_ref(); ret = e ? e->hclk * 10000 : -10000; return true; }
+    case Z30R_NPCHALTCLK: { enemy *e = z30_npc_ref(); ret = e ? q30_enemy_clk2(e) * 10000 : -10000; return true; }
+    case Z30R_NPCLINEDUP:
+    {
+        enemy *e = z30_npc_ref();
+        ret = e ? q30_enemy_lined_up(e, Z30_INDEX, ri->d[1] != 0) * 10000 : 0;
+        return true;
+    }
+    case Z30R_NPCFLASHINGCSET: { enemy *e = z30_npc_ref(); ret = e ? z30_flashing_cset(e) * 10000 : -10000; return true; }
+    case Z30R_NPCRANDOM: { enemy *e = z30_npc_ref(); ret = e ? e->rate * 10000 : -10000; return true; }
+    case Z30R_NPCMOVEFLAGS: { enemy *e = z30_npc_ref(); Zasm30SpriteState *st = e ? zasm30_npc_state(e) : NULL; ret = (st && z30_flag_get(st->move_flags, Z30_INDEX, 16)) ? 10000 : 0; return true; }
+    case Z30R_NPCFAKEZ: { Zasm30SpriteState *st = z30_state_of(z30_npc_ref()); ret = st ? st->fakez : -10000; return true; }
+    case Z30R_NPCFAKEJUMP: { Zasm30SpriteState *st = z30_state_of(z30_npc_ref()); ret = st ? z30_fake_jump_read(st->fakefall) : -10000; return true; }
+    case Z30R_NPCROTATION: { Zasm30SpriteState *st = z30_state_of(z30_npc_ref()); ret = st ? st->rotation * 10000 : -10000; return true; }
+    case Z30R_NPCSCALE: { Zasm30SpriteState *st = z30_state_of(z30_npc_ref()); ret = st ? st->scale * 100 : -10000; return true; }
+    case Z30R_NPCSHADOWSPR: { Zasm30SpriteState *st = z30_state_of(z30_npc_ref()); ret = st ? st->shadow_spr * 10000 : 0; return true; }
+    case Z30R_NPCSHADOWYOFS: { Zasm30SpriteState *st = z30_state_of(z30_npc_ref()); ret = st ? st->shadow_yofs * 10000 : -10000; return true; }
+    case Z30R_NPCKNOCKBACKSPEED: { Zasm30SpriteState *st = z30_state_of(z30_npc_ref()); ret = st ? st->knockback_speed * 10000 : -10000; return true; }
+    case Z30R_NPCNOSLIDE: { Zasm30SpriteState *st = z30_state_of(z30_npc_ref()); ret = st ? (st->no_slide ? 10000 : 0) : -10000; return true; }
+    case Z30R_NPCNOSCRIPTKB: { Zasm30SpriteState *st = z30_state_of(z30_npc_ref()); ret = st ? (st->no_script_kb ? 10000 : 0) : -10000; return true; }
+    case Z30R_NPCSHIELD:
+    {
+        static const dword bits[5] = { inv_front, inv_left, inv_right, inv_back, guy_bkshield };
+        enemy *e = z30_npc_ref();
+        const long n = Z30_INDEX;
+        ret = (e && n >= 0 && n < 5) ? ((e->flags & bits[n]) ? 10000 : 0) : -10000;
+        return true;
+    }
+
+    // npcdata->
+    case Z30R_NPCDATAHP: ret = unsigned(Z30_REF(NPCDATA)) < MAXGUYS ? guysbuf[Z30_REF(NPCDATA)].hp * 10000 : -10000; return true;
+    case Z30R_NPCDATASTEP: ret = unsigned(Z30_REF(NPCDATA)) < MAXGUYS ? guysbuf[Z30_REF(NPCDATA)].step * 10000 : -10000; return true;
+    case Z30R_NPCDATASTILE: ret = unsigned(Z30_REF(NPCDATA)) < MAXGUYS ? guysbuf[Z30_REF(NPCDATA)].s_tile * 10000 : -10000; return true;
+    case Z30R_NPCDATAWEAPON: ret = unsigned(Z30_REF(NPCDATA)) < MAXGUYS ? guysbuf[Z30_REF(NPCDATA)].weapon * 10000 : -10000; return true;
+    case Z30R_NPCDATAWEAPONDAMAGE: ret = unsigned(Z30_REF(NPCDATA)) < MAXGUYS ? guysbuf[Z30_REF(NPCDATA)].wdp * 10000 : -10000; return true;
+
+    // lweapon-> and eweapon->
+    case Z30R_LWPNSCRIPTTILE: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); ret = st ? st->script_tile * 10000 : -10000; return true; }
+    case Z30R_LWPNSCRIPTFLIP: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); ret = st ? st->script_flip * 10000 : -10000; return true; }
+    case Z30R_EWPNSCRIPTTILE: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); ret = st ? st->script_tile * 10000 : -10000; return true; }
+    case Z30R_EWPNSCRIPTFLIP: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); ret = st ? st->script_flip * 10000 : -10000; return true; }
+    case Z30R_EWPNFAKEZ: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); ret = st ? st->fakez : -10000; return true; }
+    case Z30R_EWPNFAKEJUMP: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); ret = st ? z30_fake_jump_read(st->fakefall) : -10000; return true; }
+    case Z30R_LWPNFAKEZ: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); ret = st ? st->fakez : -10000; return true; }
+    case Z30R_LWPNFAKEJUMP: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); ret = st ? z30_fake_jump_read(st->fakefall) : -10000; return true; }
+    case Z30R_EWPNMOVEFLAGS: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); ret = (st && z30_flag_get(st->move_flags, Z30_INDEX, 32)) ? 10000 : 0; return true; }
+    case Z30R_EWPNFLAGS: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); ret = (st && z30_flag_get(st->weapon_flags, Z30_INDEX, 32)) ? 10000 : 0; return true; }
+    case Z30R_EWPNAUTOROTATE: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); ret = st ? (st->auto_rotate ? 10000 : 0) : -10000; return true; }
+    case Z30R_EWPNGRAVITY: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); ret = st ? ((st->move_flags & 1) ? 10000 : 0) : -10000; return true; }
+    case Z30R_EWPNLEVEL: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); ret = st ? st->level * 10000 : -10000; return true; }
+    case Z30R_LWPNLEVEL: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); ret = st ? st->level * 10000 : -10000; return true; }
+    case Z30R_LWPNUNBL: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); ret = st ? st->unblockable * 10000 : -10000; return true; }
+    case Z30R_LWPNROTATION: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); ret = st ? st->rotation * 10000 : -10000; return true; }
+    case Z30R_EWPNROTATION: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); ret = st ? st->rotation * 10000 : -10000; return true; }
+    case Z30R_EWPNTIMEOUT: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); ret = st ? st->weap_timeout * 10000 : -10000; return true; }
+    case Z30R_EWPNSHADOWSPR: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); ret = st ? st->shadow_spr * 10000 : 0; return true; }
+    case Z30R_EWEAPONSCRIPTUID: ret = z30_ewpn_ref() ? (long)ri->ewpn : 0; return true;
+    case Z30R_EWPNPARENT: { weapon *w = z30_ewpn_ref(); ret = w ? (q30_quest_rule(512) ? w->parentid * 10000 : (long)w->parentid) : 0; return true; }
+
+    // item-> and itemdata->
+    case Z30R_ITEMSCRIPTTILE: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); ret = st ? st->script_tile * 10000 : -10000; return true; }
+    case Z30R_ITEMSCRIPTFLIP: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); ret = st ? st->script_flip * 10000 : -10000; return true; }
+    case Z30R_ITEMMOVEFLAGS: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); ret = (st && z30_flag_get(st->move_flags, Z30_INDEX, 11)) ? 10000 : 0; return true; }
+    case Z30R_ITEMSHADOWSPR: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); ret = st ? st->shadow_spr * 10000 : 0; return true; }
+    case Z30R_ITEMPSTRING: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); ret = st ? st->pstring * 10000 : -10000; return true; }
+    case Z30R_ITEMSPRITESCRIPT: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); ret = st ? st->script * 10000 : -10000; return true; }
+    case Z30R_ITEMSPRITEINITD:
+    {
+        Zasm30SpriteState *st = z30_state_of(z30_item_ref());
+        ret = (st && Z30_INDEX >= 0 && Z30_INDEX < 8) ? st->initd[Z30_INDEX] : -10000;
+        return true;
+    }
+    case Z30R_IDATAATTRIB:
+    {
+        ret = -10000;
+        if(unsigned(ri->idata) < MAXITEMS && Z30_INDEX >= 0 && Z30_INDEX < 10)
+        {
+            const itemdata &it = itemsbuf[ri->idata];
+            const long values[10] = { it.misc1, it.misc2, it.misc3, it.misc4, it.misc5, it.misc6, it.misc7, it.misc8, it.misc9, it.misc10 };
+            ret = values[Z30_INDEX] * 10000;
+        }
+        return true;
+    }
+    case Z30R_IDATAMINHEARTS:
+        ret = unsigned(ri->idata) < MAXITEMS ? itemsbuf[ri->idata].pickup_hearts * 10000 : -10000;
+        return true;
+
+    // paldata->
+    case Z30R_PALDATACOLOR:
+    case Z30R_PALDATAR:
+    case Z30R_PALDATAG:
+    case Z30R_PALDATAB:
+        return zasm30_paldata_get(arg, ret);
+
+    case Z30R_ALLOCATEBITMAPR:
     case Z30R_BITMAPWIDTH:
     case Z30R_BITMAPHEIGHT:
     case Z30R_CREATEBITMAP:
@@ -1342,6 +1864,380 @@ static bool zasm30_set_register(const long arg, const long value)
         zasm30_store_set(arg, 0, 0, value);
         return true;
 
+    // Hero
+    case Z30R_LINKHITBY: return true;       // read only upstream too
+    case Z30R_LINKPUSH: Link.setPushing(zc_max(value / 10000, 0L)); return true;
+    case Z30R_LINKCSET: Link.cs = value / 10000; return true;
+    case Z30R_LINKEATEN: Link.setEaten(value / 10000); return true;
+    case Z30R_LINKGRABBED: Link.setInWallm(value != 0); return true;
+    case Z30R_HEROIMMORTAL: zasm30_hero_immortal = value / 10000; return true;
+    case Z30R_LINKHURTSFX: zasm30_hero_hurt_sfx = vbound(value / 10000, 0, 255); return true;
+    case Z30R_LINKSCRIPTTILE: zasm30_hero_script_tile = vbound(value / 10000, -1, NEWMAXTILES - 1); return true;
+    case Z30R_LINKSCRIPFLIP: zasm30_hero_script_flip = vbound(value / 10000, -1, 256); return true;
+    case Z30R_HEROSCRIPTCSET: zasm30_hero_script_cset = vbound(value / 10000, -1, 15); return true;
+    case Z30R_HEROMOVEFLAGS: z30_flag_set(zasm30_hero_move_flags, Z30_INDEX, 11, value != 0); return true;
+    case Z30R_HEROFAKEZ: zasm30_sprite_state(Link.getUID()).fakez = zc_max(value, 0L); return true;
+    case Z30R_HEROFAKEJUMP: zasm30_sprite_state(Link.getUID()).fakefall = z30_fake_jump_write(value); return true;
+
+    // Screen and game state
+    case Z30R_SKIPF6: set_bit(quest_rules, qr_NOCONTINUE, value ? 1 : 0); return true;
+    case Z30R_CLOCKACTIVE: Link.setClock(watch = (value != 0)); return true;
+    case Z30R_SCREENDATASECRETSFX: tmpscr->secretsfx = (byte)vbound(value / 10000, 0, 255); return true;
+    case Z30R_NOACTIVESUBSC: zasm30_no_active_subscreen = value != 0; return true;
+    case Z30R_GAMELSWITCH:
+        if(Z30_INDEX >= 0 && Z30_INDEX < MAXLEVELS)
+            q30_set_level_state(Z30_INDEX, (dword)value);
+        return true;
+    case Z30R_GAMEGSWITCH:
+        if(Z30_INDEX >= 0 && Z30_INDEX < 256)
+            q30_set_global_state(Z30_INDEX, value / 10000);
+        return true;
+
+    // Input
+    case Z30R_KEYPRESS:
+        if(Z30_INDEX >= 0 && Z30_INDEX < 127)
+            zasm30_key_press[Z30_INDEX] = value != 0;
+        return true;
+    case Z30R_KEYINPUT:
+        if(Z30_INDEX >= 0 && Z30_INDEX < 127)
+            zasm30_key_input[Z30_INDEX] = value != 0;
+        return true;
+    case Z30R_DISABLEKEY:
+        if(Z30_INDEX >= 0 && Z30_INDEX < 127)
+            zasm30_key_disabled[Z30_INDEX] = value != 0;
+        return true;
+    case Z30R_DISABLEBUTTON:
+        if(Z30_INDEX >= 0 && Z30_INDEX < 18)
+            zasm30_button_disabled[Z30_INDEX] = value != 0;
+        return true;
+    case Z30R_MOUSEARR:
+        switch(Z30_INDEX)
+        {
+        case 0: set_register(INPUTMOUSEX, value); break;
+        case 1: set_register(INPUTMOUSEY, value); break;
+        case 2: set_register(INPUTMOUSEZ, value); break;
+        }
+        return true;
+
+    // combodata->
+    case Z30R_COMBODEFFECT:
+    {
+        const int cid = Z30_REF(COMBODATA);
+        if(const Q30Combo *c = q30_combo(cid))
+            const_cast<Q30Combo *>(c)->walk = (c->walk & 0x0F) | (((value / 10000) & 0x0F) << 4);
+        if(cid >= 0 && cid < MAXCOMBOS)
+            combobuf[cid].walk = (combobuf[cid].walk & 0x0F) | (((value / 10000) & 0x0F) << 4);
+        return true;
+    }
+    case Z30R_COMBODATTRISHORTS: z30_combo_attr_set(Z30_REF(COMBODATA), 16 + Z30_INDEX, (value / 10000) * 10000); return true;
+    case Z30R_COMBODTRIGSPAWNITEM:
+    {
+        const Q30Combo *c = q30_combo(Z30_REF(COMBODATA));
+        if(c && !c->triggers.empty())
+            const_cast<Q30Combo *>(c)->triggers[0].spawnitem = vbound(value / 10000, -(MAXITEMDROPSETS - 1), MAXITEMS - 1);
+        return true;
+    }
+    case Z30R_COMBODTRIGGERFLAGS2:
+    {
+        const Q30Combo *c = q30_combo(Z30_REF(COMBODATA));
+        const long n = Z30_INDEX;
+        if(c && n >= 0 && n < 32 * 6)
+        {
+            Q30Combo *cc = const_cast<Q30Combo *>(c);
+            if(n == Q30TF_ONLYGENTRIG)
+                cc->only_gentrig = value != 0;
+            else if(!cc->triggers.empty())
+            {
+                Q30Bits &bits = cc->triggers[0].flags;
+                if(value)
+                    bits.set(n);
+                else if(n / 8 < (long)bits.v.size())
+                    bits.v[n / 8] &= (byte)~(1 << (n % 8));
+            }
+        }
+        return true;
+    }
+
+    // mapdata->
+    case Z30R_MAPDATACOMBOSD:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX;
+        if(m && n >= 0 && n < (long)m->data.size() && m->data[n] < MAXCOMBOS)
+        {
+            newcombo &c = combobuf[m->data[n]];
+            c.walk = (c.walk & 0xF0) | ((value / 10000) & 0x0F);
+        }
+        return true;
+    }
+    case Z30R_MAPDATAFFSCRIPT:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX, v = value / 10000;
+        if(m && n >= 0 && n < Z30_FFC_COUNT && v >= 0 && v < NUMSCRIPTFFC)
+            m->ffscript[n] = (word)v;
+        return true;
+    }
+    case Z30R_MAPDATAFFX:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX;
+        if(m && n >= 0 && n < Z30_FFC_COUNT)
+            m->ffx[n] = value;
+        return true;
+    }
+    case Z30R_MAPDATAFFY:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX;
+        if(m && n >= 0 && n < Z30_FFC_COUNT)
+            m->ffy[n] = value;
+        return true;
+    }
+    case Z30R_MAPDATAENEMY:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX, v = value / 10000;
+        if(m && n >= 0 && n < 10 && v >= 0 && v < MAXGUYS)
+            m->enemy[n] = (word)v;
+        return true;
+    }
+    case Z30R_MAPDATASIDEWARPDMAP:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX;
+        if(m && n >= 0 && n < 4)
+            m->sidewarpdmap[n] = (word)vbound(value / 10000, 0, MAXDMAPS - 1);
+        return true;
+    }
+    case Z30R_MAPDATASIDEWARPSC:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX;
+        if(m && n >= 0 && n < 4)
+            m->sidewarpscr[n] = (byte)vbound(value / 10000, 0, 255);
+        return true;
+    }
+    case Z30R_MAPDATASIDEWARPID:
+    case Z30R_SCREENSIDEWARPID:
+    {
+        mapscr *m = arg == Z30R_SCREENSIDEWARPID ? tmpscr : z30_mapdata_now();
+        const long n = Z30_INDEX, v = value / 10000;
+        if(m && n >= 0 && n < 4 && v >= -1 && v <= 3)
+        {
+            if(v < 0)
+                m->flags2 &= ~(1 << n);
+            else
+            {
+                m->flags2 |= (1 << n);
+                m->sidewarpindex = (m->sidewarpindex & ~(3 << (2 * n))) | (v << (2 * n));
+            }
+        }
+        return true;
+    }
+    case Z30R_MAPDATABOSSSFX:
+    {
+        mapscr *m = z30_mapdata_now();
+        if(m) m->bosssfx = (byte)vbound(value / 10000, 0, 255);
+        return true;
+    }
+    case Z30R_MAPDATAOCEANSFX:
+    {
+        mapscr *m = z30_mapdata_now();
+        if(m) m->oceansfx = (byte)vbound(value / 10000, 0, 255);
+        return true;
+    }
+    case Z30R_MAPDATACATCHALL: { mapscr *m = z30_mapdata_now(); if(m) m->catchall = (word)(value / 10000); return true; }
+    case Z30R_MAPDATACOLOUR: { mapscr *m = z30_mapdata_now(); if(m) m->color = (word)(value / 10000); return true; }
+    case Z30R_MAPDATASTRING: { mapscr *m = z30_mapdata_now(); if(m) m->str = (word)(value / 10000); return true; }
+    case Z30R_MAPDATAROOM: { mapscr *m = z30_mapdata_now(); if(m) m->room = (byte)(value / 10000); return true; }
+    case Z30R_MAPDATAITEM:
+    {
+        mapscr *m = z30_mapdata_now();
+        if(m)
+        {
+            const int v = vbound(value / 10000, -1, MAXITEMS - 1);
+            if(v > -1) m->item = v;
+            m->hasitem = v > -1;
+        }
+        return true;
+    }
+    case Z30R_MAPDATAFLAGS:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX;
+        if(m && n >= 0 && n < 10)
+            (&m->flags)[n] = (byte)(value / 10000);
+        return true;
+    }
+    case Z30R_MAPDATAGUY:
+    {
+        const int mi = z30_mapdata_mi(Z30_REF(MAPDATA));
+        if(mi >= 0)
+            game->guys[mi] = (byte)vbound(value / 10000, 0, 10);
+        return true;
+    }
+
+    // dmapdata->
+    case Z30R_DMAPLEVELPAL:
+    {
+        const long n = Z30_INDEX, v = value / 10000;
+        if(n >= 0 && n < MAXDMAPS && v >= 0 && v < 256)
+        {
+            DMaps[n].color = (word)v;
+            if(n == currdmap)
+            {
+                loadlvlpal(v);
+                currcset = v;
+            }
+        }
+        return true;
+    }
+    case Z30R_DMAPDATAMIDI:
+        if(unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS)
+        {
+            const int midi = z30_new_midi_id(value / 10000);
+            if(midi >= 0)
+                DMaps[Z30_REF(DMAPDATA)].midi = (byte)midi;
+        }
+        return true;
+    case Z30R_DMAPDATASUBSCRA: if(unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS) DMaps[Z30_REF(DMAPDATA)].active_subscreen = (byte)(value / 10000); return true;
+    case Z30R_DMAPDATAFLAGS: if(unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS) DMaps[Z30_REF(DMAPDATA)].flags = value / 10000; return true;
+    case Z30R_DMAPDATAGRID:
+    {
+        const long id = Z30_REF(DMAPDATA), n = Z30_INDEX;
+        if(unsigned(id) < MAXDMAPS && n >= 0 && n < 8)
+            DMaps[id].grid[n] = (byte)(value / 10000);
+        return true;
+    }
+    case Z30R_DMAPDATADISABLEDITEMS:
+    {
+        const long id = Z30_REF(DMAPDATA), n = Z30_INDEX;
+        if(unsigned(id) < MAXDMAPS && n >= 0 && n < iMax)
+            DMaps[id].disableditems[n] = value ? 1 : 0;
+        return true;
+    }
+
+    // npc->
+    case Z30R_NPCHITDIR: { enemy *e = z30_npc_ref(); if(e) q30_enemy_set_hitdir(e, vbound(value / 10000, 0, 3)); return true; }
+    case Z30R_NPCINVINC: { enemy *e = z30_npc_ref(); if(e) e->hclk = value / 10000; return true; }
+    case Z30R_NPCHALTCLK: { enemy *e = z30_npc_ref(); if(e) q30_enemy_set_clk2(e, vbound(value / 10000, 0, 214748)); return true; }
+    case Z30R_NPCLINEDUP: return true;
+    case Z30R_NPCFLASHINGCSET: return true;
+    case Z30R_NPCRANDOM: { enemy *e = z30_npc_ref(); if(e) e->rate = (short)(value / 10000); return true; }
+    case Z30R_NPCMOVEFLAGS: { enemy *e = z30_npc_ref(); if(e) z30_flag_set(zasm30_npc_state(e)->move_flags, Z30_INDEX, 16, value != 0); return true; }
+    case Z30R_NPCSCRIPTTILE: { Zasm30SpriteState *st = z30_state_of(z30_npc_ref()); if(st) st->script_tile = vbound(value / 10000, -1, NEWMAXTILES - 1); return true; }
+    case Z30R_NPCSCRIPTFLIP: { Zasm30SpriteState *st = z30_state_of(z30_npc_ref()); if(st) st->script_flip = vbound(value / 10000, -1, 127); return true; }
+    case Z30R_NPCFAKEZ: { Zasm30SpriteState *st = z30_state_of(z30_npc_ref()); if(st) st->fakez = zc_max(value, 0L); return true; }
+    case Z30R_NPCFAKEJUMP:
+    {
+        enemy *e = z30_npc_ref();
+        Zasm30SpriteState *st = z30_state_of(e);
+        if(st && canfall(e->id))
+        {
+            st->fakefall = z30_fake_jump_write(value);
+            if(GuyH::loadNPC(ri->guyref, "npc->FakeJump") == SH::_NoError && GuyH::hasLink())
+                zasm30_sprite_state(Link.getUID()).fakefall = st->fakefall;
+        }
+        return true;
+    }
+    case Z30R_NPCROTATION: { Zasm30SpriteState *st = z30_state_of(z30_npc_ref()); if(st) st->rotation = value / 10000; return true; }
+    case Z30R_NPCSCALE: { Zasm30SpriteState *st = z30_state_of(z30_npc_ref()); if(st) st->scale = value / 100; return true; }
+    case Z30R_NPCSHADOWSPR: { Zasm30SpriteState *st = z30_state_of(z30_npc_ref()); if(st) st->shadow_spr = vbound(value / 10000, 0, 255); return true; }
+    case Z30R_NPCSHADOWYOFS: { Zasm30SpriteState *st = z30_state_of(z30_npc_ref()); if(st) st->shadow_yofs = value / 10000; return true; }
+    case Z30R_NPCKNOCKBACKSPEED: { Zasm30SpriteState *st = z30_state_of(z30_npc_ref()); if(st) st->knockback_speed = vbound(value / 10000, 0, 255); return true; }
+    case Z30R_NPCNOSLIDE: { Zasm30SpriteState *st = z30_state_of(z30_npc_ref()); if(st) st->no_slide = value != 0; return true; }
+    case Z30R_NPCNOSCRIPTKB: { Zasm30SpriteState *st = z30_state_of(z30_npc_ref()); if(st) st->no_script_kb = value != 0; return true; }
+    case Z30R_NPCSHIELD:
+    {
+        static const dword bits[5] = { inv_front, inv_left, inv_right, inv_back, guy_bkshield };
+        enemy *e = z30_npc_ref();
+        const long n = Z30_INDEX;
+        if(e && n >= 0 && n < 5)
+        {
+            if(value) e->flags |= bits[n];
+            else e->flags &= ~bits[n];
+        }
+        return true;
+    }
+
+    // npcdata->
+    case Z30R_NPCDATAHP: if(unsigned(Z30_REF(NPCDATA)) < MAXGUYS) guysbuf[Z30_REF(NPCDATA)].hp = (short)(value / 10000); return true;
+    case Z30R_NPCDATASTEP: if(unsigned(Z30_REF(NPCDATA)) < MAXGUYS) guysbuf[Z30_REF(NPCDATA)].step = (short)(value / 10000); return true;
+    case Z30R_NPCDATASTILE: if(unsigned(Z30_REF(NPCDATA)) < MAXGUYS) guysbuf[Z30_REF(NPCDATA)].s_tile = vbound(value / 10000, 0, NEWMAXTILES - 1); return true;
+    case Z30R_NPCDATAWEAPON: if(unsigned(Z30_REF(NPCDATA)) < MAXGUYS) guysbuf[Z30_REF(NPCDATA)].weapon = (short)(value / 10000); return true;
+    case Z30R_NPCDATAWEAPONDAMAGE: if(unsigned(Z30_REF(NPCDATA)) < MAXGUYS) guysbuf[Z30_REF(NPCDATA)].wdp = (short)(value / 10000); return true;
+
+    // lweapon-> and eweapon->
+    case Z30R_LWPNSCRIPTTILE: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); if(st) st->script_tile = vbound(value / 10000, -1, NEWMAXTILES - 1); return true; }
+    case Z30R_LWPNSCRIPTFLIP: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); if(st) st->script_flip = vbound(value / 10000, -1, 127); return true; }
+    case Z30R_EWPNSCRIPTTILE: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); if(st) st->script_tile = vbound(value / 10000, -1, NEWMAXTILES - 1); return true; }
+    case Z30R_EWPNSCRIPTFLIP: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); if(st) st->script_flip = vbound(value / 10000, -1, 127); return true; }
+    case Z30R_EWPNFAKEZ: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); if(st) st->fakez = zc_max(value, 0L); return true; }
+    case Z30R_EWPNFAKEJUMP: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); if(st) st->fakefall = z30_fake_jump_write(value); return true; }
+    case Z30R_LWPNFAKEZ: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); if(st) st->fakez = zc_max(value, 0L); return true; }
+    case Z30R_LWPNFAKEJUMP: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); if(st) st->fakefall = z30_fake_jump_write(value); return true; }
+    case Z30R_EWPNMOVEFLAGS: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); if(st) z30_flag_set(st->move_flags, Z30_INDEX, 32, value != 0); return true; }
+    case Z30R_EWPNFLAGS: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); if(st) z30_flag_set(st->weapon_flags, Z30_INDEX, 32, value != 0); return true; }
+    case Z30R_EWPNAUTOROTATE: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); if(st) st->auto_rotate = value != 0; return true; }
+    case Z30R_EWPNGRAVITY: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); if(st) z30_flag_set(st->move_flags, 0, 32, value != 0); return true; }
+    case Z30R_EWPNLEVEL: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); if(st) st->level = value / 10000; return true; }
+    case Z30R_LWPNLEVEL: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); if(st) st->level = value / 10000; return true; }
+    case Z30R_LWPNUNBL: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); if(st) st->unblockable = (value / 10000) & 0xF; return true; }
+    case Z30R_LWPNROTATION: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); if(st) st->rotation = value / 10000; return true; }
+    case Z30R_EWPNROTATION: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); if(st) st->rotation = value / 10000; return true; }
+    case Z30R_EWPNTIMEOUT: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); if(st) st->weap_timeout = vbound(value / 10000, 0, 214748); return true; }
+    case Z30R_EWPNSHADOWSPR: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); if(st) st->shadow_spr = vbound(value / 10000, 0, 255); return true; }
+    case Z30R_EWPNPARENT: { weapon *w = z30_ewpn_ref(); if(w) w->parentid = q30_quest_rule(512) ? value / 10000 : value; return true; }
+    case Z30R_EWEAPONSCRIPTUID: return true;
+
+    // item-> and itemdata->
+    case Z30R_ITEMSCRIPTTILE: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); if(st) st->script_tile = vbound(value / 10000, -1, NEWMAXTILES - 1); return true; }
+    case Z30R_ITEMSCRIPTFLIP: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); if(st) st->script_flip = vbound(value / 10000, -1, 127); return true; }
+    case Z30R_ITEMMOVEFLAGS: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); if(st) z30_flag_set(st->move_flags, Z30_INDEX, 11, value != 0); return true; }
+    case Z30R_ITEMSHADOWSPR: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); if(st) st->shadow_spr = vbound(value / 10000, 0, 255); return true; }
+    case Z30R_ITEMPSTRING: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); if(st) st->pstring = vbound(value / 10000, 0, msg_count - 1); return true; }
+    case Z30R_ITEMSPRITESCRIPT:
+    {
+        item *it = z30_item_ref();
+        if(it)
+        {
+            Zasm30SpriteState *st = zasm30_item_state(it);
+            st->script = (word)vbound(value / 10000, 0, Q30_ITEMSPRITE_SLOTS - 1);
+            st->script_started = true;
+            zasm30_drop_instance(SCRIPT_ITEMSPRITE, ri->itemref);
+        }
+        return true;
+    }
+    case Z30R_ITEMSPRITEINITD:
+    {
+        Zasm30SpriteState *st = z30_state_of(z30_item_ref());
+        if(st && Z30_INDEX >= 0 && Z30_INDEX < 8)
+            st->initd[Z30_INDEX] = value;
+        return true;
+    }
+    case Z30R_IDATAATTRIB:
+    {
+        if(unsigned(ri->idata) < MAXITEMS && Z30_INDEX >= 0 && Z30_INDEX < 10)
+        {
+            itemdata &it = itemsbuf[ri->idata];
+            long *fields[10] = { &it.misc1, &it.misc2, &it.misc3, &it.misc4, &it.misc5, &it.misc6, &it.misc7, &it.misc8, &it.misc9, &it.misc10 };
+            *fields[Z30_INDEX] = value / 10000;
+        }
+        return true;
+    }
+    case Z30R_IDATAMINHEARTS:
+        if(unsigned(ri->idata) < MAXITEMS)
+            itemsbuf[ri->idata].pickup_hearts = (byte)vbound(value / 10000, 0, 255);
+        return true;
+
+    // paldata->
+    case Z30R_PALDATACOLOR:
+    case Z30R_PALDATAR:
+    case Z30R_PALDATAG:
+    case Z30R_PALDATAB:
+        return zasm30_paldata_set(arg, value);
+
     case Z30R_BITMAPWIDTH:
     case Z30R_BITMAPHEIGHT:
     case Z30R_CREATEBITMAP:
@@ -1360,6 +2256,135 @@ static bool zasm30_set_register(const long arg, const long value)
     zasm30_log_once("register write", arg);
     zasm30_store_set(arg, 0, Z30_INDEX, value);
     return false;
+}
+
+// ---- what the engine asks of these registers --------------------------------------------------
+
+// A new frame's hit check for Link is about to run.
+void q30_hero_hit_clear()
+{
+    if(zasm30_ffscript_version)
+        memset(zasm30_hitby, 0, sizeof(zasm30_hitby));
+}
+
+// Something hit Link this frame. kind is 0 for an enemy, 1 for an enemy weapon, 2 for one of his own.
+void q30_hero_hit(int kind, int index, sprite *s)
+{
+    if(!zasm30_ffscript_version || !s)
+        return;
+
+    switch(kind)
+    {
+    case 0:
+        zasm30_hitby[0] = index + 1;                // HIT_BY_NPC
+        zasm30_hitby[4] = s->getUID();              // HIT_BY_NPC_UID
+        zasm30_hitby[13] = s->getUID();             // HIT_BY_NPC_ENGINE_UID
+        zasm30_hitby[16] = s->id;                   // HIT_BY_NPC_ID
+        zasm30_hitby[10] = ((enemy *)s)->family;    // HIT_BY_NPC_TYPE
+        break;
+
+    case 1:
+        zasm30_hitby[1] = index + 1;                // HIT_BY_EWEAPON
+        zasm30_hitby[5] = s->getUID();              // HIT_BY_EWEAPON_UID
+        zasm30_hitby[14] = s->getUID();             // HIT_BY_EWEAPON_ENGINE_UID
+        zasm30_hitby[11] = s->id;                   // HIT_BY_EWEAPON_TYPE
+        break;
+
+    case 2:
+    {
+        const int parent = ((weapon *)s)->parentitem;
+        zasm30_hitby[2] = index + 1;                // HIT_BY_LWEAPON
+        zasm30_hitby[6] = s->getUID();              // HIT_BY_LWEAPON_UID
+        zasm30_hitby[15] = s->getUID();             // HIT_BY_LWEAPON_ENGINE_UID
+        zasm30_hitby[12] = s->id;                   // HIT_BY_LWEAPON_TYPE
+        zasm30_hitby[8] = parent >= 0 ? parent : -1;
+        zasm30_hitby[9] = parent >= 0 ? q30_item_family(parent) : -1;
+        break;
+    }
+    }
+}
+
+bool q30_no_active_subscreen()
+{
+    return zasm30_ffscript_version && zasm30_no_active_subscreen;
+}
+
+// The CSet Hero->ScriptCSet puts in place of his usual one, or normal if it isn't set.
+bool q30_hero_immortal()
+{
+    return zasm30_ffscript_version && zasm30_hero_immortal != 0;
+}
+
+int q30_hero_hurt_sfx()
+{
+    return (zasm30_ffscript_version && zasm30_hero_hurt_sfx > 0) ? zasm30_hero_hurt_sfx : WAV_OUCH;
+}
+
+int q30_hero_cset_base(int normal)
+{
+    return zasm30_ffscript_version && zasm30_hero_script_cset > -1 ? zasm30_hero_script_cset : normal;
+}
+
+// sprite::draw for 2.55+ quests: what a sprite draws as when a script has set its ScriptTile,
+// ScriptFlip or FakeZ. Flips past 3 (upstream's rotations) become the plain flip the drawing here has.
+void q30_sprite_appearance(sprite *s, int *tile, int *flip, fix *yofs)
+{
+    if(!zasm30_ffscript_version)
+        return;
+
+    static const bool trace = getenv("ZC_Q30_TRACE_APPEAR") != NULL;   // diagnostics: what scripts changed at draw time
+    static int trace_left = 60;
+    const int old_tile = *tile, old_flip = *flip;
+    const long old_yofs = long(*yofs);
+
+    if(s == (sprite *)&Link)
+    {
+        if(zasm30_hero_script_tile > 0)
+            *tile = zasm30_hero_script_tile;
+
+        if(zasm30_hero_script_flip > -1)
+            *flip = zasm30_hero_script_flip & 3;
+
+        if(Zasm30SpriteState *hero = zasm30_sprite_state_if(s->getUID()))
+            if(hero->fakez)
+                *yofs -= hero->fakez / 10000;
+    }
+    else if(Zasm30SpriteState *st = zasm30_sprite_state_if(s->getUID()))
+    {
+        if(st->script_tile > -1)
+            *tile = st->script_tile;
+
+        if(st->script_flip > -1)
+            *flip = st->script_flip & 3;
+
+        if(st->fakez)
+            *yofs -= st->fakez / 10000;
+    }
+
+    if(trace && trace_left > 0 && (*tile != old_tile || *flip != old_flip || long(*yofs) != old_yofs))
+    {
+        --trace_left;
+        al_trace("ZASM: unhandled appearance %s uid %ld tile %d->%d flip %d->%d yofs %ld->%ld\n", s == (sprite *)&Link ? "hero" : "sprite",
+                 s->getUID(), old_tile, *tile, old_flip, *flip, old_yofs, long(*yofs));
+    }
+}
+
+// Game start: nothing a script set on the player or the input carries over from the last game.
+static void zasm30_reset_register_state()
+{
+    memset(zasm30_hitby, 0, sizeof(zasm30_hitby));
+    zasm30_hero_script_tile = 0;
+    zasm30_hero_script_flip = -1;
+    zasm30_hero_script_cset = -1;
+    zasm30_hero_move_flags = 1 | 2 | 4;     // upstream's Hero starts obeying gravity and able to fall and drown
+    zasm30_hero_immortal = 0;
+    zasm30_hero_hurt_sfx = 0;
+    zasm30_no_active_subscreen = false;
+    memset(zasm30_key_input, 0, sizeof(zasm30_key_input));
+    memset(zasm30_key_press, 0, sizeof(zasm30_key_press));
+    memset(zasm30_key_disabled, 0, sizeof(zasm30_key_disabled));
+    memset(zasm30_key_was_down, 0, sizeof(zasm30_key_was_down));
+    memset(zasm30_button_disabled, 0, sizeof(zasm30_button_disabled));
 }
 
 #endif

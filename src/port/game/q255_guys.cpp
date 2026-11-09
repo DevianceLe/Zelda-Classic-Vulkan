@@ -209,6 +209,7 @@ static void skip_script_config(Q255Section &s)
 
 // The npc and weapon script of the enemy being read: set while its fields go by.
 static word g_npc_script, g_npc_weapon_script;
+static dword g_npc_moveflags;
 static long g_npc_initd[8], g_npc_weapon_initd[8];
 
 // read_weap_data: every field of the block, which carries its own version.
@@ -422,9 +423,9 @@ static void read_guy(Q255Section &s, guydata &g)
     }
 
     if(v >= 47)
-        s.skip(4);         // moveflags
+        g_npc_moveflags = s.igetl();         // moveflags
     else if(v >= 42)
-        s.skip(1);
+        g_npc_moveflags = s.getc();
 
     if(v > 55)
         s.skip(3 * 2);     // shadow, death and spawn sprites
@@ -489,7 +490,7 @@ int q255_read_guys(Q255Section &s)
     for(int i = 0; i < FILE_GUYS; ++i)
     {
         guydata g;
-        g_npc_script = g_npc_weapon_script = 0;
+        g_npc_script = g_npc_weapon_script = 0; g_npc_moveflags = 0;
         memset(g_npc_initd, 0, sizeof(g_npc_initd));
         memset(g_npc_weapon_initd, 0, sizeof(g_npc_weapon_initd));
         read_guy(s, g);
@@ -501,6 +502,7 @@ int q255_read_guys(Q255Section &s)
         {
             guysbuf[i] = g;
             q30_set_guy_script(i, g_npc_script, g_npc_initd);
+            q30_set_guy_moveflags(i, g_npc_moveflags);
             q30_set_guy_weapon_script(i, g_npc_weapon_script, g_npc_weapon_initd);
         }
     }

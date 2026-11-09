@@ -1,18 +1,19 @@
 # Quest compatibility
 
-Every quest in the PureZC collection, 843 quest files, run through the player on Windows. The 2.55 and 3.0 Nightly quests ran on ZC Vulkan 2.53.444.2; older quests ran on a build from earlier the same day, because the changes since then only affect newer quests.
+Every quest in the PureZC collection, 843 quest files, run through the player on Windows on a development build newer than ZC Vulkan 2.53.444.2.
 
 **How to read this.** Each quest is loaded and started on a fresh save. A test then teleports Link to every screen the quest uses, stays about a second and a half on each, moves and presses buttons, and opens the subscreen now and then. Scripts, enemies and screen changes all run.
 
-**All screens visited** means every one of those screens loaded and ran without a crash or a hang. It does not mean the quest can be finished. The test doesn't solve puzzles, fight bosses, enter caves or follow the story, sound is off, and it only runs for up to three minutes per quest.
+**All screens visited** means every one of those screens loaded and ran without a crash or a hang. It does not mean the quest can be finished. The test doesn't solve puzzles, fight bosses, enter caves or follow the story, sound is off, and it only runs for up to five minutes per quest.
 
-**Stops at one screen** means a script went into a loop that never ends. Teleporting can put a script in a situation no player would reach, so these may not happen in normal play, but they haven't been ruled out.
+**Partly visited** means the five minutes ran out before the last screen. The run itself didn't fail, but the screens it didn't reach are untested.
+
+**Scripts that never end.** Teleporting can put a script in a situation no player would reach, and some scripts then loop forever without waiting for the next frame. The test pauses such a script so it can carry on, so a quest listed here can still freeze if a player gets into that same situation.
 
 | Result | Quests |
 |---|---|
-| All screens visited | 795 |
-| Partly visited (time limit) | 26 |
-| Stops at one screen (script never ends) | 14 |
+| All screens visited | 814 |
+| Partly visited (time limit) | 21 |
 | Refused: not a recognised quest file | 6 |
 | Download is damaged | 1 |
 | Runs; no screens to visit | 1 |
@@ -22,16 +23,16 @@ Every quest in the PureZC collection, 843 quest files, run through the player on
 |---|---|---|---|
 | 1.90 | 41 | 0 | 0 |
 | 1.92 | 75 | 1 | 0 |
-| 2.10 | 163 | 2 | 0 |
+| 2.10 | 165 | 0 | 0 |
 | 2.11 | 6 | 0 | 0 |
 | 2.50 beta | 27 | 0 | 0 |
-| 2.50.0 | 141 | 1 | 2 |
-| 2.50.1 | 63 | 2 | 0 |
-| 2.50.2 | 97 | 6 | 5 |
+| 2.50.0 | 143 | 1 | 0 |
+| 2.50.1 | 65 | 0 | 0 |
+| 2.50.2 | 102 | 6 | 0 |
 | 2.50.3 | 6 | 0 | 0 |
-| 2.53.0 | 12 | 0 | 1 |
-| 2.53.1 | 80 | 8 | 4 |
-| 2.55 or 3.0 Nightly | 84 | 6 | 3 |
+| 2.53.0 | 12 | 1 | 0 |
+| 2.53.1 | 84 | 8 | 0 |
+| 2.55 or 3.0 Nightly | 88 | 4 | 1 |
 | unknown | 0 | 0 | 7 |
 
 ## What still doesn't work
@@ -41,7 +42,8 @@ Every quest in the PureZC collection, 843 quest files, run through the player on
 - Slopes and z-heights. Four quests in this collection use slopes.
 - Subscreen widget script commands.
 - Saving global script variables past 255.
-- Script commands for bitmaps, palettes and lighting are skipped, so effects that rely on them won't appear.
+- Script-drawn lighting and a few bitmap drawing commands are skipped, so effects that rely on them won't appear.
+- Screen script data, sprite rotation and scaling, and shadows.
 - The 2.55 and 3.0 Nightly editor. ZQuest refuses those quests until it exists, and on Linux there's no ZQuest yet at all.
 
 **Written, but not yet seen working in real play**
@@ -52,8 +54,8 @@ Every quest in the PureZC collection, 843 quest files, run through the player on
 
 **Known bugs**
 
-- The player sometimes crashes as it closes, after the quest has already stopped.
-- Quests marked **Stops at one screen** in the list below. The cause is a script loop in every case, and teleporting may be what sets some of them off.
+- The player sometimes crashes as it closes, after the quest has already stopped. In the last sweep this happened in 5 of 836 runs, each after the final screen, and each of those quests ran clean on a second try. They are listed as All screens visited.
+- Some scripts loop forever without waiting for a frame if the test teleports Link somewhere a player wouldn't normally reach. The test pauses them and carries on. In real play a loop like that would freeze the game, and it hasn't been checked whether a player can reach those spots.
 - GRIKARUGUN starts, but its picture barely changed in a recorded-input test. It hasn't been looked at yet.
 - Running many copies at once, SDL's controller code occasionally corrupted memory. Test runs switch that code off. It hasn't been switched off in the release, because no real controller has been tried without it.
 
@@ -173,7 +175,7 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q96 | new2.qst | 1.92 | All screens visited | 542 of 542 |
 | q97 | LOZ_Origins 2nd Quest v3.8a.qst | 1.92 | All screens visited | 806 of 806 |
 | q98 | Master Quest.qst | 1.92 | All screens visited | 855 of 855 |
-| q99 | MegaManDWR_DC.qst | 1.92 | Partly visited (time limit) | 4691 of 5908 |
+| q99 | MegaManDWR_DC.qst | 1.92 | Partly visited (time limit) | 5582 of 5908 |
 | q100 | nemel.qst | 1.92 | All screens visited | 2274 of 2274 |
 | q102 | HIC2.qst | 1.92 | All screens visited | 505 of 505 |
 | q103 | TheTaoOfLink.qst | 1.92 | All screens visited | 992 of 992 |
@@ -210,7 +212,7 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q136 | tlolahats.qst | 1.92 | All screens visited | 1794 of 1794 |
 | q137 | overunder.qst | 2.10 | All screens visited | 31 of 31 |
 | q138 | Hyrule's Darkness.qst | 2.10 | All screens visited | 401 of 401 |
-| q139_TheHeroofDreams | HeroOfDreams.qst | 2.10 | Partly visited (time limit) | 4498 of 5190 |
+| q139_TheHeroofDreams | HeroOfDreams.qst | 2.10 | All screens visited | 5190 of 5190 |
 | q140 | ShadowWars.qst | 2.10 | All screens visited | 388 of 388 |
 | q141 | Metroid Zebe Galaxy .qst | 2.10 | All screens visited | 61 of 61 |
 | q144 | The missin.qst | 2.10 | All screens visited | 694 of 694 |
@@ -295,7 +297,7 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q226 | CQ All Grown Up.qst | 2.10 | All screens visited | 1119 of 1119 |
 | q227 | childs_quest.qst | 2.10 | All screens visited | 310 of 310 |
 | q228 | quests-1242237868-package-thelegendofzeldaremix.qst | 2.10 | All screens visited | 412 of 412 |
-| q229 | TLoZBoaB.qst | 2.10 | Partly visited (time limit) | 3782 of 3926 |
+| q229 | TLoZBoaB.qst | 2.10 | All screens visited | 3926 of 3926 |
 | q230 | An Ordinary Quest.qst | 2.10 | All screens visited | 502 of 502 |
 | q231 | Secrets of Hyrule.qst | 2.10 | All screens visited | 388 of 388 |
 | q232 | quests-1246119325-package-Heros Downfall.qst | 2.10 | All screens visited | 609 of 609 |
@@ -489,7 +491,7 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q432_LegendOfZeldaTemplesofTurmoil | LOZTemplesOfTurmoilXTra.qst | 2.50.0 | All screens visited | 638 of 638 |
 | q434_ANewAdventure | A New Adventure.qst | 2.50.0 | All screens visited | 662 of 662 |
 | q435_EddysTrollDay | Eddys Troll Day.qst | 2.50.0 | All screens visited | 519 of 519 |
-| q436_MasterQuestChapter2 | master2-25pwd.qst | 2.50.1 | Partly visited (time limit) | 4521 of 5231 |
+| q436_MasterQuestChapter2 | master2-25pwd.qst | 2.50.1 | All screens visited | 5231 of 5231 |
 | q437_MetroidConfusion | Metroid Confusion.qst | 2.50.0 | All screens visited | 331 of 331 |
 | q438_JamesQuestRemastered | jamesr-2.50.2.qst | 2.50.2 | All screens visited | 1006 of 1006 |
 | q439_ThelegendofZelda5thquestentrybyTravster | 5th.qst | 2.50.0 | All screens visited | 377 of 377 |
@@ -516,7 +518,7 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q460_digtherockqst | digtherock.qst | 2.50.0 | All screens visited | 33 of 33 |
 | q461_IsleofRebirth | Isle of Rebirth.qst | 2.50.0 | All screens visited | 3241 of 3241 |
 | q462_CJC5thReskin | CJC5thReskin.qst | 2.50.1 | All screens visited | 587 of 587 |
-| q464_TowerofShadows25 | Tower of Shadows 2.5.qst | 2.50.1 | Partly visited (time limit) | 1999 of 2168 |
+| q464_TowerofShadows25 | Tower of Shadows 2.5.qst | 2.50.1 | All screens visited | 2168 of 2168 |
 | q465_SaviorofSouls | SaviorOfSouls.qst | 2.50.0 | All screens visited | 1749 of 1749 |
 | q466_LinksBadTrip | Links Bad Trip.qst | 2.50.0 | All screens visited | 27 of 27 |
 | q467_LostIdentity | lostidentity2015(update).qst | 2.50.1 | All screens visited | 991 of 991 |
@@ -539,13 +541,13 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q485_HerosStory | HS_Normal.qst | 2.50.0 | All screens visited | 435 of 435 |
 | q486_Eiyuu | Eiyuu.qst | 2.50.0 | All screens visited | 610 of 610 |
 | q487_BigJoes5thQuestEntrySpecialEdition | bigjoe_5th.qst | 2.50.1 | All screens visited | 562 of 562 |
-| q488_RandomizerSuperVersion | RandomizerSuper.qst | 2.50.0 | Stops at one screen (script never ends) | 1388 of 2697 |
+| q488_RandomizerSuperVersion | RandomizerSuper.qst | 2.50.0 | All screens visited | 2697 of 2697 |
 | q489_MysteriousWorld | MysteriousWorld.qst | 2.50.0 | All screens visited | 238 of 238 |
 | q490_LegendofZeldaOracleofAwesomeness | Oracle of Awesomeness.qst | 2.50.0 | All screens visited | 901 of 901 |
 | q491_LegendHasIt | Legend Has It.qst | 2.50.0 | All screens visited | 797 of 797 |
 | q492_HeroofTime | Hot2.5.qst | 2.50.0 | All screens visited | 715 of 715 |
 | q493_ZeldaFlowofTimeRemasteredDAWNVERSION | LOZ_FlowRemastered.qst | 2.53.1 | All screens visited | 2379 of 2379 |
-| q494_Hitodama | HitodamaDX.qst | 2.50.2 | Stops at one screen (script never ends) | 669 of 2296 |
+| q494_Hitodama | HitodamaDX.qst | 2.50.2 | All screens visited | 2296 of 2296 |
 | q495_OneMoreJourney | OneMoreJourney.qst | 2.50.0 | All screens visited | 2227 of 2227 |
 | q496_MazeofHyrule2 | Maze of Hyrule 2.qst | 2.53.1 | All screens visited | 783 of 783 |
 | q497_LinkstuckinCastlevania | LsiCV117.qst | 2.53.0 | All screens visited | 458 of 458 |
@@ -607,16 +609,16 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q551_LinksAdventureinBlockLand | Link's Adventure in Block Land.qst | 2.53.1 | All screens visited | 287 of 287 |
 | q552_HowDoIPlayZelda | How Do I Play Zelda.qst | 2.50.0 | All screens visited | 742 of 742 |
 | q553_MazeofHyrulefail | Maze of Hyrule fail.qst | 2.50.2 | All screens visited | 509 of 509 |
-| q554_RandomizerOutlands | RandomizerOutlands.qst | 2.50.2 | Stops at one screen (script never ends) | 1131 of 3080 |
+| q554_RandomizerOutlands | RandomizerOutlands.qst | 2.50.2 | All screens visited | 3080 of 3080 |
 | q555_BSZelda250 | BS_Zelda.qst | 2.50.0 | All screens visited | 320 of 320 |
 | q556_MargaMenIIMuushEdish | Marga Men.qst | 2.50.0 | All screens visited | 369 of 369 |
 | q557_JMCsTrollDay2 | JMC Troll Day 2.qst | 2.50.0 | All screens visited | 19 of 19 |
 | q558_Iammadday2 | I am mad day 2.qst | 2.50.1 | All screens visited | 260 of 260 |
 | q559_TheLandofAnarchy | 2_quest.qst | unknown | Refused: not a recognised quest file |  |
 | q559_TheLandofAnarchy | quest.qst | unknown | Refused: not a recognised quest file |  |
-| q559_TheLandofAnarchy | The Land of Anarchy Ganon.qst | 2.53.1 | Stops at one screen (script never ends) | 993 of 2012 |
-| q559_TheLandofAnarchy | The Land of Anarchy Zelda.qst | 2.53.1 | Stops at one screen (script never ends) | 993 of 2020 |
-| q559_TheLandofAnarchy | The Land of Anarchy.qst | 2.53.1 | Stops at one screen (script never ends) | 1022 of 2086 |
+| q559_TheLandofAnarchy | The Land of Anarchy Ganon.qst | 2.53.1 | All screens visited | 2012 of 2012 |
+| q559_TheLandofAnarchy | The Land of Anarchy Zelda.qst | 2.53.1 | All screens visited | 2020 of 2020 |
+| q559_TheLandofAnarchy | The Land of Anarchy.qst | 2.53.1 | All screens visited | 2086 of 2086 |
 | q560_LINKRank9 | Rank 9.qst | 2.50.3 | All screens visited | 1152 of 1152 |
 | q561_TheOneWeekLateAdventure | Adventure.qst | 2.50.1 | All screens visited | 235 of 235 |
 | q562_Zelda3TheReturnofGanon | Zelda3.qst | 2.50.1 | All screens visited | 967 of 967 |
@@ -626,14 +628,14 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q566_TheThirdLegacy | The Third Legacy v1.2.qst | 2.53.1 | All screens visited | 1161 of 1161 |
 | q567_DawnofANewDay | DawnofANewDay.qst | 2.50.2 | All screens visited | 452 of 452 |
 | q568_IntheLostKingdomoftheBananaBloodGod | ItLKotBBGFinal.qst | 2.50.2 | All screens visited | 532 of 532 |
-| q569_PassageThroughTime | passage255.qst | 2.55 or 3.0 Nightly | Partly visited (time limit) | 2494 of 2796 |
+| q569_PassageThroughTime | passage255.qst | 2.55 or 3.0 Nightly | All screens visited | 2796 of 2796 |
 | q570_SummoningWar | TheSummoningWar.qst | 2.50.1 | All screens visited | 382 of 382 |
 | q571_ANewYearsExperiment | choose.qst | 2.50.1 | All screens visited | 95 of 95 |
 | q572_LegendofAvataro | Legend of Avataro Final v1.1.qst | 2.50.2 | All screens visited | 68 of 68 |
-| q573_RandomizerAlpha | RandomizerAlpha.qst | 2.50.0 | Stops at one screen (script never ends) | 701 of 5066 |
+| q573_RandomizerAlpha | RandomizerAlpha.qst | 2.50.0 | All screens visited | 5066 of 5066 |
 | q574_DungeonImpossibleDX | DungeonImpossible.qst | 2.50.2 | All screens visited | 559 of 559 |
 | q582_ForbiddenAscent | ForbiddenAscent.qst | 2.50.2 | All screens visited | 1095 of 1095 |
-| q583_NightNightDX | NightNight DX.qst | 2.50.2 | Stops at one screen (script never ends) | 414 of 423 |
+| q583_NightNightDX | NightNight DX.qst | 2.50.2 | All screens visited | 423 of 423 |
 | q584_MatthewBluefoxQuestPack | 1stHM.qst | 2.53.1 | All screens visited | 530 of 530 |
 | q584_MatthewBluefoxQuestPack | 1stMini.qst | 2.53.1 | All screens visited | 318 of 318 |
 | q584_MatthewBluefoxQuestPack | 2ndHM.qst | 2.53.1 | All screens visited | 528 of 528 |
@@ -659,7 +661,7 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q600_4Temples | 4 Temples.qst | 2.50.0 | All screens visited | 128 of 128 |
 | q601_TheDarkWorldsReturn | TDWR1_1.qst | 2.50.2 | All screens visited | 539 of 539 |
 | q602_TheIslandofYeto | TheIslandOfYeto.qst | 2.50.0 | All screens visited | 656 of 656 |
-| q603_MetroidOrigins | origins.qst | 2.53.1 | Partly visited (time limit) | 442 of 1319 |
+| q603_MetroidOrigins | origins.qst | 2.53.1 | Partly visited (time limit) | 712 of 1319 |
 | q604_4Temples2FateofTheTriforce | 4T2.qst | 2.50.1 | All screens visited | 289 of 289 |
 | q605_NargadsTrailCrystalCrusades | NTCC.qst | 2.50.2 | All screens visited | 2177 of 2177 |
 | q606_Nehe | nehe.qst | 2.50.2 | All screens visited | 104 of 104 |
@@ -667,14 +669,14 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q608_EntertheGoldenAquamentus | Enter the Golden Aquamentus.qst | 2.50.2 | All screens visited | 28 of 28 |
 | q609_MagicandFantasy | M&F20zc.qst | 2.50.2 | All screens visited | 727 of 727 |
 | q610_TurtlesHateCandy | TurtlesHateCandy.qst | 2.50.2 | All screens visited | 694 of 694 |
-| q611_RandomizerReturns | RandomizerReturns.qst | 2.50.0 | Partly visited (time limit) | 3937 of 7314 |
+| q611_RandomizerReturns | RandomizerReturns.qst | 2.50.0 | Partly visited (time limit) | 4733 of 7314 |
 | q612_LinksGenericQuest | thing.qst | 2.50.1 | All screens visited | 223 of 223 |
 | q613_theDarkTreasureVersion21 | The Legend Of Zelda The Dark Treasure EN.qst | 2.50.1 | All screens visited | 1235 of 1235 |
 | q613_theDarkTreasureVersion21 | The Legend Of Zelda The Dark Treasure FR.qst | 2.50.1 | All screens visited | 1235 of 1235 |
 | q614_Quest447 | Q447.qst | 2.50.2 | All screens visited | 398 of 398 |
-| q616_Yuurei | YuureiDX.qst | 2.50.2 | Stops at one screen (script never ends) | 668 of 1869 |
+| q616_Yuurei | YuureiDX.qst | 2.50.2 | All screens visited | 1869 of 1869 |
 | q617_ZeldaNESRemastered | zeldanesremastered.qst | 2.50.2 | All screens visited | 1545 of 1545 |
-| q618_LinkandZeldaPanoplyofCalatia | Link and Zelda - Panoply of Calatia.qst | 2.50.2 | Partly visited (time limit) | 1746 of 2672 |
+| q618_LinkandZeldaPanoplyofCalatia | Link and Zelda - Panoply of Calatia.qst | 2.50.2 | Partly visited (time limit) | 2335 of 2672 |
 | q619_Zelda1BossRush | Zelda1BossRush.qst | 2.50.2 | All screens visited | 67 of 67 |
 | q620_AvatarosContestQuestMix | Picross Made in a Day.qst | 2.50.2 | All screens visited | 29 of 29 |
 | q620_AvatarosContestQuestMix | Pixellated Architecture Dungeon.qst | 2.50.1 | All screens visited | 62 of 62 |
@@ -709,7 +711,7 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q648_LinkedSeasons | Linked-Seasons1.3.qst | 2.50.2 | All screens visited | 423 of 423 |
 | q649_TheGlorySquad | GlorySquad.qst | 2.50.3 | All screens visited | 3790 of 3790 |
 | q650_MelvintheMoblin | MtM1.0.qst | 2.50.2 | All screens visited | 1768 of 1768 |
-| q651_MirageIsland | MirageIsland.qst | 2.50.2 | Partly visited (time limit) | 3289 of 4308 |
+| q651_MirageIsland | MirageIsland.qst | 2.50.2 | Partly visited (time limit) | 4024 of 4308 |
 | q652_ZeldaSilentWorld | Silent World. (2).qst | 2.50.2 | All screens visited | 1415 of 1415 |
 | q653_LinksGrandAdventure2 | Link's Grand Adventure 2.qst | 2.50.2 | All screens visited | 386 of 386 |
 | q654_AnotherLand2MiragoIsland | AL2.qst | 2.50.1 | All screens visited | 473 of 473 |
@@ -724,7 +726,7 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q664_TheLegendofAmyRose3OracleoftheEmerald | Legend of Amy Rose 3.qst | 2.50.2 | All screens visited | 1499 of 1499 |
 | q665_DemoQuestSP | demosp253.qst | 2.53.0 | All screens visited | 651 of 651 |
 | q666_RetreattoCrumsc2EarlyArrival | Crumsc_2.qst | 2.50.0 | All screens visited | 1024 of 1024 |
-| q667_YuurandTalesoftheLabyrinth | Yuurand.qst | 2.53.1 | Partly visited (time limit) | 999 of 4876 |
+| q667_YuurandTalesoftheLabyrinth | Yuurand.qst | 2.53.1 | Partly visited (time limit) | 1443 of 4876 |
 | q668_SouthbySouthrule | South by Southrule.qst | 2.53.1 | All screens visited | 464 of 464 |
 | q669_RedRabbit | RedRabbit.qst | 2.50.2 | All screens visited | 205 of 205 |
 | q670_Wellthatssomethingelse | Well that's something else.qst | 2.50.2 | All screens visited | 58 of 58 |
@@ -732,9 +734,9 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q672_PrometheusEternalHero | Prometheus-Eternal-Hero253.qst | 2.53.0 | All screens visited | 1003 of 1003 |
 | q673_TheLegendofSirknight | LegendofSirKnight.qst | 2.50.2 | All screens visited | 149 of 149 |
 | q674_SecondChance | Second Chance.qst | 2.50.2 | All screens visited | 654 of 654 |
-| q676_BalladofaBloodlineDeluxe | BBDeluxe.qst | 2.50.2 | Partly visited (time limit) | 3871 of 4119 |
+| q676_BalladofaBloodlineDeluxe | BBDeluxe.qst | 2.50.2 | All screens visited | 4119 of 4119 |
 | q677_ASimpleQuest | SimpleQuest.qst | 2.50.2 | All screens visited | 359 of 359 |
-| q678_LyricsofDeathDX | LoDDX.qst | 2.53.0 | Stops at one screen (script never ends) | 13 of 618 |
+| q678_LyricsofDeathDX | LoDDX.qst | 2.53.0 | Partly visited (time limit) | 317 of 618 |
 | q679_TheAdventureofKainthereturnofGanon | AofKainZC2019a.qst | 2.50.3 | All screens visited | 1146 of 1146 |
 | q680_LinksRise2TheReUhReRise | LinksRise2.qst | 2.53.1 | All screens visited | 616 of 616 |
 | q681_Zelda1VoiceActed | 1st.qst | 2.50.3 | All screens visited | 368 of 368 |
@@ -748,7 +750,7 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q690_DarkFairysCurse | Dark Fairys Curse.qst | 2.50.0 | All screens visited | 340 of 340 |
 | q692_YetosHideAndSeek | YetoHideAndSeek.qst | 2.50.0 | All screens visited | 325 of 325 |
 | q693_TheLegendofZeldaSealedPower | sealed power-r120.qst | 2.53.1 | All screens visited | 449 of 449 |
-| q694_RandomizerOmega | RandomizerOmega.qst | 2.50.2 | Partly visited (time limit) | 3585 of 10457 |
+| q694_RandomizerOmega | RandomizerOmega.qst | 2.50.2 | Partly visited (time limit) | 4195 of 10457 |
 | q695_LegendofZeldaForgottenHero | ZeldaForgottenHero.qst | 2.50.2 | All screens visited | 665 of 665 |
 | q696_MikesFunHouse | Mike's Fun House.qst | 2.50.2 | All screens visited | 5064 of 5064 |
 | q698_WizzrobesBigDayOut | wizzrobesbdoupdate4.qst | 2.53.1 | All screens visited | 1379 of 1379 |
@@ -769,7 +771,7 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q712_TickTock | TickTock.qst | 2.50.2 | All screens visited | 118 of 118 |
 | q713_Nestastic | Nestastic 1.1.qst | 2.50.2 | All screens visited | 362 of 362 |
 | q713_Nestastic | Nestastic.qst | 2.50.2 | All screens visited | 447 of 447 |
-| q714_RuinsofMyths | Ruins of Myths v1.1.qst | 2.50.2 | Stops at one screen (script never ends) | 13 of 319 |
+| q714_RuinsofMyths | Ruins of Myths v1.1.qst | 2.50.2 | Partly visited (time limit) | 254 of 319 |
 | q715_LegendofLanaGaiden | Lana Gaiden.qst | 2.50.2 | All screens visited | 647 of 647 |
 | q716_Reikon | Reikon.qst | 2.50.2 | All screens visited | 686 of 686 |
 | q717_TheLegendofNayruRalphsAdventure | The Legend of Nayru.qst | 2.53.1 | All screens visited | 978 of 978 |
@@ -791,7 +793,7 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q732_FragmentsofOld2 | Fragments_of_Old_2.qst | 2.53.1 | All screens visited | 364 of 364 |
 | q733_BreathoftheWild3 | BreathOfTheWild3.qst | 2.55 or 3.0 Nightly | All screens visited | 36 of 36 |
 | q734_ProjectStorm | Project Storm Beta release.qst | 2.50.2 | All screens visited | 1603 of 1603 |
-| q735_DestinyoftheOracles | destiny255.qst | 2.55 or 3.0 Nightly | Partly visited (time limit) | 2137 of 2851 |
+| q735_DestinyoftheOracles | destiny255.qst | 2.55 or 3.0 Nightly | All screens visited | 2851 of 2851 |
 | q736_AlarmClockZScriptRealTimeClockExample | eggtimer_1.0.qst | 2.55 or 3.0 Nightly | Runs; no screens to visit | 0 of 0 |
 | q737_Fortressvania | Fortressvania.qst | 2.53.1 | All screens visited | 1599 of 1599 |
 | q738_1stquestremakewithBSprototypegraphics | VELbsproto1st.qst | 2.50.2 | All screens visited | 387 of 387 |
@@ -804,7 +806,7 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q745_ArmageddonQuestVer253 | Armageddon.qst | 2.53.0 | All screens visited | 515 of 515 |
 | q746_Roeblozs6thQuestRWAPart2 | 6th.qst | 2.53.1 | All screens visited | 509 of 509 |
 | q747_HyrulesAwakening | HyrulesAwakening.qst | 2.53.1 | All screens visited | 505 of 505 |
-| q748_DragonDream | DragonDream.qst | 2.55 or 3.0 Nightly | Stops at one screen (script never ends) | 375 of 812 |
+| q748_DragonDream | DragonDream.qst | 2.55 or 3.0 Nightly | All screens visited | 812 of 812 |
 | q749_NayrusOdysseyDefinitiveEdition | NayrusOdysseyDE2.qst | 2.55 or 3.0 Nightly | All screens visited | 1089 of 1089 |
 | q749_NayrusOdysseyDefinitiveEdition | NayrusOdysseyDE_fixed.qst | 2.53.1 | All screens visited | 624 of 624 |
 | q750_100RoomsofWisdom | 100roomsWisdom.qst | 2.53.1 | All screens visited | 162 of 162 |
@@ -823,9 +825,9 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q758_MatthewBluefoxQuestPackDeutsch | LOZRandyMaxi_De.qst | 2.53.1 | All screens visited | 1813 of 1813 |
 | q759_TheZeldaLegend1984Arcade | TheZeldaLegend.qst | 2.50.2 | All screens visited | 130 of 130 |
 | q760_ZeldaNESRemasteredVersion20255Version | zeldanesremastered_V2_0.qst | 2.55 or 3.0 Nightly | All screens visited | 1546 of 1546 |
-| q761_WanderlustAgamenooneplays | 2_Wanderlust-The.game.no.one.playsEN.qst | 2.55 or 3.0 Nightly | Partly visited (time limit) | 2422 of 12237 |
-| q761_WanderlustAgamenooneplays | Wanderlust-The.game.no.one.playsEN.qst | 2.53.1 | Partly visited (time limit) | 4983 of 12235 |
-| q761_WanderlustAgamenooneplays | Wanderlust-The.game.no.one.playsFR.qst | 2.53.1 | Partly visited (time limit) | 5187 of 12235 |
+| q761_WanderlustAgamenooneplays | 2_Wanderlust-The.game.no.one.playsEN.qst | 2.55 or 3.0 Nightly | Partly visited (time limit) | 6681 of 12237 |
+| q761_WanderlustAgamenooneplays | Wanderlust-The.game.no.one.playsEN.qst | 2.53.1 | Partly visited (time limit) | 4459 of 12235 |
+| q761_WanderlustAgamenooneplays | Wanderlust-The.game.no.one.playsFR.qst | 2.53.1 | Partly visited (time limit) | 4764 of 12235 |
 | q762_TitansGate2 | TitansGate2V1.15.qst | 2.55 or 3.0 Nightly | All screens visited | 1208 of 1208 |
 | q763_RemembranceofShadows | remembrance255.qst | 2.55 or 3.0 Nightly | All screens visited | 2268 of 2268 |
 | q764_BowsersQuest | Bowser's Quest.qst | 2.53.1 | All screens visited | 983 of 983 |
@@ -844,7 +846,7 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q773_1stQuestMirrored | 1st-mirrored-vertical-and-horizontal.qst | 2.53.0 | All screens visited | 869 of 869 |
 | q773_1stQuestMirrored | 1st-mirrored-vertical.qst | 2.53.0 | All screens visited | 869 of 869 |
 | q773_1stQuestMirrored | quest.qst | unknown | Refused: not a recognised quest file |  |
-| q774_StellarSeas | StellarSeas.qst | 2.55 or 3.0 Nightly | Partly visited (time limit) | 690 of 1106 |
+| q774_StellarSeas | StellarSeas.qst | 2.55 or 3.0 Nightly | All screens visited | 1106 of 1106 |
 | q775_PlanetTelex | PlanetTelex.qst | 2.50.1 | All screens visited | 123 of 123 |
 | q776_DuelingDragons | DuelingDragons.qst | 2.55 or 3.0 Nightly | All screens visited | 139 of 139 |
 | q777_HopelessTowerAscent | HopelessTower.qst | 2.50.1 | All screens visited | 65 of 65 |
@@ -854,7 +856,7 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q781_CanariatheUpwindMarch | Canaria, the Upwind March.qst | 2.53.1 | All screens visited | 1633 of 1633 |
 | q782_MysteriesofTheCupPuzzlesofHyruleOther | First GameBoy.qst | 2.53.1 | All screens visited | 199 of 199 |
 | q782_MysteriesofTheCupPuzzlesofHyruleOther | Mysteries of the Cup.qst | 2.50.2 | All screens visited | 36 of 36 |
-| q782_MysteriesofTheCupPuzzlesofHyruleOther | Puzzles of Hyrule.qst | 2.53.1 | Stops at one screen (script never ends) | 22 of 228 |
+| q782_MysteriesofTheCupPuzzlesofHyruleOther | Puzzles of Hyrule.qst | 2.53.1 | All screens visited | 228 of 228 |
 | q783_RoeblozsWorldAdventure3KnilStrikesBack | RWA_3.qst | 2.53.1 | All screens visited | 2175 of 2175 |
 | q784_DreamyCambria | Dreamy Cambria.qst | 2.55 or 3.0 Nightly | All screens visited | 286 of 286 |
 | q785_CambriaTheLostWorlds | Cambria The Lost Worlds.qst | 2.55 or 3.0 Nightly | All screens visited | 1577 of 1577 |
@@ -867,7 +869,7 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q792_MitchesFaultII | MITCHES FAULT II.qst | 2.55 or 3.0 Nightly | All screens visited | 144 of 144 |
 | q793_ZeldaOverturev17481123 | Zelda Overture 1.7.4.qst | 2.55 or 3.0 Nightly | All screens visited | 383 of 383 |
 | q794_ThePowerWalrus | PWRwalrus.qst | 2.55 or 3.0 Nightly | All screens visited | 329 of 329 |
-| q795_OneScreenGollab | OneScreenGollab.qst | 2.55 or 3.0 Nightly | Stops at one screen (script never ends) | 955 of 993 |
+| q795_OneScreenGollab | OneScreenGollab.qst | 2.55 or 3.0 Nightly | Partly visited (time limit) | 959 of 993 |
 | q796_OtherworldlyPlanet | otherworldlyplanet.qst | 2.55 or 3.0 Nightly | All screens visited | 153 of 153 |
 | q797_ZeldaOvertureIIv1148223 | Zelda Overture II 1.1.4.qst | 2.55 or 3.0 Nightly | All screens visited | 443 of 443 |
 | q798_MrReDeadsTutorialQuest | Tutorial.qst | 2.53.1 | All screens visited | 124 of 124 |
@@ -882,8 +884,8 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q802_TheLegendofZeldaCrazyUltimateChallenge | CC.qst | 2.55 or 3.0 Nightly | All screens visited | 599 of 599 |
 | q802_TheLegendofZeldaCrazyUltimateChallenge | UC.qst | 2.55 or 3.0 Nightly | All screens visited | 1907 of 1907 |
 | q803_JourneyintotheNovelRuins | NovelRuins1.2.qst | 2.55 or 3.0 Nightly | All screens visited | 915 of 915 |
-| q804_DreamsRealm | Dreams_Realm 2.53.qst | 2.53.1 | Partly visited (time limit) | 2818 of 8021 |
-| q804_DreamsRealm | Dreams_Realm 2.55 NEW.qst | 2.55 or 3.0 Nightly | Partly visited (time limit) | 2283 of 8220 |
+| q804_DreamsRealm | Dreams_Realm 2.53.qst | 2.53.1 | Partly visited (time limit) | 3800 of 8021 |
+| q804_DreamsRealm | Dreams_Realm 2.55 NEW.qst | 2.55 or 3.0 Nightly | Partly visited (time limit) | 4849 of 8220 |
 | q805_LinksGrandAdventure3Remastered | Link's Grand Adventure 3 Remastered.qst | 2.55 or 3.0 Nightly | All screens visited | 419 of 419 |
 | q806_LinksAdventureintheFuture | Links_Adventure_in_the_Future.qst | 2.53.1 | All screens visited | 2975 of 2975 |
 | q807_TheLegendofNebulstarCanceledQuest | The Legend of Nebulstar.qst | 2.53.1 | All screens visited | 477 of 477 |
@@ -918,7 +920,7 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q837_JacksQuest | Jacks.qst | 2.55 or 3.0 Nightly | All screens visited | 541 of 541 |
 | q837_JacksQuest | quest.qst | unknown | Refused: not a recognised quest file |  |
 | q838_Canvas64 | Canvas 64.qst | 2.55 or 3.0 Nightly | All screens visited | 84 of 84 |
-| q839_TheLegendofRevaliHatesEnd | The Legend of Revali.qst | 2.53.1 | Partly visited (time limit) | 2503 of 5579 |
+| q839_TheLegendofRevaliHatesEnd | The Legend of Revali.qst | 2.53.1 | Partly visited (time limit) | 2596 of 5579 |
 | q840_ThisisTheOnlyRoom | onlyroom.qst | 2.55 or 3.0 Nightly | All screens visited | 63 of 63 |
 | q841_TheLegendofZeldaLinksJourneyNorthDX | LJNdx.qst | 2.55 or 3.0 Nightly | All screens visited | 844 of 844 |
 | q842_Mickensie | Mickensie.qst | 2.53.1 | All screens visited | 664 of 664 |
@@ -932,11 +934,11 @@ Pack entry is the name of the download from [PureZC](https://www.purezc.net/inde
 | q850_ZeldasExcellentJourney | Zelda's Excellent Journey.qst | 2.53.1 | All screens visited | 601 of 601 |
 | q851_FunintheSunFullCircle | FCIRCLE.qst | 1.90 | All screens visited | 484 of 484 |
 | q852_NitaGaiden | NitaGaiden.qst | 2.55 or 3.0 Nightly | All screens visited | 128 of 128 |
-| q853_MetdroidPlanetXX32 | M-3-T-5-0-1-D.qst | 2.53.1 | Partly visited (time limit) | 2305 of 4099 |
+| q853_MetdroidPlanetXX32 | M-3-T-5-0-1-D.qst | 2.53.1 | Partly visited (time limit) | 2862 of 4099 |
 | q854_TheStarFilledVoid | The Star Filled Void.qst | 2.55 or 3.0 Nightly | All screens visited | 469 of 469 |
 | q855_OcarinaofTime1986 | OOT1986.qst | 2.55 or 3.0 Nightly | All screens visited | 1174 of 1174 |
 | q856_TheRevival | REVIVAL.QST | 1.90 | All screens visited | 736 of 736 |
 | q857_TranquilExpression | Tranquil Expression.qst | 2.55 or 3.0 Nightly | All screens visited | 1827 of 1827 |
 | q858_HyruleWorld20 | Hyrule World2.0.qst | 2.55 or 3.0 Nightly | All screens visited | 1537 of 1537 |
-| q859_TheROSEMASTER | theRosemaster.qst | 2.55 or 3.0 Nightly | Partly visited (time limit) | 1904 of 10660 |
+| q859_TheROSEMASTER | theRosemaster.qst | 2.55 or 3.0 Nightly | Partly visited (time limit) | 3439 of 10660 |
 | q860_ShadowKnight | ShadowKnight.qst | 2.55 or 3.0 Nightly | All screens visited | 514 of 514 |

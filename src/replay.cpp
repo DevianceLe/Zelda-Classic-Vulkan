@@ -215,6 +215,7 @@ int g_tour_left = 0;            // frames left on this screen
 int g_tour_settle = 0;          // frames to wait before the next warp
 int g_tour_last_tick = -1;      // replay frame of the last main-loop tick
 int g_tour_arrive = 0;          // replay frame of the last warp
+bool g_tour_script_looped = false; // a script on this screen never waited
 std::chrono::steady_clock::time_point g_tour_t0;
 
 // Live mouse (the GUI defaults the game normally uses).
@@ -1428,6 +1429,25 @@ unsigned int replay_seed(unsigned int live_seed)
     return live_seed;
 }
 
+// The tour teleports Link to spots a player doesn't arrive at, and some scripts only
+// reach their next Waitframe if Link can move from where he stands. Those would freeze
+// the game for good, so during a tour only, a script that has run this long without
+// waiting is paused until the next frame. `slices` counts blocks of 100000 commands.
+bool replay_tour_script_looping(int slices, int type, int script)
+{
+    if(!g_tour || g_finished || slices < (g_tour_script_looped ? 1 : 300))
+        return false;
+
+    if(!g_tour_script_looped)
+    {
+        g_tour_script_looped = true;
+        fprintf(g_tour, "loop type %d script %d frame %d\n", type, script, g_frame);
+        fflush(g_tour);
+    }
+
+    return true;
+}
+
 // Called from the main loop before each game frame (zelda.cpp).
 void replay_tour_tick()
 {
@@ -1490,6 +1510,7 @@ void replay_tour_tick()
     ++g_tour_next;
     g_tour_arrive = g_frame;
     g_tour_left = g_tour_dwell;
+    g_tour_script_looped = false;
     tour_refill();
     tour_warp(s.dmap, s.wscr);
 }

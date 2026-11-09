@@ -1033,7 +1033,10 @@ int findtrigger(int scombo, bool ff)
 void hidden_entrance(int tmp,bool , bool high16only,int single) //Perhaps better known as 'Trigger Secrets'
 {
     if(tmp==0)
+    {
+        q30_note_secrets(single);
         q30_trig_secrets();
+    }
 
 //There are no calls to 'hidden_entrance' in the code where tmp != 0
     Z_eventlog("%sScreen Secrets triggered%s.\n",
@@ -3848,6 +3851,9 @@ void openshutters()
 
 void loadscr(int tmp,int destdmap, int scr,int ldir,bool overlay=false)
 {
+    if(tmp==0)
+        q30_clear_secrets_note();
+
     //  introclk=intropos=msgclk=msgpos=dmapmsgclk=0;
     for(word x=0; x<animated_combos; x++)
     {

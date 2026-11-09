@@ -4355,6 +4355,63 @@ void q30_trig_secrets()
     for_all_positions(secrets_visit, NULL);
 }
 
+static bool g_secrets_triggered = false;
+
+void q30_note_secrets(int single)
+{
+    if(q30_active() && single < 0)
+        g_secrets_triggered = true;
+}
+
+void q30_clear_secrets_note()
+{
+    g_secrets_triggered = false;
+}
+
+bool q30_secrets_triggered()
+{
+    return g_secrets_triggered;
+}
+
+dword q30_level_state(int level)
+{
+    return level >= 0 && level < MAXLEVELS ? g_lvlswitches[level] : 0;
+}
+
+void q30_set_level_state(int level, dword value)
+{
+    if(level < 0 || level >= MAXLEVELS)
+        return;
+
+    const dword old = g_lvlswitches[level];
+    (states_mark(), g_lvlswitches[level]) = value;
+
+    if(level == cur_dlevel() && !q30_quest_rule(429))        // qr_OLD_SCRIPT_LEVEL_GLOBAL_STATES
+        toggle_switches(old ^ value, false);
+}
+
+long q30_global_state(int state)
+{
+    return state >= 0 && state < 256 ? g_gswitch_timers[state] : 0;
+}
+
+void q30_set_global_state(int state, long value)
+{
+    if(state < 0 || state >= 256)
+        return;
+
+    const bool was_on = g_gswitch_timers[state] != 0;
+    (states_mark(), g_gswitch_timers[state]) = value;
+
+    if(was_on != (value != 0) && !q30_quest_rule(429))
+        toggle_gswitch(state, false);
+}
+
+int q30_trigger_group_count(int group)
+{
+    return group >= 0 && group < 256 ? g_trig_groups[group] : 0;
+}
+
 static void shutter_visit(const H &h, void *)
 {
     execute(h, cond_flag, (void *)(intptr_t)Q30TF_SHUTTER);

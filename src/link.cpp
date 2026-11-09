@@ -1125,12 +1125,13 @@ void LinkClass::draw(BITMAP* dest)
     {
         if(!invisible)
         {
+            cs = q30_hero_cset_base(cs);
             sprite::draw(dest);
         }
-        
+
         return;
     }
-    
+
     bool useltm=(get_bit(quest_rules,qr_EXPANDEDLTM) != 0);
     
     oxofs=xofs;
@@ -1168,8 +1169,8 @@ void LinkClass::draw(BITMAP* dest)
         }
     }
     
-    cs = 6;
-    
+    cs = q30_hero_cset_base(6);
+
     if(!get_bit(quest_rules,qr_LINKFLICKER))
     {
         if(superman)
@@ -3102,8 +3103,9 @@ void LinkClass::checkhit()
                     game->set_life(zc_max(game->get_life()-ringpow,0));
                 }
                 
+                q30_hero_hit(2, i, s);
                 hitdir = s->hitdir(x,y,16,16,dir);
-                
+
                 if (action != rafting && action != freeze)
                 {
                     if (action == swimming || hopclk == 0xFF)
@@ -3111,20 +3113,20 @@ void LinkClass::checkhit()
                     else
                         action = gothit;
                 }
-                    
+
                 if(charging > 0 || spins > 0 || attack == wSword || attack == wHammer)
                 {
                     spins = charging = attackclk = 0;
                     attack=none;
                     tapping = false;
                 }
-                
+
                 hclk=48;
-                sfx(WAV_OUCH,pan(int(x)));
+                sfx(q30_hero_hurt_sfx(),pan(int(x)));
                 return;
             }
         }
-        
+
         //   check enemy weapons true, 1, -1
         //
         if(get_bit(quest_rules,qr_Z3BRANG_HSHOT))
@@ -3247,8 +3249,9 @@ killweapon:
                     game->set_life(zc_min(game->get_maxlife(), zc_max(game->get_life()-ringpow,0)));
                 }
                 
+                q30_hero_hit(2, i, s);
                 hitdir = s->hitdir(x,y,16,16,dir);
-                
+
                 if (action != rafting && action != freeze)
                 {
                     if (action == swimming || hopclk == 0xFF)
@@ -3256,20 +3259,20 @@ killweapon:
                     else
                         action = gothit;
                 }
-                    
+
                 if(charging > 0 || spins > 0 || attack == wSword || attack == wHammer)
                 {
                     spins = charging = attackclk = 0;
                     attack=none;
                     tapping = false;
                 }
-                
+
                 hclk=48;
-                sfx(WAV_OUCH,pan(int(x)));
+                sfx(q30_hero_hurt_sfx(),pan(int(x)));
                 return;
             }
         }
-        
+
         if(hclk==0 && s->id==wWind && s->hit(x+7,y+7,z,2,2,1) && !fairyclk)
         {
             reset_hookshot();
@@ -3298,15 +3301,17 @@ killweapon:
     
     if(hit2!=-1)
     {
+        q30_hero_hit(0, hit2, guys.spr(hit2));
         hitlink(hit2);
         return;
     }
-    
+
     hit2 = LwpnHit();
-    
+
     if(hit2!=-1)
     {
-        if(NayrusLoveShieldClk<=0)
+        q30_hero_hit(2, hit2, Lwpns.spr(hit2));
+if(NayrusLoveShieldClk<=0)
         {
             int ringpow = ringpower(lwpn_dp(hit2));
             game->set_life(zc_max(game->get_life()-ringpow,0));
@@ -3329,15 +3334,16 @@ killweapon:
             tapping = false;
         }
         
-        sfx(WAV_OUCH,pan(int(x)));
+        sfx(q30_hero_hurt_sfx(),pan(int(x)));
         return;
     }
     
     hit2 = EwpnHit();
-    
+
     if(hit2!=-1)
     {
-        if(NayrusLoveShieldClk<=0)
+        q30_hero_hit(1, hit2, Ewpns.spr(hit2));
+if(NayrusLoveShieldClk<=0)
         {
             int ringpow = ringpower(ewpn_dp(hit2));
             game->set_life(zc_max(game->get_life()-ringpow,0));
@@ -3360,7 +3366,7 @@ killweapon:
             tapping = false;
         }
         
-        sfx(WAV_OUCH,pan(int(x)));
+        sfx(q30_hero_hurt_sfx(),pan(int(x)));
         return;
     }
     
@@ -3466,7 +3472,7 @@ bool LinkClass::checkdamagecombos(int dx1, int dx2, int dy1, int dy2, int layer,
                 tapping = false;
             }
             
-            sfx(WAV_OUCH,pan(int(x)));
+            sfx(q30_hero_hurt_sfx(),pan(int(x)));
             return true;
         }
         else paymagiccost(itemid); // Boots are successful
@@ -3515,7 +3521,7 @@ void LinkClass::hitlink(int hit2)
         action=gothit;
         
     hclk=48;
-    sfx(WAV_OUCH,pan(int(x)));
+    sfx(q30_hero_hurt_sfx(),pan(int(x)));
     
     if(charging > 0 || spins > 0 || attack == wSword || attack == wHammer)
     {
@@ -4153,9 +4159,10 @@ bool LinkClass::animate(int)
         else paymagiccost(itemid);
     }
     
+    q30_hero_hit_clear();
     checkhit();
-    
-    if(game->get_life()<=0)
+
+    if(game->get_life()<=0 && !q30_hero_immortal())
     {
         // So scripts can have one frame to handle hp zero events
         if(false == (last_hurrah = !last_hurrah))
@@ -4667,7 +4674,8 @@ bool LinkClass::animate(int)
         {
         case 0:
             conveyclk=3;
-            dosubscr(&QMisc);
+            if(!q30_no_active_subscreen())
+                dosubscr(&QMisc);
             newscr_clk += frame - tmp_subscr_clk;
             break;
             
@@ -7777,6 +7785,19 @@ bool LinkClass::q30_walk_solid(double wx, double wy, int d2)
         solid = true;
 
     return solid;
+}
+
+bool LinkClass::q30_script_can_move(double dx, double dy)
+{
+    if(dx != 0 && dy != 0)
+        return q30_can_move(dx, 0) && q30_can_move(0, dy);
+
+    return q30_can_move(dx, dy);
+}
+
+bool LinkClass::q30_script_move_xy(double dx, double dy, bool shove)
+{
+    return q30_move_xy(dx, dy, shove);
 }
 
 bool LinkClass::q30_can_move(double dx, double dy)
@@ -16626,7 +16647,7 @@ void LinkClass::gameover()
         switch(f)
         {
         case   0:
-            sfx(WAV_OUCH,pan(int(x)));
+            sfx(q30_hero_hurt_sfx(),pan(int(x)));
             break;
             
         case  60:
@@ -16740,7 +16761,8 @@ void LinkClass::ganon_intro()
         {
             conveyclk=3;
             int tmp_subscr_clk = frame;
-            dosubscr(&QMisc);
+            if(!q30_no_active_subscreen())
+                dosubscr(&QMisc);
             newscr_clk += frame - tmp_subscr_clk;
         }
         

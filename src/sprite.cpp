@@ -202,6 +202,32 @@ sprite::sprite(fix X,fix Y,int T,int CS,int F,int Clk,int Yofs):
 
 void (*q30_sprite_destroy_hook)(long) = NULL;
 
+// 2.55+ quests only (the script engine installs this): what a script has set a sprite to draw as.
+void (*q30_sprite_appearance_hook)(sprite *, int *, int *, fix *) = NULL;
+
+namespace
+{
+    // Holds a sprite's script-set appearance for one draw, then puts its own back.
+    class Q30DrawScope
+    {
+        sprite *s;
+        int tile, flip;
+        fix yofs;
+    public:
+        Q30DrawScope(sprite *spr) : s(spr), tile(spr->tile), flip(spr->flip), yofs(spr->yofs)
+        {
+            if(q30_sprite_appearance_hook)
+                q30_sprite_appearance_hook(s, &s->tile, &s->flip, &s->yofs);
+        }
+        ~Q30DrawScope()
+        {
+            s->tile = tile;
+            s->flip = flip;
+            s->yofs = yofs;
+        }
+    };
+}
+
 sprite::~sprite()
 {
     if(q30_sprite_destroy_hook)
@@ -370,6 +396,8 @@ void sprite::draw(BITMAP* dest)
     {
         return;
     }
+
+    Q30DrawScope q30_scope(this);
     
     int sx = real_x(x+xofs);
     int sy = real_y(y+yofs)-real_z(z+zofs);
@@ -644,6 +672,7 @@ void sprite::draw8(BITMAP* dest)
 
 void sprite::drawcloaked(BITMAP* dest)
 {
+    Q30DrawScope q30_scope(this);
     int sx = real_x(x+xofs);
     int sy = real_y(y+yofs)-real_z(z+zofs);
     

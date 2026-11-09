@@ -425,7 +425,7 @@ if(NINTENDO_SWITCH)
     # App title and version for the homebrew menu, from the window title.
     file(STRINGS ${ZCPORT_DIR}/include/zcport/entry.h _zplayer_title_line
          REGEX "define ZPLAYER_WINDOW_TITLE")
-    string(REGEX MATCH "ZC Vulkan ([0-9.]+)" _zplayer_title_match "${_zplayer_title_line}")
+    string(REGEX MATCH "ZC Vulkan ([0-9A-Za-z.-]+)" _zplayer_title_match "${_zplayer_title_line}")
     nx_generate_nacp(
         OUTPUT ${CMAKE_BINARY_DIR}/zplayer.nacp
         NAME "ZC Vulkan"

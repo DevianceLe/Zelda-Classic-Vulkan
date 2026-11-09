@@ -1,7 +1,7 @@
 name: Build
 
 # Every push to main builds Windows, Android, Linux and Nintendo Switch. When VERSION holds a number that has no
-# release yet, the builds are published as a new GitHub Release.
+# release yet, the builds are published as a new GitHub Release. Versions ending in -PRE are built but never published.
 
 on:
   push:
@@ -183,6 +183,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(tr -d '[:space:]' < VERSION)
+          case "$version" in
+            *-PRE*) echo "$version is a pre-release; built but not published."; exit 0 ;;
+          esac
           tag="v$version"
           if gh release view "$tag" > /dev/null 2>&1; then
             echo "$tag is already released; nothing to publish."

@@ -51,6 +51,7 @@ void q30_clear_guy_scripts();
 void q30_set_guy_script(int guy, word script, const long *initd);
 const Q30ScriptRef *q30_guy_script(int guy);
 void q30_set_guy_weapon_script(int guy, word script, const long *initd);
+void q30_set_guy_moveflags(int guy, dword flags);
 const Q30ScriptRef *q30_guy_weapon_script(int guy);
 
 void q30_clear_item_scripts();

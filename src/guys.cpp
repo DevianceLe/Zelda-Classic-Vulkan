@@ -536,10 +536,36 @@ class q30_enemy_access : public enemy
 public:
     int do_slide() { return slide(); }
     void do_fire() { FireWeapon(); }
+    int get_clk2() { return clk2; }
+    void set_clk2(int v) { clk2 = v; }
+    int get_sclk() { return sclk; }
+    void set_sclk(int v) { sclk = v; }
+    int do_lined_up(int range, bool dir8) { return lined_up(range, dir8); }
+    void do_constant_walk(int rate, int homing, int special) { constant_walk(rate, homing, special); }
+    void do_constant_walk_8(int rate, int homing, int special) { constant_walk_8(rate, homing, special); }
 };
 
 int q30_enemy_slide(enemy *e) { return ((q30_enemy_access *)e)->do_slide(); }
 void q30_enemy_fire(enemy *e) { ((q30_enemy_access *)e)->do_fire(); }
+int q30_enemy_clk2(enemy *e) { return ((q30_enemy_access *)e)->get_clk2(); }
+void q30_enemy_set_clk2(enemy *e, int v) { ((q30_enemy_access *)e)->set_clk2(v); }
+int q30_enemy_lined_up(enemy *e, int range, bool dir8) { return ((q30_enemy_access *)e)->do_lined_up(range, dir8); }
+void q30_enemy_constant_walk(enemy *e, int rate, int homing, int special) { ((q30_enemy_access *)e)->do_constant_walk(rate, homing, special); }
+void q30_enemy_constant_walk_8(enemy *e, int rate, int homing, int special) { ((q30_enemy_access *)e)->do_constant_walk_8(rate, homing, special); }
+
+// The direction an enemy was last knocked back from; -1 when it isn't being knocked back.
+int q30_enemy_hitdir(enemy *e)
+{
+    const int sclk = ((q30_enemy_access *)e)->get_sclk();
+    return sclk > 0 ? sclk >> 8 : -1;
+}
+
+void q30_enemy_set_hitdir(enemy *e, int dir)
+{
+    q30_enemy_access *a = (q30_enemy_access *)e;
+    if(a->get_sclk() > 0)
+        a->set_sclk((a->get_sclk() & 0xFF) | (dir << 8));
+}
 
 // Stops playing the given sound only if there are no enemies left to play it
 void enemy::stop_bgsfx(int index)

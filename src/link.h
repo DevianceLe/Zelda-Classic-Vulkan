@@ -385,7 +385,13 @@ public:
     void setHitDir(int new_dir);
     int  getClk();
     int  getPushing();
-    void reset_swordcharge();
+    void setPushing(int p) { pushing = p; }
+    bool getInWallm() const { return inwallm; }
+    void setInWallm(bool v) { inwallm = v; }
+    // For scripts' Hero->CanMove, Move and their forms (2.55+ quests).
+    bool q30_script_can_move(double dx, double dy);
+    bool q30_script_move_xy(double dx, double dy, bool shove);
+void reset_swordcharge();
     void reset_hookshot();
     bool can_deploy_ladder();
     void reset_ladder();

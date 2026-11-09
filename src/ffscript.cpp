@@ -1851,6 +1851,7 @@ refInfo *ri = NULL;
 ffscript *curscript = NULL;
 
 static int numInstructions; // Used to detect hangs
+bool replay_tour_script_looping(int slices, int type, int script); // replay.cpp
 static bool scriptCanSave = true;
 byte curScriptType;
 word curScriptNum;
@@ -9452,7 +9453,8 @@ int run_script(const byte type, const word script, const byte i)
 #endif
     
     bool increment = true;
-    
+    int tour_slices = 0;
+
     while(scommand != 0xFFFF && scommand != WAITFRAME && scommand != WAITDRAW)
     {
         if(zasm30_trace_on) zasm30_dbg_pc = pc;
@@ -9463,6 +9465,12 @@ int run_script(const byte type, const word script, const byte i)
             checkQuitKeys();
             if(Quit)
                 scommand=0xFFFF;
+            else if(replay_tour_script_looping(++tour_slices, type, script))
+            {
+                pc--;       // the wait below steps forward; this command hasn't run yet
+                scommand = WAITFRAME;
+                goto zasm30_wait;
+            }
         }
         
 #ifdef _FFDEBUG

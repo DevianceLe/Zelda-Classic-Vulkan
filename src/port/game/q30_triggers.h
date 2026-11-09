@@ -18,6 +18,7 @@
 #include "zdefs.h"
 
 class weapon;
+class sprite;
 
 // A bitstring from the quest.
 struct Q30Bits
@@ -401,6 +402,24 @@ void q30_trig_land();
 bool q30_trig_buttons(int dir);
 
 // ---- state other systems can use ---------------------------------------------------
+
+// Screen->SecretsTriggered: whether this screen's secrets went off since it was loaded.
+void q30_note_secrets(int single);          // hidden_entrance, for the screen being played
+void q30_clear_secrets_note();              // a new screen is loading
+bool q30_secrets_triggered();
+// Game->LevelStates[] and GlobalStates[], and how many combos a trigger group holds.
+dword q30_level_state(int level);
+void q30_set_level_state(int level, dword value);
+long q30_global_state(int state);
+void q30_set_global_state(int state, long value);
+int q30_trigger_group_count(int group);
+// Hero->HitBy[] and the other per-frame facts about the Hero (q30_scripts_regs.h).
+void q30_hero_hit_clear();
+void q30_hero_hit(int kind, int index, sprite *s);
+bool q30_no_active_subscreen();
+int q30_hero_cset_base(int normal);
+bool q30_hero_immortal();
+int q30_hero_hurt_sfx();
 
 bool q30_get_exstate(int mi, int bit);
 void q30_set_exstate(int mi, int bit, bool on);

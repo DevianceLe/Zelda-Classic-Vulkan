@@ -23,7 +23,7 @@ android {
         minSdk 26          // Vulkan, AAudio
         targetSdk 35
         versionCode 1
-        versionName "2.53.444.2"
+        versionName "2.53.444.3-PRE"
         externalNativeBuild {
             cmake {
                 arguments "-DANDROID_PLATFORM=android-26",
