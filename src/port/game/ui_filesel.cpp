@@ -50,6 +50,9 @@
 
 #include "zcport/ui.h"
 #include "ui_filesel.h"
+#if defined(__SWITCH__)
+extern bool close_button_quit;   // src/zelda.cpp
+#endif
 
 #include <algorithm>
 #include <cctype>
@@ -246,6 +249,9 @@ bool is_root(const std::string &dir)
 {
 #ifdef _WIN32
     return dir.size() <= 3 && dir.size() >= 2 && dir[1] == DEVICE_SEPARATOR;
+#elif defined(__SWITCH__)
+    /* "sdmc:/": a device and nothing after its one separator */
+    return dir.size() >= 2 && dir.find('/') == dir.size() - 1 && dir[dir.size() - 2] == DEVICE_SEPARATOR;
 #else
     return dir == "/";
 #endif
@@ -683,6 +689,13 @@ Result run(Session &se, const char *message, const std::vector<std::string> &fil
             handle(se, reqs[i]);
         if(se.done)
             break;
+#if defined(__SWITCH__)
+        if(close_button_quit)   // HOME is closing the software
+        {
+            finish(se, RES_CANCEL);
+            break;
+        }
+#endif
         if(!zcui::available())
         {
             finish(se, RES_CANCEL);

@@ -521,7 +521,13 @@ char *canonicalize_filename(char *dest, AL_CONST char *filename, int size)
      * "../" are resolved; case is kept. */
     {
         std::string in = filename ? filename : "";
+#ifdef __SWITCH__
+        /* libnx: "sdmc:/..." is absolute, and the current directory has the
+         * device in front as well. */
+        if(in.find(':') == std::string::npos && (in.empty() || in[0] != '/'))
+#else
         if(in.empty() || in[0] != '/')
+#endif
         {
             std::string cwd = current_dir_of_drive(0);
             in = cwd + "/" + in;
@@ -550,6 +556,11 @@ char *canonicalize_filename(char *dest, AL_CONST char *filename, int size)
             out += "/" + parts[i];
         if(out.empty() || (!in.empty() && in[in.size() - 1] == '/'))
             out += "/";
+#ifdef __SWITCH__
+        /* "sdmc:" stays in front, without a '/' before it. */
+        if(!parts.empty() && parts[0].find(':') != std::string::npos)
+            out.erase(0, 1);
+#endif
         return copy_out(dest, out, size);
     }
 #else

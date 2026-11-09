@@ -401,6 +401,9 @@ void Z_error(const char *format,...)
     printf("%s\n",buf);
 #endif
     al_trace("%s\n",buf);
+#if defined(__SWITCH__)
+    allegro_message("%s",buf);   // the log file is no use to someone holding a console
+#endif
     exit(1);
 }
 

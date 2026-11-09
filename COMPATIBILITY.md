@@ -61,6 +61,7 @@ Every quest in the PureZC collection, 843 quest files, run through the player on
 
 - Linux has been tested on Debian 13 and Arch Linux, in virtual machines with Mesa's software Vulkan driver. Real graphics cards and controllers are untested. EndeavourOS froze while booting in the test virtual machine, before the game could run, so it hasn't been tested.
 - Android starts, but 2.55 and 3.0 Nightly quests haven't been tested on it.
+- The Nintendo Switch homebrew build has only been tested in the Eden emulator, not on a real Switch. ZQuest isn't part of it.
 
 ## Played by hand
 

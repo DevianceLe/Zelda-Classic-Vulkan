@@ -29,6 +29,9 @@
 //#include "jwin.h"
 #include "jwinfsel.h"
 #include "title.h"
+#if defined(__SWITCH__)
+#include "replay.h"   // replay_active()
+#endif
 #include "gamedata.h"
 #include "link.h"
 #include "mem_debug.h"
@@ -1543,7 +1546,7 @@ newdata:
     
     if(standalone_mode)
         goto init;
-        
+
     if(jwin_alert("Can't Find Saved Game File",
                   "The save file could not be found.",
                   "Create a new file from scratch?",
@@ -1552,7 +1555,7 @@ newdata:
     {
         exit(1);
     }
-    
+
     game_pal();
     Z_message("Save file not found.  Creating new save file.");
     goto init;
@@ -2164,6 +2167,12 @@ static bool register_name()
         return false;
         
     int NameEntryMode2=NameEntryMode;
+#if defined(__SWITCH__)
+    // No keyboard to type a name on: the letter grid (a recording keeps the
+    // mode it was made with).
+    if(NameEntryMode2==0 && !replay_active())
+        NameEntryMode2=1;
+#endif
     
     saves[savecnt].set_maxlife(3*HP_PER_HEART);
     saves[savecnt].set_maxbombs(8);

@@ -4223,7 +4223,13 @@ void syskeys()
     if(close_button_quit)
     {
         close_button_quit=false;
+#if defined(__SWITCH__)
+        // HOME closing the software can't be answered "no": exit and save
+        // as if the player had confirmed it.
+        Quit=qEXIT;
+#else
         f_Quit(qEXIT);
+#endif
     }
     
     poll_joystick();

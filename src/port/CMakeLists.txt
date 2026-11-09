@@ -15,10 +15,20 @@
 #   zcmusic_smoke          EXE     music check: zcmusic on zcport's streams to
 #                                  WAV files (built on request)
 #   conf_*_ref / conf_*_port       conformance tests (tests/conformance)
+#
+# Nintendo Switch homebrew (NINTENDO_SWITCH, devkitPro's Switch.cmake): no SDL3
+# or Vulkan there. zplayer is the game's objects + zcport + the libnx platform
+# (platform/platform_switch.cpp, entry/zplayer_switch.cpp), packed into
+# zplayer.nro (target zplayer_nro).
 
 cmake_minimum_required(VERSION 3.16)
 
-option(ZC_PORT_SDL "Build the SDL3 platform layer (zcport_sdl, zc_vulkan)" ON)
+if(NINTENDO_SWITCH)
+    set(_zc_port_sdl_default OFF)
+else()
+    set(_zc_port_sdl_default ON)
+endif()
+option(ZC_PORT_SDL "Build the SDL3 platform layer (zcport_sdl, zc_vulkan)" ${_zc_port_sdl_default})
 
 if(NOT DEFINED ZC_THIRD_PARTY)
     set(ZC_THIRD_PARTY ${CMAKE_SOURCE_DIR}/third_party)
@@ -125,6 +135,7 @@ if(ZC_PORT_SDL)
 
     # zcport_sdl: the platform layer (fills the zcport/platform.h hook table)
     file(GLOB ZCPORT_SDL_SOURCES CONFIGURE_DEPENDS ${ZCPORT_DIR}/platform/*.cpp ${ZCPORT_DIR}/ui/*.cpp)
+    list(FILTER ZCPORT_SDL_SOURCES EXCLUDE REGEX "_switch\\.cpp$")
     file(GLOB ZCPORT_SDL_HEADERS CONFIGURE_DEPENDS ${ZCPORT_DIR}/platform/*.h ${ZCPORT_DIR}/ui/*.h)
     if(NOT ZCPORT_SDL_SOURCES)
         # No platform module yet: keep the target valid.
@@ -159,6 +170,22 @@ if(ZC_PORT_SDL)
             target_link_options(zcport_sdl INTERFACE "-Wl,--undefined=zcport_sdl_link_anchor")
         endif()
     endif()
+endif()
+
+# Switch: Dear ImGui without the SDL3 and Vulkan backends; its renderer is
+# platform/gles_present_switch.cpp.
+if(NINTENDO_SWITCH)
+    set(ZC_IMGUI_DIR ${ZC_THIRD_PARTY}/imgui)
+    add_library(zc_imgui STATIC
+        ${ZC_IMGUI_DIR}/imgui.cpp
+        ${ZC_IMGUI_DIR}/imgui_draw.cpp
+        ${ZC_IMGUI_DIR}/imgui_tables.cpp
+        ${ZC_IMGUI_DIR}/imgui_widgets.cpp
+    )
+    target_include_directories(zc_imgui PUBLIC ${ZC_IMGUI_DIR})
+    # (fork/waitpid for opening links: not on Switch)
+    target_compile_definitions(zc_imgui PUBLIC IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS)
+    set_target_properties(zc_imgui PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
 endif()
 
 # The unified engine (src/port/engine) uses only the libraries above.
@@ -213,8 +240,13 @@ endforeach()
 file(GLOB ZPLAYER_PORT_GAME_SOURCES CONFIGURE_DEPENDS ${ZCPORT_DIR}/game/*.cpp)
 # The game-side ImGui code (src/port/game/ui_*.cpp: file selector, message
 # boxes) needs Dear ImGui, which comes with the SDL3 platform.
-if(NOT ZC_PORT_SDL)
+if(NOT ZC_PORT_SDL AND NOT NINTENDO_SWITCH)
     list(FILTER ZPLAYER_PORT_GAME_SOURCES EXCLUDE REGEX "/ui_[^/]*\\.cpp$")
+endif()
+# Switch: no on-screen gamepad (its key source lives in platform_touch.cpp,
+# which needs SDL).
+if(NINTENDO_SWITCH)
+    list(FILTER ZPLAYER_PORT_GAME_SOURCES EXCLUDE REGEX "/touch_keys\\.cpp$")
 endif()
 list(APPEND ZPLAYER_SOURCES ${ZPLAYER_PORT_GAME_SOURCES})
 # is_only_instance(): src/win32.cpp on Windows (part of the core sources),
@@ -253,7 +285,7 @@ endif()
 if(NOT MSVC)
     target_compile_options(zplayer_compile_check PRIVATE -fsigned-char)
 endif()
-if(UNIX AND NOT ANDROID)
+if((UNIX AND NOT ANDROID) OR NINTENDO_SWITCH)
     # The game's C++98 tables were written before narrowing became an error.
     target_compile_options(zplayer_compile_check PRIVATE -Wno-narrowing)
 endif()
@@ -304,6 +336,7 @@ if(ZC_PORT_SDL)
         "Folder with the player's data (zelda.dat, fonts.dat, sfx.dat, qst.dat, *.qst, *.nsf), copied next to zplayer.exe after each build; empty = no copy")
 
     file(GLOB ZPLAYER_ENTRY_SOURCES CONFIGURE_DEPENDS ${ZCPORT_DIR}/entry/*.cpp)
+    list(FILTER ZPLAYER_ENTRY_SOURCES EXCLUDE REGEX "_switch\\.cpp$")
     set(ZPLAYER_RESOURCES)
     if(MSVC)
         # Same icon resource as zelda.exe ("allegro_icon").
@@ -368,6 +401,40 @@ if(ZC_PORT_SDL)
     endif()
 endif()
 
+# --- zplayer on Nintendo Switch homebrew (libnx) -------------------------------
+if(NINTENDO_SWITCH)
+    add_executable(zplayer
+        ${ZCPORT_DIR}/entry/zplayer_switch.cpp
+        ${ZCPORT_DIR}/platform/platform_switch.cpp
+        ${ZCPORT_DIR}/platform/gles_present_switch.cpp
+        ${ZCPORT_DIR}/platform/midi_tsf.cpp
+        ${ZCPORT_DIR}/ui/ui_core.cpp
+    )
+    target_sources(zplayer PRIVATE $<TARGET_OBJECTS:zplayer_compile_check>)
+    add_dependencies(zplayer zplayer_compile_check)
+    target_include_directories(zplayer PRIVATE ${ZCPORT_DIR}/ui ${ZCPORT_DIR}/platform ${DEVKITPRO}/portlibs/switch/include)
+    # switch-mesa: EGL and OpenGL ES.
+    target_link_libraries(zplayer PRIVATE zcport zc_tsf zc_imgui ${ZPLAYER_MUSIC_LIBS} GLESv2 EGL glapi drm_nouveau)
+    set_target_properties(zplayer PROPERTIES
+        OUTPUT_NAME zplayer
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+    )
+
+    # App title and version for the homebrew menu, from the window title.
+    file(STRINGS ${ZCPORT_DIR}/include/zcport/entry.h _zplayer_title_line
+         REGEX "define ZPLAYER_WINDOW_TITLE")
+    string(REGEX MATCH "ZC Vulkan ([0-9.]+)" _zplayer_title_match "${_zplayer_title_line}")
+    nx_generate_nacp(
+        OUTPUT ${CMAKE_BINARY_DIR}/zplayer.nacp
+        NAME "ZC Vulkan"
+        AUTHOR "Deviance"
+        VERSION "${CMAKE_MATCH_1}"
+    )
+    nx_create_nro(zplayer NACP ${CMAKE_BINARY_DIR}/zplayer.nacp OUTPUT ${CMAKE_BINARY_DIR}/zplayer.nro)
+endif()
+
 # Release builds keep full debug info and frame pointers, so crash reports
 # (src/port/entry/crash_win32.cpp) name functions and lines.
 if(MSVC)
@@ -382,6 +449,6 @@ endif()
 include(${CMAKE_CURRENT_LIST_DIR}/zqeditor.cmake)
 
 # --- conformance harness -------------------------------------------------------
-if(EXISTS ${CMAKE_SOURCE_DIR}/tests/conformance/CMakeLists.txt)
+if(EXISTS ${CMAKE_SOURCE_DIR}/tests/conformance/CMakeLists.txt AND NOT NINTENDO_SWITCH)
     add_subdirectory(${CMAKE_SOURCE_DIR}/tests/conformance ${CMAKE_BINARY_DIR}/conformance)
 endif()

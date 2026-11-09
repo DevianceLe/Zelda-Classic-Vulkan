@@ -32,6 +32,15 @@
    #endif
    #define ALLEGRO_ANDROID
    #define ALLEGRO_PLATFORM_STR  "zcport-Android"
+#elif defined(__SWITCH__)
+   /* Nintendo Switch homebrew (libnx): the game's Linux paths fit, as on Android. */
+   #ifndef ALLEGRO_UNIX
+      #define ALLEGRO_UNIX
+   #endif
+   #ifndef ALLEGRO_LINUX
+      #define ALLEGRO_LINUX
+   #endif
+   #define ALLEGRO_PLATFORM_STR  "zcport-Switch"
 #elif defined(__APPLE__)
    #ifndef ALLEGRO_UNIX
       #define ALLEGRO_UNIX
@@ -190,6 +199,10 @@
 
 #if defined(ALLEGRO_WINDOWS)
    #define OTHER_PATH_SEPARATOR  '\\'
+   #define DEVICE_SEPARATOR      ':'
+#elif defined(__SWITCH__)
+   /* libnx paths carry a device: sdmc:/switch/zplayer/ */
+   #define OTHER_PATH_SEPARATOR  '/'
    #define DEVICE_SEPARATOR      ':'
 #else
    #define OTHER_PATH_SEPARATOR  '/'

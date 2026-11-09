@@ -19,6 +19,9 @@
 #include "zcport/display.h"
 #include "zcport/ui.h"
 #include "zcport/video_settings.h"
+#if defined(__SWITCH__)
+extern bool close_button_quit;   // src/zelda.cpp
+#endif
 
 #include <imgui.h>
 
@@ -594,6 +597,7 @@ void picture_section(VideoUi &u, const Settings &cur, float sc)
             commit(u, cur, n);
         }
     }
+#if !defined(__SWITCH__)   // the display always paces the picture there
     {
         row("VSync");
         bool b = cur.vsync;
@@ -608,6 +612,7 @@ void picture_section(VideoUi &u, const Settings &cur, float sc)
         ImGui::SameLine();
         ImGui::TextDisabled("%s", zcdisplay::refresh_hz() > 0 ? hz_text((float)zcdisplay::refresh_hz()).c_str() : "");
     }
+#endif
     {
         row("Frame rate");
         bool b = cur.show_fps;
@@ -784,6 +789,11 @@ void confirm_popup(VideoUi &u, float sc)
     ImGui::EndPopup();
 }
 
+#if defined(__SWITCH__)
+void start_test_hook() {}
+void tlog(const char *, ...) {}
+void run_script(VideoUi &, const Settings &) {}
+#else
 // ==== TEMP TEST HOOK BEGIN (not committed) ====
 }
 #include <SDL3/SDL.h>
@@ -886,6 +896,7 @@ void start_test_hook()
     std::thread(test_thread, std::string(s)).detach();
 }
 // ==== TEMP TEST HOOK END ====
+#endif // __SWITCH__
 
 void settings_layer(void *)
 {
@@ -914,14 +925,14 @@ void settings_layer(void *)
                                    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove;
     if (ImGui::Begin("Video Settings###zplayer_video", &open, flags))
     {
-#if !defined(__ANDROID__)
+#if !defined(__ANDROID__) && !defined(__SWITCH__)
         display_section(u, cur, sc);
-#endif // Android: the window always fills the screen (no modes, sizes, monitors)
+#endif // Android, Switch: the window always fills the screen (no modes, sizes, monitors)
         ImGui::Spacing();
         picture_section(u, cur, sc);
         ImGui::Spacing();
         interface_section(u, cur, sc);
-#ifndef ZC_ZQEDITOR
+#if !defined(ZC_ZQEDITOR) && !defined(__SWITCH__)
         touch_section(u, cur, sc);
 #endif
 
@@ -943,7 +954,7 @@ void settings_layer(void *)
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + gap);
         if (ImGui::Button("Close", ImVec2(close_w, 0)))
             u.close = true;
-#if !defined(__ANDROID__)
+#if !defined(__ANDROID__) && !defined(__SWITCH__)
         ImGui::TextDisabled("Alt+Enter switches between windowed and fullscreen at any time.");
 #endif
 
@@ -1023,6 +1034,10 @@ void zplayer_video_settings()
         }
         if (revert_now)
             zcdisplay::set(r);
+#if defined(__SWITCH__)
+        if (close_button_quit)   // HOME is closing the software
+            done = true;
+#endif
         if (done || !zcui::available())
             break;
     }

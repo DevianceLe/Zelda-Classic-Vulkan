@@ -224,9 +224,15 @@ std::vector<Place> drives()
     std::vector<Place> out;
     Place p;
     p.drive = true;
+#if defined(__SWITCH__)
+    p.label = "SD card";
+    p.detail = "sdmc:";
+    p.path = "sdmc:/";
+#else
     p.label = "/";
     p.detail = "File System";
     p.path = "/";
+#endif
     out.push_back(p);
     return out;
 }

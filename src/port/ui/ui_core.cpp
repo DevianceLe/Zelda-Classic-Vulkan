@@ -7,7 +7,12 @@
 #include "ui_platform.h"
 
 #include <imgui.h>
+#if defined(__SWITCH__)
+#include <switch.h>
+struct SDL_Window;   // no SDL on Switch: the context is fed by platform_switch.cpp
+#else
 #include <imgui_impl_sdl3.h>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -164,6 +169,16 @@ void load_fonts()
             f = io.Fonts->AddFontFromFileTTF(candidates[i]);
         }
     }
+#elif defined(__SWITCH__)
+    // The system's own font, from shared memory (it stays mapped for the run).
+    PlFontData data;
+    if(R_SUCCEEDED(plInitialize(PlServiceType_User)) &&
+       R_SUCCEEDED(plGetSharedFontByType(&data, PlSharedFontType_Standard)))
+    {
+        ImFontConfig cfg;
+        cfg.FontDataOwnedByAtlas = false;
+        f = io.Fonts->AddFontFromMemoryTTF(data.address, (int)data.size, 0.0f, &cfg);
+    }
 #endif
     if(!f)
         f = io.Fonts->AddFontDefault();
@@ -186,6 +201,12 @@ void make_context()
 
 float window_scale(SDL_Window *w)
 {
+#if defined(__SWITCH__)
+    // 720 lines, seen from a TV or at handheld distance: the same "about 540
+    // points of height" as phones.
+    (void)w;
+    return 720.0f / 540.0f;
+#else
     float s = w ? SDL_GetWindowDisplayScale(w) : 1.0f;
     if(!(s > 0.25f && s < 8.0f))
         s = 1.0f;
@@ -199,6 +220,7 @@ float window_scale(SDL_Window *w)
         s = std::min(s, std::max(1.0f, ph / 540.0f));
 #endif
     return s;
+#endif // __SWITCH__
 }
 
 // Restyles when the display scale or the user's factor changed (platform
@@ -213,6 +235,7 @@ void refresh_scale()
     }
 }
 
+#if !defined(__SWITCH__)
 bool is_mouse_event(Uint32 type)
 {
     return type == SDL_EVENT_MOUSE_MOTION || type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
@@ -249,6 +272,8 @@ bool is_input_event(Uint32 type)
         return false;
     }
 }
+
+#endif // !__SWITCH__
 
 // Optional self-test window (environment ZPLAYER_UI_TEST=1).
 void test_layer(void *)
@@ -381,6 +406,12 @@ void set_capture(bool mouse, bool keys)
 namespace zcui_platform
 {
 
+#if defined(__SWITCH__)
+bool attach()
+{
+    SDL_Window *window = NULL;
+    make_context();
+#else
 bool attach(SDL_Window *window)
 {
     make_context();
@@ -388,6 +419,7 @@ bool attach(SDL_Window *window)
         detach();
     if(!ImGui_ImplSDL3_InitForVulkan(window))
         return false;
+#endif
     g_window = window;
     float s = window_scale(window) * g_user_scale.load();
     g_scale = s;
@@ -408,7 +440,9 @@ void detach()
 {
     if(!g_attached)
         return;
+#if !defined(__SWITCH__)
     ImGui_ImplSDL3_Shutdown();
+#endif
     g_attached = false;
     g_window = NULL;
 }
@@ -418,6 +452,7 @@ void set_renderer_ready(bool ready)
     g_renderer_ready = ready;
 }
 
+#if !defined(__SWITCH__)
 bool event(const SDL_Event &ev)
 {
     if(!g_attached)
@@ -438,6 +473,7 @@ bool event(const SDL_Event &ev)
     }
     return zcui::session_active() && zcui::available() && is_input_event(ev.type);
 }
+#endif // !__SWITCH__
 
 bool wants_continuous()
 {
@@ -456,7 +492,9 @@ ImDrawData *build_frame()
     }
 
     refresh_scale();
+#if !defined(__SWITCH__)
     ImGui_ImplSDL3_NewFrame();
+#endif
     ImGui::NewFrame();
     {
         std::lock_guard<std::recursive_mutex> guard(g_ui_lock);

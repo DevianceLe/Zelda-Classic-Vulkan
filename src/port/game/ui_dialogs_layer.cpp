@@ -20,7 +20,9 @@
 
 #include <imgui.h>
 #include <imgui_internal.h>
+#if !defined(__SWITCH__)
 #include <SDL3/SDL.h>
+#endif
 
 #include <algorithm>
 #include <cctype>
@@ -1441,6 +1443,7 @@ void zcui_dlg::layer(void *)
         // The last dialog has closed: nothing below runs any more, so the text
         // input it asked for has to be switched off here. Left on, every letter
         // key also arrives as typed text during play.
+#if !defined(__SWITCH__)
         if(g_canvas_text)
         {
             g_canvas_text = false;
@@ -1450,6 +1453,7 @@ void zcui_dlg::layer(void *)
                 SDL_StopTextInput(windows[0]);
             SDL_free(windows);
         }
+#endif
         return;
     }
 
@@ -1494,7 +1498,9 @@ void zcui_dlg::layer(void *)
     // Letters reach a dialog as typed text: its shortcuts ("&Yes", "&No") and
     // a self-drawn text editor (ZQuest's script editor) need the system's text
     // input, which ImGui turns on only for its own fields. (On Android it
-    // would bring up the on-screen keyboard for every dialog.)
+    // would bring up the on-screen keyboard for every dialog. The Switch has
+    // no keyboard here and asks for the system's only on activating a field.)
+#if !defined(__SWITCH__)
     {
         HostDialog &last = *sh.stack.back();
         ImGuiIO &io = ImGui::GetIO();
@@ -1517,6 +1523,7 @@ void zcui_dlg::layer(void *)
         SDL_free(windows);
         g_canvas_text = want;
     }
+#endif
 
     if(dialogs)
         zcui::set_capture(false, false);

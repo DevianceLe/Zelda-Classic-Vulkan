@@ -46,6 +46,9 @@ std::string zcui_engine_tooltip(DIALOG *d);
 #endif
 #include "ui_dialogs.h"
 #include "ui_dialogs_internal.h"
+#if defined(__SWITCH__)
+extern bool close_button_quit;   // src/zelda.cpp
+#endif
 
 #include <atomic>
 #include <cstdarg>
@@ -1303,6 +1306,15 @@ int host_update(void *state, DIALOG_PLAYER *p)
         p->obj = -1;
         return FALSE;
     }
+
+#if defined(__SWITCH__)
+    // HOME is closing the software: the game has to get back to its loop.
+    if(close_button_quit)
+    {
+        p->obj = -1;
+        return FALSE;
+    }
+#endif
 
     if(st.overlay && screen)
         g_real_screen = screen;

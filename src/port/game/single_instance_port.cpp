@@ -9,10 +9,11 @@
 // - Android (here): the system starts at most one instance of the activity
 //   (SDL's template manifest declares it launchMode="singleInstance"), so
 //   there is never another one.
+// - Nintendo Switch (here): one homebrew application runs at a time.
 //
 // Written for zcport.
 
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) || defined(__SWITCH__)
 
 #include "single_instance.h"
 

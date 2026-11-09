@@ -6,12 +6,12 @@ Zelda Classic is a game engine and quest editor for making and playing custom ad
 
 | Program | What it is | Runs on |
 |---|---|---|
-| `zplayer` | The game. Plays 2.53, 2.55 and 3.0 Nightly quests. | Windows 10/11, Linux (64-bit), Android 8.0+ (in progress) |
+| `zplayer` | The game. Plays 2.53, 2.55 and 3.0 Nightly quests. | Windows 10/11, Linux (64-bit), Nintendo Switch (homebrew), Android 8.0+ (in progress) |
 | `zqeditor` | ZQuest, the quest editor. Edits quests up to 2.53.1. | Windows 10/11 |
 
 ## Downloads
 
-Get the latest Windows zip, Linux `.tar.gz` and Android APK from the [Releases page](https://github.com/DevianceLe/Zelda-Classic-Vulkan/releases/latest). Earlier builds are in [`downloads/`](downloads/).
+Get the latest Windows zip, Linux `.tar.gz`, Switch zip and Android APK from the [Releases page](https://github.com/DevianceLe/Zelda-Classic-Vulkan/releases/latest). Earlier builds are in [`downloads/`](downloads/).
 
 Want to know if a quest works? See the **[quest compatibility list](COMPATIBILITY.md)**.
 
@@ -38,6 +38,7 @@ What that means in practice:
 - ZQuest on SDL3 and Vulkan, with Large and Small layouts you can switch while it runs
 - 2.55 and 3.0 Nightly quest files, scripts of every type, music objects, and combo triggers in the player
 - The player on 64-bit Linux, tested on Debian 13 and Arch Linux with Mesa's software Vulkan driver
+- The player as Nintendo Switch homebrew, tested in the Eden emulator only
 
 **Written, but not yet confirmed in play on 2.55 and 3.0 Nightly quests**
 
@@ -69,6 +70,8 @@ zplayer -windowed -standalone "My Quest.qst"
 Put a quest's music next to the `.qst` file or in a `Music` folder beside it.
 
 On Linux, unpack the `.tar.gz` and run `./zplayer` from inside the folder. It's one build for nearly every current distribution: you need glibc 2.30 or newer, the Vulkan loader, and a Vulkan driver. ZQuest is Windows only for now.
+
+On Switch, copy the `switch` folder from the zip to the root of your SD card and start `zplayer` from the Homebrew Menu. Put your quests in `sdmc:/switch/zplayer/`.
 
 | Key | Button |
 |---|---|
@@ -110,6 +113,16 @@ cmake --build build --target zplayer
 
 The program is written to `build/zplayer`. It needs the same game data beside it, plus a General MIDI `soundfont.sf2` for MIDI music.
 
+The Switch build uses devkitPro's `devkitpro/devkita64` container:
+
+```bash
+cmake -S . -B build-switch -G Ninja -DCMAKE_TOOLCHAIN_FILE=/opt/devkitpro/cmake/Switch.cmake -DCMAKE_BUILD_TYPE=Release -DZC_ZPLAYER_ONLY=ON -DZC_BUILD_ZPLAYER=ON
+```
+
+```bash
+cmake --build build-switch --target zplayer_nro
+```
+
 ## Quest compatibility
 
 **[Quest compatibility list](COMPATIBILITY.md)**: the result for every quest in the PureZC collection, more than 800 quests.
@@ -140,7 +153,7 @@ The original Allegro `zelda` and `zquest` targets stay in the tree only as a ref
 
 ## Releasing
 
-Every push to `main` builds Windows, Android and Linux. To publish a new release:
+Every push to `main` builds Windows, Android, Linux and Nintendo Switch. To publish a new release:
 
 1. Change the number in `VERSION`.
 2. Update `packaging/RELEASE_NOTES.md`.

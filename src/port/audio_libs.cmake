@@ -47,6 +47,10 @@ target_compile_definitions(zc_gme PUBLIC VGM_YM2612_GENS ${_zc_gme_endian})
 target_compile_options(zc_gme PRIVATE ${_zc_audio_quiet})
 # GME needs C++11 (its own build uses 11); the top-level default is C++98.
 set_target_properties(zc_gme PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED ON)
+if(NINTENDO_SWITCH)
+    # Uses time_t without <time.h>; glibc's other headers happen to bring it in.
+    set_property(SOURCE ${ZC_THIRD_PARTY}/gme/gme/Hes_Emu.cpp APPEND PROPERTY COMPILE_OPTIONS -include time.h)
+endif()
 
 # --- DUMB ---------------------------------------------------------------------
 file(GLOB _zc_dumb_sources CONFIGURE_DEPENDS

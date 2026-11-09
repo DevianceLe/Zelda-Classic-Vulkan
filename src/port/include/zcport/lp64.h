@@ -55,8 +55,10 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#if !defined(__SWITCH__)  /* no Unix sockets in libnx, and the game doesn't need them there */
 #include <sys/socket.h>
 #include <sys/un.h>
+#endif
 #if __has_include(<alloca.h>)
 #include <alloca.h>
 #endif
@@ -134,6 +136,12 @@
 #if __has_include(<imgui.h>) && __cplusplus >= 201103L
 #include <imgui.h>
 #include <imgui_internal.h> /* pulls in the x86 intrinsics headers */
+#endif
+
+/* ---- newlib (Nintendo Switch) ------------------------------------------- */
+/* <ctype.h> defines _X as a macro; src/zc_array.h has parameters named _X. */
+#if defined(__SWITCH__)
+#undef _X
 #endif
 
 /* ---- Microsoft's rand() (zcport: foundation_rand.cpp) ------------------- */

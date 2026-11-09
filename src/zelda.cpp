@@ -4151,6 +4151,16 @@ void delete_everything_else() //blarg.
     
 }
 
+#if defined(__SWITCH__)
+// src/port/platform/platform_switch.cpp, when HOME closes the software and the
+// game doesn't get back to its loop in time.
+extern "C" void zplayer_switch_final_save(void)
+{
+    save_savedgames();
+    save_game_configs();
+}
+#endif
+
 void quit_game()
 {
     script_drawing_commands.Dispose(); //for allegro bitmaps

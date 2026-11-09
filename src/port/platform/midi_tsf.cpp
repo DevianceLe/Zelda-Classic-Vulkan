@@ -1,5 +1,6 @@
 // zcport SDL platform: MIDI through TinySoundFont, for systems with no system
-// synthesizer (Android and Linux).
+// synthesizer (Android and Linux; also built, without SDL, for the Nintendo
+// Switch platform, platform_switch.cpp).
 //
 // Plays the channel messages of the MIDI player (src/port/al/platform_sound.cpp)
 // on the General MIDI soundfont "soundfont.sf2" in the game folder. Without
@@ -15,12 +16,20 @@
 //
 // Written from scratch for zcport (no Allegro code).
 
+#if !defined(__SWITCH__)
 #include "platform_sdl_internal.h"
+#endif
 #include "zcport/midi_backend.h"
 
-#if defined(__ANDROID__) || defined(__linux__)
+#if defined(__ANDROID__) || defined(__linux__) || defined(__SWITCH__)
 
+#if defined(__SWITCH__)
+#include <stdio.h>
+namespace zcport_sdl { const ZCPORT_MIDI_BACKEND *midi_backend(); }
+#define SDL_Log(...) do { fprintf(stderr, __VA_ARGS__); fputc('\n', stderr); } while (0)
+#else
 #include <SDL3/SDL.h>
+#endif
 
 #include <atomic>
 #include <cstring>
@@ -208,4 +217,4 @@ const ZCPORT_MIDI_BACKEND *zcport_sdl::midi_backend()
    return &g_tsf_backend;
 }
 
-#endif // Android or Linux
+#endif // Android, Linux or Switch

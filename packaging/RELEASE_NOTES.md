@@ -1,6 +1,7 @@
 ## What's new
 
 - **Linux build of the player** (64-bit). One download for nearly every current distribution: it needs glibc 2.30 or newer, the Vulkan loader and a Vulkan driver. ZQuest is still Windows only
+- **Nintendo Switch homebrew build of the player**, with its own graphics path and controller-driven menus. Copy the `switch` folder to your SD card. ZQuest isn't part of it
 - The window title now shows the quest's name and the ZC version it was built with
 - Many more 2.55 and 3.0 Nightly scripts work. Scripts were reading 0 from most of the newer engine values, including `Distance()`, whenever no sprite was selected, and combo scripts couldn't read their own combo
 - Fixed crashes in Mitches Fault II, Infinite Quest and I am mad day 2
@@ -19,7 +20,8 @@ Every quest in the PureZC collection was run through a test that visits every sc
 - Lifting, the switch hook, new dark rooms and some new combo types have not been confirmed in play
 - Linux has been tested on Debian 13 and Arch Linux, in virtual machines with a software Vulkan driver, so real graphics cards and controllers are untested
 - The Android app starts, but 2.55 and 3.0 Nightly quests have not been tested on Android yet
+- The Switch build has only been tested in the Eden emulator, not on a real Switch
 
 The full list is on the [compatibility page](https://github.com/DevianceLe/Zelda-Classic-Vulkan/blob/main/COMPATIBILITY.md#what-still-doesnt-work).
 
-On Windows, unzip the download somewhere you can write to, then run `zplayer.exe` or `zqeditor.exe`. On Linux, unpack the `.tar.gz` and run `./zplayer` from inside the folder.
+On Windows, unzip the download somewhere you can write to, then run `zplayer.exe` or `zqeditor.exe`. On Linux, unpack the `.tar.gz` and run `./zplayer` from inside the folder. On Switch, copy the `switch` folder from the zip to your SD card and start it from the Homebrew Menu.
