@@ -25,7 +25,7 @@ What that means in practice:
 
 1. **2.53 quests never change.** A 2.53 quest plays exactly as it always has. A 2.53 quest saved here still opens in the original Zelda Classic 2.53.
 2. **Modern foundations.** SDL3 for windows, input and audio, Vulkan for graphics, and our own compatibility layer instead of Allegro.
-3. **Everywhere people play.** Windows and Linux today, Android next.
+3. **Everywhere people play.** Windows, Linux and Nintendo Switch homebrew today, Android next.
 4. **Every generation of quest.** The player runs 2.55 and 3.0 Nightly quests alongside 2.53 ones, and it never saves a newer quest as an older one.
 5. **An editor for all of it.** ZQuest will become the place where quests convert between the older and newer formats, in both directions.
 
@@ -167,7 +167,7 @@ Zelda Classic has been a community effort since 1999. Thank you to everyone belo
 
 ### This port
 
-- **Deviance**: SDL3 and Vulkan port, Android port, and 2.55 and 3.0 Nightly quest support
+- **Deviance**: SDL3 and Vulkan port, Android, Linux and Nintendo Switch ports, and 2.55 and 3.0 Nightly quest support
 
 ### Creators
 
@@ -226,6 +226,8 @@ These come from the ZQuestClassic project under its own terms, which are include
 | [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) and [glslang](https://github.com/KhronosGroup/glslang) | The Khronos Group |
 | [volk](https://github.com/zeux/volk) | Arseny Kapoulkine |
 | [Dear ImGui](https://github.com/ocornut/imgui) | Omar Cornut and contributors |
+| [libnx](https://github.com/switchbrew/libnx) and the devkitPro Switch toolchain | switchbrew and devkitPro |
+| [Mesa](https://www.mesa3d.org/) (OpenGL ES on Switch) | The Mesa contributors |
 | [stb_vorbis](https://github.com/nothings/stb) | Sean Barrett |
 | [minimp3](https://github.com/lieff/minimp3) | lieff |
 | [Game_Music_Emu](https://github.com/libgme/game-music-emu) | Shay Green (blargg) and the libgme maintainers |
@@ -241,4 +243,4 @@ These come from the ZQuestClassic project under its own terms, which are include
 
 Zelda Classic is released under the [GNU General Public License v3](license.txt). Bundled libraries keep their own licenses, found in their folders and in the `licenses` folder of each release.
 
-*The Legend of Zelda* is a trademark of Nintendo. This is an unofficial fan project, not affiliated with or endorsed by Nintendo.
+*The Legend of Zelda* and Nintendo Switch are trademarks of Nintendo. This is an unofficial fan project, not affiliated with or endorsed by Nintendo.
