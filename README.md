@@ -13,6 +13,8 @@ Zelda Classic is a game engine and quest editor for making and playing custom ad
 
 Get the latest Windows zip and Android APK from the [Releases page](https://github.com/DevianceLe/Zelda-Classic-Vulkan/releases/latest). Earlier builds are in [`downloads/`](downloads/).
 
+Want to know if a quest works? See the **[quest compatibility list](COMPATIBILITY.md)**.
+
 ## Mission statement
 
 > **Keep Zelda Classic alive on modern machines without breaking a single quest.**
@@ -87,42 +89,14 @@ The Android player is a Gradle project in [`android/`](android/). It targets `ar
 
 ## Quest compatibility
 
+**[Quest compatibility list](COMPATIBILITY.md)**: the result for every quest in the PureZC collection, more than 800 quests.
+
 | Quest made in | Player | ZQuest |
 |---|---|---|
 | 2.53.1 and earlier | Plays exactly as before | Opens and saves as 2.53 |
 | 2.55 and 3.0 Nightlies | Plays; never saved as an older quest | Refused for now |
 
 Every change has to pass the 2.53 checks. Re-saved reference quests must match byte for byte, and [replays](tests/replay/) must produce identical frames.
-
-## Quests tested so far
-
-**[COMPATIBILITY.md](COMPATIBILITY.md) has the result for every quest in the PureZC collection, more than 800 quests.** The tables below are the ones played by hand.
-
-**2.55 and 3.0 Nightly quests, in the player**
-
-| Quest | Format | What has been played |
-|---|---|---|
-| Mystical Harps (T.L.O.Z. IV) | 3.0 Nightly | Intro, title, new game, first areas, walking, scrolling and swimming, with its full music folder |
-| Tranquil Expression | 3.0 Nightly | Full opening, title, house scene and dialogue, item screen |
-| Herald of Calamity (Demo) | 2.55 | Title, gameplay, script-driven enemies, combat, item screen, save and reload |
-| Cambria: The Lost Worlds | 2.55 | Opening |
-| Shadow Knight | 2.55 | Opening |
-| Alarm Clock (ZScript example) | 2.55 | Clock shows the real time |
-
-Every section of these six quest files reads without errors. They are mostly opening-area tests, so none has been played to the end.
-
-**2.53 and older quests**
-
-| Quest | Format | Result |
-|---|---|---|
-| 1st Quest | 2.53 | Identical frames across a 2,478-frame replay; re-save byte-identical |
-| 2nd Quest | 2.53 | Re-save byte-identical |
-| 5th Quest | 2.53 | Re-save byte-identical |
-| Dream's Realm | 2.53 | Re-save byte-identical; loads on Windows; plays into its opening on Android |
-| The Legend of Revali | 2.53 | Loads and starts; frame comparison not finished |
-| De Legend uh Zelda: Fall uh de Honky Pig | 1.90 | Plays |
-
-The 3rd and 4th Quests have not been tested on this port yet.
 
 ## Repository layout
 
