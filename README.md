@@ -1,0 +1,213 @@
+# Zelda Classic 2.53.444 Vulkan
+
+Zelda Classic is a game engine and quest editor for making and playing custom adventures in the style of the original *The Legend of Zelda*. This repository is a community fork of Zelda Classic 2.53, rebuilt to run on SDL3 and Vulkan.
+
+| Program | What it is | Runs on |
+|---|---|---|
+| `zplayer` | The game. Plays 2.53, 2.55 and 3.0 Nightly quests. | Windows 10/11, Android 8.0+ (in progress) |
+| `zqeditor` | ZQuest, the quest editor. Edits quests up to 2.53.2. | Windows 10/11 |
+
+## Downloads
+
+| File | What it is |
+|---|---|
+| [ZCZQ-2.53.444.0-Vulkan-Windows-x86.zip](ZCZQ-2.53.444.0-Vulkan-Windows-x86.zip) | **Latest release, 2.53.444.0.** ZPlayer, ZQuest, game data and licenses for Windows |
+| [ZC-2.53.444.0-Vulkan-Source.zip](ZC-2.53.444.0-Vulkan-Source.zip) | Complete source code for that release |
+| [ZC-2.53.333.0-Vulkan-Android.apk](ZC-2.53.333.0-Vulkan-Android.apk) | Latest Android build, 2.53.333.0. It came before 2.55 and 3.0 Nightly support |
+| [ZCZQ-2.53.333.0-Vulkan-Windows-x86.zip](ZCZQ-2.53.333.0-Vulkan-Windows-x86.zip) and [source](ZC-2.53.333.0-Vulkan-Source.zip) | Previous Windows release |
+
+## Mission statement
+
+> **Keep Zelda Classic alive on modern machines without breaking a single quest.**
+>
+> The quests this community has made over more than twenty-five years are the reason this engine matters, so they come first. We are rebuilding the classic 2.53 engine on modern technology, with no Allegro left in it, so it runs well on today's PCs and on Android. On that foundation we are bringing in the newer work from the ZQuestClassic project, so one engine can play every generation of quest.
+
+What that means in practice:
+
+1. **2.53 quests never change.** A 2.53 quest plays exactly as it always has. A 2.53 quest saved here still opens in the original Zelda Classic 2.53.
+2. **Modern foundations.** SDL3 for windows, input and audio, Vulkan for graphics, and our own compatibility layer instead of Allegro.
+3. **Everywhere people play.** Windows today, Android next.
+4. **Every generation of quest.** The player runs 2.55 and 3.0 Nightly quests alongside 2.53 ones, and it never saves a newer quest as an older one.
+5. **An editor for all of it.** ZQuest will become the place where quests convert between the older and newer formats, in both directions.
+
+## Project status
+
+**Working**
+
+- Vulkan rendering with window sizes, resolutions, scaling and fullscreen modes
+- New Dear ImGui menus, dialogs and file browser in the player and the editor
+- ZQuest on SDL3 and Vulkan, with Large and Small layouts you can switch while it runs
+- 2.55 and 3.0 Nightly quest files, scripts of every type, music objects, and combo triggers in the player
+
+**Written, but not yet confirmed in play on 2.55 and 3.0 Nightly quests**
+
+- Lifting and throwing, switch hook, new dark rooms, torches and lantern
+- Ice, push blocks, new mirrors, screen tints, light beams, bridges and pitfalls
+- Script file, directory and stack commands
+
+**Still to do**
+
+- Slopes and z-heights
+- Subscreen widget script commands
+- Saving global script variables past 255
+- The 2.55/3.0 Nightly editor. Until it exists, ZQuest refuses quests newer than 2.53.2 and closes. The player still plays them.
+
+## Getting started
+
+Download `ZCZQ-2.53.444.0-Vulkan-Windows-x86.zip`, unzip it somewhere you can write to (not Program Files), and run `zplayer.exe` or `zqeditor.exe`. You need a graphics driver with Vulkan support.
+
+To play a quest directly:
+
+```bash
+zplayer -windowed -standalone "My Quest.qst"
+```
+
+Put a quest's music next to the `.qst` file or in a `Music` folder beside it.
+
+| Key | Button |
+|---|---|
+| Arrows | Move |
+| Z | A |
+| X | B |
+| Enter | Start |
+| Space | Map |
+
+## Building from source
+
+Unzip `ZC-2.53.444.0-Vulkan-Source.zip`. You need Visual Studio 2022 with the x86 C++ tools, and CMake. Flex and Bison for Windows are included. Run these from PowerShell in the unzipped folder:
+
+```bash
+cmake -S . -B build -G "Visual Studio 17 2022" -A Win32 -DBISON_EXECUTABLE="$PWD/other/winflex/win_bison.exe" -DFLEX_EXECUTABLE="$PWD/other/winflex/win_flex.exe"
+```
+
+```bash
+cmake --build build --config Release --target zplayer zqeditor
+```
+
+The programs are written to `build/Release`. They need the game data beside them (`zelda.dat`, `zquest.dat`, `sfx.dat`, `fonts.dat`, `qst.dat` and the default quests), which you can copy from a release zip.
+
+The Android player is a Gradle project in `android/`. It targets `arm64-v8a` and `x86_64`.
+
+## Quest compatibility
+
+| Quest made in | Player | ZQuest |
+|---|---|---|
+| 2.53.2 and earlier | Plays exactly as before | Opens and saves as 2.53 |
+| 2.54, 2.55 and 3.0 Nightlies | Plays; never saved as an older quest | Refused for now |
+
+Every change has to pass the 2.53 checks. Re-saved reference quests must match byte for byte, and replays in `tests/replay/` must produce identical frames.
+
+## Quests tested so far
+
+**2.55 and 3.0 Nightly quests, in the player**
+
+| Quest | Format | What has been played |
+|---|---|---|
+| Mystical Harps (T.L.O.Z. IV) | 3.0 Nightly | Intro, title, new game, first areas, walking, scrolling and swimming, with its full music folder |
+| Tranquil Expression | 3.0 Nightly | Full opening, title, house scene and dialogue, item screen |
+| Herald of Calamity (Demo) | 2.55 | Title, gameplay, script-driven enemies, combat, item screen, save and reload |
+| Cambria: The Lost Worlds | 2.55 | Opening |
+| Shadow Knight | 2.55 | Opening |
+| Alarm Clock (ZScript example) | 2.55 | Clock shows the real time |
+
+Every section of these six quest files reads without errors. They are mostly opening-area tests, so none has been played to the end.
+
+**2.53 and older quests**
+
+| Quest | Format | Result |
+|---|---|---|
+| 1st Quest | 2.53 | Identical frames across a 2,478-frame replay; re-save byte-identical |
+| 2nd Quest | 2.53 | Re-save byte-identical |
+| 5th Quest | 2.53 | Re-save byte-identical |
+| Dream's Realm | 2.53 | Re-save byte-identical; loads on Windows; plays into its opening on Android |
+| The Legend of Revali | 2.53 | Loads and starts; frame comparison not finished |
+| De Legend uh Zelda: Fall uh de Honky Pig | 1.90 | Plays |
+
+The 3rd and 4th Quests have not been tested on this port yet.
+
+## Source layout
+
+| Path | What is in it |
+|---|---|
+| `src/` | The game and editor code |
+| `src/port/` | The SDL3 and Vulkan port, including our Allegro replacement |
+| `src/port/game/` | Readers and engine code for 2.55 and 3.0 Nightly quests |
+| `android/` | Android project |
+| `third_party/` | Bundled libraries (details in `third_party/README.md`) |
+| `tests/replay/` | Recorded play-throughs and their expected frame hashes |
+| `docs/` | Notes on the port |
+
+The original Allegro `zelda` and `zquest` targets stay in the tree only as a reference build to measure the port against.
+
+## Credits
+
+Zelda Classic has been a community effort since 1999. Thank you to everyone below. Some people appear under more than one name, and if we have missed you or got something wrong, please tell us.
+
+### This port
+
+- **Deviance**: SDL3 and Vulkan port, Android port, and 2.55 and 3.0 Nightly quest support
+
+### Creators
+
+- **Phantom Menace** (Jeremy Craner): creator of Zelda Classic
+- **War Lord**: co-creator of the original "Zelda DX"
+- **Armageddon Games**: producers of Zelda Classic
+- **Wild Bill**: founder of PureZC.net
+
+### Zelda Classic development team
+
+As listed in the game's own credits:
+
+Dark Nation, DarkDragon, Deviance, fatcatfan, Gleeok, jman2050, Joe123, \_L\_, pkmnfrk, Saffith, Takuya
+
+### ZQuestClassic
+
+Current main developers: **Emily** (EmilyV99) and **Connor Clark** (connorjclark)
+
+Contributors listed by the ZQuestClassic project:
+
+Deathrider, Deedee, Etienne Vouga (evouga), Glenn, grayswandir, KoolAidWannaBe, Lexi Mayfield (leximayfield), Meroune Lorelie, Moosh (Moosh64), NightmareJames, P-Tux7, Peter Hull, SyrianBallaS, Tamamo No Mae, teilyr, Timelord
+
+### GitHub contributors
+
+To the [Zelda Classic](https://github.com/ArmageddonGames/ZeldaClassic) and [ZQuestClassic](https://github.com/ZQuestClassic/ZQuestClassic) repositories, beyond the names above:
+
+arceusplayer11, Jambu2024, kasryan, Nekohime89, pedro-w, PlanNineFromOuterSpace, Rekiron, Renkoto, ShinjiniGuha07, thican, wilsonpe66, zeromus, ZoriaRPG
+
+### Also credited in the changelogs and source
+
+| Name | Credited for |
+|---|---|
+| koopa, pikaguy900 | Changelog entries |
+| \*b\* | Intro picture |
+| AmazingAmpharos, zcAmazing | Default quest and template fixes |
+| BigJoe | Winning 5th Quest contest entry |
+| Dan Furst | Script for the 1st Quest |
+| Lut | Bug reports |
+| Pokegamer1989 | Magic meter tiles and template fixes |
+| Midnight | Original code behind the intro logo |
+
+### Libraries and tools
+
+| Project | By |
+|---|---|
+| [SDL3](https://github.com/libsdl-org/SDL) | Sam Lantinga and the SDL contributors |
+| [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) and [glslang](https://github.com/KhronosGroup/glslang) | The Khronos Group |
+| [volk](https://github.com/zeux/volk) | Arseny Kapoulkine |
+| [Dear ImGui](https://github.com/ocornut/imgui) | Omar Cornut and contributors |
+| [stb_vorbis](https://github.com/nothings/stb) | Sean Barrett |
+| [minimp3](https://github.com/lieff/minimp3) | lieff |
+| [Game_Music_Emu](https://github.com/libgme/game-music-emu) | Shay Green (blargg) and the libgme maintainers |
+| [DUMB](https://github.com/kode54/dumb) | Ben Davis and contributors |
+| [TinySoundFont](https://github.com/schellingb/TinySoundFont) | Bernhard Schelling |
+| GeneralUser GS SoundFont | S. Christian Collins |
+| [Allegro](https://liballeg.org/) | Shawn Hargreaves and the Allegro contributors, for the library Zelda Classic was built on and the reference build still uses |
+| MD5 implementation | Colin Plumb |
+| Flex and Bison (WinFlexBison) | Their respective authors |
+| antimicro | Travis Nickles |
+
+## License
+
+Zelda Classic is released under the GNU General Public License v3 (`license.txt` in the source zip). Bundled libraries keep their own licenses, found in their folders and in the `licenses` folder of each release.
+
+*The Legend of Zelda* is a trademark of Nintendo. This is an unofficial fan project, not affiliated with or endorsed by Nintendo.
