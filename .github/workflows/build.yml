@@ -96,6 +96,10 @@ jobs:
     steps:
       - name: Install build tools
         run: |
+          # Debian 11's security and update packages are being removed from the mirrors
+          # (404s), and only the release itself is needed to build.
+          rm -f /etc/apt/sources.list.d/*
+          echo 'deb http://deb.debian.org/debian bullseye main' > /etc/apt/sources.list
           apt-get update
           apt-get install -y --no-install-recommends git ca-certificates build-essential cmake ninja-build pkg-config \
             flex bison python3 libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev \
