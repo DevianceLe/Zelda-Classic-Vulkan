@@ -1,0 +1,5 @@
+# Game data and shipped notes stay byte-exact.
+packaging/** -text
+
+# Kept out of GitHub's source downloads.
+downloads/** export-ignore

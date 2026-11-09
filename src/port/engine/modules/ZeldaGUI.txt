@@ -1,0 +1,36 @@
+## Source list for Zelda GUI module
+set(ZELDA_GUI_SOURCES
+
+################################
+# Add or remove files here
+################################
+src/play_midi.cpp
+src/zc/decorations.cpp
+src/zc/ending.cpp
+src/zc/matrix.cpp
+src/pal.cpp
+src/zc/title.cpp
+src/zc/title_halloween.cpp
+src/hero_tiles.cpp
+
+src/zc_list_data.cpp
+src/dialog/checklist.cpp
+
+src/dialog/init_data.cpp
+src/zc/dialog/cheat_dialog.cpp
+src/zc/dialog/control_binding.cpp
+src/zc/dialog/control_schemes.cpp
+src/zc/dialog/volume_dlg.cpp
+src/dialog/info.cpp
+src/dialog/alert.cpp
+src/dialog/vidmode.cpp
+src/dialog/numpick.cpp
+src/dialog/text_prompt.cpp
+src/dialog/ditherpick.cpp
+src/zc/dialog/zc_options.cpp
+src/zc/dialog/zc_midi_dlg.cpp
+src/zc/dialog/warp_cheat_picker.cpp
+src/zc/dialog/zc_screen_saver.cpp
+
+## End of Zelda GUI module
+)

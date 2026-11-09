@@ -1,0 +1,5891 @@
+[
+ {
+  "name": "V3D_f",
+  "kind": "type",
+  "header": "allegro/3d.h",
+  "sig": "struct",
+  "uses": 14,
+  "files": [
+   "script_drawing.cpp"
+  ]
+ },
+ {
+  "name": "OLD_FILESEL_HEIGHT",
+  "kind": "macro",
+  "header": "allegro/alcompat.h",
+  "sig": "-1",
+  "uses": 6,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "OLD_FILESEL_WIDTH",
+  "kind": "macro",
+  "header": "allegro/alcompat.h",
+  "sig": "-1",
+  "uses": 3,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "SEND_MESSAGE",
+  "kind": "macro",
+  "header": "allegro/alcompat.h",
+  "sig": "object_message",
+  "uses": 5,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "callback",
+  "kind": "var",
+  "header": "allegro/alcompat.h",
+  "sig": "AL_METHOD(void, callback",
+  "uses": 6,
+  "files": [
+   "jwin.cpp",
+   "jwin.h"
+  ]
+ },
+ {
+  "name": "FALSE",
+  "kind": "macro",
+  "header": "allegro/base.h",
+  "sig": "0",
+  "uses": 48,
+  "files": [
+   "ffscript.cpp",
+   "jwin.cpp",
+   "jwinfsel.cpp",
+   "subscr.cpp",
+   "tab_ctl.cpp",
+   "zcmusic.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "MAX",
+  "kind": "macro",
+  "header": "allegro/base.h",
+  "sig": "(x,y) (((x) > (y)) ? (x) : (y))",
+  "uses": 12,
+  "files": [
+   "jwin.cpp",
+   "qst.cpp"
+  ]
+ },
+ {
+  "name": "MID",
+  "kind": "macro",
+  "header": "allegro/base.h",
+  "sig": "(x,y,z) ((x) > (y) ? ((y) > (z) ? (y) : ((x) > (z) ?                            (z) : (x",
+  "uses": 6,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "MIN",
+  "kind": "macro",
+  "header": "allegro/base.h",
+  "sig": "(x,y) (((x) < (y)) ? (x) : (y))",
+  "uses": 8,
+  "files": [
+   "aglogo.cpp",
+   "jwin.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "TRUE",
+  "kind": "macro",
+  "header": "allegro/base.h",
+  "sig": "-1",
+  "uses": 41,
+  "files": [
+   "ffscript.cpp",
+   "jwin.cpp",
+   "jwinfsel.cpp",
+   "subscr.cpp",
+   "zc_sys.cpp",
+   "zcmusic.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "allegro_errno",
+  "kind": "var",
+  "header": "allegro/base.h",
+  "sig": "AL_VAR(int *, allegro_errno",
+  "uses": 3,
+  "files": [
+   "gui.cpp",
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "bestfit_color",
+  "kind": "func",
+  "header": "allegro/color.h",
+  "sig": "int bestfit_color(AL_CONST PALETTE pal, int r, int g, int b)",
+  "uses": 1,
+  "files": [
+   "colors.cpp"
+  ]
+ },
+ {
+  "name": "create_rgb_table",
+  "kind": "func",
+  "header": "allegro/color.h",
+  "sig": "void create_rgb_table(RGB_MAP *table, AL_CONST PALETTE pal, AL_METHOD(void, callback, (int pos)))",
+  "uses": 3,
+  "files": [
+   "pal.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "fade_interpolate",
+  "kind": "func",
+  "header": "allegro/color.h",
+  "sig": "void fade_interpolate(AL_CONST PALETTE source, AL_CONST PALETTE dest, PALETTE output, int pos, int from, int to)",
+  "uses": 15,
+  "files": [
+   "aglogo.cpp",
+   "link.cpp",
+   "pal.cpp",
+   "title.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "get_color",
+  "kind": "func",
+  "header": "allegro/color.h",
+  "sig": "void get_color(int idx, RGB *p)",
+  "uses": 1,
+  "files": [
+   "EditboxView.cpp"
+  ]
+ },
+ {
+  "name": "get_palette",
+  "kind": "func",
+  "header": "allegro/color.h",
+  "sig": "void get_palette(PALETTE p)",
+  "uses": 4,
+  "files": [
+   "jwin.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "makecol",
+  "kind": "func",
+  "header": "allegro/color.h",
+  "sig": "int makecol(int r, int g, int b)",
+  "uses": 25,
+  "files": [
+   "EditboxView.cpp",
+   "jwin.cpp",
+   "maps.cpp",
+   "tab_ctl.cpp"
+  ]
+ },
+ {
+  "name": "set_color",
+  "kind": "func",
+  "header": "allegro/color.h",
+  "sig": "void set_color(int idx, AL_CONST RGB *p)",
+  "uses": 4,
+  "files": [
+   "matrix.cpp"
+  ]
+ },
+ {
+  "name": "set_palette",
+  "kind": "func",
+  "header": "allegro/color.h",
+  "sig": "void set_palette(AL_CONST PALETTE p)",
+  "uses": 11,
+  "files": [
+   "aglogo.cpp",
+   "title.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "set_palette_range",
+  "kind": "func",
+  "header": "allegro/color.h",
+  "sig": "void set_palette_range(AL_CONST PALETTE p, int from, int to, int retracesync)",
+  "uses": 8,
+  "files": [
+   "aglogo.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "set_trans_blender",
+  "kind": "func",
+  "header": "allegro/color.h",
+  "sig": "void set_trans_blender(int r, int g, int b, int a)",
+  "uses": 1,
+  "files": [
+   "subscr.cpp"
+  ]
+ },
+ {
+  "name": "COLOR_MAP",
+  "kind": "type",
+  "header": "allegro/color.h",
+  "sig": "typedef",
+  "uses": 12,
+  "files": [
+   "colors.cpp",
+   "colors.h",
+   "link.cpp",
+   "pal.cpp",
+   "tiles.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp",
+   "zelda.h",
+   "zq_cset.h",
+   "zquest.h"
+  ]
+ },
+ {
+  "name": "RGB_MAP",
+  "kind": "type",
+  "header": "allegro/color.h",
+  "sig": "typedef",
+  "uses": 11,
+  "files": [
+   "jwin.cpp",
+   "jwin.h",
+   "tiles.cpp",
+   "zelda.cpp",
+   "zelda.h",
+   "zq_cset.h",
+   "zquest.h"
+  ]
+ },
+ {
+  "name": "black_palette",
+  "kind": "var",
+  "header": "allegro/color.h",
+  "sig": "AL_VAR(PALETTE, black_palette",
+  "uses": 19,
+  "files": [
+   "aglogo.cpp",
+   "link.cpp",
+   "pal.cpp",
+   "title.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "palette_color",
+  "kind": "var",
+  "header": "allegro/color.h",
+  "sig": "AL_VAR(int *, palette_color",
+  "uses": 38,
+  "files": [
+   "init.cpp",
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "rgb_map",
+  "kind": "var",
+  "header": "allegro/color.h",
+  "sig": "AL_VAR(RGB_MAP *, rgb_map",
+  "uses": 3,
+  "files": [
+   "colors.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "RLE_SPRITE",
+  "kind": "type",
+  "header": "allegro/compiled.h",
+  "sig": "struct",
+  "uses": 4,
+  "files": [
+   "aglogo.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "flush_config_file",
+  "kind": "func",
+  "header": "allegro/config.h",
+  "sig": "void flush_config_file(void)",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "get_config_int",
+  "kind": "func",
+  "header": "allegro/config.h",
+  "sig": "int get_config_int(AL_CONST char *section, AL_CONST char *name, int def)",
+  "uses": 177,
+  "files": [
+   "aglogo.cpp",
+   "ending.cpp",
+   "ffscript.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "get_config_string",
+  "kind": "func",
+  "header": "allegro/config.h",
+  "sig": "AL_CONST char * get_config_string(AL_CONST char *section, AL_CONST char *name, AL_CONST char *def)",
+  "uses": 4,
+  "files": [
+   "zc_sys.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "get_config_text",
+  "kind": "func",
+  "header": "allegro/config.h",
+  "sig": "AL_CONST char * get_config_text(AL_CONST char *msg)",
+  "uses": 6,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "set_config_file",
+  "kind": "func",
+  "header": "allegro/config.h",
+  "sig": "void set_config_file(AL_CONST char *filename)",
+  "uses": 3,
+  "files": [
+   "zc_sys.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "set_config_int",
+  "kind": "func",
+  "header": "allegro/config.h",
+  "sig": "void set_config_int(AL_CONST char *section, AL_CONST char *name, int val)",
+  "uses": 92,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "set_config_string",
+  "kind": "func",
+  "header": "allegro/config.h",
+  "sig": "void set_config_string(AL_CONST char *section, AL_CONST char *name, AL_CONST char *val)",
+  "uses": 3,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "load_datafile",
+  "kind": "func",
+  "header": "allegro/datafile.h",
+  "sig": "DATAFILE * load_datafile(AL_CONST char *filename)",
+  "uses": 3,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "register_bitmap_file_type",
+  "kind": "func",
+  "header": "allegro/datafile.h",
+  "sig": "void register_bitmap_file_type(AL_CONST char *ext, AL_METHOD(struct BITMAP *, load, (AL_CONST char *filename, struct RGB *pal)), AL_METHOD(int, save, (AL_CONST char *filename, struct BITMAP *bmp, AL_CONST struct RGB *pal)))",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "save_bitmap",
+  "kind": "func",
+  "header": "allegro/datafile.h",
+  "sig": "int save_bitmap(AL_CONST char *filename, struct BITMAP *bmp, AL_CONST struct RGB *pal)",
+  "uses": 4,
+  "files": [
+   "zc_sys.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "save_bmp",
+  "kind": "func",
+  "header": "allegro/datafile.h",
+  "sig": "int save_bmp(AL_CONST char *filename, struct BITMAP *bmp, AL_CONST struct RGB *pal)",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "DAT_BITMAP",
+  "kind": "macro",
+  "header": "allegro/datafile.h",
+  "sig": "DAT_ID('B','M','P',' ')",
+  "uses": 1,
+  "files": [
+   "aglogo.cpp"
+  ]
+ },
+ {
+  "name": "DAT_ID",
+  "kind": "macro",
+  "header": "allegro/datafile.h",
+  "sig": "(a,b,c,d) AL_ID(a,b,c,d)",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "DAT_RLE_SPRITE",
+  "kind": "macro",
+  "header": "allegro/datafile.h",
+  "sig": "DAT_ID('R','L','E',' ')",
+  "uses": 1,
+  "files": [
+   "aglogo.cpp"
+  ]
+ },
+ {
+  "name": "DATAFILE",
+  "kind": "type",
+  "header": "allegro/datafile.h",
+  "sig": "struct",
+  "uses": 12,
+  "files": [
+   "aglogo.cpp",
+   "aglogo.h",
+   "qst.cpp",
+   "title.cpp",
+   "zelda.cpp",
+   "zelda.h",
+   "zquest.h"
+  ]
+ },
+ {
+  "name": "load",
+  "kind": "var",
+  "header": "allegro/datafile.h",
+  "sig": "AL_METHOD(void *, load",
+  "uses": 2,
+  "files": [
+   "zcmusic.cpp",
+   "zq_class.h"
+  ]
+ },
+ {
+  "name": "save",
+  "kind": "var",
+  "header": "allegro/datafile.h",
+  "sig": "AL_METHOD(int, save",
+  "uses": 1,
+  "files": [
+   "zq_class.h"
+  ]
+ },
+ {
+  "name": "al_trace",
+  "kind": "func",
+  "header": "allegro/debug.h",
+  "sig": "void al_trace(AL_CONST char *msg, ...)",
+  "uses": 113,
+  "files": [
+   "ffscript.cpp",
+   "gamedata.cpp",
+   "guys.cpp",
+   "link.cpp",
+   "maps.cpp",
+   "qst.cpp",
+   "script_drawing.cpp",
+   "tiles.cpp",
+   "win32.cpp",
+   "zc_array.h",
+   "zcmusic.cpp",
+   "zelda.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "register_trace_handler",
+  "kind": "func",
+  "header": "allegro/debug.h",
+  "sig": "void register_trace_handler(AL_METHOD(int, handler, (AL_CONST char *msg)))",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "ASSERT",
+  "kind": "macro",
+  "header": "allegro/debug.h",
+  "sig": "(condition) { if (!(condition)) al_assert(__FILE__, __LINE__); }",
+  "uses": 118,
+  "files": [
+   "gui.cpp",
+   "jwin.cpp",
+   "jwinfsel.cpp",
+   "subscr.cpp",
+   "tab_ctl.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "allocate_voice",
+  "kind": "func",
+  "header": "allegro/digi.h",
+  "sig": "int allocate_voice(AL_CONST SAMPLE *spl)",
+  "uses": 3,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "deallocate_voice",
+  "kind": "func",
+  "header": "allegro/digi.h",
+  "sig": "void deallocate_voice(int voice)",
+  "uses": 3,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "play_sample",
+  "kind": "func",
+  "header": "allegro/digi.h",
+  "sig": "int play_sample(AL_CONST SAMPLE *spl, int vol, int pan, int freq, int loop)",
+  "uses": 1,
+  "files": [
+   "aglogo.cpp"
+  ]
+ },
+ {
+  "name": "stop_sample",
+  "kind": "func",
+  "header": "allegro/digi.h",
+  "sig": "void stop_sample(AL_CONST SAMPLE *spl)",
+  "uses": 1,
+  "files": [
+   "aglogo.cpp"
+  ]
+ },
+ {
+  "name": "voice_get_position",
+  "kind": "func",
+  "header": "allegro/digi.h",
+  "sig": "int voice_get_position(int voice)",
+  "uses": 3,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "voice_set_pan",
+  "kind": "func",
+  "header": "allegro/digi.h",
+  "sig": "void voice_set_pan(int voice, int pan)",
+  "uses": 2,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "voice_set_playmode",
+  "kind": "func",
+  "header": "allegro/digi.h",
+  "sig": "void voice_set_playmode(int voice, int playmode)",
+  "uses": 3,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "voice_set_position",
+  "kind": "func",
+  "header": "allegro/digi.h",
+  "sig": "void voice_set_position(int voice, int position)",
+  "uses": 2,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "voice_set_volume",
+  "kind": "func",
+  "header": "allegro/digi.h",
+  "sig": "void voice_set_volume(int voice, int volume)",
+  "uses": 2,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "voice_start",
+  "kind": "func",
+  "header": "allegro/digi.h",
+  "sig": "void voice_start(int voice)",
+  "uses": 7,
+  "files": [
+   "zc_sys.cpp",
+   "zcmusic.cpp"
+  ]
+ },
+ {
+  "name": "voice_stop",
+  "kind": "func",
+  "header": "allegro/digi.h",
+  "sig": "void voice_stop(int voice)",
+  "uses": 11,
+  "files": [
+   "zc_sys.cpp",
+   "zcmusic.cpp"
+  ]
+ },
+ {
+  "name": "DIGI_AUTODETECT",
+  "kind": "macro",
+  "header": "allegro/digi.h",
+  "sig": "-1",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "PLAYMODE_LOOP",
+  "kind": "macro",
+  "header": "allegro/digi.h",
+  "sig": "1",
+  "uses": 3,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "PLAYMODE_PLAY",
+  "kind": "macro",
+  "header": "allegro/digi.h",
+  "sig": "0",
+  "uses": 2,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "SAMPLE",
+  "kind": "type",
+  "header": "allegro/digi.h",
+  "sig": "struct",
+  "uses": 11,
+  "files": [
+   "aglogo.cpp",
+   "qst.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp",
+   "zelda.h"
+  ]
+ },
+ {
+  "name": "exit",
+  "kind": "var",
+  "header": "allegro/digi.h",
+  "sig": "AL_METHOD(void, exit",
+  "uses": 22,
+  "files": [
+   "link.cpp",
+   "md5.cpp",
+   "qst.cpp",
+   "title.cpp",
+   "win32.cpp",
+   "zelda.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "get_volume",
+  "kind": "var",
+  "header": "allegro/digi.h",
+  "sig": "AL_METHOD(int,  get_volume",
+  "uses": 2,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "init",
+  "kind": "var",
+  "header": "allegro/digi.h",
+  "sig": "AL_METHOD(int,  init",
+  "uses": 23,
+  "files": [
+   "EditboxNew.h",
+   "EditboxView.cpp",
+   "link.cpp",
+   "link.h",
+   "title.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "set_pan",
+  "kind": "var",
+  "header": "allegro/digi.h",
+  "sig": "AL_METHOD(void, set_pan",
+  "uses": 2,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "set_volume",
+  "kind": "var",
+  "header": "allegro/digi.h",
+  "sig": "AL_METHOD(void, set_volume",
+  "uses": 6,
+  "files": [
+   "zc_sys.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "blit",
+  "kind": "func",
+  "header": "allegro/draw.h",
+  "sig": "void blit(struct BITMAP *source, struct BITMAP *dest, int source_x, int source_y, int dest_x, int dest_y, int width, int height)",
+  "uses": 127,
+  "files": [
+   "EditboxView.cpp",
+   "aglogo.cpp",
+   "ending.cpp",
+   "gui.cpp",
+   "jwin.cpp",
+   "link.cpp",
+   "maps.cpp",
+   "matrix.cpp",
+   "script_drawing.cpp",
+   "sprite.cpp",
+   "tab_ctl.cpp",
+   "title.cpp",
+   "zc_subscr.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "masked_blit",
+  "kind": "func",
+  "header": "allegro/draw.h",
+  "sig": "void masked_blit(struct BITMAP *source, struct BITMAP *dest, int source_x, int source_y, int dest_x, int dest_y, int width, int height)",
+  "uses": 17,
+  "files": [
+   "jwin.cpp",
+   "link.cpp",
+   "maps.cpp",
+   "script_drawing.cpp",
+   "sprite.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "masked_stretch_blit",
+  "kind": "func",
+  "header": "allegro/draw.h",
+  "sig": "void masked_stretch_blit(struct BITMAP *s, struct BITMAP *d, int s_x, int s_y, int s_w, int s_h, int d_x, int d_y, int d_w, int d_h)",
+  "uses": 2,
+  "files": [
+   "script_drawing.cpp"
+  ]
+ },
+ {
+  "name": "solid_mode",
+  "kind": "func",
+  "header": "allegro/draw.h",
+  "sig": "void solid_mode(void)",
+  "uses": 3,
+  "files": [
+   "EditboxView.cpp",
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "stretch_blit",
+  "kind": "func",
+  "header": "allegro/draw.h",
+  "sig": "void stretch_blit(struct BITMAP *s, struct BITMAP *d, int s_x, int s_y, int s_w, int s_h, int d_x, int d_y, int d_w, int d_h)",
+  "uses": 32,
+  "files": [
+   "EditboxView.cpp",
+   "aglogo.cpp",
+   "gui.cpp",
+   "jwin.cpp",
+   "maps.cpp",
+   "script_drawing.cpp",
+   "tab_ctl.cpp",
+   "zc_sys.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "stretch_sprite",
+  "kind": "func",
+  "header": "allegro/draw.h",
+  "sig": "void stretch_sprite(struct BITMAP *bmp, struct BITMAP *sprite, int x, int y, int w, int h)",
+  "uses": 18,
+  "files": [
+   "script_drawing.cpp"
+  ]
+ },
+ {
+  "name": "DRAW_MODE_COPY_PATTERN",
+  "kind": "macro",
+  "header": "allegro/draw.h",
+  "sig": "2",
+  "uses": 3,
+  "files": [
+   "EditboxView.cpp",
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "DRAW_MODE_SOLID",
+  "kind": "macro",
+  "header": "allegro/draw.h",
+  "sig": "0",
+  "uses": 9,
+  "files": [
+   "script_drawing.cpp",
+   "subscr.cpp"
+  ]
+ },
+ {
+  "name": "DRAW_MODE_TRANS",
+  "kind": "macro",
+  "header": "allegro/draw.h",
+  "sig": "5",
+  "uses": 9,
+  "files": [
+   "script_drawing.cpp",
+   "subscr.cpp"
+  ]
+ },
+ {
+  "name": "append_filename",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "char * append_filename(char *dest, AL_CONST char *path, AL_CONST char *filename, int size)",
+  "uses": 6,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "canonicalize_filename",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "char * canonicalize_filename(char *dest, AL_CONST char *filename, int size)",
+  "uses": 2,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "delete_file",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "int delete_file(AL_CONST char *filename)",
+  "uses": 20,
+  "files": [
+   "midi.cpp",
+   "qst.cpp",
+   "qst.h",
+   "title.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "exists",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "int exists(AL_CONST char *filename)",
+  "uses": 34,
+  "files": [
+   "qst.cpp",
+   "title.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "file_exists",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "int file_exists(AL_CONST char *filename, int attrib, int *aret)",
+  "uses": 5,
+  "files": [
+   "ending.cpp",
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "file_size_ex",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "uint64_t file_size_ex(AL_CONST char *filename)",
+  "uses": 1,
+  "files": [
+   "alleg_compat.cpp"
+  ]
+ },
+ {
+  "name": "fix_filename_case",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "char * fix_filename_case(char *path)",
+  "uses": 6,
+  "files": [
+   "jwinfsel.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "fix_filename_slashes",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "char * fix_filename_slashes(char *path)",
+  "uses": 5,
+  "files": [
+   "jwinfsel.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "for_each_file_ex",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "int for_each_file_ex(AL_CONST char *name, int in_attrib, int out_attrib, AL_METHOD(int, callback, (AL_CONST char *filename, int attrib, void *param)), void *param)",
+  "uses": 2,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "get_extension",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "char * get_extension(AL_CONST char *filename)",
+  "uses": 6,
+  "files": [
+   "jwinfsel.cpp",
+   "zcmusic.cpp"
+  ]
+ },
+ {
+  "name": "get_filename",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "char * get_filename(AL_CONST char *path)",
+  "uses": 14,
+  "files": [
+   "jwinfsel.cpp",
+   "title.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "is_relative_filename",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "int is_relative_filename(AL_CONST char *filename)",
+  "uses": 2,
+  "files": [
+   "title.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "make_relative_filename",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "char * make_relative_filename(char *dest, AL_CONST char *path, AL_CONST char *filename, int size)",
+  "uses": 4,
+  "files": [
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "pack_fclose",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "int pack_fclose(PACKFILE *f)",
+  "uses": 28,
+  "files": [
+   "midi.cpp",
+   "qst.cpp",
+   "qst.h",
+   "title.cpp",
+   "zcmusic.cpp",
+   "zelda.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "pack_feof",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "int pack_feof(PACKFILE *f)",
+  "uses": 9,
+  "files": [
+   "qst.cpp",
+   "zdefs.h"
+  ]
+ },
+ {
+  "name": "pack_ferror",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "int pack_ferror(PACKFILE *f)",
+  "uses": 11,
+  "files": [
+   "qst.cpp",
+   "zdefs.h"
+  ]
+ },
+ {
+  "name": "pack_fopen",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "PACKFILE * pack_fopen(AL_CONST char *filename, AL_CONST char *mode)",
+  "uses": 1,
+  "files": [
+   "alleg_compat.cpp"
+  ]
+ },
+ {
+  "name": "pack_fread",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "long pack_fread(void *p, long n, PACKFILE *f)",
+  "uses": 8,
+  "files": [
+   "zcmusic.cpp",
+   "zdefs.h"
+  ]
+ },
+ {
+  "name": "pack_fseek",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "int pack_fseek(PACKFILE *f, int offset)",
+  "uses": 2,
+  "files": [
+   "zcmusic.cpp",
+   "zdefs.h"
+  ]
+ },
+ {
+  "name": "pack_fwrite",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "long pack_fwrite(AL_CONST void *p, long n, PACKFILE *f)",
+  "uses": 4,
+  "files": [
+   "midi.cpp",
+   "zdefs.h"
+  ]
+ },
+ {
+  "name": "pack_getc",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "int pack_getc(PACKFILE *f)",
+  "uses": 11,
+  "files": [
+   "zdefs.h",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "pack_igetl",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "long pack_igetl(PACKFILE *f)",
+  "uses": 1,
+  "files": [
+   "zdefs.h"
+  ]
+ },
+ {
+  "name": "pack_igetw",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "int pack_igetw(PACKFILE *f)",
+  "uses": 1,
+  "files": [
+   "zdefs.h"
+  ]
+ },
+ {
+  "name": "pack_iputl",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "long pack_iputl(long l, PACKFILE *f)",
+  "uses": 1,
+  "files": [
+   "zdefs.h"
+  ]
+ },
+ {
+  "name": "pack_iputw",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "int pack_iputw(int w, PACKFILE *f)",
+  "uses": 1,
+  "files": [
+   "zdefs.h"
+  ]
+ },
+ {
+  "name": "pack_mgetl",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "long pack_mgetl(PACKFILE *f)",
+  "uses": 1,
+  "files": [
+   "zdefs.h"
+  ]
+ },
+ {
+  "name": "pack_mgetw",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "int pack_mgetw(PACKFILE *f)",
+  "uses": 1,
+  "files": [
+   "zdefs.h"
+  ]
+ },
+ {
+  "name": "pack_mputl",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "long pack_mputl(long l, PACKFILE *f)",
+  "uses": 3,
+  "files": [
+   "midi.cpp",
+   "zdefs.h"
+  ]
+ },
+ {
+  "name": "pack_mputw",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "int pack_mputw(int w, PACKFILE *f)",
+  "uses": 4,
+  "files": [
+   "midi.cpp",
+   "zdefs.h"
+  ]
+ },
+ {
+  "name": "pack_putc",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "int pack_putc(int c, PACKFILE *f)",
+  "uses": 1,
+  "files": [
+   "zdefs.h"
+  ]
+ },
+ {
+  "name": "packfile_password",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "void packfile_password(AL_CONST char *password)",
+  "uses": 9,
+  "files": [
+   "alleg_compat.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "put_backslash",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "void put_backslash(char *filename)",
+  "uses": 6,
+  "files": [
+   "jwinfsel.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "replace_extension",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "char * replace_extension(char *dest, AL_CONST char *filename, AL_CONST char *ext, int size)",
+  "uses": 4,
+  "files": [
+   "title.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "replace_filename",
+  "kind": "func",
+  "header": "allegro/file.h",
+  "sig": "char * replace_filename(char *dest, AL_CONST char *path, AL_CONST char *filename, int size)",
+  "uses": 7,
+  "files": [
+   "jwinfsel.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "EOF",
+  "kind": "macro",
+  "header": "allegro/file.h",
+  "sig": "(-1)",
+  "uses": 22,
+  "files": [
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "F_READ",
+  "kind": "macro",
+  "header": "allegro/file.h",
+  "sig": "\"r\"",
+  "uses": 9,
+  "files": [
+   "qst.cpp",
+   "title.cpp",
+   "zcmusic.cpp",
+   "zelda.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "F_READ_PACKED",
+  "kind": "macro",
+  "header": "allegro/file.h",
+  "sig": "\"rp\"",
+  "uses": 4,
+  "files": [
+   "qst.cpp",
+   "title.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "F_WRITE",
+  "kind": "macro",
+  "header": "allegro/file.h",
+  "sig": "\"w\"",
+  "uses": 1,
+  "files": [
+   "midi.cpp"
+  ]
+ },
+ {
+  "name": "F_WRITE_PACKED",
+  "kind": "macro",
+  "header": "allegro/file.h",
+  "sig": "\"wp\"",
+  "uses": 1,
+  "files": [
+   "title.cpp"
+  ]
+ },
+ {
+  "name": "PACKFILE_FLAG_WRITE",
+  "kind": "macro",
+  "header": "allegro/file.h",
+  "sig": "1",
+  "uses": 22,
+  "files": [
+   "zdefs.h"
+  ]
+ },
+ {
+  "name": "PACKFILE",
+  "kind": "type",
+  "header": "allegro/file.h",
+  "sig": "struct",
+  "uses": 130,
+  "files": [
+   "alleg_compat.cpp",
+   "alleg_compat.h",
+   "midi.cpp",
+   "qst.cpp",
+   "qst.h",
+   "title.cpp",
+   "zcmusic.cpp",
+   "zdefs.h",
+   "zelda.cpp",
+   "zq_class.h",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "fix",
+  "kind": "type",
+  "header": "allegro/fix.h",
+  "sig": "class",
+  "uses": 810,
+  "files": [
+   "decorations.cpp",
+   "decorations.h",
+   "ffscript.cpp",
+   "guys.cpp",
+   "guys.h",
+   "items.cpp",
+   "items.h",
+   "link.cpp",
+   "link.h",
+   "maps.cpp",
+   "particles.cpp",
+   "particles.h",
+   "sprite.cpp",
+   "sprite.h",
+   "subscr.cpp",
+   "tiles.cpp",
+   "weapons.cpp",
+   "weapons.h",
+   "zc_alleg.h",
+   "zc_items.cpp",
+   "zc_sprite.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp",
+   "zelda.h",
+   "zquest.h"
+  ]
+ },
+ {
+  "name": "fixed",
+  "kind": "type",
+  "header": "allegro/fixed.h",
+  "sig": "typedef",
+  "uses": 34,
+  "files": [
+   "jwin.cpp",
+   "script_drawing.cpp"
+  ]
+ },
+ {
+  "name": "FONT",
+  "kind": "type",
+  "header": "allegro/font.h",
+  "sig": "struct",
+  "uses": 262,
+  "files": [
+   "EditboxModel.cpp",
+   "EditboxNew.h",
+   "aglogo.cpp",
+   "editbox.h",
+   "font.h",
+   "guys.h",
+   "init.cpp",
+   "jwin.cpp",
+   "jwin.h",
+   "jwinfsel.cpp",
+   "jwinfsel.h",
+   "maps.cpp",
+   "matrix.cpp",
+   "script_drawing.cpp",
+   "subscr.cpp",
+   "subscr.h",
+   "tab_ctl.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp",
+   "zelda.h",
+   "zquest.h",
+   "zsys.cpp",
+   "zsys.h",
+   "zsyssimple.h"
+  ]
+ },
+ {
+  "name": "clear_bitmap",
+  "kind": "func",
+  "header": "allegro/gfx.h",
+  "sig": "void clear_bitmap(BITMAP *bitmap)",
+  "uses": 95,
+  "files": [
+   "aglogo.cpp",
+   "ending.cpp",
+   "guys.cpp",
+   "jwin.cpp",
+   "link.cpp",
+   "maps.cpp",
+   "script_drawing.cpp",
+   "script_drawing.h",
+   "subscr.cpp",
+   "title.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "create_bitmap_ex",
+  "kind": "func",
+  "header": "allegro/gfx.h",
+  "sig": "BITMAP * create_bitmap_ex(int color_depth, int width, int height)",
+  "uses": 58,
+  "files": [
+   "EditboxView.cpp",
+   "aglogo.cpp",
+   "gui.cpp",
+   "jwin.cpp",
+   "link.cpp",
+   "maps.cpp",
+   "matrix.cpp",
+   "rendertarget.h",
+   "script_drawing.cpp",
+   "script_drawing.h",
+   "sprite.cpp",
+   "subscr.cpp",
+   "title.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "create_sub_bitmap",
+  "kind": "func",
+  "header": "allegro/gfx.h",
+  "sig": "BITMAP * create_sub_bitmap(BITMAP *parent, int x, int y, int width, int height)",
+  "uses": 12,
+  "files": [
+   "guys.cpp",
+   "link.cpp",
+   "script_drawing.cpp",
+   "script_drawing.h",
+   "subscr.cpp"
+  ]
+ },
+ {
+  "name": "create_video_bitmap",
+  "kind": "func",
+  "header": "allegro/gfx.h",
+  "sig": "BITMAP * create_video_bitmap(int width, int height)",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "destroy_bitmap",
+  "kind": "func",
+  "header": "allegro/gfx.h",
+  "sig": "void destroy_bitmap(BITMAP *bitmap)",
+  "uses": 53,
+  "files": [
+   "EditboxModel.cpp",
+   "EditboxView.cpp",
+   "aglogo.cpp",
+   "gui.cpp",
+   "guys.cpp",
+   "jwin.cpp",
+   "link.cpp",
+   "maps.cpp",
+   "matrix.cpp",
+   "rendertarget.h",
+   "script_drawing.cpp",
+   "script_drawing.h",
+   "sprite.cpp",
+   "subscr.cpp",
+   "title.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "enable_triple_buffer",
+  "kind": "func",
+  "header": "allegro/gfx.h",
+  "sig": "int enable_triple_buffer(void)",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "get_color_depth",
+  "kind": "func",
+  "header": "allegro/gfx.h",
+  "sig": "int get_color_depth(void)",
+  "uses": 9,
+  "files": [
+   "gui.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "poll_scroll",
+  "kind": "func",
+  "header": "allegro/gfx.h",
+  "sig": "int poll_scroll(void)",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "request_video_bitmap",
+  "kind": "func",
+  "header": "allegro/gfx.h",
+  "sig": "int request_video_bitmap(BITMAP *bitmap)",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "set_clip_rect",
+  "kind": "func",
+  "header": "allegro/gfx.h",
+  "sig": "void set_clip_rect(BITMAP *bitmap, int x1, int y_1, int x2, int y2)",
+  "uses": 27,
+  "files": [
+   "EditboxView.cpp",
+   "link.cpp",
+   "maps.cpp",
+   "zc_subscr.cpp",
+   "zc_sys.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "set_color_conversion",
+  "kind": "func",
+  "header": "allegro/gfx.h",
+  "sig": "void set_color_conversion(int mode)",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "set_color_depth",
+  "kind": "func",
+  "header": "allegro/gfx.h",
+  "sig": "void set_color_depth(int depth)",
+  "uses": 12,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "set_display_switch_callback",
+  "kind": "func",
+  "header": "allegro/gfx.h",
+  "sig": "int set_display_switch_callback(int dir, AL_METHOD(void, cb, (void)))",
+  "uses": 2,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "set_display_switch_mode",
+  "kind": "func",
+  "header": "allegro/gfx.h",
+  "sig": "int set_display_switch_mode(int mode)",
+  "uses": 2,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "set_gfx_mode",
+  "kind": "func",
+  "header": "allegro/gfx.h",
+  "sig": "int set_gfx_mode(int card, int w, int h, int v_w, int v_h)",
+  "uses": 5,
+  "files": [
+   "win32.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp",
+   "zqscale.h"
+  ]
+ },
+ {
+  "name": "vsync",
+  "kind": "func",
+  "header": "allegro/gfx.h",
+  "sig": "void vsync(void)",
+  "uses": 15,
+  "files": [
+   "EditboxView.cpp",
+   "aglogo.cpp",
+   "jwin.cpp",
+   "tab_ctl.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "COLORCONV_NONE",
+  "kind": "macro",
+  "header": "allegro/gfx.h",
+  "sig": "0",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "GFX_AUTODETECT",
+  "kind": "macro",
+  "header": "allegro/gfx.h",
+  "sig": "0",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "GFX_AUTODETECT_FULLSCREEN",
+  "kind": "macro",
+  "header": "allegro/gfx.h",
+  "sig": "1",
+  "uses": 2,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "GFX_AUTODETECT_WINDOWED",
+  "kind": "macro",
+  "header": "allegro/gfx.h",
+  "sig": "2",
+  "uses": 5,
+  "files": [
+   "zc_sys.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "GFX_CAN_TRIPLE_BUFFER",
+  "kind": "macro",
+  "header": "allegro/gfx.h",
+  "sig": "0x00000002",
+  "uses": 2,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "GFX_HW_CURSOR",
+  "kind": "macro",
+  "header": "allegro/gfx.h",
+  "sig": "0x00000004",
+  "uses": 2,
+  "files": [
+   "gui.cpp"
+  ]
+ },
+ {
+  "name": "GFX_SAFE",
+  "kind": "macro",
+  "header": "allegro/gfx.h",
+  "sig": "AL_ID('S','A','F','E')",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "GFX_TEXT",
+  "kind": "macro",
+  "header": "allegro/gfx.h",
+  "sig": "-1",
+  "uses": 2,
+  "files": [
+   "win32.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "SCREEN_H",
+  "kind": "macro",
+  "header": "allegro/gfx.h",
+  "sig": "(gfx_driver ? gfx_driver->h : 0)",
+  "uses": 21,
+  "files": [
+   "EditboxView.cpp",
+   "gui.cpp",
+   "jwinfsel.cpp",
+   "matrix.cpp",
+   "tab_ctl.cpp",
+   "zc_alleg.h",
+   "zc_sys.cpp",
+   "zelda.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "SCREEN_W",
+  "kind": "macro",
+  "header": "allegro/gfx.h",
+  "sig": "(gfx_driver ? gfx_driver->w : 0)",
+  "uses": 20,
+  "files": [
+   "EditboxView.cpp",
+   "gui.cpp",
+   "jwinfsel.cpp",
+   "matrix.cpp",
+   "tab_ctl.cpp",
+   "zc_alleg.h",
+   "zc_sys.cpp",
+   "zelda.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "SWITCH_BACKAMNESIA",
+  "kind": "macro",
+  "header": "allegro/gfx.h",
+  "sig": "4",
+  "uses": 2,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "SWITCH_BACKGROUND",
+  "kind": "macro",
+  "header": "allegro/gfx.h",
+  "sig": "3",
+  "uses": 2,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "SWITCH_IN",
+  "kind": "macro",
+  "header": "allegro/gfx.h",
+  "sig": "0",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "SWITCH_OUT",
+  "kind": "macro",
+  "header": "allegro/gfx.h",
+  "sig": "1",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "arc",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, arc",
+  "uses": 5,
+  "files": [
+   "jwin.cpp",
+   "script_drawing.cpp"
+  ]
+ },
+ {
+  "name": "circle",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, circle",
+  "uses": 3,
+  "files": [
+   "script_drawing.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "circlefill",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, circlefill",
+  "uses": 7,
+  "files": [
+   "jwin.cpp",
+   "script_drawing.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "clear_to_color",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, clear_to_color",
+  "uses": 29,
+  "files": [
+   "maps.cpp",
+   "matrix.cpp",
+   "subscr.cpp",
+   "title.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "draw_rle_sprite",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, draw_rle_sprite",
+  "uses": 3,
+  "files": [
+   "aglogo.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "draw_sprite",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, draw_sprite",
+  "uses": 6,
+  "files": [
+   "jwin.cpp",
+   "script_drawing.cpp",
+   "subscr.cpp"
+  ]
+ },
+ {
+  "name": "draw_sprite_v_flip",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, draw_sprite_v_flip",
+  "uses": 1,
+  "files": [
+   "subscr.cpp"
+  ]
+ },
+ {
+  "name": "draw_trans_sprite",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, draw_trans_sprite",
+  "uses": 24,
+  "files": [
+   "script_drawing.cpp"
+  ]
+ },
+ {
+  "name": "ellipse",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, ellipse",
+  "uses": 2,
+  "files": [
+   "script_drawing.cpp"
+  ]
+ },
+ {
+  "name": "ellipsefill",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, ellipsefill",
+  "uses": 3,
+  "files": [
+   "script_drawing.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "floodfill",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, floodfill",
+  "uses": 1,
+  "files": [
+   "script_drawing.cpp"
+  ]
+ },
+ {
+  "name": "getpixel",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(int,  getpixel",
+  "uses": 4,
+  "files": [
+   "EditboxView.cpp",
+   "matrix.cpp",
+   "script_drawing.cpp",
+   "zdefs.h"
+  ]
+ },
+ {
+  "name": "gfx_capabilities",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_VAR(int, gfx_capabilities",
+  "uses": 4,
+  "files": [
+   "gui.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "gfx_driver",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_VAR(GFX_DRIVER *, gfx_driver",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "hline",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, hline",
+  "uses": 3,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "line",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, line",
+  "uses": 179,
+  "files": [
+   "EditboxModel.cpp",
+   "EditboxNew.h",
+   "EditboxView.cpp",
+   "aglogo.cpp",
+   "ending.cpp",
+   "init.cpp",
+   "jwin.cpp",
+   "link.cpp",
+   "maps.cpp",
+   "script_drawing.cpp",
+   "subscr.cpp",
+   "tiles.cpp",
+   "title.cpp",
+   "zc_malloc.h",
+   "zc_sys.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "polygon",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, polygon",
+  "uses": 1,
+  "files": [
+   "script_drawing.cpp"
+  ]
+ },
+ {
+  "name": "putpixel",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, putpixel",
+  "uses": 26,
+  "files": [
+   "EditboxView.cpp",
+   "jwin.cpp",
+   "matrix.cpp",
+   "particles.cpp",
+   "script_drawing.cpp",
+   "subscr.cpp",
+   "tab_ctl.cpp",
+   "zdefs.h"
+  ]
+ },
+ {
+  "name": "quad3d_f",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, quad3d_f",
+  "uses": 2,
+  "files": [
+   "script_drawing.cpp"
+  ]
+ },
+ {
+  "name": "rect",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, rect",
+  "uses": 18,
+  "files": [
+   "jwin.cpp",
+   "script_drawing.cpp",
+   "sprite.cpp",
+   "subscr.cpp",
+   "tab_ctl.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "rectfill",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, rectfill",
+  "uses": 117,
+  "files": [
+   "EditboxView.cpp",
+   "ending.cpp",
+   "guys.cpp",
+   "jwin.cpp",
+   "link.cpp",
+   "maps.cpp",
+   "matrix.cpp",
+   "script_drawing.cpp",
+   "sprite.cpp",
+   "subscr.cpp",
+   "subscr.h",
+   "tab_ctl.cpp",
+   "tiles.cpp",
+   "title.cpp",
+   "weapons.cpp",
+   "zc_subscr.cpp",
+   "zc_sys.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "screen",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_VAR(BITMAP *, screen",
+  "uses": 418,
+  "files": [
+   "EditboxView.cpp",
+   "aglogo.cpp",
+   "debug.cpp",
+   "gui.cpp",
+   "init.cpp",
+   "jwin.cpp",
+   "maps.h",
+   "matrix.cpp",
+   "tab_ctl.cpp",
+   "title.cpp",
+   "zc_alleg.h",
+   "zc_sys.cpp",
+   "zdefs.h",
+   "zelda.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "scroll",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(int, scroll",
+  "uses": 6,
+  "files": [
+   "jwin.cpp",
+   "zq_class.h"
+  ]
+ },
+ {
+  "name": "set_mouse_sprite",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(int, set_mouse_sprite",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "show_mouse",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(int, show_mouse",
+  "uses": 10,
+  "files": [
+   "gui.cpp",
+   "title.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "spline",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, spline",
+  "uses": 1,
+  "files": [
+   "script_drawing.cpp"
+  ]
+ },
+ {
+  "name": "triangle",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, triangle",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "triangle3d_f",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, triangle3d_f",
+  "uses": 2,
+  "files": [
+   "script_drawing.cpp"
+  ]
+ },
+ {
+  "name": "vline",
+  "kind": "var",
+  "header": "allegro/gfx.h",
+  "sig": "AL_METHOD(void, vline",
+  "uses": 8,
+  "files": [
+   "EditboxView.cpp",
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "broadcast_dialog_message",
+  "kind": "func",
+  "header": "allegro/gui.h",
+  "sig": "int broadcast_dialog_message(int msg, int c)",
+  "uses": 11,
+  "files": [
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "d_bitmap_proc",
+  "kind": "func",
+  "header": "allegro/gui.h",
+  "sig": "int d_bitmap_proc(int msg, DIALOG *d, int c)",
+  "uses": 4,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "d_button_proc",
+  "kind": "func",
+  "header": "allegro/gui.h",
+  "sig": "int d_button_proc(int msg, DIALOG *d, int c)",
+  "uses": 3,
+  "files": [
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "d_check_proc",
+  "kind": "func",
+  "header": "allegro/gui.h",
+  "sig": "int d_check_proc(int msg, DIALOG *d, int c)",
+  "uses": 3,
+  "files": [
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "d_ctext_proc",
+  "kind": "func",
+  "header": "allegro/gui.h",
+  "sig": "int d_ctext_proc(int msg, DIALOG *d, int c)",
+  "uses": 6,
+  "files": [
+   "jwin.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "d_edit_proc",
+  "kind": "func",
+  "header": "allegro/gui.h",
+  "sig": "int d_edit_proc(int msg, DIALOG *d, int c)",
+  "uses": 1,
+  "files": [
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "d_keyboard_proc",
+  "kind": "func",
+  "header": "allegro/gui.h",
+  "sig": "int d_keyboard_proc(int msg, DIALOG *d, int c)",
+  "uses": 21,
+  "files": [
+   "EditboxModel.cpp",
+   "init.cpp",
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "d_list_proc",
+  "kind": "func",
+  "header": "allegro/gui.h",
+  "sig": "int d_list_proc(int msg, DIALOG *d, int c)",
+  "uses": 1,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "d_text_proc",
+  "kind": "func",
+  "header": "allegro/gui.h",
+  "sig": "int d_text_proc(int msg, DIALOG *d, int c)",
+  "uses": 3,
+  "files": [
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "d_yield_proc",
+  "kind": "func",
+  "header": "allegro/gui.h",
+  "sig": "int d_yield_proc(int msg, DIALOG *d, int c)",
+  "uses": 2,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "do_dialog",
+  "kind": "func",
+  "header": "allegro/gui.h",
+  "sig": "int do_dialog(DIALOG *dialog, int focus_obj)",
+  "uses": 2,
+  "files": [
+   "gui.cpp",
+   "zc_alleg.h"
+  ]
+ },
+ {
+  "name": "gui_get_screen",
+  "kind": "func",
+  "header": "allegro/gui.h",
+  "sig": "BITMAP * gui_get_screen(void)",
+  "uses": 2,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "gui_set_screen",
+  "kind": "func",
+  "header": "allegro/gui.h",
+  "sig": "void gui_set_screen(BITMAP *bmp)",
+  "uses": 2,
+  "files": [
+   "gui.cpp"
+  ]
+ },
+ {
+  "name": "gui_strlen",
+  "kind": "func",
+  "header": "allegro/gui.h",
+  "sig": "int gui_strlen(AL_CONST char *s)",
+  "uses": 7,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "gui_textout_ex",
+  "kind": "func",
+  "header": "allegro/gui.h",
+  "sig": "int gui_textout_ex(struct BITMAP *bmp, AL_CONST char *s, int x, int y, int color, int bg, int centre)",
+  "uses": 9,
+  "files": [
+   "jwin.cpp",
+   "tab_ctl.cpp"
+  ]
+ },
+ {
+  "name": "init_dialog",
+  "kind": "func",
+  "header": "allegro/gui.h",
+  "sig": "DIALOG_PLAYER * init_dialog(DIALOG *dialog, int focus_obj)",
+  "uses": 7,
+  "files": [
+   "gui.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "object_message",
+  "kind": "func",
+  "header": "allegro/gui.h",
+  "sig": "int object_message(DIALOG *dialog, int msg, int c)",
+  "uses": 38,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp",
+   "jwinfsel.cpp",
+   "tab_ctl.cpp"
+  ]
+ },
+ {
+  "name": "popup_dialog",
+  "kind": "func",
+  "header": "allegro/gui.h",
+  "sig": "int popup_dialog(DIALOG *dialog, int focus_obj)",
+  "uses": 2,
+  "files": [
+   "gui.cpp",
+   "zc_alleg.h"
+  ]
+ },
+ {
+  "name": "set_dialog_color",
+  "kind": "func",
+  "header": "allegro/gui.h",
+  "sig": "void set_dialog_color(DIALOG *dialog, int fg, int bg)",
+  "uses": 1,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "shutdown_dialog",
+  "kind": "func",
+  "header": "allegro/gui.h",
+  "sig": "int shutdown_dialog(DIALOG_PLAYER *player)",
+  "uses": 5,
+  "files": [
+   "gui.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "update_dialog",
+  "kind": "func",
+  "header": "allegro/gui.h",
+  "sig": "int update_dialog(DIALOG_PLAYER *player)",
+  "uses": 5,
+  "files": [
+   "gui.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "D_CLOSE",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "1",
+  "uses": 32,
+  "files": [
+   "jwin.cpp",
+   "jwinfsel.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "D_DIRTY",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "64",
+  "uses": 9,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp",
+   "tab_ctl.cpp"
+  ]
+ },
+ {
+  "name": "D_DISABLED",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "32",
+  "uses": 61,
+  "files": [
+   "init.cpp",
+   "jwin.cpp",
+   "tab_ctl.cpp",
+   "title.cpp",
+   "zc_init.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "D_EXIT",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "1",
+  "uses": 89,
+  "files": [
+   "EditboxModel.cpp",
+   "editbox.cpp",
+   "init.cpp",
+   "jwin.cpp",
+   "jwinfsel.cpp",
+   "title.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "D_GOTFOCUS",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "4",
+  "uses": 14,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "D_HIDDEN",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "16",
+  "uses": 7,
+  "files": [
+   "jwin.cpp",
+   "tab_ctl.cpp"
+  ]
+ },
+ {
+  "name": "D_INTERNAL",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "128",
+  "uses": 3,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "D_O_K",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "0",
+  "uses": 183,
+  "files": [
+   "editbox.cpp",
+   "init.cpp",
+   "jwin.cpp",
+   "jwinfsel.cpp",
+   "maps.cpp",
+   "tab_ctl.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "D_REDRAW",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "2",
+  "uses": 6,
+  "files": [
+   "zc_sys.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "D_SELECTED",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "2",
+  "uses": 156,
+  "files": [
+   "init.cpp",
+   "jwin.cpp",
+   "tab_ctl.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "D_USED_CHAR",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "16",
+  "uses": 25,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "D_USER",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "256",
+  "uses": 9,
+  "files": [
+   "jwin.cpp",
+   "jwin.h",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "D_WANTFOCUS",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "8",
+  "uses": 8,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "MSG_CHAR",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "7",
+  "uses": 9,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "MSG_CLICK",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "4",
+  "uses": 21,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp",
+   "tab_ctl.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "MSG_DCLICK",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "5",
+  "uses": 3,
+  "files": [
+   "jwin.cpp",
+   "tab_ctl.cpp"
+  ]
+ },
+ {
+  "name": "MSG_DRAW",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "3",
+  "uses": 75,
+  "files": [
+   "editbox.cpp",
+   "init.cpp",
+   "jwin.cpp",
+   "jwinfsel.cpp",
+   "tab_ctl.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "MSG_END",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "2",
+  "uses": 2,
+  "files": [
+   "jwinfsel.cpp",
+   "tab_ctl.cpp"
+  ]
+ },
+ {
+  "name": "MSG_GOTMOUSE",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "13",
+  "uses": 2,
+  "files": [
+   "jwin.cpp",
+   "tab_ctl.cpp"
+  ]
+ },
+ {
+  "name": "MSG_IDLE",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "15",
+  "uses": 11,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp",
+   "tab_ctl.cpp"
+  ]
+ },
+ {
+  "name": "MSG_KEY",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "6",
+  "uses": 16,
+  "files": [
+   "jwin.cpp",
+   "jwinfsel.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "MSG_LOSTFOCUS",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "12",
+  "uses": 2,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "MSG_LOSTMOUSE",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "14",
+  "uses": 1,
+  "files": [
+   "tab_ctl.cpp"
+  ]
+ },
+ {
+  "name": "MSG_LPRESS",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "18",
+  "uses": 1,
+  "files": [
+   "tab_ctl.cpp"
+  ]
+ },
+ {
+  "name": "MSG_LRELEASE",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "19",
+  "uses": 1,
+  "files": [
+   "tab_ctl.cpp"
+  ]
+ },
+ {
+  "name": "MSG_MPRESS",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "20",
+  "uses": 1,
+  "files": [
+   "tab_ctl.cpp"
+  ]
+ },
+ {
+  "name": "MSG_MRELEASE",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "21",
+  "uses": 1,
+  "files": [
+   "tab_ctl.cpp"
+  ]
+ },
+ {
+  "name": "MSG_RADIO",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "16",
+  "uses": 2,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "MSG_RPRESS",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "22",
+  "uses": 1,
+  "files": [
+   "tab_ctl.cpp"
+  ]
+ },
+ {
+  "name": "MSG_RRELEASE",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "23",
+  "uses": 1,
+  "files": [
+   "tab_ctl.cpp"
+  ]
+ },
+ {
+  "name": "MSG_START",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "1",
+  "uses": 20,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp",
+   "jwinfsel.cpp",
+   "tab_ctl.cpp"
+  ]
+ },
+ {
+  "name": "MSG_UCHAR",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "8",
+  "uses": 2,
+  "files": [
+   "editbox.cpp",
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "MSG_USER",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "25",
+  "uses": 1,
+  "files": [
+   "zquest.h"
+  ]
+ },
+ {
+  "name": "MSG_WANTFOCUS",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "10",
+  "uses": 7,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "MSG_WHEEL",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "17",
+  "uses": 4,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "MSG_XCHAR",
+  "kind": "macro",
+  "header": "allegro/gui.h",
+  "sig": "9",
+  "uses": 1,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "DIALOG",
+  "kind": "type",
+  "header": "allegro/gui.h",
+  "sig": "struct",
+  "uses": 299,
+  "files": [
+   "EditboxModel.cpp",
+   "EditboxNew.h",
+   "editbox.cpp",
+   "editbox.h",
+   "gui.cpp",
+   "gui.h",
+   "init.cpp",
+   "init.h",
+   "jwin.cpp",
+   "jwin.h",
+   "jwinfsel.cpp",
+   "tab_ctl.cpp",
+   "tab_ctl.h",
+   "title.cpp",
+   "title.h",
+   "zc_sys.cpp",
+   "zc_sys.h",
+   "zelda.cpp",
+   "zelda.h",
+   "zq_custom.h",
+   "zq_strings.h",
+   "zq_subscr.h",
+   "zq_tiles.h",
+   "zquest.h",
+   "zsys.cpp",
+   "zsys.h"
+  ]
+ },
+ {
+  "name": "DIALOG_PLAYER",
+  "kind": "type",
+  "header": "allegro/gui.h",
+  "sig": "struct",
+  "uses": 7,
+  "files": [
+   "gui.cpp",
+   "gui.h",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "MENU",
+  "kind": "type",
+  "header": "allegro/gui.h",
+  "sig": "struct",
+  "uses": 26,
+  "files": [
+   "jwin.cpp",
+   "jwin.h",
+   "zc_sys.cpp",
+   "zc_sys.h",
+   "zq_misc.h",
+   "zquest.h"
+  ]
+ },
+ {
+  "name": "DIALOG_PROC",
+  "kind": "var",
+  "header": "allegro/gui.h",
+  "sig": "AL_METHOD(int, DIALOG_PROC",
+  "uses": 2,
+  "files": [
+   "init.cpp"
+  ]
+ },
+ {
+  "name": "active_menu",
+  "kind": "var",
+  "header": "allegro/gui.h",
+  "sig": "AL_VAR(MENU *, active_menu",
+  "uses": 3,
+  "files": [
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "gui_bg_color",
+  "kind": "var",
+  "header": "allegro/gui.h",
+  "sig": "AL_VAR(int, gui_bg_color",
+  "uses": 4,
+  "files": [
+   "zc_sys.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "gui_fg_color",
+  "kind": "var",
+  "header": "allegro/gui.h",
+  "sig": "AL_VAR(int, gui_fg_color",
+  "uses": 3,
+  "files": [
+   "zc_sys.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "gui_font_baseline",
+  "kind": "var",
+  "header": "allegro/gui.h",
+  "sig": "AL_VAR(int, gui_font_baseline",
+  "uses": 10,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "gui_mg_color",
+  "kind": "var",
+  "header": "allegro/gui.h",
+  "sig": "AL_VAR(int, gui_mg_color",
+  "uses": 8,
+  "files": [
+   "init.cpp",
+   "jwin.cpp",
+   "tab_ctl.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "gui_mouse_b",
+  "kind": "var",
+  "header": "allegro/gui.h",
+  "sig": "AL_FUNCPTR(int, gui_mouse_b",
+  "uses": 50,
+  "files": [
+   "editbox.cpp",
+   "ffscript.cpp",
+   "jwin.cpp",
+   "jwinfsel.cpp",
+   "tab_ctl.cpp",
+   "zc_sys.cpp",
+   "zq_misc.h",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "gui_mouse_focus",
+  "kind": "var",
+  "header": "allegro/gui.h",
+  "sig": "AL_VAR(int, gui_mouse_focus",
+  "uses": 2,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "gui_mouse_x",
+  "kind": "var",
+  "header": "allegro/gui.h",
+  "sig": "AL_FUNCPTR(int, gui_mouse_x",
+  "uses": 30,
+  "files": [
+   "editbox.cpp",
+   "ffscript.cpp",
+   "jwin.cpp",
+   "tab_ctl.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "gui_mouse_y",
+  "kind": "var",
+  "header": "allegro/gui.h",
+  "sig": "AL_FUNCPTR(int, gui_mouse_y",
+  "uses": 33,
+  "files": [
+   "editbox.cpp",
+   "ffscript.cpp",
+   "jwin.cpp",
+   "tab_ctl.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "gui_mouse_z",
+  "kind": "var",
+  "header": "allegro/gui.h",
+  "sig": "AL_FUNCPTR(int, gui_mouse_z",
+  "uses": 3,
+  "files": [
+   "ffscript.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "getb15",
+  "kind": "inline",
+  "header": "allegro/inline/color.inl",
+  "sig": "int getb15(int c)",
+  "uses": 7,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "getb8",
+  "kind": "inline",
+  "header": "allegro/inline/color.inl",
+  "sig": "int getb8(int c)",
+  "uses": 4,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "getg15",
+  "kind": "inline",
+  "header": "allegro/inline/color.inl",
+  "sig": "int getg15(int c)",
+  "uses": 7,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "getg8",
+  "kind": "inline",
+  "header": "allegro/inline/color.inl",
+  "sig": "int getg8(int c)",
+  "uses": 4,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "getr15",
+  "kind": "inline",
+  "header": "allegro/inline/color.inl",
+  "sig": "int getr15(int c)",
+  "uses": 7,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "getr8",
+  "kind": "inline",
+  "header": "allegro/inline/color.inl",
+  "sig": "int getr8(int c)",
+  "uses": 4,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "makecol15",
+  "kind": "inline",
+  "header": "allegro/inline/color.inl",
+  "sig": "int makecol15(int r, int g, int b)",
+  "uses": 4,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "_allegro_hline",
+  "kind": "inline",
+  "header": "allegro/inline/draw.inl",
+  "sig": "void _allegro_hline(BITMAP *bmp, int x1, int y, int x2, int color)",
+  "uses": 48,
+  "files": [
+   "jwin.cpp",
+   "subscr.cpp",
+   "tab_ctl.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "_allegro_vline",
+  "kind": "inline",
+  "header": "allegro/inline/draw.inl",
+  "sig": "void _allegro_vline(BITMAP *bmp, int x, int y_1, int y2, int color)",
+  "uses": 42,
+  "files": [
+   "jwin.cpp",
+   "subscr.cpp",
+   "tab_ctl.cpp"
+  ]
+ },
+ {
+  "name": "rotate_sprite",
+  "kind": "inline",
+  "header": "allegro/inline/draw.inl",
+  "sig": "void rotate_sprite(BITMAP *bmp, BITMAP *sprite, int x, int y, fixed angle)",
+  "uses": 18,
+  "files": [
+   "script_drawing.cpp"
+  ]
+ },
+ {
+  "name": "fixcos",
+  "kind": "inline",
+  "header": "allegro/inline/fmaths.inl",
+  "sig": "fixed fixcos(fixed x)",
+  "uses": 22,
+  "files": [
+   "script_drawing.cpp"
+  ]
+ },
+ {
+  "name": "fixdiv",
+  "kind": "inline",
+  "header": "allegro/inline/fmaths.inl",
+  "sig": "fixed fixdiv(fixed x, fixed y)",
+  "uses": 1,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "fixsin",
+  "kind": "inline",
+  "header": "allegro/inline/fmaths.inl",
+  "sig": "fixed fixsin(fixed x)",
+  "uses": 23,
+  "files": [
+   "guys.cpp",
+   "script_drawing.cpp"
+  ]
+ },
+ {
+  "name": "fixtoi",
+  "kind": "inline",
+  "header": "allegro/inline/fmaths.inl",
+  "sig": "int fixtoi(fixed x)",
+  "uses": 47,
+  "files": [
+   "guys.cpp",
+   "jwin.cpp",
+   "script_drawing.cpp"
+  ]
+ },
+ {
+  "name": "ftofix",
+  "kind": "inline",
+  "header": "allegro/inline/fmaths.inl",
+  "sig": "fixed ftofix(double x)",
+  "uses": 2,
+  "files": [
+   "script_drawing.cpp"
+  ]
+ },
+ {
+  "name": "itofix",
+  "kind": "inline",
+  "header": "allegro/inline/fmaths.inl",
+  "sig": "fixed itofix(int x)",
+  "uses": 28,
+  "files": [
+   "guys.cpp",
+   "jwin.cpp",
+   "script_drawing.cpp"
+  ]
+ },
+ {
+  "name": "acquire_bitmap",
+  "kind": "inline",
+  "header": "allegro/inline/gfx.inl",
+  "sig": "void acquire_bitmap(BITMAP *bmp)",
+  "uses": 1,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "acquire_screen",
+  "kind": "inline",
+  "header": "allegro/inline/gfx.inl",
+  "sig": "void acquire_screen(void)",
+  "uses": 1,
+  "files": [
+   "init.cpp"
+  ]
+ },
+ {
+  "name": "bitmap_color_depth",
+  "kind": "inline",
+  "header": "allegro/inline/gfx.inl",
+  "sig": "int bitmap_color_depth(BITMAP *bmp)",
+  "uses": 6,
+  "files": [
+   "EditboxView.cpp",
+   "aglogo.cpp",
+   "gui.cpp",
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "is_same_bitmap",
+  "kind": "inline",
+  "header": "allegro/inline/gfx.inl",
+  "sig": "int is_same_bitmap(BITMAP *bmp1, BITMAP *bmp2)",
+  "uses": 1,
+  "files": [
+   "gui.cpp"
+  ]
+ },
+ {
+  "name": "is_sub_bitmap",
+  "kind": "inline",
+  "header": "allegro/inline/gfx.inl",
+  "sig": "int is_sub_bitmap(BITMAP *bmp)",
+  "uses": 1,
+  "files": [
+   "script_drawing.h"
+  ]
+ },
+ {
+  "name": "is_windowed_mode",
+  "kind": "inline",
+  "header": "allegro/inline/gfx.inl",
+  "sig": "int is_windowed_mode(void)",
+  "uses": 6,
+  "files": [
+   "zelda.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "release_bitmap",
+  "kind": "inline",
+  "header": "allegro/inline/gfx.inl",
+  "sig": "void release_bitmap(BITMAP *bmp)",
+  "uses": 1,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "release_screen",
+  "kind": "inline",
+  "header": "allegro/inline/gfx.inl",
+  "sig": "void release_screen(void)",
+  "uses": 1,
+  "files": [
+   "init.cpp"
+  ]
+ },
+ {
+  "name": "set_clip_state",
+  "kind": "inline",
+  "header": "allegro/inline/gfx.inl",
+  "sig": "void set_clip_state(BITMAP *bitmap, int state)",
+  "uses": 22,
+  "files": [
+   "guys.cpp",
+   "link.cpp",
+   "maps.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "_al_drive_exists",
+  "kind": "func",
+  "header": "allegro/internal/aintern.h",
+  "sig": "int _al_drive_exists(int drive)",
+  "uses": 3,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "_al_free",
+  "kind": "func",
+  "header": "allegro/internal/aintern.h",
+  "sig": "void _al_free(void *mem)",
+  "uses": 4,
+  "files": [
+   "jwinfsel.cpp",
+   "qst.cpp"
+  ]
+ },
+ {
+  "name": "_al_getdcwd",
+  "kind": "func",
+  "header": "allegro/internal/aintern.h",
+  "sig": "void _al_getdcwd(int drive, char *buf, int size)",
+  "uses": 3,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "_al_getdrive",
+  "kind": "func",
+  "header": "allegro/internal/aintern.h",
+  "sig": "int _al_getdrive(void)",
+  "uses": 3,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "_al_malloc",
+  "kind": "func",
+  "header": "allegro/internal/aintern.h",
+  "sig": "void * _al_malloc(size_t size)",
+  "uses": 1,
+  "files": [
+   "qst.cpp"
+  ]
+ },
+ {
+  "name": "_al_sane_realloc",
+  "kind": "func",
+  "header": "allegro/internal/aintern.h",
+  "sig": "void * _al_sane_realloc(void *ptr, size_t size)",
+  "uses": 3,
+  "files": [
+   "jwinfsel.cpp",
+   "qst.cpp"
+  ]
+ },
+ {
+  "name": "_gfx_mode_set_count",
+  "kind": "var",
+  "header": "allegro/internal/aintern.h",
+  "sig": "AL_VAR(int, _gfx_mode_set_count",
+  "uses": 2,
+  "files": [
+   "gui.cpp"
+  ]
+ },
+ {
+  "name": "_mouse_screen",
+  "kind": "var",
+  "header": "allegro/internal/aintern.h",
+  "sig": "AL_VAR(BITMAP *, _mouse_screen",
+  "uses": 2,
+  "files": [
+   "gui.cpp"
+  ]
+ },
+ {
+  "name": "char_length",
+  "kind": "var",
+  "header": "allegro/internal/aintern.h",
+  "sig": "AL_METHOD(int, char_length",
+  "uses": 7,
+  "files": [
+   "guys.cpp",
+   "qst.cpp"
+  ]
+ },
+ {
+  "name": "DEVICE_SEPARATOR",
+  "kind": "macro",
+  "header": "allegro/internal/alconfig.h",
+  "sig": "':'",
+  "uses": 8,
+  "files": [
+   "jwinfsel.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "END_OF_FUNCTION",
+  "kind": "macro",
+  "header": "allegro/internal/alconfig.h",
+  "sig": "(x) #define END_OF_STATIC_FUNCTION(x)",
+  "uses": 4,
+  "files": [
+   "zc_sys.cpp",
+   "zelda.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "FA_ARCH",
+  "kind": "macro",
+  "header": "allegro/internal/alconfig.h",
+  "sig": "32",
+  "uses": 1,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "FA_DIREC",
+  "kind": "macro",
+  "header": "allegro/internal/alconfig.h",
+  "sig": "16",
+  "uses": 8,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "FA_HIDDEN",
+  "kind": "macro",
+  "header": "allegro/internal/alconfig.h",
+  "sig": "2",
+  "uses": 2,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "FA_LABEL",
+  "kind": "macro",
+  "header": "allegro/internal/alconfig.h",
+  "sig": "8",
+  "uses": 2,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "FA_RDONLY",
+  "kind": "macro",
+  "header": "allegro/internal/alconfig.h",
+  "sig": "1",
+  "uses": 2,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "FA_SYSTEM",
+  "kind": "macro",
+  "header": "allegro/internal/alconfig.h",
+  "sig": "4",
+  "uses": 1,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "LOCK_DATA",
+  "kind": "macro",
+  "header": "allegro/internal/alconfig.h",
+  "sig": "(d, s) #define LOCK_CODE(c, s)",
+  "uses": 2,
+  "files": [
+   "qst.cpp"
+  ]
+ },
+ {
+  "name": "LOCK_FUNCTION",
+  "kind": "macro",
+  "header": "allegro/internal/alconfig.h",
+  "sig": "(x) #endif",
+  "uses": 4,
+  "files": [
+   "zc_sys.cpp",
+   "zelda.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "OTHER_PATH_SEPARATOR",
+  "kind": "macro",
+  "header": "allegro/internal/alconfig.h",
+  "sig": "'\\\\'",
+  "uses": 12,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "memcmp",
+  "kind": "macro",
+  "header": "allegro/internal/alconfig.h",
+  "sig": "_alemu_memcmp",
+  "uses": 2,
+  "files": [
+   "qst.cpp"
+  ]
+ },
+ {
+  "name": "stricmp",
+  "kind": "macro",
+  "header": "allegro/internal/alconfig.h",
+  "sig": "_alemu_stricmp",
+  "uses": 38,
+  "files": [
+   "init.cpp",
+   "jwinfsel.cpp",
+   "title.cpp",
+   "zcmusic.cpp",
+   "zelda.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "strupr",
+  "kind": "macro",
+  "header": "allegro/internal/alconfig.h",
+  "sig": "_alemu_strupr",
+  "uses": 2,
+  "files": [
+   "title.cpp"
+  ]
+ },
+ {
+  "name": "uint64_t",
+  "kind": "macro",
+  "header": "allegro/internal/alconfig.h",
+  "sig": "unsigned long long",
+  "uses": 3,
+  "files": [
+   "alleg_compat.cpp",
+   "alleg_compat.h"
+  ]
+ },
+ {
+  "name": "name",
+  "kind": "var",
+  "header": "allegro/internal/alconfig.h",
+  "sig": "AL_VAR(type, name",
+  "uses": 109,
+  "files": [
+   "ending.cpp",
+   "ffscript.cpp",
+   "ffscript.h",
+   "init.cpp",
+   "jwinfsel.cpp",
+   "link.cpp",
+   "qst.cpp",
+   "single_instance.h",
+   "subscr.h",
+   "title.cpp",
+   "win32.cpp",
+   "zc_sys.cpp",
+   "zcmusic.cpp",
+   "zdefs.h",
+   "zelda.cpp",
+   "zsys.cpp",
+   "zsys.h"
+  ]
+ },
+ {
+  "name": "install_joystick",
+  "kind": "func",
+  "header": "allegro/joystick.h",
+  "sig": "int install_joystick(int type)",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "poll_joystick",
+  "kind": "func",
+  "header": "allegro/joystick.h",
+  "sig": "int poll_joystick(void)",
+  "uses": 6,
+  "files": [
+   "aglogo.cpp",
+   "jwin.cpp",
+   "matrix.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "JOY_TYPE_AUTODETECT",
+  "kind": "macro",
+  "header": "allegro/joystick.h",
+  "sig": "-1",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "MAX_JOYSTICKS",
+  "kind": "macro",
+  "header": "allegro/joystick.h",
+  "sig": "8",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "joy",
+  "kind": "var",
+  "header": "allegro/joystick.h",
+  "sig": "AL_ARRAY(JOYSTICK_INFO, joy",
+  "uses": 27,
+  "files": [
+   "aglogo.cpp",
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "num_joysticks",
+  "kind": "var",
+  "header": "allegro/joystick.h",
+  "sig": "AL_VAR(int, num_joysticks",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "clear_keybuf",
+  "kind": "func",
+  "header": "allegro/keyboard.h",
+  "sig": "void clear_keybuf(void)",
+  "uses": 36,
+  "files": [
+   "aglogo.cpp",
+   "jwin.cpp",
+   "jwinfsel.cpp",
+   "maps.cpp",
+   "matrix.cpp",
+   "title.cpp",
+   "zc_sys.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "install_keyboard",
+  "kind": "func",
+  "header": "allegro/keyboard.h",
+  "sig": "int install_keyboard(void)",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "keypressed",
+  "kind": "func",
+  "header": "allegro/keyboard.h",
+  "sig": "int keypressed(void)",
+  "uses": 9,
+  "files": [
+   "aglogo.cpp",
+   "jwin.cpp",
+   "title.cpp",
+   "zc_sys.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "readkey",
+  "kind": "func",
+  "header": "allegro/keyboard.h",
+  "sig": "int readkey(void)",
+  "uses": 5,
+  "files": [
+   "debug.cpp",
+   "jwin.cpp",
+   "title.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "scancode_to_ascii",
+  "kind": "func",
+  "header": "allegro/keyboard.h",
+  "sig": "int scancode_to_ascii(int scancode)",
+  "uses": 1,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "set_keyboard_rate",
+  "kind": "func",
+  "header": "allegro/keyboard.h",
+  "sig": "void set_keyboard_rate(int delay, int repeat)",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "simulate_keypress",
+  "kind": "func",
+  "header": "allegro/keyboard.h",
+  "sig": "void simulate_keypress(int keycode)",
+  "uses": 9,
+  "files": [
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KB_CTRL_FLAG",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KB_CTRL_FLAG",
+  "uses": 4,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "KB_SHIFT_FLAG",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KB_SHIFT_FLAG",
+  "uses": 4,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "KEY_0",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_0",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_1",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_1",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_2",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_2",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_3",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_3",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_4",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_4",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_5",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_5",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_6",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_6",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_7",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_7",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_8",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_8",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_A",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_A",
+  "uses": 4,
+  "files": [
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_ALT",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_ALT",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_ASTERISK",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_ASTERISK",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_B",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_B",
+  "uses": 2,
+  "files": [
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_BACKSPACE",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_BACKSPACE",
+  "uses": 3,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp",
+   "title.cpp"
+  ]
+ },
+ {
+  "name": "KEY_C",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_C",
+  "uses": 3,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_CLOSEBRACE",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_CLOSEBRACE",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_COMMA",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_COMMA",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_COMMAND",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_COMMAND",
+  "uses": 2,
+  "files": [
+   "zc_alleg.h"
+  ]
+ },
+ {
+  "name": "KEY_D",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_D",
+  "uses": 2,
+  "files": [
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_DEL",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_DEL",
+  "uses": 3,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp",
+   "title.cpp"
+  ]
+ },
+ {
+  "name": "KEY_DEL_PAD",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_DEL_PAD",
+  "uses": 1,
+  "files": [
+   "editbox.cpp"
+  ]
+ },
+ {
+  "name": "KEY_DOWN",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_DOWN",
+  "uses": 13,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_E",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_E",
+  "uses": 1,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "KEY_END",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_END",
+  "uses": 9,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_ENTER",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_ENTER",
+  "uses": 8,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp",
+   "title.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_ENTER_PAD",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_ENTER_PAD",
+  "uses": 2,
+  "files": [
+   "editbox.cpp",
+   "title.cpp"
+  ]
+ },
+ {
+  "name": "KEY_EQUALS",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_EQUALS",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_ESC",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_ESC",
+  "uses": 15,
+  "files": [
+   "EditboxModel.cpp",
+   "editbox.cpp",
+   "jwin.cpp",
+   "title.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_F",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_F",
+  "uses": 3,
+  "files": [
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_F1",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_F1",
+  "uses": 6,
+  "files": [
+   "editbox.cpp",
+   "init.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_F10",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_F10",
+  "uses": 6,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_F11",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_F11",
+  "uses": 2,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_F12",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_F12",
+  "uses": 4,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_F2",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_F2",
+  "uses": 4,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_F3",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_F3",
+  "uses": 2,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_F4",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_F4",
+  "uses": 2,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_F5",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_F5",
+  "uses": 2,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_F6",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_F6",
+  "uses": 4,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_F7",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_F7",
+  "uses": 6,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_F8",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_F8",
+  "uses": 6,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_F9",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_F9",
+  "uses": 6,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_G",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_G",
+  "uses": 5,
+  "files": [
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_H",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_H",
+  "uses": 2,
+  "files": [
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_HOME",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_HOME",
+  "uses": 9,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_I",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_I",
+  "uses": 2,
+  "files": [
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_J",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_J",
+  "uses": 1,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "KEY_K",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_K",
+  "uses": 2,
+  "files": [
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_L",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_L",
+  "uses": 4,
+  "files": [
+   "jwin.cpp",
+   "maps.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_LCONTROL",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_LCONTROL",
+  "uses": 4,
+  "files": [
+   "editbox.cpp",
+   "zc_alleg.h"
+  ]
+ },
+ {
+  "name": "KEY_LEFT",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_LEFT",
+  "uses": 11,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp",
+   "title.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_LSHIFT",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_LSHIFT",
+  "uses": 9,
+  "files": [
+   "editbox.cpp",
+   "qst.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_M",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_M",
+  "uses": 3,
+  "files": [
+   "ffscript.cpp",
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_MINUS",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_MINUS",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_MINUS_PAD",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_MINUS_PAD",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_N",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_N",
+  "uses": 65,
+  "files": [
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_O",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_O",
+  "uses": 4,
+  "files": [
+   "jwin.cpp",
+   "sprite.cpp",
+   "weapons.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_OPENBRACE",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_OPENBRACE",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_P",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_P",
+  "uses": 3,
+  "files": [
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_PGDN",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_PGDN",
+  "uses": 8,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_PGUP",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_PGUP",
+  "uses": 8,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_PLUS_PAD",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_PLUS_PAD",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_Q",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_Q",
+  "uses": 3,
+  "files": [
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_R",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_R",
+  "uses": 2,
+  "files": [
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_RCONTROL",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_RCONTROL",
+  "uses": 4,
+  "files": [
+   "editbox.cpp",
+   "zc_alleg.h"
+  ]
+ },
+ {
+  "name": "KEY_RIGHT",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_RIGHT",
+  "uses": 12,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp",
+   "title.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_RSHIFT",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_RSHIFT",
+  "uses": 9,
+  "files": [
+   "editbox.cpp",
+   "qst.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_S",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_S",
+  "uses": 2,
+  "files": [
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_SLASH_PAD",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_SLASH_PAD",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_SPACE",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_SPACE",
+  "uses": 4,
+  "files": [
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_STOP",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_STOP",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_T",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_T",
+  "uses": 1,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "KEY_TAB",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_TAB",
+  "uses": 5,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_TILDE",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_TILDE",
+  "uses": 2,
+  "files": [
+   "zc_sys.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "KEY_U",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_U",
+  "uses": 1,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "KEY_UP",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_UP",
+  "uses": 10,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_V",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_V",
+  "uses": 3,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_W",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_W",
+  "uses": 3,
+  "files": [
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_X",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_X",
+  "uses": 3,
+  "files": [
+   "editbox.cpp",
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "KEY_Y",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_Y",
+  "uses": 1,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "KEY_Z",
+  "kind": "macro",
+  "header": "allegro/keyboard.h",
+  "sig": "__allegro_KEY_Z",
+  "uses": 2,
+  "files": [
+   "jwin.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "key",
+  "kind": "var",
+  "header": "allegro/keyboard.h",
+  "sig": "AL_ARRAY(volatile char, key",
+  "uses": 224,
+  "files": [
+   "editbox.cpp",
+   "ffscript.cpp",
+   "init.cpp",
+   "jwin.cpp",
+   "maps.cpp",
+   "qst.cpp",
+   "sprite.cpp",
+   "title.cpp",
+   "vectorset.h",
+   "weapons.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp",
+   "zsys.h"
+  ]
+ },
+ {
+  "name": "key_shifts",
+  "kind": "var",
+  "header": "allegro/keyboard.h",
+  "sig": "AL_VAR(volatile int, key_shifts",
+  "uses": 6,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "three_finger_flag",
+  "kind": "var",
+  "header": "allegro/keyboard.h",
+  "sig": "AL_VAR(int, three_finger_flag",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "destroy_midi",
+  "kind": "func",
+  "header": "allegro/midi.h",
+  "sig": "void destroy_midi(MIDI *midi)",
+  "uses": 2,
+  "files": [
+   "qst.cpp",
+   "zdefs.h"
+  ]
+ },
+ {
+  "name": "midi_pause",
+  "kind": "func",
+  "header": "allegro/midi.h",
+  "sig": "void midi_pause(void)",
+  "uses": 3,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "midi_resume",
+  "kind": "func",
+  "header": "allegro/midi.h",
+  "sig": "void midi_resume(void)",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "midi_seek",
+  "kind": "func",
+  "header": "allegro/midi.h",
+  "sig": "int midi_seek(int target)",
+  "uses": 3,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "play_midi",
+  "kind": "func",
+  "header": "allegro/midi.h",
+  "sig": "int play_midi(MIDI *midi, int loop)",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "stop_midi",
+  "kind": "func",
+  "header": "allegro/midi.h",
+  "sig": "void stop_midi(void)",
+  "uses": 6,
+  "files": [
+   "ending.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "MIDI_AUTODETECT",
+  "kind": "macro",
+  "header": "allegro/midi.h",
+  "sig": "-1",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "MIDI_TRACKS",
+  "kind": "macro",
+  "header": "allegro/midi.h",
+  "sig": "32",
+  "uses": 4,
+  "files": [
+   "midi.cpp",
+   "qst.cpp"
+  ]
+ },
+ {
+  "name": "MIDI",
+  "kind": "type",
+  "header": "allegro/midi.h",
+  "sig": "struct",
+  "uses": 22,
+  "files": [
+   "ffscript.cpp",
+   "midi.cpp",
+   "midi.h",
+   "qst.cpp",
+   "zc_sys.cpp",
+   "zdefs.h",
+   "zq_class.h",
+   "zquest.h"
+  ]
+ },
+ {
+  "name": "midi_driver",
+  "kind": "var",
+  "header": "allegro/midi.h",
+  "sig": "AL_VAR(MIDI_DRIVER *, midi_driver",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "midi_loop_end",
+  "kind": "var",
+  "header": "allegro/midi.h",
+  "sig": "AL_VAR(long, midi_loop_end",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "midi_loop_start",
+  "kind": "var",
+  "header": "allegro/midi.h",
+  "sig": "AL_VAR(long, midi_loop_start",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "midi_pos",
+  "kind": "var",
+  "header": "allegro/midi.h",
+  "sig": "AL_VAR(volatile long, midi_pos",
+  "uses": 8,
+  "files": [
+   "link.cpp",
+   "title.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "install_mouse",
+  "kind": "func",
+  "header": "allegro/mouse.h",
+  "sig": "int install_mouse(void)",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "position_mouse",
+  "kind": "func",
+  "header": "allegro/mouse.h",
+  "sig": "void position_mouse(int x, int y)",
+  "uses": 3,
+  "files": [
+   "ffscript.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "position_mouse_z",
+  "kind": "func",
+  "header": "allegro/mouse.h",
+  "sig": "void position_mouse_z(int z)",
+  "uses": 11,
+  "files": [
+   "ffscript.cpp",
+   "gui.cpp",
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "scare_mouse",
+  "kind": "func",
+  "header": "allegro/mouse.h",
+  "sig": "void scare_mouse(void)",
+  "uses": 63,
+  "files": [
+   "editbox.cpp",
+   "gui.cpp",
+   "init.cpp",
+   "jwin.cpp",
+   "jwinfsel.cpp",
+   "tab_ctl.cpp",
+   "title.cpp",
+   "zc_sys.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "scare_mouse_area",
+  "kind": "func",
+  "header": "allegro/mouse.h",
+  "sig": "void scare_mouse_area(int x, int y, int w, int h)",
+  "uses": 2,
+  "files": [
+   "gui.cpp"
+  ]
+ },
+ {
+  "name": "unscare_mouse",
+  "kind": "func",
+  "header": "allegro/mouse.h",
+  "sig": "void unscare_mouse(void)",
+  "uses": 65,
+  "files": [
+   "editbox.cpp",
+   "gui.cpp",
+   "init.cpp",
+   "jwin.cpp",
+   "jwinfsel.cpp",
+   "tab_ctl.cpp",
+   "title.cpp",
+   "zc_sys.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "position",
+  "kind": "var",
+  "header": "allegro/mouse.h",
+  "sig": "AL_METHOD(void, position",
+  "uses": 4,
+  "files": [
+   "link.cpp",
+   "zcmusic.cpp",
+   "zcmusic.h"
+  ]
+ },
+ {
+  "name": "PAL_SIZE",
+  "kind": "macro",
+  "header": "allegro/palette.h",
+  "sig": "256",
+  "uses": 17,
+  "files": [
+   "colors.cpp",
+   "jwin.cpp",
+   "link.cpp",
+   "pal.cpp",
+   "weapons.cpp",
+   "zc_subscr.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp",
+   "zq_tiles.h"
+  ]
+ },
+ {
+  "name": "RGB",
+  "kind": "type",
+  "header": "allegro/palette.h",
+  "sig": "struct",
+  "uses": 66,
+  "files": [
+   "EditboxView.cpp",
+   "aglogo.cpp",
+   "colors.cpp",
+   "jwin.cpp",
+   "load_gif.h",
+   "matrix.cpp",
+   "pal.cpp",
+   "pal.h",
+   "save_gif.h",
+   "title.cpp",
+   "weapons.cpp",
+   "zc_subscr.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp",
+   "zq_cset.h",
+   "zq_misc.h",
+   "zquest.h"
+  ]
+ },
+ {
+  "name": "int16_t",
+  "kind": "macro",
+  "header": "allegro/platform/astdint.h",
+  "sig": "signed short",
+  "uses": 2,
+  "files": [
+   "zcmusic.cpp"
+  ]
+ },
+ {
+  "name": "int32_t",
+  "kind": "macro",
+  "header": "allegro/platform/astdint.h",
+  "sig": "signed int",
+  "uses": 2,
+  "files": [
+   "zcmusic.cpp"
+  ]
+ },
+ {
+  "name": "int8_t",
+  "kind": "macro",
+  "header": "allegro/platform/astdint.h",
+  "sig": "signed char",
+  "uses": 2,
+  "files": [
+   "zcmusic.cpp"
+  ]
+ },
+ {
+  "name": "uint16_t",
+  "kind": "macro",
+  "header": "allegro/platform/astdint.h",
+  "sig": "unsigned short",
+  "uses": 2,
+  "files": [
+   "zcmusic.cpp"
+  ]
+ },
+ {
+  "name": "uint32_t",
+  "kind": "macro",
+  "header": "allegro/platform/astdint.h",
+  "sig": "unsigned int",
+  "uses": 2,
+  "files": [
+   "zcmusic.cpp"
+  ]
+ },
+ {
+  "name": "uint8_t",
+  "kind": "macro",
+  "header": "allegro/platform/astdint.h",
+  "sig": "unsigned char",
+  "uses": 2,
+  "files": [
+   "zcmusic.cpp"
+  ]
+ },
+ {
+  "name": "install_sound",
+  "kind": "func",
+  "header": "allegro/sound.h",
+  "sig": "int install_sound(int digi, int midi, AL_CONST char *cfg_path)",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "free_audio_stream_buffer",
+  "kind": "func",
+  "header": "allegro/stream.h",
+  "sig": "void free_audio_stream_buffer(AUDIOSTREAM *stream)",
+  "uses": 1,
+  "files": [
+   "zcmusic.cpp"
+  ]
+ },
+ {
+  "name": "get_audio_stream_buffer",
+  "kind": "func",
+  "header": "allegro/stream.h",
+  "sig": "void * get_audio_stream_buffer(AUDIOSTREAM *stream)",
+  "uses": 1,
+  "files": [
+   "zcmusic.cpp"
+  ]
+ },
+ {
+  "name": "play_audio_stream",
+  "kind": "func",
+  "header": "allegro/stream.h",
+  "sig": "AUDIOSTREAM * play_audio_stream(int len, int bits, int stereo, int freq, int vol, int pan)",
+  "uses": 1,
+  "files": [
+   "zcmusic.cpp"
+  ]
+ },
+ {
+  "name": "stop_audio_stream",
+  "kind": "func",
+  "header": "allegro/stream.h",
+  "sig": "void stop_audio_stream(AUDIOSTREAM *stream)",
+  "uses": 2,
+  "files": [
+   "zcmusic.cpp"
+  ]
+ },
+ {
+  "name": "AUDIOSTREAM",
+  "kind": "type",
+  "header": "allegro/stream.h",
+  "sig": "struct",
+  "uses": 11,
+  "files": [
+   "zcmusic.cpp"
+  ]
+ },
+ {
+  "name": "allegro_exit",
+  "kind": "func",
+  "header": "allegro/system.h",
+  "sig": "void allegro_exit(void)",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "allegro_message",
+  "kind": "func",
+  "header": "allegro/system.h",
+  "sig": "void allegro_message(AL_CONST char *msg, ...)",
+  "uses": 1,
+  "files": [
+   "win32.cpp"
+  ]
+ },
+ {
+  "name": "get_executable_name",
+  "kind": "func",
+  "header": "allegro/system.h",
+  "sig": "void get_executable_name(char *output, int size)",
+  "uses": 2,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "set_close_button_callback",
+  "kind": "func",
+  "header": "allegro/system.h",
+  "sig": "int set_close_button_callback(AL_METHOD(void, proc, (void)))",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "allegro_init",
+  "kind": "macro",
+  "header": "allegro/system.h",
+  "sig": "() _install_allegro_version_check(SYSTEM_AUTODETECT, &errno,     (int (*)(void (*)(",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "allegro_error",
+  "kind": "var",
+  "header": "allegro/system.h",
+  "sig": "AL_ARRAY(char, allegro_error",
+  "uses": 7,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "assert",
+  "kind": "var",
+  "header": "allegro/system.h",
+  "sig": "AL_METHOD(void, assert",
+  "uses": 22,
+  "files": [
+   "EditboxModel.cpp",
+   "EditboxView.cpp",
+   "maps.cpp",
+   "precompiled.h",
+   "qst.cpp",
+   "sprite.cpp",
+   "win32.cpp",
+   "zc_malloc.h",
+   "zdefs.h",
+   "zelda.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "desktop_color_depth",
+  "kind": "var",
+  "header": "allegro/system.h",
+  "sig": "AL_METHOD(int, desktop_color_depth",
+  "uses": 2,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "func",
+  "kind": "var",
+  "header": "allegro/system.h",
+  "sig": "AL_METHOD(void, func",
+  "uses": 4,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "message",
+  "kind": "var",
+  "header": "allegro/system.h",
+  "sig": "AL_METHOD(void, message",
+  "uses": 14,
+  "files": [
+   "jwinfsel.cpp",
+   "jwinfsel.h",
+   "win32.cpp"
+  ]
+ },
+ {
+  "name": "set_window_title",
+  "kind": "var",
+  "header": "allegro/system.h",
+  "sig": "AL_METHOD(void, set_window_title",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "yield_timeslice",
+  "kind": "var",
+  "header": "allegro/system.h",
+  "sig": "AL_METHOD(void, yield_timeslice",
+  "uses": 1,
+  "files": [
+   "zc_alleg.h"
+  ]
+ },
+ {
+  "name": "text_height",
+  "kind": "func",
+  "header": "allegro/text.h",
+  "sig": "int text_height(AL_CONST struct FONT *f)",
+  "uses": 140,
+  "files": [
+   "EditboxView.cpp",
+   "aglogo.cpp",
+   "guys.cpp",
+   "jwin.cpp",
+   "jwinfsel.cpp",
+   "script_drawing.cpp",
+   "subscr.cpp",
+   "tab_ctl.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "text_length",
+  "kind": "func",
+  "header": "allegro/text.h",
+  "sig": "int text_length(AL_CONST struct FONT *f, AL_CONST char *str)",
+  "uses": 106,
+  "files": [
+   "EditboxModel.cpp",
+   "aglogo.cpp",
+   "guys.cpp",
+   "jwin.cpp",
+   "jwinfsel.cpp",
+   "script_drawing.cpp",
+   "subscr.cpp",
+   "tab_ctl.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "textout_centre_ex",
+  "kind": "func",
+  "header": "allegro/text.h",
+  "sig": "void textout_centre_ex(struct BITMAP *bmp, AL_CONST struct FONT *f, AL_CONST char *str, int x, int y, int color, int bg)",
+  "uses": 14,
+  "files": [
+   "ending.cpp",
+   "maps.cpp",
+   "script_drawing.cpp",
+   "subscr.cpp",
+   "tab_ctl.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "textout_ex",
+  "kind": "func",
+  "header": "allegro/text.h",
+  "sig": "void textout_ex(struct BITMAP *bmp, AL_CONST struct FONT *f, AL_CONST char *str, int x, int y, int color, int bg)",
+  "uses": 141,
+  "files": [
+   "EditboxModel.cpp",
+   "EditboxView.cpp",
+   "aglogo.cpp",
+   "debug.cpp",
+   "ending.cpp",
+   "guys.cpp",
+   "jwin.cpp",
+   "link.cpp",
+   "script_drawing.cpp",
+   "subscr.cpp",
+   "title.cpp",
+   "zc_sys.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "textout_right_ex",
+  "kind": "func",
+  "header": "allegro/text.h",
+  "sig": "void textout_right_ex(struct BITMAP *bmp, AL_CONST struct FONT *f, AL_CONST char *str, int x, int y, int color, int bg)",
+  "uses": 3,
+  "files": [
+   "script_drawing.cpp",
+   "subscr.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "textprintf_ex",
+  "kind": "func",
+  "header": "allegro/text.h",
+  "sig": "void textprintf_ex(struct BITMAP *bmp, AL_CONST struct FONT *f, int x, int y, int color, int bg, AL_CONST char *format, ...)",
+  "uses": 31,
+  "files": [
+   "ending.cpp",
+   "guys.cpp",
+   "maps.cpp",
+   "matrix.cpp",
+   "script_drawing.cpp",
+   "subscr.cpp",
+   "title.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "textprintf_right_ex",
+  "kind": "func",
+  "header": "allegro/text.h",
+  "sig": "void textprintf_right_ex(struct BITMAP *bmp, AL_CONST struct FONT *f, int x, int y, int color, int bg, AL_CONST char *format, ...)",
+  "uses": 2,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "font",
+  "kind": "var",
+  "header": "allegro/text.h",
+  "sig": "AL_VAR(struct FONT *, font",
+  "uses": 245,
+  "files": [
+   "debug.cpp",
+   "editbox.h",
+   "init.cpp",
+   "jwin.cpp",
+   "jwin.h",
+   "jwinfsel.cpp",
+   "maps.cpp",
+   "qst.cpp",
+   "script_drawing.cpp",
+   "subscr.cpp",
+   "tab_ctl.cpp",
+   "title.cpp",
+   "zc_sys.cpp",
+   "zdefs.h",
+   "zelda.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "install_int_ex",
+  "kind": "func",
+  "header": "allegro/timer.h",
+  "sig": "int install_int_ex(AL_METHOD(void, proc, (void)), long speed)",
+  "uses": 4,
+  "files": [
+   "zc_sys.cpp",
+   "zcmusic.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "install_timer",
+  "kind": "func",
+  "header": "allegro/timer.h",
+  "sig": "int install_timer(void)",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "remove_int",
+  "kind": "func",
+  "header": "allegro/timer.h",
+  "sig": "void remove_int(AL_METHOD(void, proc, (void)))",
+  "uses": 2,
+  "files": [
+   "ffscript.cpp",
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "rest",
+  "kind": "func",
+  "header": "allegro/timer.h",
+  "sig": "void rest(unsigned int tyme)",
+  "uses": 8,
+  "files": [
+   "jwin.cpp",
+   "title.cpp",
+   "win32.cpp",
+   "zc_sys.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "rest_callback",
+  "kind": "func",
+  "header": "allegro/timer.h",
+  "sig": "void rest_callback(unsigned int tyme, AL_METHOD(void, callback, (void)))",
+  "uses": 1,
+  "files": [
+   "jwin.cpp"
+  ]
+ },
+ {
+  "name": "BPS_TO_TIMER",
+  "kind": "macro",
+  "header": "allegro/timer.h",
+  "sig": "(x) (TIMERS_PER_SECOND / (long)(x))",
+  "uses": 1,
+  "files": [
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "MSEC_TO_TIMER",
+  "kind": "macro",
+  "header": "allegro/timer.h",
+  "sig": "(x) ((long)(x) * (TIMERS_PER_SECOND / 1000))",
+  "uses": 1,
+  "files": [
+   "zcmusic.cpp"
+  ]
+ },
+ {
+  "name": "SECS_TO_TIMER",
+  "kind": "macro",
+  "header": "allegro/timer.h",
+  "sig": "(x) ((long)(x) * TIMERS_PER_SECOND)",
+  "uses": 1,
+  "files": [
+   "zc_sys.cpp"
+  ]
+ },
+ {
+  "name": "set_uformat",
+  "kind": "func",
+  "header": "allegro/unicode.h",
+  "sig": "void set_uformat(int type)",
+  "uses": 3,
+  "files": [
+   "title.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "ugetat",
+  "kind": "func",
+  "header": "allegro/unicode.h",
+  "sig": "int ugetat(AL_CONST char *s, int idx)",
+  "uses": 7,
+  "files": [
+   "jwinfsel.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "uinsert",
+  "kind": "func",
+  "header": "allegro/unicode.h",
+  "sig": "int uinsert(char *s, int idx, int c)",
+  "uses": 1,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "uisspace",
+  "kind": "func",
+  "header": "allegro/unicode.h",
+  "sig": "int uisspace(int c)",
+  "uses": 2,
+  "files": [
+   "jwin.cpp",
+   "subscr.cpp"
+  ]
+ },
+ {
+  "name": "uoffset",
+  "kind": "func",
+  "header": "allegro/unicode.h",
+  "sig": "int uoffset(AL_CONST char *s, int idx)",
+  "uses": 1,
+  "files": [
+   "EditboxModel.cpp"
+  ]
+ },
+ {
+  "name": "usetat",
+  "kind": "func",
+  "header": "allegro/unicode.h",
+  "sig": "int usetat(char *s, int idx, int c)",
+  "uses": 2,
+  "files": [
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "ustrcmp",
+  "kind": "func",
+  "header": "allegro/unicode.h",
+  "sig": "int ustrcmp(AL_CONST char *s1, AL_CONST char *s2)",
+  "uses": 1,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "ustricmp",
+  "kind": "func",
+  "header": "allegro/unicode.h",
+  "sig": "int ustricmp(AL_CONST char *s1, AL_CONST char *s2)",
+  "uses": 1,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "ustrlen",
+  "kind": "func",
+  "header": "allegro/unicode.h",
+  "sig": "int ustrlen(AL_CONST char *s)",
+  "uses": 2,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "ustrncmp",
+  "kind": "func",
+  "header": "allegro/unicode.h",
+  "sig": "int ustrncmp(AL_CONST char *s1, AL_CONST char *s2, int n)",
+  "uses": 1,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "ustrpbrk",
+  "kind": "func",
+  "header": "allegro/unicode.h",
+  "sig": "char * ustrpbrk(AL_CONST char *s, AL_CONST char *set)",
+  "uses": 3,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "ustrsizez",
+  "kind": "func",
+  "header": "allegro/unicode.h",
+  "sig": "int ustrsizez(AL_CONST char *s)",
+  "uses": 1,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "ustrtok_r",
+  "kind": "func",
+  "header": "allegro/unicode.h",
+  "sig": "char * ustrtok_r(char *s, AL_CONST char *set, char **last)",
+  "uses": 2,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "ustrtol",
+  "kind": "func",
+  "header": "allegro/unicode.h",
+  "sig": "long ustrtol(AL_CONST char *s, char **endp, int base)",
+  "uses": 2,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "ustrzcat",
+  "kind": "func",
+  "header": "allegro/unicode.h",
+  "sig": "char * ustrzcat(char *dest, int size, AL_CONST char *src)",
+  "uses": 1,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "ustrzcpy",
+  "kind": "func",
+  "header": "allegro/unicode.h",
+  "sig": "char * ustrzcpy(char *dest, int size, AL_CONST char *src)",
+  "uses": 6,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "utolower",
+  "kind": "func",
+  "header": "allegro/unicode.h",
+  "sig": "int utolower(int c)",
+  "uses": 8,
+  "files": [
+   "jwin.cpp",
+   "jwinfsel.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "utoupper",
+  "kind": "func",
+  "header": "allegro/unicode.h",
+  "sig": "int utoupper(int c)",
+  "uses": 3,
+  "files": [
+   "jwinfsel.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "uvszprintf",
+  "kind": "func",
+  "header": "allegro/unicode.h",
+  "sig": "int uvszprintf(char *buf, int size, AL_CONST char *format, va_list args)",
+  "uses": 31,
+  "files": [
+   "subscr.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "uwidth_max",
+  "kind": "func",
+  "header": "allegro/unicode.h",
+  "sig": "int uwidth_max(int type)",
+  "uses": 11,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "U_ASCII",
+  "kind": "macro",
+  "header": "allegro/unicode.h",
+  "sig": "AL_ID('A','S','C','8')",
+  "uses": 3,
+  "files": [
+   "title.cpp",
+   "zelda.cpp"
+  ]
+ },
+ {
+  "name": "U_CURRENT",
+  "kind": "macro",
+  "header": "allegro/unicode.h",
+  "sig": "AL_ID('c','u','r','.')",
+  "uses": 11,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "uconvert_ascii",
+  "kind": "macro",
+  "header": "allegro/unicode.h",
+  "sig": "(s, buf) uconvert(s, U_ASCII, buf, U_CURRENT, sizeof(buf))",
+  "uses": 10,
+  "files": [
+   "EditboxModel.cpp",
+   "editbox.cpp",
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "ustrdup",
+  "kind": "macro",
+  "header": "allegro/unicode.h",
+  "sig": "(src) _ustrdup(src, Fortify_malloc)",
+  "uses": 1,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "ucwidth",
+  "kind": "var",
+  "header": "allegro/unicode.h",
+  "sig": "AL_FUNCPTR(int, ucwidth",
+  "uses": 14,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "ugetc",
+  "kind": "var",
+  "header": "allegro/unicode.h",
+  "sig": "AL_FUNCPTR(int, ugetc",
+  "uses": 40,
+  "files": [
+   "EditboxModel.cpp",
+   "jwin.cpp",
+   "jwinfsel.cpp",
+   "subscr.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "ugetx",
+  "kind": "var",
+  "header": "allegro/unicode.h",
+  "sig": "AL_FUNCPTR(int, ugetx",
+  "uses": 2,
+  "files": [
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "ugetxc",
+  "kind": "var",
+  "header": "allegro/unicode.h",
+  "sig": "AL_FUNCPTR(int, ugetxc",
+  "uses": 4,
+  "files": [
+   "jwin.cpp",
+   "jwinfsel.cpp"
+  ]
+ },
+ {
+  "name": "uisok",
+  "kind": "var",
+  "header": "allegro/unicode.h",
+  "sig": "AL_FUNCPTR(int, uisok",
+  "uses": 1,
+  "files": [
+   "editbox.cpp"
+  ]
+ },
+ {
+  "name": "usetc",
+  "kind": "var",
+  "header": "allegro/unicode.h",
+  "sig": "AL_FUNCPTR(int, usetc",
+  "uses": 65,
+  "files": [
+   "EditboxModel.cpp",
+   "jwin.cpp",
+   "jwinfsel.cpp",
+   "subscr.cpp"
+  ]
+ },
+ {
+  "name": "uwidth",
+  "kind": "var",
+  "header": "allegro/unicode.h",
+  "sig": "AL_FUNCPTR(int, uwidth",
+  "uses": 18,
+  "files": [
+   "EditboxModel.cpp",
+   "jwin.cpp",
+   "subscr.cpp"
+  ]
+ },
+ {
+  "name": "color_map",
+  "kind": "macro",
+  "header": "bealleg.h",
+  "sig": "al_color_map",
+  "uses": 3,
+  "files": [
+   "script_drawing.cpp",
+   "subscr.cpp"
+  ]
+ },
+ {
+  "name": "drawing_mode",
+  "kind": "macro",
+  "header": "bealleg.h",
+  "sig": "al_drawing_mode",
+  "uses": 21,
+  "files": [
+   "EditboxView.cpp",
+   "jwin.cpp",
+   "script_drawing.cpp",
+   "subscr.cpp"
+  ]
+ },
+ {
+  "name": "BITMAP",
+  "kind": "type",
+  "header": "macalleg.h",
+  "sig": "typedef",
+  "uses": 664,
+  "files": [
+   "EditboxModel.cpp",
+   "EditboxNew.h",
+   "EditboxView.cpp",
+   "aglogo.cpp",
+   "aglogo.h",
+   "decorations.cpp",
+   "decorations.h",
+   "gui.cpp",
+   "gui.h",
+   "guys.cpp",
+   "guys.h",
+   "items.cpp",
+   "items.h",
+   "jwin.cpp",
+   "jwin.h",
+   "link.cpp",
+   "link.h",
+   "load_gif.h",
+   "maps.cpp",
+   "maps.h",
+   "matrix.cpp",
+   "particles.cpp",
+   "particles.h",
+   "rendertarget.h",
+   "save_gif.h",
+   "script_drawing.cpp",
+   "script_drawing.h",
+   "sprite.cpp",
+   "sprite.h",
+   "subscr.cpp",
+   "subscr.h",
+   "tab_ctl.cpp",
+   "tiles.cpp",
+   "tiles.h",
+   "title.cpp",
+   "weapons.cpp",
+   "weapons.h",
+   "zc_sys.cpp",
+   "zc_sys.h",
+   "zelda.cpp",
+   "zelda.h",
+   "zq_class.h",
+   "zq_misc.h",
+   "zq_tiles.h",
+   "zquest.h",
+   "zsys.cpp",
+   "zsys.h"
+  ]
+ },
+ {
+  "name": "win_get_window",
+  "kind": "func",
+  "header": "winalleg.h",
+  "sig": "HWND win_get_window(void)",
+  "uses": 2,
+  "files": [
+   "zelda.cpp",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "WIN32_LEAN_AND_MEAN",
+  "kind": "macro",
+  "header": "winalleg.h",
+  "sig": "#endif",
+  "uses": 2,
+  "files": [
+   "win32.h",
+   "zconsole.h"
+  ]
+ },
+ {
+  "name": "move",
+  "kind": "var",
+  "header": "winalleg.h",
+  "sig": "AL_METHOD(void, move",
+  "uses": 96,
+  "files": [
+   "guys.cpp",
+   "guys.h",
+   "link.cpp",
+   "link.h",
+   "particles.cpp",
+   "sprite.cpp",
+   "sprite.h",
+   "weapons.cpp",
+   "zc_sprite.cpp",
+   "zq_tiles.h"
+  ]
+ },
+ {
+  "name": "proc",
+  "kind": "var",
+  "header": "winalleg.h",
+  "sig": "AL_METHOD(HWND, proc",
+  "uses": 137,
+  "files": [
+   "ending.cpp",
+   "ending.h",
+   "init.cpp",
+   "jwin.cpp",
+   "jwinfsel.cpp",
+   "zc_sys.cpp",
+   "zquest.h",
+   "zsys.cpp"
+  ]
+ },
+ {
+  "name": "switch_in",
+  "kind": "var",
+  "header": "winalleg.h",
+  "sig": "AL_METHOD(void, switch_in",
+  "uses": 1,
+  "files": [
+   "zquest.h"
+  ]
+ },
+ {
+  "name": "switch_out",
+  "kind": "var",
+  "header": "winalleg.h",
+  "sig": "AL_METHOD(void, switch_out",
+  "uses": 1,
+  "files": [
+   "zquest.h"
+  ]
+ }
+]

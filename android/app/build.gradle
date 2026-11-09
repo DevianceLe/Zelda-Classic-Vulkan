@@ -1,0 +1,92 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Machine-specific settings live in android/local.properties (not committed):
+//   sdk.dir=...          the Android SDK
+//   zc.data.dir=...      a folder with the game data (zelda.dat, fonts.dat,
+//                        sfx.dat, qst.dat, *.qst, *.nsf, zc.cfg)
+def localProps = new Properties()
+def localFile = rootProject.file('local.properties')
+if (localFile.exists()) {
+    localFile.withInputStream { localProps.load(it) }
+}
+def zcDataDir = localProps.getProperty('zc.data.dir', System.getenv('ZPLAYER_DATA_DIR') ?: '')
+
+android {
+    namespace = "com.deviance.zcvulkan"
+    compileSdk 35
+    ndkVersion "28.2.13676358"
+
+    defaultConfig {
+        applicationId "com.deviance.zcvulkan"
+        minSdk 26          // Vulkan, AAudio
+        targetSdk 35
+        versionCode 1
+        versionName "2.53.444"
+        externalNativeBuild {
+            cmake {
+                arguments "-DANDROID_PLATFORM=android-26",
+                          "-DANDROID_STL=c++_static",
+                          "-DZC_ZPLAYER_ONLY=ON",
+                          "-DZC_PORT_SDL=ON"
+                targets "zplayer"
+                // phones and tablets (arm64) and the emulator on this PC (x86_64)
+                abiFilters 'arm64-v8a', 'x86_64'
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('../../CMakeLists.txt')
+            version "3.31.6"
+        }
+    }
+
+    sourceSets {
+        main {
+            java.srcDirs = ['src/main/java', '../../third_party/SDL3/android-project/app/src/main/java']
+            assets.srcDirs = ['src/main/assets', "$buildDir/zcdata"]
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    lint {
+        abortOnError = false
+    }
+}
+
+// The game data goes into the APK as assets/data/...; on first start the
+// player copies it to its internal storage and runs from there
+// (src/port/entry/zplayer_main.cpp). files.txt lists what to copy.
+tasks.register('copyGameData') {
+    def outDir = file("$buildDir/zcdata/data")
+    inputs.property('zcDataDir', zcDataDir)
+    if (zcDataDir) inputs.dir(zcDataDir)
+    outputs.dir(outDir)
+    doLast {
+        delete outDir
+        outDir.mkdirs()
+        if (!zcDataDir) {
+            logger.warn("zplayer: no zc.data.dir in local.properties; the APK has no game data")
+            return
+        }
+        def names = []
+        fileTree(zcDataDir).matching {
+            include 'zelda.dat', 'fonts.dat', 'sfx.dat', 'qst.dat', '*.qst', 'zc.cfg', 'soundfont.sf2',
+                    // enhanced music that quests may use
+                    '*.nsf', '*.ogg', '*.mp3', '*.it', '*.xm', '*.s3m', '*.mod', '*.spc', '*.gbs', '*.vgm', '*.gym'
+        }.each { f ->
+            copy { from f; into outDir }
+            names << f.name
+        }
+        new File(outDir, 'files.txt').text = names.sort().join('\n') + '\n'
+    }
+}
+preBuild.dependsOn 'copyGameData'

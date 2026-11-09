@@ -1,0 +1,116 @@
+name: Build
+
+# Every push to main builds Windows and Android. When VERSION holds a number that has no
+# release yet, the builds are published as a new GitHub Release.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'downloads/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          "VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A Win32 -DBISON_EXECUTABLE="$PWD/other/winflex/win_bison.exe" -DFLEX_EXECUTABLE="$PWD/other/winflex/win_flex.exe"
+
+      - name: Build
+        run: cmake --build build --config Release --target zplayer zqeditor -- /m /v:minimal /nologo
+
+      - name: Package
+        run: |
+          $folder = "ZC-$env:VERSION-Vulkan"
+          New-Item -ItemType Directory $folder | Out-Null
+          Copy-Item packaging\windows\* $folder -Recurse
+          Copy-Item build\Release\zplayer.exe, build\Release\zqeditor.exe $folder
+          Compress-Archive -Path $folder -DestinationPath "ZCZQ-$env:VERSION-Vulkan-Windows-x86.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: ZCZQ-*-Vulkan-Windows-x86.zip
+          if-no-files-found: error
+
+  android:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Read version
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          "VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Install Android tools
+        run: |
+          $sdkmanager = "$env:ANDROID_HOME\cmdline-tools\latest\bin\sdkmanager.bat"
+          ("y`n" * 12) | & $sdkmanager --licenses | Out-Null
+          & $sdkmanager --install "ndk;28.2.13676358" "cmake;3.31.6" "platforms;android-35" | Out-Null
+
+      - name: Collect game data
+        run: |
+          New-Item -ItemType Directory android-data | Out-Null
+          Copy-Item packaging\windows\* android-data -Recurse
+          Copy-Item packaging\android\soundfont.sf2 android-data
+          "ZPLAYER_DATA_DIR=$PWD\android-data" >> $env:GITHUB_ENV
+
+      - name: Build
+        run: android\gradlew.bat -p android assembleDebug --no-daemon
+
+      - name: Name the APK
+        run: Copy-Item android\app\build\outputs\apk\debug\app-debug.apk "ZC-$env:VERSION-Vulkan-Android.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: ZC-*-Vulkan-Android.apk
+          if-no-files-found: error
+
+  release:
+    needs: [windows, android]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish if this version is new
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(tr -d '[:space:]' < VERSION)
+          tag="v$version"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "$tag is already released; nothing to publish."
+            exit 0
+          fi
+          git archive --format=zip --prefix="ZC-$version-Vulkan-Source/" -o "dist/ZC-$version-Vulkan-Source.zip" HEAD
+          gh release create "$tag" dist/* --title "Zelda Classic $version Vulkan" --notes-file packaging/RELEASE_NOTES.md --target "$GITHUB_SHA"

@@ -1,0 +1,6 @@
+# machine-specific (sdk.dir, zc.data.dir)
+local.properties
+.gradle/
+build/
+app/build/
+app/.cxx/

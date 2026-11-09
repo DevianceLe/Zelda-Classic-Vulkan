@@ -1,0 +1,131 @@
+zcreplay 1
+# Scripted: new game of the 1st quest, walk around (tests/replay/make_1st_quest_walk.py)
+cfg key_up 84
+cfg key_down 85
+cfg key_left 82
+cfg key_right 83
+cfg key_a 119
+cfg key_b 117
+cfg key_s 67
+cfg name_entry_mode 0
+cfg title 2
+60 key ENTER 1
+60 char 0x430d
+65 key ENTER 0
+125 key ENTER 1
+125 char 0x430d
+130 key ENTER 0
+170 key L 1
+170 char 0x0c6c
+173 key L 0
+181 key I 1
+181 char 0x0969
+184 key I 0
+192 key N 1
+192 char 0x0e6e
+195 key N 0
+203 key K 1
+203 char 0x0b6b
+206 key K 0
+214 key ENTER 1
+214 char 0x430d
+218 key ENTER 0
+278 key ENTER 1
+278 char 0x430d
+279 seed 20261107
+283 key ENTER 0
+433 key UP 1
+433 char 0x5400
+473 key UP 0
+473 key LEFT 1
+473 char 0x5200
+535 key LEFT 0
+535 key UP 1
+535 char 0x5400
+605 key UP 0
+910 key RIGHT 1
+910 char 0x5300
+915 key RIGHT 0
+920 key UP 1
+920 char 0x5400
+965 key UP 0
+1065 key DOWN 1
+1065 char 0x5500
+1155 key DOWN 0
+1195 key DOWN 1
+1195 char 0x5500
+1215 key DOWN 0
+1215 key RIGHT 1
+1215 char 0x5300
+1245 key ALT 1
+1247 key ALT 0
+1277 key ALT 1
+1279 key ALT 0
+1309 key ALT 1
+1311 key ALT 0
+1335 key RIGHT 0
+1335 key DOWN 1
+1335 char 0x5500
+1365 key DOWN 0
+1365 key RIGHT 1
+1365 char 0x5300
+1405 key ALT 1
+1407 key ALT 0
+1447 key ALT 1
+1449 key ALT 0
+1489 key ALT 1
+1491 key ALT 0
+1525 key RIGHT 0
+1525 key UP 1
+1525 char 0x5400
+1555 key ALT 1
+1557 key ALT 0
+1587 key ALT 1
+1589 key ALT 0
+1619 key ALT 1
+1621 key ALT 0
+1645 key UP 0
+1645 key LEFT 1
+1645 char 0x5200
+1785 key LEFT 0
+1785 key UP 1
+1785 char 0x5400
+1810 key ALT 1
+1812 key ALT 0
+1837 key ALT 1
+1839 key ALT 0
+1864 key ALT 1
+1866 key ALT 0
+1885 key UP 0
+1885 key LEFT 1
+1885 char 0x5200
+1975 key LEFT 0
+1975 key DOWN 1
+1975 char 0x5500
+2010 key ALT 1
+2012 key ALT 0
+2047 key ALT 1
+2049 key ALT 0
+2084 key ALT 1
+2086 key ALT 0
+2121 key ALT 1
+2123 key ALT 0
+2135 key DOWN 0
+2135 key RIGHT 1
+2135 char 0x5300
+2195 key RIGHT 0
+2195 key LCONTROL 1
+2198 key LCONTROL 0
+2218 key DOWN 1
+2218 char 0x5500
+2238 key ALT 1
+2240 key ALT 0
+2260 key ALT 1
+2262 key ALT 0
+2282 key ALT 1
+2284 key ALT 0
+2298 key DOWN 0
+2298 key LEFT 1
+2298 char 0x5200
+2418 key LEFT 0
+end 2478

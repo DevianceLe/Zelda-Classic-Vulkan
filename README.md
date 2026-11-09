@@ -1,5 +1,7 @@
 # Zelda Classic 2.53.444 Vulkan
 
+[![Build](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml/badge.svg)](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml)
+
 Zelda Classic is a game engine and quest editor for making and playing custom adventures in the style of the original *The Legend of Zelda*. This repository is a community fork of Zelda Classic 2.53, rebuilt to run on SDL3 and Vulkan.
 
 | Program | What it is | Runs on |
@@ -9,12 +11,7 @@ Zelda Classic is a game engine and quest editor for making and playing custom ad
 
 ## Downloads
 
-| File | What it is |
-|---|---|
-| [ZCZQ-2.53.444.0-Vulkan-Windows-x86.zip](ZCZQ-2.53.444.0-Vulkan-Windows-x86.zip) | **Latest release, 2.53.444.0.** ZPlayer, ZQuest, game data and licenses for Windows |
-| [ZC-2.53.444.0-Vulkan-Source.zip](ZC-2.53.444.0-Vulkan-Source.zip) | Complete source code for that release |
-| [ZC-2.53.333.0-Vulkan-Android.apk](ZC-2.53.333.0-Vulkan-Android.apk) | Latest Android build, 2.53.333.0. It came before 2.55 and 3.0 Nightly support |
-| [ZCZQ-2.53.333.0-Vulkan-Windows-x86.zip](ZCZQ-2.53.333.0-Vulkan-Windows-x86.zip) and [source](ZC-2.53.333.0-Vulkan-Source.zip) | Previous Windows release |
+Get the latest Windows zip and Android APK from the [Releases page](https://github.com/DevianceLe/Zelda-Classic-Vulkan/releases/latest). Earlier builds are in [`downloads/`](downloads/).
 
 ## Mission statement
 
@@ -54,7 +51,7 @@ What that means in practice:
 
 ## Getting started
 
-Download `ZCZQ-2.53.444.0-Vulkan-Windows-x86.zip`, unzip it somewhere you can write to (not Program Files), and run `zplayer.exe` or `zqeditor.exe`. You need a graphics driver with Vulkan support.
+Download the latest zip from the [Releases page](https://github.com/DevianceLe/Zelda-Classic-Vulkan/releases/latest), unzip it somewhere you can write to (not Program Files), and run `zplayer.exe` or `zqeditor.exe`. You need a graphics driver with Vulkan support.
 
 To play a quest directly:
 
@@ -74,7 +71,7 @@ Put a quest's music next to the `.qst` file or in a `Music` folder beside it.
 
 ## Building from source
 
-Unzip `ZC-2.53.444.0-Vulkan-Source.zip`. You need Visual Studio 2022 with the x86 C++ tools, and CMake. Flex and Bison for Windows are included. Run these from PowerShell in the unzipped folder:
+You need Visual Studio 2022 with the x86 C++ tools, and CMake. Flex and Bison for Windows are included. Run these from PowerShell in the repository root:
 
 ```bash
 cmake -S . -B build -G "Visual Studio 17 2022" -A Win32 -DBISON_EXECUTABLE="$PWD/other/winflex/win_bison.exe" -DFLEX_EXECUTABLE="$PWD/other/winflex/win_flex.exe"
@@ -84,9 +81,9 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A Win32 -DBISON_EXECUTABLE="$PWD
 cmake --build build --config Release --target zplayer zqeditor
 ```
 
-The programs are written to `build/Release`. They need the game data beside them (`zelda.dat`, `zquest.dat`, `sfx.dat`, `fonts.dat`, `qst.dat` and the default quests), which you can copy from a release zip.
+The programs are written to `build/Release`. They need the game data beside them (`zelda.dat`, `zquest.dat`, `sfx.dat`, `fonts.dat`, `qst.dat` and the default quests), which you can copy from `packaging/windows/`.
 
-The Android player is a Gradle project in `android/`. It targets `arm64-v8a` and `x86_64`.
+The Android player is a Gradle project in [`android/`](android/). It targets `arm64-v8a` and `x86_64`.
 
 ## Quest compatibility
 
@@ -95,7 +92,7 @@ The Android player is a Gradle project in `android/`. It targets `arm64-v8a` and
 | 2.53.2 and earlier | Plays exactly as before | Opens and saves as 2.53 |
 | 2.54, 2.55 and 3.0 Nightlies | Plays; never saved as an older quest | Refused for now |
 
-Every change has to pass the 2.53 checks. Re-saved reference quests must match byte for byte, and replays in `tests/replay/` must produce identical frames.
+Every change has to pass the 2.53 checks. Re-saved reference quests must match byte for byte, and [replays](tests/replay/) must produce identical frames.
 
 ## Quests tested so far
 
@@ -125,7 +122,7 @@ Every section of these six quest files reads without errors. They are mostly ope
 
 The 3rd and 4th Quests have not been tested on this port yet.
 
-## Source layout
+## Repository layout
 
 | Path | What is in it |
 |---|---|
@@ -133,11 +130,24 @@ The 3rd and 4th Quests have not been tested on this port yet.
 | `src/port/` | The SDL3 and Vulkan port, including our Allegro replacement |
 | `src/port/game/` | Readers and engine code for 2.55 and 3.0 Nightly quests |
 | `android/` | Android project |
-| `third_party/` | Bundled libraries (details in `third_party/README.md`) |
+| `third_party/` | Bundled libraries ([details](third_party/README.md)) |
 | `tests/replay/` | Recorded play-throughs and their expected frame hashes |
+| `packaging/` | Game data and notes that ship with each release |
+| `.github/workflows/` | Automatic builds and releases |
+| `downloads/` | Earlier builds |
 | `docs/` | Notes on the port |
 
 The original Allegro `zelda` and `zquest` targets stay in the tree only as a reference build to measure the port against.
+
+## Releasing
+
+Every push to `main` builds Windows and Android. To publish a new release:
+
+1. Change the number in `VERSION`.
+2. Update `packaging/RELEASE_NOTES.md`.
+3. Commit and push.
+
+GitHub builds it and publishes a release for that version. If a release with that number already exists, nothing is published.
 
 ## Credits
 
@@ -208,6 +218,6 @@ arceusplayer11, Jambu2024, kasryan, Nekohime89, pedro-w, PlanNineFromOuterSpace,
 
 ## License
 
-Zelda Classic is released under the GNU General Public License v3 (`license.txt` in the source zip). Bundled libraries keep their own licenses, found in their folders and in the `licenses` folder of each release.
+Zelda Classic is released under the [GNU General Public License v3](license.txt). Bundled libraries keep their own licenses, found in their folders and in the `licenses` folder of each release.
 
 *The Legend of Zelda* is a trademark of Nintendo. This is an unofficial fan project, not affiliated with or endorsed by Nintendo.
