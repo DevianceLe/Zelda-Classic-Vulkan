@@ -1,4 +1,4 @@
-ZC 2.53.444.0 - Vulkan
+ZC Vulkan 2.53.444.1
 Windows, 32-bit
 
 The Zelda Classic 2.53 player and the ZQuest 2.53 quest editor, ported to SDL3
@@ -17,6 +17,8 @@ What's new
 - ZQuest does not ask for quest passwords
 - The player plays 2.55 and 3.0 Nightly quests (see "Newer quests" below)
 - Quests can be kept in folders with # in the name
+- X and Y item buttons in newer quests
+- New startup intros: choose one in Settings > Intro
 
 Running it
 1. Unzip this folder somewhere you can write to (not Program Files).
@@ -65,7 +67,11 @@ Credits and licenses
 Zelda Classic and ZQuest are by Armageddon Games and its contributors, and are
 licensed under GPLv3 (licenses/ZeldaClassic-GPL3.txt). This port is by
 Deviance. The complete source code is in the matching
-ZC-2.53.444.0-Vulkan-Source.zip.
+ZC-2.53.444.1-Vulkan-Source.zip.
+
+The ZC 3.0 Nightly intro uses the ZQuest Classic logo by Eduardc and the music
+"ZC Forever" by Beatscribe. Their terms are in assets\zc\LICENSE.txt and are
+separate from the GPL.
 
 The game data files come from the Zelda Classic 2.53.1 Beta 55 package.
 

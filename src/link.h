@@ -442,6 +442,16 @@ int selectSword();
 void selectNextAWpn(int type);
 void selectNextBWpn(int type);
 void verifyBothWeapons();
+
+// the X and Y item buttons of newer quests
+extern int Xwpn, Ywpn, directItemX, directItemY, q30_xpos, q30_ypos;
+bool q30_use_x_button();
+bool q30_use_y_button();
+void q30_set_button_item(bool x, int wpn);
+void q30_set_button_slot(bool x, int wpn, int pos, int direct);
+void q30_verify_extra_buttons();
+void q30_load_extra_buttons();
+void q30_select_next_button_item(bool x, int type);
 void verifyAWpn();
 void verifyBWpn();
 bool canget(int id);

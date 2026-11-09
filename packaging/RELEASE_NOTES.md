@@ -1,9 +1,9 @@
 ## What's new
 
-- The player runs 2.55 and 3.0 Nightly quests
-- Fixed the magenta strip under some item screens
-- Quests can be kept in folders with `#` in the name
-- ZQuest refuses quests newer than 2.53.2 until the 2.55/3.0 editor is finished
+- Fixed letter keys doing nothing in play after a dialog had been open, which left the A and B buttons dead
+- X and Y item buttons in 2.55 and 3.0 Nightly quests
+- Item bundles, and script file, directory and stack commands
+- New startup intros: an 80s arcade title, an animated "Celebrating 27 Years" screen, and the ZC 3.0 Nightly intro. Choose in Settings > Intro
 
 ## Known gaps
 

@@ -478,10 +478,10 @@ static bool zasm30_get_register(const long arg, long &ret)
     switch(arg)
     {
     // Hero
+    case Z30R_LINKITEMX: ret = Xwpn * 10000; return true;
+    case Z30R_LINKITEMY: ret = Ywpn * 10000; return true;
     case Z30R_LINKITEMA: ret = Awpn * 10000; return true;
     case Z30R_LINKITEMB: ret = Bwpn * 10000; return true;
-    case Z30R_LINKITEMX:
-    case Z30R_LINKITEMY: ret = zasm30_store_get(arg, 0, 0); return true;
     case Z30R_LINKSTUN: ret = zasm30_store_get(arg, 0, 0); return true;
     case Z30R_LINKTILEMOD:
     case Z30R_LINKCANFLICKER: ret = zasm30_store_get(arg, 0, 0) ? 10000 : (arg == Z30R_LINKCANFLICKER ? 10000 : 0); return true;
@@ -927,10 +927,10 @@ static bool zasm30_set_register(const long arg, const long value)
 
     switch(arg)
     {
+    case Z30R_LINKITEMX: q30_set_button_item(true, value / 10000); return true;
+    case Z30R_LINKITEMY: q30_set_button_item(false, value / 10000); return true;
     case Z30R_LINKITEMA:
     case Z30R_LINKITEMB:
-    case Z30R_LINKITEMX:
-    case Z30R_LINKITEMY:
     case Z30R_LINKSTUN:
     case Z30R_LINKTILEMOD:
     case Z30R_LINKCANFLICKER:

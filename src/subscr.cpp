@@ -2912,6 +2912,35 @@ void putxnum(BITMAP *dest,int x,int y,int num,FONT *tempfont,int color,int shado
 item *Bitem = NULL, *Aitem = NULL;
 int   Bid = 0, Aid = 0;
 
+#ifdef ZC_PLAYER_BUILD
+// The X and Y buttons of newer quests.
+extern int Xwpn, Ywpn;
+static item *Xitem = NULL, *Yitem = NULL;
+static int Xid = 0, Yid = 0;
+
+static void update_extra_button_item(item *&it, int &id, int wpn)
+{
+    if(id == wpn)
+        return;
+
+    id = 0;
+    delete it;
+    it = NULL;
+
+    if(wpn > 0)
+    {
+        it = new item((fix)0, (fix)0, (fix)0, wpn&0x0FFF, 0, 0);
+
+        if(itemsbuf[wpn&0x0FFF].family == itype_arrow && (wpn&0xF000)==0xF000)
+            it->dummy_bool[0]=true;
+
+        id = wpn;
+        it->yofs = 0;
+        it->pickup |= ipDUMMY;
+    }
+}
+#endif
+
 void reset_subscr_items()
 {
     if(Aitem)
@@ -2927,6 +2956,13 @@ void reset_subscr_items()
     }
     
     Aid = Bid = 0;
+
+#ifdef ZC_PLAYER_BUILD
+    delete Xitem;
+    delete Yitem;
+    Xitem = Yitem = NULL;
+    Xid = Yid = 0;
+#endif
 }
 
 
@@ -3004,9 +3040,20 @@ void update_subscr_items()
     
     if(Bitem)
         Bitem->animate(0);
-        
+
     if(Aitem)
         Aitem->animate(0);
+
+#ifdef ZC_PLAYER_BUILD
+    update_extra_button_item(Xitem, Xid, Xwpn);
+    update_extra_button_item(Yitem, Yid, Ywpn);
+
+    if(Xitem)
+        Xitem->animate(0);
+
+    if(Yitem)
+        Yitem->animate(0);
+#endif
 }
 
 void add_subscr_item(item *newItem)
@@ -3873,9 +3920,37 @@ void buttonitem(BITMAP *dest, int button, int x, int y)
             
             Bitem->draw(dest);
         }
-        
+
         break;
-        
+
+#ifdef ZC_PLAYER_BUILD
+    case 2:  //X button
+    case 3:  //Y button
+    {
+        item *it = button == 2 ? Xitem : Yitem;
+
+        if(it && show_subscreen_items)
+        {
+            it->x=x;
+            it->y=y;
+
+            if(itemsbuf[it->id].family == itype_arrow && it->dummy_bool[0] && current_item_id(itype_bow)>-1)
+            {
+                subscreenitem(dest, x, y, itype_bow);
+
+                if(((get_bit(quest_rules,qr_TRUEARROWS)&&(game != NULL && !game->get_arrows()))
+                        ||(!get_bit(quest_rules,qr_TRUEARROWS)&&(game != NULL && !game->get_rupies())))
+                        &&!current_item_power(itype_quiver))
+                    return;
+            }
+
+            it->draw(dest);
+        }
+
+        break;
+    }
+#endif
+
     default:
         break;
     }

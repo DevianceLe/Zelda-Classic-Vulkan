@@ -22,6 +22,7 @@
 #include "link.h"
 #include "gamedata.h"
 #include "guys.h"
+#include "port/game/q30_triggers.h"
 
 extern LinkClass   Link;
 extern int directItem;
@@ -55,6 +56,61 @@ static void put_both_subscrs(miscQdata *misc, int y, bool showtime, int pos)
     put_passive_subscr(framebuf,misc,0,176-2-y,showtime,pos);
     //put the active subscreen above the passive subscreen
     put_active_subscr(misc,y,pos);
+}
+
+// A button giving up an item to the one being set takes over whatever that one held.
+static void q30_trade_extra_buttons(int item_here, int old_wpn, int old_pos, int old_direct)
+{
+    if(q30_use_x_button() && Xwpn == item_here)
+        q30_set_button_slot(true, old_wpn, old_pos, old_direct);
+    else if(q30_use_y_button() && Ywpn == item_here)
+        q30_set_button_slot(false, old_wpn, old_pos, old_direct);
+}
+
+// Puts the item under the cursor on X or Y. Pressing it again takes it off, if the quest allows.
+static void q30_equip_extra_button(bool x)
+{
+    enum { QR_NO_BUTTON_VERIFY = 424 };
+    const int item_here = Bweapon(Bpos);
+    const int direct_here = directItem;
+
+    if(item_here <= 0)
+        return;
+
+    const int old_wpn = x ? Xwpn : Ywpn;
+    const int old_pos = x ? q30_xpos : q30_ypos;
+    const int old_direct = x ? directItemX : directItemY;
+
+    if(old_wpn == item_here)
+    {
+        if(q30_quest_rule(QR_NO_BUTTON_VERIFY))
+        {
+            q30_set_button_slot(x, 0, 255, -1);
+            sfx(WAV_PLACE);
+        }
+
+        return;
+    }
+
+    if(Bwpn == item_here)
+    {
+        Bwpn = old_wpn;
+        game->bwpn = old_pos;
+        directItemB = old_direct;
+    }
+    else if(get_bit(quest_rules,qr_SELECTAWPN) && Awpn == item_here)
+    {
+        Awpn = old_wpn;
+        game->awpn = old_pos;
+        directItemA = old_direct;
+    }
+    else if((x ? Ywpn : Xwpn) == item_here)
+    {
+        q30_set_button_slot(!x, old_wpn, old_pos, old_direct);
+    }
+
+    q30_set_button_slot(x, item_here, Bpos, direct_here);
+    sfx(WAV_PLACE);
 }
 
 void dosubscr(miscQdata *misc)
@@ -147,25 +203,39 @@ void dosubscr(miscQdata *misc)
         else if(rLbtn())  Bpos = selectWpn_new(SEL_LEFT, pos);
         else if(rRbtn())  Bpos = selectWpn_new(SEL_RIGHT, pos);
         
-        if(get_bit(quest_rules,qr_SELECTAWPN))
+        const bool q30_x = q30_use_x_button(), q30_y = q30_use_y_button();
+
+        if(get_bit(quest_rules,qr_SELECTAWPN) || q30_x || q30_y)
         {
             if(rBbtn())
             {
-                if(Awpn == Bweapon(Bpos))
+                q30_trade_extra_buttons(Bweapon(Bpos), Bwpn, game->bwpn, directItemB);
+
+                if(get_bit(quest_rules,qr_SELECTAWPN) && Awpn == Bweapon(Bpos))
                 {
                     Awpn = Bwpn;
                     game->awpn = game->bwpn;
                     directItemA = directItemB;
                 }
-                
+
                 Bwpn = Bweapon(Bpos);
                 sfx(WAV_PLACE);
                 
                 game->bwpn = Bpos;
                 directItemB = directItem;
             }
-            else if(rAbtn())
+            else if(q30_x && rEx1btn())
             {
+                q30_equip_extra_button(true);
+            }
+            else if(q30_y && rEx2btn())
+            {
+                q30_equip_extra_button(false);
+            }
+            else if(get_bit(quest_rules,qr_SELECTAWPN) && rAbtn())
+            {
+                q30_trade_extra_buttons(Bweapon(Bpos), Awpn, game->awpn, directItemA);
+
                 if(Bwpn == Bweapon(Bpos))
                 {
                     Bwpn = Awpn;

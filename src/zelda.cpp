@@ -114,6 +114,7 @@ extern word quest_header_zelda_build; //2.53 ONLY. In 2.55, we have an array for
 extern int directItem;
 extern int directItemA;
 extern int directItemB;
+void q30_load_extra_buttons();
 extern byte emulation_patches[emuLAST];
 bool is_large=false;
 
@@ -1648,6 +1649,7 @@ int init_game()
     game->awpn = apos;
     game->bwpn = bpos;
     Bwpn = Bweapon(bpos);
+    q30_load_extra_buttons();
     directItemB = directItem;
     update_subscr_items();
     

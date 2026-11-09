@@ -245,6 +245,7 @@ void q30_trigger_stats();   // logs what the quest uses when ZC_Q30_TRIGSTATS is
 void q30_combo_store(int id, Q30Combo *data);
 // The quest's whole rule bitfield (q255_read_rules should call this).
 void q30_set_quest_rules(const byte *rules, size_t bytes);
+bool q30_quest_rule(int id);                   // upstream's rule number; false for older quests
 
 // ---- lookups, for any code that wants a combo's extra data -------------------------
 

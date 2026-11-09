@@ -1,4 +1,4 @@
-# Zelda Classic 2.53.444 Vulkan
+# ZC Vulkan 2.53.444.1
 
 [![Build](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml/badge.svg)](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml)
 
@@ -196,6 +196,15 @@ arceusplayer11, Jambu2024, kasryan, Nekohime89, pedro-w, PlanNineFromOuterSpace,
 | Lut | Bug reports |
 | Pokegamer1989 | Magic meter tiles and template fixes |
 | Midnight | Original code behind the intro logo |
+
+### ZC 3.0 Nightly intro
+
+| Asset | By |
+|---|---|
+| ZQuest Classic logo | Eduardc |
+| "ZC Forever" music | Beatscribe |
+
+These come from the ZQuestClassic project under its own terms, which are included in `assets/zc/LICENSE.txt` with each release. They are not covered by the GPL.
 
 ### Libraries and tools
 

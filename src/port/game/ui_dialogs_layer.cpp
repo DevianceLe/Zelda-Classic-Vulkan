@@ -1438,6 +1438,18 @@ void zcui_dlg::layer(void *)
     {
         g_popup_prev = false;
         zcui::set_capture(false, false);
+        // The last dialog has closed: nothing below runs any more, so the text
+        // input it asked for has to be switched off here. Left on, every letter
+        // key also arrives as typed text during play.
+        if(g_canvas_text)
+        {
+            g_canvas_text = false;
+            int n = 0;
+            SDL_Window **windows = SDL_GetWindows(&n);
+            if(windows && n > 0 && !ImGui::GetIO().WantTextInput)
+                SDL_StopTextInput(windows[0]);
+            SDL_free(windows);
+        }
         return;
     }
 

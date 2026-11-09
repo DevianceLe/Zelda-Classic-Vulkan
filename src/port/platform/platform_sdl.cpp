@@ -617,6 +617,14 @@ bool create_window(int w, int h, std::string *error)
    SDL_PropertiesID props = SDL_GetWindowProperties(g->window);
    g->hwnd = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL);
    g->window_id = SDL_GetWindowID(g->window);
+#ifdef _WIN32
+   // A window that can't take focus is left off the taskbar unless it asks to be on it.
+   if (flags & SDL_WINDOW_NOT_FOCUSABLE) {
+      HWND hwnd = (HWND)g->hwnd.load();
+      if (hwnd)
+         SetWindowLongPtr(hwnd, GWL_EXSTYLE, GetWindowLongPtr(hwnd, GWL_EXSTYLE) | WS_EX_APPWINDOW);
+   }
+#endif
    apply_close_button();
    return true;
 }
@@ -937,6 +945,8 @@ void type_text(const char *utf8)
          sc = KEY_ENTER;
       if (!sc)
          continue;
+      if (key[sc])
+         continue;   // a real key made this text: it is already down, and has to stay down
       zcport_key_down(sc, c == 10 ? 13 : c);
       zcport_key_up(sc);
    }

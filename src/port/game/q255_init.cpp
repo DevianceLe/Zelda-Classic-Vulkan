@@ -1413,7 +1413,7 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
         t.type = ssoBUTTONITEM;
         t.d1 = btn;
         t.d2 = f1;  // transparent
-        convert = btn <= 1;
+        convert = btn <= 3;
         break;
     }
 

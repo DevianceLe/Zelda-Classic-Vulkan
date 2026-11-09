@@ -1803,6 +1803,19 @@ static bool zasm30_command(word cmd)
         return true;
     }
 
+    // -- the X and Y item buttons -------------------------------------------------------------------
+    case Z30C_SELECTXWPNR:
+    case Z30C_SELECTYWPNR:
+    {
+        static const byte dirs[4] = { SEL_UP, SEL_DOWN, SEL_LEFT, SEL_RIGHT };
+        const long dir = get_register(sarg1) / 10000;
+
+        if(dir >= 0 && dir < 4)
+            q30_select_next_button_item(cmd == Z30C_SELECTXWPNR, dirs[dir]);
+
+        return true;
+    }
+
     // -- generic scripts --------------------------------------------------------------------------
     case Z30C_RUNGENFRZSCR:
     {

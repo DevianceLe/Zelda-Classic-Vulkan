@@ -7658,3 +7658,8 @@ void q30_switchhook_update()
         Link.reset_hookshot();
     }
 }
+
+bool q30_quest_rule(int id)
+{
+    return quest_header_zelda_version >= 0x255 && g_rules_known && get_bit(g_rules, id) != 0;
+}

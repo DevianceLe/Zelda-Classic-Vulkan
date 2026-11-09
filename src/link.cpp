@@ -5395,6 +5395,8 @@ bool LinkClass::startwpn(int itemid)
             Awpn = 0;
             verifyAWpn();
         }
+
+        q30_verify_extra_buttons();
     }
     
     return ret;
@@ -6313,9 +6315,21 @@ void LinkClass::movelink()
             dowpn = Awpn&0xFFF;
             directWpn = directItemA;
         }
+        else if(q30_use_x_button() && Xwpn > 0 && rEx1btn())
+        {
+            btnwpn=getItemFamily(itemsbuf,Xwpn&0xFFF);
+            dowpn = Xwpn&0xFFF;
+            directWpn = directItemX;
+        }
+        else if(q30_use_y_button() && Ywpn > 0 && rEx2btn())
+        {
+            btnwpn=getItemFamily(itemsbuf,Ywpn&0xFFF);
+            dowpn = Ywpn&0xFFF;
+            directWpn = directItemY;
+        }
         
         if(directWpn > 255) directWpn = 0;
-        
+
         // The Quick Sword only allows repeated sword or wand swings.
         if(action==attacking && ((attack==wSword && btnwpn!=itype_sword) || (attack==wWand && btnwpn!=itype_wand)))
             btnwpn=-1;
@@ -14132,7 +14146,11 @@ bool isWpnPressed(int wpn)
     if((wpn==getItemFamily(itemsbuf,Bwpn&0xFFF)) && DrunkcBbtn()) return true;
     
     if((wpn==getItemFamily(itemsbuf,Awpn&0xFFF)) && DrunkcAbtn()) return true;
-    
+
+    if(q30_use_x_button() && Xwpn > 0 && (wpn==getItemFamily(itemsbuf,Xwpn&0xFFF)) && cEx1btn()) return true;
+
+    if(q30_use_y_button() && Ywpn > 0 && (wpn==getItemFamily(itemsbuf,Ywpn&0xFFF)) && cEx2btn()) return true;
+
     return false;
 }
 
@@ -14141,7 +14159,11 @@ int getWpnPressed(int itype)
     if((itype==getItemFamily(itemsbuf,Bwpn&0xFFF)) && DrunkcBbtn()) return Bwpn;
 
     if((itype==getItemFamily(itemsbuf,Awpn&0xFFF)) && DrunkcAbtn()) return Awpn;
-    
+
+    if(q30_use_x_button() && Xwpn > 0 && (itype==getItemFamily(itemsbuf,Xwpn&0xFFF)) && cEx1btn()) return Xwpn;
+
+    if(q30_use_y_button() && Ywpn > 0 && (itype==getItemFamily(itemsbuf,Ywpn&0xFFF)) && cEx2btn()) return Ywpn;
+
     return -1;
 }
 
@@ -14173,6 +14195,10 @@ void verifyAWpn()
     }
     else
     {
+        // some newer quests let a button stay empty on purpose
+        if(game->awpn == 255 && q30_quest_rule(424))
+            return;
+
         game->awpn = selectWpn_new(SEL_VERIFY_RIGHT, game->awpn, game->bwpn);
         Awpn = Bweapon(game->awpn);
         directItemA = directItem;
@@ -14181,6 +14207,9 @@ void verifyAWpn()
 
 void verifyBWpn()
 {
+    if(game->bwpn == 255 && q30_quest_rule(424))
+        return;
+
     game->bwpn = selectWpn_new(SEL_VERIFY_RIGHT, game->bwpn, game->awpn);
     Bwpn = Bweapon(game->bwpn);
     directItemB = directItem;
@@ -14190,6 +14219,86 @@ void verifyBothWeapons()
 {
     verifyAWpn();
     verifyBWpn();
+    q30_verify_extra_buttons();
+}
+
+// ---- the X and Y item buttons of newer quests ----------------------------------------------------
+// Their subscreen positions live in two spare generic slots of the save, which 2.53 never uses.
+enum { Q30_QR_SET_X_ITEMS = 216, Q30_QR_SET_Y_ITEMS = 226, Q30_GEN_XPOS = 254, Q30_GEN_YPOS = 255, Q30_NO_POS = 255 };
+
+int Xwpn = 0, Ywpn = 0, directItemX = -1, directItemY = -1, q30_xpos = Q30_NO_POS, q30_ypos = Q30_NO_POS;
+
+bool q30_use_x_button()
+{
+    return q30_quest_rule(Q30_QR_SET_X_ITEMS);
+}
+
+bool q30_use_y_button()
+{
+    return q30_quest_rule(Q30_QR_SET_Y_ITEMS);
+}
+
+static void q30_store_extra_buttons()
+{
+    // stored one higher, so a save that has never held them reads as empty
+    game->set_generic((byte)(q30_xpos + 1), Q30_GEN_XPOS);
+    game->set_generic((byte)(q30_ypos + 1), Q30_GEN_YPOS);
+}
+
+void q30_set_button_item(bool x, int wpn)
+{
+    (x ? Xwpn : Ywpn) = wpn;
+    (x ? directItemX : directItemY) = wpn & 0xFFF;
+}
+
+void q30_set_button_slot(bool x, int wpn, int pos, int direct)
+{
+    (x ? Xwpn : Ywpn) = wpn;
+    (x ? q30_xpos : q30_ypos) = pos;
+    (x ? directItemX : directItemY) = direct;
+    q30_store_extra_buttons();
+}
+
+// An item that is gone or upgraded takes the button's slot with it, as the other two buttons do.
+void q30_verify_extra_buttons()
+{
+    if(!q30_use_x_button() && !q30_use_y_button())
+        return;
+
+    if(q30_xpos != Q30_NO_POS)
+    {
+        Xwpn = Bweapon(q30_xpos);
+        directItemX = directItem;
+    }
+
+    if(q30_ypos != Q30_NO_POS)
+    {
+        Ywpn = Bweapon(q30_ypos);
+        directItemY = directItem;
+    }
+}
+
+void q30_load_extra_buttons()
+{
+    Xwpn = Ywpn = 0;
+    directItemX = directItemY = -1;
+    q30_xpos = q30_ypos = Q30_NO_POS;
+
+    if(!q30_use_x_button() && !q30_use_y_button())
+        return;
+
+    q30_xpos = (game->get_generic(Q30_GEN_XPOS) + 255) & 0xFF;
+    q30_ypos = (game->get_generic(Q30_GEN_YPOS) + 255) & 0xFF;
+    q30_verify_extra_buttons();
+}
+
+void q30_select_next_button_item(bool x, int type)
+{
+    if(!(x ? q30_use_x_button() : q30_use_y_button()))
+        return;
+
+    const int ret = selectWpn_new(type, x ? q30_xpos : q30_ypos, game->bwpn);
+    q30_set_button_slot(x, Bweapon(ret), ret, directItem);
 }
 
 int selectWpn_new(int type, int startpos, int forbiddenpos)
@@ -14523,7 +14632,34 @@ void getitem(int id, bool nosound)
     {
         return;
     }
-    
+
+    // A bundle in a newer quest hands over each item it lists.
+    if(q30_item_family(id) == 275)
+    {
+        static int depth = 0;       // bundles can list bundles, and a quest could make a loop
+
+        if(depth < 8)
+        {
+            const itemdata &bundle = itemsbuf[id];
+            const long ids[10] = { bundle.misc1, bundle.misc2, bundle.misc3, bundle.misc4, bundle.misc5,
+                                   bundle.misc6, bundle.misc7, bundle.misc8, bundle.misc9, bundle.misc10 };
+            ++depth;
+
+            for(int q = 0; q < 10; ++q)
+            {
+                if(ids[q] < 0 || ids[q] >= MAXITEMS)
+                    continue;
+
+                if((bundle.flags & ITEM_FLAG1) && itemsbuf[ids[q]].collect_script)
+                    ZScriptVersion::RunScript(SCRIPT_ITEM, itemsbuf[ids[q]].collect_script, ids[q] & 0xFFF);
+
+                getitem(ids[q], true);
+            }
+
+            --depth;
+        }
+    }
+
     if(itemsbuf[id].family!=0xFF)
     {
         if(itemsbuf[id].flags & ITEM_GAMEDATA && itemsbuf[id].family != itype_triforcepiece)

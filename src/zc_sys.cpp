@@ -77,6 +77,7 @@ static inline bool q30_sfx_is_ogg(int) { return false; }
 static inline const SAMPLE *q30_sfx_sample(int) { return NULL; }
 #endif
 byte linear_quest_loading = 0;
+int intro_choice = 0;   // Settings > Intro, what follows the arcade title: 0 random, 1 flames, 2 ZC 3.0 Nightly
 extern FFScript FFCore;
 
 // Voices of the sounds in use. Slots from WAV_COUNT up are only reached by 2.55/3.0
@@ -356,6 +357,7 @@ void load_game_configs()
     scanlines = get_config_int(cfg_sect,"scanlines",0)!=0;
     loadlast = get_config_int(cfg_sect,"load_last",0);
     linear_quest_loading = get_config_int("zeldadx","linear_quest_progression",1);
+    intro_choice = vbound(get_config_int(cfg_sect,"intro_choice",0),0,2);
     
 // Fullscreen, page flipping may be problematic on newer windows systems.
 #ifdef _WIN32
@@ -528,6 +530,7 @@ void save_game_configs()
     set_config_int(cfg_sect,"scanlines",scanlines);
     set_config_int(cfg_sect,"load_last",loadlast);
     set_config_int(cfg_sect,"linear_quest_progression",linear_quest_loading);
+    set_config_int(cfg_sect,"intro_choice",intro_choice);
     chop_path(qstdir);
     set_config_string(cfg_sect,qst_dir_name,qstdir);
     set_config_string("SAVEFILE","save_filename",save_file_name);
@@ -7449,6 +7452,27 @@ static MENU name_entry_mode_menu[] =
 };
 
 #ifdef ZC_PORT
+static int set_intro(int choice)
+{
+    intro_choice = choice;
+    save_game_configs();
+    return D_O_K;
+}
+
+static int onIntroRandom() { return set_intro(0); }
+static int onIntroFlames() { return set_intro(1); }
+static int onIntroZc3()    { return set_intro(2); }
+
+static MENU intro_menu[] =
+{
+    { (char *)"&Random",                    onIntroRandom,           NULL,                      0, NULL },
+    { (char *)"&Flames",                    onIntroFlames,           NULL,                      0, NULL },
+    { (char *)"ZC &3.0 Nightly",            onIntroZc3,              NULL,                      0, NULL },
+    { NULL,                                 NULL,                    NULL,                      0, NULL }
+};
+#endif
+
+#ifdef ZC_PORT
 // zplayer: display mode, resolution, monitor, scaling, vsync, UI scale
 // (src/port/game/ui_video.cpp, a Dear ImGui window).
 static int onVideoSettings()
@@ -7460,7 +7484,7 @@ static int onVideoSettings()
 
 // "Video Settings..." comes before the Debug separator, so the entries
 // from there on are one further down.
-#define SETTINGS_MENU_PORT_ITEMS 1
+#define SETTINGS_MENU_PORT_ITEMS 2
 #else
 #define SETTINGS_MENU_PORT_ITEMS 0
 #endif
@@ -7483,6 +7507,7 @@ static MENU settings_menu[] =
     { (char *)"Epilepsy Flash Reduction",                     onEpilepsy,                 NULL,                      0, NULL },
     { (char *)"S&napshot Format",           NULL,                    snapshot_format_menu,      0, NULL },
 #ifdef ZC_PORT
+    { (char *)"&Intro",                     NULL,                    intro_menu,                0, NULL },
     { (char *)"Vi&deo Settings...",         onVideoSettings,         NULL,                      0, NULL },
 #endif
     { (char *)"",                           NULL,                    NULL,                      0, NULL },
@@ -9040,6 +9065,10 @@ void System()
         settings_menu[9].flags = ClickToFreeze?D_SELECTED:0;
         settings_menu[10].flags = volkeys?D_SELECTED:0;
         
+#ifdef ZC_PORT
+        for(int i = 0; i < 3; ++i)
+            intro_menu[i].flags = (intro_choice==i)?D_SELECTED:0;
+#endif
         name_entry_mode_menu[0].flags = (NameEntryMode==0)?D_SELECTED:0;
         name_entry_mode_menu[1].flags = (NameEntryMode==1)?D_SELECTED:0;
         name_entry_mode_menu[2].flags = (NameEntryMode==2)?D_SELECTED:0;

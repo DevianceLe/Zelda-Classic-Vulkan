@@ -1007,6 +1007,13 @@ int q255_read_rules(Q255Section &s)
         const dword compat = s.version > 16 ? q255_compat_rule_version : 0;
         g_old_subscr = compat < 53 || get_bit(rules, Q255_QR_OLD_SUBSCR) != 0;
         al_trace("2.55 rules: compat version %d, old subscreen order %d\n", (int)compat, g_old_subscr ? 1 : 0);
+
+        if(getenv("ZC_Q255_DUMP_USE"))
+        {
+            for(int n = 0; n < (int)total * 8; ++n)
+                if(get_bit(rules, n))
+                    al_trace("use rule %d\n", n);
+        }
     }
 
     if(s.keep)

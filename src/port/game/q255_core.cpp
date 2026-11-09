@@ -13,6 +13,9 @@
 extern const char *skip_text[];
 extern dmap *DMaps;
 extern std::vector<mapscr> TheMaps;
+extern guydata *guysbuf;
+int q30_combo_type(int id);
+long q30_item_family(int item);
 extern MsgStr *MsgStrings;
 extern word msg_count;
 extern byte quest_rules[QUESTRULES_SIZE];
@@ -460,6 +463,46 @@ void dump_loaded_data()
                 fprintf(out, "\n//ffc slot %d: %s\n", it->first, it->second.second.c_str());
             fclose(out);
         }
+    }
+
+    // ZC_Q255_DUMP_USE: what the quest's screens actually place, to rank what is worth porting
+    if(getenv("ZC_Q255_DUMP_USE"))
+    {
+        std::map<long, int> combos, ffcs, enemies, items;
+
+        for(size_t n = 0; n < TheMaps.size(); ++n)
+        {
+            const mapscr &m = TheMaps[n];
+
+            if(!(m.valid & mVALID))
+                continue;
+
+            for(size_t p = 0; p < m.data.size(); ++p)
+                ++combos[q30_combo_type(m.data[p])];
+
+            for(int i = 0; i < 32; ++i)
+                if(m.ffdata[i])
+                    ++ffcs[q30_combo_type(m.ffdata[i])];
+
+            for(int i = 0; i < 10; ++i)
+                if(m.enemy[i])
+                    ++enemies[guysbuf[m.enemy[i]].family];
+
+            if(m.hasitem)
+                ++items[q30_item_family(m.item)];
+        }
+
+        for(std::map<long, int>::iterator it = combos.begin(); it != combos.end(); ++it)
+            al_trace("use combo %ld %d\n", it->first, it->second);
+
+        for(std::map<long, int>::iterator it = ffcs.begin(); it != ffcs.end(); ++it)
+            al_trace("use ffc %ld %d\n", it->first, it->second);
+
+        for(std::map<long, int>::iterator it = enemies.begin(); it != enemies.end(); ++it)
+            al_trace("use enemy %ld %d\n", it->first, it->second);
+
+        for(std::map<long, int>::iterator it = items.begin(); it != items.end(); ++it)
+            al_trace("use item %ld %d\n", it->first, it->second);
     }
 
     if(getenv("ZC_Q255_DUMP_SUBS"))
