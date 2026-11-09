@@ -6012,7 +6012,7 @@ int load_quest(const char *filename, bool compressed, bool encrypted)
     if(ret==qe_version && !zq_batch_load)
     {
         box_end(false);     // this error leaves the loading box open, in front of the message
-        jwin_alert("ZQuest","This quest was made in a version newer than 2.53.2.",
+        jwin_alert("ZQuest","This quest was made in a version newer than 2.53.1.",
                    "The 2.55/3.0 editor is currently still being implemented.",
                    "ZQuest will now close.","O&K",NULL,'k',0,lfont);
         zq_close_requested = true;

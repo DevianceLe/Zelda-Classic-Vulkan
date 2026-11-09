@@ -246,6 +246,15 @@ class LinkClass : public sprite
     int  nextflag(int cx,int cy,int cdir, bool comboflag);
     bool nextcombo_wf(int d);
     bool nextcombo_solid(int d);
+    // 2.55+ quest rules: free movement and layered bushes (see link.cpp)
+    bool q30_walk_solid(double wx, double wy, int d2);
+    bool q30_can_move(double dx, double dy);
+    bool q30_move_xy(double dx, double dy, bool shove);
+    bool q30_solid_coord(double tx, double ty, int sdir, int mdir, double earlyterm, double &out);
+    void q30_free_walk(int push);
+    void q30_board_raft(int tx, int ty);
+    void q30_slash_layer(int bx, int by, int layer);
+    void q30_pound_layer(int bx, int by, int layer);
     int  lookahead(int d);
     int  lookaheadflag(int d);
     bool  lookaheadraftflag(int d);

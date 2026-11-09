@@ -1521,7 +1521,7 @@ void hidden_entrance(int tmp,bool , bool high16only,int single) //Perhaps better
     {
         //If it's an enemies->secret screen, only do the high 16 if told to
         //That way you can have secret and burn/bomb entrance separately
-        if((!(s->flags2&fCLEARSECRET) /*Enemies->Secret*/ && single < 0) || high16only || s->flags4&fENEMYSCRTPERM)
+        if((!(q30_compat_rule(Q30_QR_ENEMIES_SECRET_ONLY_16_31) && (s->flags2&fCLEARSECRET)) /*Enemies->Secret*/ && single < 0) || high16only || s->flags4&fENEMYSCRTPERM)
         {
             int newflag = -1;
             
@@ -1575,7 +1575,7 @@ void hidden_entrance(int tmp,bool , bool high16only,int single) //Perhaps better
     
     for(int i=0; i<32; i++) // FFCs
     {
-        if((!(s->flags2&fCLEARSECRET) /*Enemies->Secret*/ && single < 0) || high16only || s->flags4&fENEMYSCRTPERM)
+        if((!(q30_compat_rule(Q30_QR_ENEMIES_SECRET_ONLY_16_31) && (s->flags2&fCLEARSECRET)) /*Enemies->Secret*/ && single < 0) || high16only || s->flags4&fENEMYSCRTPERM)
         {
             for(int iter=0; iter<1; ++iter)  // Only one kind of FFC flag now.
             {
@@ -1782,12 +1782,16 @@ bool findentrance(int x, int y, int flag, bool setflag)
             Z_eventlog("Hit All Triggers->Perm Secret not fulfilled (%d trigger FFC%s remain).\n", ftr, ftr>1?"s":"");
             setflag=false;
         }
+
+        // 2.55+: with the rule off, finishing the last trigger fires the screen's secrets.
+        if(!tr && !ftr && !q30_compat_rule(Q30_QR_ALLTRIG_PERMSEC_NO_TEMP))
+            hidden_entrance(0,true,(tmpscr->flags6&fTRIGGERF1631)!=0,-1);
     }
-    
+
     if(setflag && !isdungeon())
         if(!(tmpscr->flags5&fTEMPSECRETS))
             setmapflag(mSECRET);
-            
+
     return true;
 }
 
@@ -2631,6 +2635,25 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
 }
 
 
+// 2.55+ push blocks. qr_PUSHBLOCK_SPRITE_LAYER off: the moving block is drawn with the
+// layer it belongs to. On (and in every 2.53 quest) it stays with the sprites.
+static void q30_draw_block_on(BITMAP *dest, int layer)
+{
+    if(!q30_compat_rule(Q30_QR_PUSHBLOCK_SPRITE_LAYER) && q30_mblock_layer() == layer)
+        mblock2.draw(dest);
+}
+
+// Push blocks on layers 1 and 2 go on the push block layer too.
+static void q30_draw_layer_blocks(BITMAP *dest, int x, int y)
+{
+    if(!q30_quest_rule(Q30_QR_PUSHBLOCK_LAYER_1_2))
+        return;
+
+    for(int i = 0; i < 2; ++i)
+        if(tmpscr2[i].valid && !tmpscr2[i].data.empty())
+            do_layer(dest, -2, &tmpscr2[i], x, y, 2);
+}
+
 void do_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, int tempscreen, bool scrolling, bool drawprimitives)
 {
     bool showlayer = true;
@@ -2852,6 +2875,7 @@ void draw_screen(mapscr* this_screen, bool showlink)
     if(this_screen->flags7&fLAYER2BG)
     {
         do_layer(scrollbuf,1, this_screen, 0, 0, 2, false, true);
+        q30_draw_block_on(scrollbuf, 2);
         
         for(pcounter=0; pcounter<particles.Count(); pcounter++)
         {
@@ -2876,6 +2900,7 @@ void draw_screen(mapscr* this_screen, bool showlink)
     }
     
     putscr(scrollbuf,0,playing_field_offset,this_screen);
+    q30_draw_block_on(scrollbuf, 0);
     
     // Lens hints, then primitives, then particles.
     if((lensclk || (get_debug() && key[KEY_L])) && !get_bit(quest_rules, qr_OLDLENSORDER))
@@ -2928,6 +2953,7 @@ void draw_screen(mapscr* this_screen, bool showlink)
     }
     
     do_layer(scrollbuf,0, this_screen, 0, 0, 2, false, true); // LAYER 1
+    q30_draw_block_on(scrollbuf, 1);
     
     for(pcounter=0; pcounter<particles.Count(); pcounter++)
     {
@@ -2942,6 +2968,7 @@ void draw_screen(mapscr* this_screen, bool showlink)
     if(!(this_screen->flags7&fLAYER2BG))
     {
         do_layer(scrollbuf,1, this_screen, 0, 0, 2, false, true); // LAYER 2
+        q30_draw_block_on(scrollbuf, 2);
         
         for(pcounter=0; pcounter<particles.Count(); pcounter++)
         {
@@ -2983,7 +3010,11 @@ void draw_screen(mapscr* this_screen, bool showlink)
         }
     }
     
-    do_layer(scrollbuf,-2, this_screen, 0, 0, 2); // push blocks!
+    if(q30_compat_rule(Q30_QR_PUSHBLOCK_SPRITE_LAYER))
+    {
+        do_layer(scrollbuf,-2, this_screen, 0, 0, 2); // push blocks!
+        q30_draw_layer_blocks(scrollbuf, 0, 0);
+    }
     
     //Show walkflags cheat
     do_walkflags(temp_buf,this_screen,0,0,2);
@@ -3115,8 +3146,9 @@ void draw_screen(mapscr* this_screen, bool showlink)
     
     if(showlink && ((Link.getAction()!=climbcovertop)&& (Link.getAction()!=climbcoverbottom)))
     {
-        mblock2.draw(framebuf);
-        
+        if(q30_compat_rule(Q30_QR_PUSHBLOCK_SPRITE_LAYER))
+            mblock2.draw(framebuf);
+
         if(!Link.isSwimming())
         {
             if(Link.getZ()>0 &&(!get_bit(quest_rules,qr_SHADOWSFLICKER)||frame&1))
@@ -4453,13 +4485,13 @@ bool water_walkflag(int x,int y,int cnt)
     
     if(y&8) b<<=1;
     
-    if((c.walk&b) && !iswater_type(c.type))
+    if((c.walk&b) && (q30_quest_rule(Q30_QR_NO_SOLID_SWIM) || !iswater_type(c.type)))
         return true;
         
-    if((c1.walk&b) && !iswater_type(c1.type))
+    if((c1.walk&b) && (q30_quest_rule(Q30_QR_NO_SOLID_SWIM) || !iswater_type(c1.type)))
         return true;
         
-    if((c2.walk&b) && !iswater_type(c2.type))
+    if((c2.walk&b) && (q30_quest_rule(Q30_QR_NO_SOLID_SWIM) || !iswater_type(c2.type)))
         return true;
         
     if(cnt==1) return false;
@@ -4476,9 +4508,9 @@ bool water_walkflag(int x,int y,int cnt)
         if(y&8) b<<=1;
     }
     
-    return (c.walk&b) ? !iswater_type(c.type) :
-           (c1.walk&b) ? !iswater_type(c1.type) :
-           (c2.walk&b) ? !iswater_type(c2.type) :false;
+    return (c.walk&b) ? (q30_quest_rule(Q30_QR_NO_SOLID_SWIM) || !iswater_type(c.type)) :
+           (c1.walk&b) ? (q30_quest_rule(Q30_QR_NO_SOLID_SWIM) || !iswater_type(c1.type)) :
+           (c2.walk&b) ? (q30_quest_rule(Q30_QR_NO_SOLID_SWIM) || !iswater_type(c2.type)) :false;
 }
 
 bool hit_walkflag(int x,int y,int cnt)
@@ -4632,7 +4664,11 @@ void ViewMap()
                 if(!((tmpscr+1)->flags7&fLAYER2BG)) do_layer(scrollbuf, 1, tmpscr+1, -256, playing_field_offset, 2);
                 
                 putscrdoors(scrollbuf,256,0,tmpscr+1);
-                do_layer(scrollbuf,-2, tmpscr+1, -256, playing_field_offset, 2);
+                if(q30_compat_rule(Q30_QR_PUSHBLOCK_SPRITE_LAYER))
+                {
+                    do_layer(scrollbuf,-2, tmpscr+1, -256, playing_field_offset, 2);
+                    q30_draw_layer_blocks(scrollbuf, -256, playing_field_offset);
+                }
                 do_layer(scrollbuf,-3, tmpscr+1, -256, playing_field_offset, 2); // Freeform combos!
                 
                 if(!((tmpscr+1)->flags7&fLAYER3BG)) do_layer(scrollbuf, 2, tmpscr+1, -256, playing_field_offset, 2);

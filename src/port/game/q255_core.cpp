@@ -235,6 +235,7 @@ int read_sections(PACKFILE *f, zquestheader *header, miscQdata *misc, zctune *tu
 {
     g_report.clear();
     g_tile_use.clear();
+    q255_compat_rule_version = 0;   // an old rules section has none, and must not see the last quest's
     dword id;
     int result = 0;
 

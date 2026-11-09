@@ -241,11 +241,63 @@ struct Q30Combo
 
 void q30_combos_clear();
 void q30_trigger_stats();   // logs what the quest uses when ZC_Q30_TRIGSTATS is set
+bool q30_trigger_combo_at(int layer, int pos, int idx);     // Screen->TriggerCombo
+
+// Item scripts that keep running across frames (quest rule 162). See q30_scripts_engine.h.
+bool q30_items_keep_running();
+bool q30_item_script_busy(int id);          // true: it's still running, so using the item does nothing
+void q30_use_item_script(int id);           // the player used the item (2.53's behaviour without the rule)
+void q30_passive_item_script(int id);       // the Hero got an item with a passive script
+void q30_item_scripts_tick(bool waitdraw);  // a frame of the scrolling loop
+void q30_set_item_passive_script(int id, bool on);  // for the quest reader
 // Hands the table the combo; takes ownership.
 void q30_combo_store(int id, Q30Combo *data);
 // The quest's whole rule bitfield (q255_read_rules should call this).
 void q30_set_quest_rules(const byte *rules, size_t bytes);
 bool q30_quest_rule(int id);                   // upstream's rule number; false for older quests
+
+// upstream's rule numbers (qrs.h) the game code reads
+enum Q30QuestRuleId
+{
+    Q30_QR_SIDEVIEWLADDER_FACEUP = 178,
+    Q30_QR_BUSHESONLAYERS1AND2 = 198,
+    Q30_QR_NEW_HERO_MOVEMENT = 199,
+    Q30_QR_DISABLE_4WAY_GRIDLOCK = 200,
+    Q30_QR_NO_SCROLL_WHILE_IN_AIR = 206,
+    Q30_QR_NO_HOPPING = 218,
+    Q30_QR_NO_SOLID_SWIM = 219,
+    Q30_QR_SHALLOW_SENSITIVE = 222,
+    Q30_QR_SMARTER_SMART_SCROLL = 223,
+    Q30_QR_OVERHEAD_COMBOS_L1_L2 = 229,
+    Q30_QR_NONHEAVY_BLOCKTRIGGER_PERM = 225,
+    Q30_QR_DUNGEON_DMAPS_PERM_SECRETS = 204,
+    Q30_QR_ENEMIES_SECRET_ONLY_16_31 = 239,
+    Q30_QR_PUSHBLOCK_LAYER_1_2 = 246,
+    Q30_QR_BLOCKHOLE_SAME_ONLY = 257,
+    Q30_QR_BLOCKS_DONT_LOCK_OTHER_LAYERS = 264,
+    Q30_QR_STEPTEMP_SECRET_ONLY_16_31 = 248,
+    Q30_QR_ALLTRIG_PERMSEC_NO_TEMP = 249,
+    Q30_QR_HOOKSHOTALLLAYER = 255,
+    Q30_QR_LESS_AWFUL_SIDESPIKES = 282,
+    Q30_QR_PERMANENT_WHISTLE_SECRETS = 296,
+    Q30_QR_GRASS_SENSITIVE = 329,
+    Q30_QR_BETTER_RAFT = 330,
+    Q30_QR_DMAP_0_CONTINUE_BUG = 334,
+    Q30_QR_CONVEYORS_L1_L2 = 339,
+    Q30_QR_SENSITIVE_SOLID_DAMAGE = 359,
+    Q30_QR_LENIENT_SOLID_DAMAGE = 360,
+    Q30_QR_POUNDLAYERS1AND2 = 404,
+    Q30_QR_NEW_HERO_MOVEMENT2 = 406,
+    Q30_QR_PUSHBLOCK_SPRITE_LAYER = 421,
+    Q30_QR_BROKEN_PUSHBLOCK_TOP_HALF_SOLIDS = 442,
+    Q30_QR_BROKEN_PUSHBLOCK_FLAG_CLONING = 443,
+    Q30_QR_CONVEYORS_ALL_LAYERS = 434,
+    Q30_QR_WEAPONS_EXTRA_DEATH_FRAME = 664
+};
+
+// For a rule whose "on" means the old 2.53 behaviour: true for every 2.53 quest and for
+// newer quests with the rule set.
+bool q30_compat_rule(int id);
 
 // ---- lookups, for any code that wants a combo's extra data -------------------------
 
@@ -281,6 +333,7 @@ bool q30_has_bridge_above(int x, int y, int target_layer);
 int q30_link_mapcombo(int x, int y);        // MAPCOMBO, but 0 where a bridge covers the screen combo
 bool q30_walkflag(int x, int y, int cnt);   // _walkflag for 2.55+ quests
 void q30_walk_speed(int x, int y, int z, int &dx, int &dy);  // combo walk-speed modifiers
+double q30_walk_speed_scale(int x, int y, int z, double step);   // same, for a fractional step
 bool q30_respawn_forced();                  // a trigger fixed the drown respawn point
 bool q30_link_stunned();
 long q30_item_switch_family(int itemid);    // the family startwpn should treat this item as

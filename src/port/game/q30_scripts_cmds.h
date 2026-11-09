@@ -780,6 +780,421 @@ static bool z30_run_generic_frozen(word script)
     return true;
 }
 
+// ---- message strings -----------------------------------------------------------------------------
+// Text a script gives a message, in the binary form MsgStr::s holds (see store_message_text in
+// q255_basic.cpp, which this follows for what can be parsed without its command table).
+
+extern dword q255_compat_rule_version;
+
+enum { Z30_QR_MSG_BINARY_ENCODING = 489, Z30_SCC_LARGEST_ARG = 65023, Z30_SCC_MAX_ARGS = 10 };
+
+static void z30_msg_literal(std::string &out, char c)
+{
+    if(out.size() < (size_t)MSGSIZE)
+        out += c;
+}
+
+// A command goes in whole or not at all, and not where parsemsgcode won't read it.
+static void z30_msg_command(std::string &out, int code, const int *args, int count)
+{
+    std::string bytes(1, (char)((code % 254) + 1));
+
+    for(int q = 0; q < count; ++q)
+    {
+        const int arg = (args[q] < 0 || args[q] > Z30_SCC_LARGEST_ARG) ? Z30_SCC_LARGEST_ARG : args[q];
+        bytes += (char)((arg % 254) + 1);
+
+        if(arg >= 254)
+        {
+            bytes += (char)0xff;
+            bytes += (char)(arg / 254);
+        }
+    }
+
+    if(out.size() < (size_t)(MSGSIZE - 2) && out.size() + bytes.size() <= (size_t)MSGSIZE)
+        out += bytes;
+}
+
+static bool z30_msg_number(const std::string &s, size_t &pos, int &value)
+{
+    const size_t start = pos;
+    value = 0;
+
+    for(; pos < s.size() && isdigit((unsigned char)s[pos]); ++pos)
+    {
+        if(value <= Z30_SCC_LARGEST_ARG)
+            value = value * 10 + (s[pos] - '0');
+    }
+
+    return pos != start;
+}
+
+// Reads \code\arg\arg\ and the optional space after it; pos stays put if it isn't one.
+static bool z30_msg_scc(const std::string &s, size_t &pos, int &code, int *args, int &count)
+{
+    size_t p = pos + 1;
+    count = 0;
+
+    if(!z30_msg_number(s, p, code))
+        return false;
+
+    while(p + 1 < s.size() && s[p] == '\\' && isdigit((unsigned char)s[p + 1]))
+    {
+        int value;
+        ++p;
+        z30_msg_number(s, p, value);
+
+        if(count < Z30_SCC_MAX_ARGS)
+            args[count++] = value;
+    }
+
+    if(p >= s.size() || s[p] != '\\')
+        return false;
+
+    ++p;
+
+    if(p < s.size() && s[p] == ' ')
+        ++p;
+
+    pos = p;
+    return true;
+}
+
+// Commands written by name stay in the text: the name table belongs to q255_basic.cpp.
+static std::string z30_msg_from_ascii(const std::string &s)
+{
+    std::string out;
+
+    for(size_t cur = 0; cur < s.size();)
+    {
+        const char c = s[cur];
+
+        if(c == '\n')
+        {
+            z30_msg_command(out, MSGC_NEWLINE, NULL, 0);
+            ++cur;
+        }
+        else if(c != '\\')
+        {
+            if((unsigned char)c >= 32)
+                z30_msg_literal(out, c);
+
+            ++cur;
+        }
+        else if(cur + 1 < s.size() && (s[cur + 1] == '\\' || s[cur + 1] == '{' || s[cur + 1] == '}'))
+        {
+            z30_msg_literal(out, s[cur + 1]);
+            cur += 2;
+        }
+        else
+        {
+            int code = 0, count = 0, args[Z30_SCC_MAX_ARGS];
+
+            if(z30_msg_scc(s, cur, code, args, count))
+            {
+                if((code >= 1 && code <= 17) || code == 20 || code == 21 || code == 25)
+                    z30_msg_command(out, code, args, count);
+            }
+            else
+            {
+                z30_msg_literal(out, c);
+                ++cur;
+            }
+        }
+    }
+
+    return out;
+}
+
+static void z30_msg_set(long id, const std::string &text)
+{
+    const bool binary = q30_quest_rule(Z30_QR_MSG_BINARY_ENCODING) || q255_compat_rule_version < 94;
+    const std::string out = binary ? text.substr(0, MSGSIZE) : z30_msg_from_ascii(text);
+
+    memcpy(MsgStrings[id].s, out.data(), out.size());
+    MsgStrings[id].s[out.size()] = 0;
+}
+
+// ---- solidity on a screen other than the current one ----------------------------------------------
+// _walkflag in maps.cpp, for one point of a screen chosen by the script.
+
+static const mapscr *z30_layer_screen(const mapscr *m, int layer)
+{
+    const int lmap = m->layermap[layer];
+
+    if(lmap <= 0)
+        return m;
+
+    const size_t index = (size_t)(lmap - 1) * MAPSCRS + m->layerscreen[layer];
+    return index < TheMaps.size() && (TheMaps[index].valid & mVALID) ? &TheMaps[index] : m;
+}
+
+static bool z30_mapdata_solid(const mapscr *m, int x, int y)
+{
+    const bool lttp = get_bit(quest_rules, qr_LTTPWALK) != 0;
+
+    if(x < 0 || y < 0 || x > (lttp ? 255 : 248) || y > (lttp ? 175 : 168))
+        return false;
+
+    const int pos = (x >> 4) + (y & 0xF0);
+    const mapscr *s1 = z30_layer_screen(m, 0), *s2 = z30_layer_screen(m, 1);
+    const newcombo &c = combobuf[m->data[pos]], &c1 = combobuf[s1->data[pos]], &c2 = combobuf[s2->data[pos]];
+    const bool dried = (iswater_type(c.type) || iswater_type(c1.type) || iswater_type(c2.type)) && DRIEDLAKE;
+    const int bit = ((x & 8) ? 4 : 1) << ((y & 8) ? 1 : 0);
+
+    return ((c.walk & bit) || (c1.walk & bit) || (c2.walk & bit)) && !dried;
+}
+
+// ---- npc movement ----------------------------------------------------------------------------------
+// enemy::scr_walkflag, scr_canmove and movexy from upstream's guys.cpp, on 2.53's enemy, which has
+// no per-enemy move flags: fliers ignore solidity and everything else obeys it.
+
+// (px,py) is the point to test, (nx,ny) where the hitbox's corner would end up.
+static bool z30_npc_blocked(int px, int py, int special, int nx, int ny)
+{
+    const int yg = special == spw_floater ? 8 : 0;
+    const int nb = get_bit(quest_rules, qr_NOBORDER) ? 16 : 0;
+
+    if(nx < 16 - nb || ny < zc_max(16 - yg - nb, 0) || nx >= 240 + nb || ny >= 160 + nb)
+        return true;
+
+    if(px < 0 || px >= 256 || py < 0 || py >= 176)
+        return true;
+
+    bool flying = false;
+
+    switch(special)
+    {
+    case spw_clipbottomright:
+        if(py >= 128 || px >= 208)
+            return true;
+        break;
+
+    case spw_wizzrobe:
+    case spw_floater:
+        if(isdungeon() && (py < 32 - yg || py >= 144 || px < 32 || px >= 224))
+            return true;
+        if(flyerblocked(px, py, special))
+            return true;
+        flying = true;
+        break;
+    }
+
+    if(flying)
+        return false;
+
+    px &= ~7;
+    py &= ~7;
+
+    if(groundblocked(px, py))
+        return true;
+
+    return special == spw_water ? water_walkflag(px, py, 1) : _walkflag(px, py, 1);
+}
+
+static bool z30_npc_can_step(enemy *e, double dx, double dy, int special)
+{
+    if(dx == 0 && dy == 0)
+        return true;
+
+    if(dy < 0 && canfall(e->id) && (tmpscr->flags7 & fSIDEVIEW))
+        return false;
+
+    if(dx != 0 && dy != 0)
+        return z30_npc_can_step(e, dx, 0, special) && z30_npc_can_step(e, 0, dy, special);
+
+    const double bx = double(e->x) + e->hxofs, by = double(e->y) + e->hyofs;
+    const int w = zc_max(int(e->hxsz), 1), h = zc_max(int(e->hysz), 1);
+    const double rx = bx + w - 1, ry = by + h - 1;
+
+    if(dx != 0)
+    {
+        if(dx < 0 && (special == spw_clipbottomright || special == spw_clipright))
+            special = spw_none;
+
+        const int mx = int(dx < 0 ? floor(bx + dx) : ceil(rx + dx));
+        const int nx = dx < 0 ? mx : mx - w + 1;
+
+        for(double t = 0; by + t < ry; t += 8)
+        {
+            if(z30_npc_blocked(mx, int(by + t), special, nx, int(by)))
+                return false;
+        }
+
+        return !z30_npc_blocked(mx, int(ry), special, nx, int(by));
+    }
+
+    if(dy < 0 && special == spw_clipbottomright)
+        special = spw_none;
+
+    const int my = int(dy < 0 ? floor(by + dy) : ceil(ry + dy));
+    const int ny = dy < 0 ? my : my - h + 1;
+
+    for(double t = 0; bx + t < rx; t += 8)
+    {
+        if(z30_npc_blocked(int(bx + t), my, special, int(bx), ny))
+            return false;
+    }
+
+    return !z30_npc_blocked(int(rx), my, special, int(bx), ny);
+}
+
+// Moves as far as it can along one axis; false if something was in the way.
+static bool z30_npc_move_axis(enemy *e, double d, bool horizontal, int special, bool earlyret)
+{
+    if(d == 0)
+        return true;
+
+    const double step = d < 0 ? -1 : 1;
+#define Z30_CAN(v) z30_npc_can_step(e, horizontal ? (v) : 0, horizontal ? 0 : (v), special)
+#define Z30_ADD(v) (horizontal ? (e->x = fix(double(e->x) + (v))) : (e->y = fix(double(e->y) + (v))))
+
+    if(Z30_CAN(d))
+    {
+        Z30_ADD(d);
+        return true;
+    }
+
+    if(earlyret)
+        return false;
+
+    while(fabs(d) >= 1 && Z30_CAN(step))
+    {
+        Z30_ADD(step);
+        d -= step;
+    }
+
+    // The rest of the distance is under a pixel: the most of it that still fits.
+    if(fabs(d) >= 1)
+        d = fmod(d, 1.0);
+
+    double low = 0, high = d;
+
+    for(int q = 0; q < 14; ++q)
+    {
+        const double mid = (low + high) / 2;
+
+        if(Z30_CAN(mid))
+            low = mid;
+        else
+            high = mid;
+    }
+
+    Z30_ADD(low);
+#undef Z30_CAN
+#undef Z30_ADD
+    return false;
+}
+
+static bool z30_npc_movexy(enemy *e, double dx, double dy, int special, bool earlyret)
+{
+    if(dy < 0 && canfall(e->id) && (tmpscr->flags7 & fSIDEVIEW))
+        dy = 0;
+
+    bool ret = true;
+    const double scale = 2;
+
+    while(fabs(dx) > scale || fabs(dy) > scale)
+    {
+        const bool horizontal = fabs(dx) > fabs(dy);
+        double &d = horizontal ? dx : dy;
+        const double part = d < 0 ? -scale : scale;
+
+        if(z30_npc_movexy(e, horizontal ? part : 0, horizontal ? 0 : part, special, earlyret))
+            d -= part;
+        else
+        {
+            if(earlyret)
+                return false;
+
+            d = part;       // the other axis keeps going
+            ret = false;
+        }
+    }
+
+    const bool x_ok = z30_npc_move_axis(e, dx, true, special, earlyret);
+
+    if(!x_ok && earlyret)
+        return false;
+
+    const bool y_ok = z30_npc_move_axis(e, dy, false, special, earlyret);
+    return ret && x_ok && y_ok;
+}
+
+static bool z30_npc_dir_delta(long dir, double px, double &dx, double &dy)
+{
+    static const signed char table[16] = { up, down, left, right, l_up, r_up, l_down, r_down,
+                                           up, r_up, right, r_down, down, l_down, left, l_up };
+
+    if(dir < 0 || dir >= 16)
+        return false;
+
+    const double diag = px * 0.7071;
+
+    switch(table[dir])
+    {
+    case up:      dx = 0; dy = -px; break;
+    case down:    dx = 0; dy = px; break;
+    case left:    dx = -px; dy = 0; break;
+    case right:   dx = px; dy = 0; break;
+    case r_up:    dx = diag; dy = -diag; break;
+    case r_down:  dx = diag; dy = diag; break;
+    case l_up:    dx = -diag; dy = -diag; break;
+    default:      dx = -diag; dy = diag; break;     // l_down
+    }
+
+    return true;
+}
+
+// npc->Move(), MoveAtAngle(), MoveXY() and their CanMove forms. rINDEX is the direction, angle or
+// x distance, rEXP2 the distance or y distance, rEXP1 the special; the answer goes in rEXP1.
+static void z30_npc_move_command(word cmd)
+{
+    const double a = ri->d[0] / 10000.0, b = ri->d[3] / 10000.0;
+    const int special = ri->d[2] / 10000;
+    ri->d[2] = 0;
+
+    if(GuyH::loadNPC(ri->guyref, "npc->Move()") != SH::_NoError)
+        return;
+
+    enemy *e = GuyH::getNPC();
+    double dx = 0, dy = 0;
+
+    switch(cmd)
+    {
+    case Z30C_NPCMOVE:
+    case Z30C_NPCCANMOVEDIR:
+        if(!z30_npc_dir_delta(ri->d[0] / 10000, b, dx, dy))
+            return;
+        break;
+
+    case Z30C_NPCMOVEANGLE:
+    case Z30C_NPCCANMOVEANGLE:
+    {
+        const double radians = a * 3.14159265358979 / 180.0;
+        dx = cos(radians) * b;
+        dy = sin(radians) * b;
+        break;
+    }
+
+    default:
+        dx = a;
+        dy = b;
+        break;
+    }
+
+    if(cmd == Z30C_NPCMOVE || cmd == Z30C_NPCMOVEANGLE || cmd == Z30C_NPCMOVEXY)
+    {
+        ri->d[2] = z30_npc_movexy(e, dx, dy, special, false) ? 10000 : 0;
+        return;
+    }
+
+    const fix old_x = e->x, old_y = e->y;
+    ri->d[2] = z30_npc_movexy(e, dx, dy, special, true) ? 10000 : 0;
+    e->x = old_x;
+    e->y = old_y;
+}
+
 // ---- the commands ------------------------------------------------------------------------------
 
 bool zasm30_combo_layer_on(int) { return true; }
@@ -1732,20 +2147,55 @@ static bool zasm30_command(word cmd)
     case Z30C_NPCMOVEPAUSED:
         ri->d[2] = 0;
         return true;
+    case Z30C_NPCMOVE:
     case Z30C_NPCMOVEANGLE:
+    case Z30C_NPCMOVEXY:
+    case Z30C_NPCCANMOVEDIR:
+    case Z30C_NPCCANMOVEANGLE:
+    case Z30C_NPCCANMOVEXY:
+        z30_npc_move_command(cmd);
+        return true;
+
+    case Z30C_NPCADD:
     {
-        ri->d[2] = 0;
-        if(GuyH::loadNPC(ri->guyref, "npc->MoveAtAngle()") == SH::_NoError)
+        ri->d[2] = ri->d[3] = 0;
+        ZScriptArray &a = ArrayH::getArray(get_register(sarg1) / 10000);
+
+        if(&a == &INVALIDARRAY || a.Size() < 1)
+            return true;
+
+        const long id = a[0] / 10000;
+        const int nx = a.Size() == 3 ? a[1] / 10000 : 0, ny = a.Size() == 3 ? a[2] / 10000 : 0;
+
+        if(BC::checkGuyID(id, "npc->Create()") != SH::_NoError)
+            return true;
+
+        const word created = addenemy(nx, ny, id, -10);
+
+        if(created == 0)
         {
-            sprite *s = GuyH::getNPC();
-            double a = (ri->d[0] / 10000.0) * (3.14159265358979 / 180.0);
-            double px = ri->d[3] / 10000.0;
-            s->x = fix(double(s->x) + cos(a) * px);
-            s->y = fix(double(s->y) + sin(a) * px);
-            ri->d[2] = 10000;
+            ri->guyref = LONG_MAX;
+            Z_scripterrlog("Couldn't create NPC \"%s\", screen NPC limit reached\n", guy_string[id]);
+            return true;
         }
+
+        word index = guys.Count() - created;    // the main enemy, not a segment
+        ri->guyref = guys.spr(index)->getUID();
+
+        for(; index < guys.Count(); ++index)
+            ((enemy *)guys.spr(index))->script_spawned = true;
+
+        ri->d[2] = ri->d[3] = ri->guyref;
         return true;
     }
+
+    case Z30C_NPCDEAD:
+        if(GuyH::loadNPC(ri->guyref, "npc->isDead()") == SH::_NoError)
+            set_register(sarg1, GuyH::getNPC()->dying ? 10000 : 0);
+        else
+            set_register(sarg1, 0);
+        return true;
+
     case Z30C_NPCATTACK:
         if(GuyH::loadNPC(ri->guyref, "npc->Attack()") == SH::_NoError)
             q30_enemy_fire(GuyH::getNPC());
@@ -1777,6 +2227,14 @@ static bool zasm30_command(word cmd)
     {
         const int itemid = ri->idata;
         const long mode = get_register(sarg1) / 10000;
+
+        if(q30_items_keep_running())
+        {
+            if(unsigned(itemid) < MAXITEMS)
+                zasm30_item_run_command(itemid, mode);
+
+            return true;
+        }
 
         if(unsigned(itemid) < MAXITEMS && mode != 0 && itemsbuf[itemid].script)
         {
@@ -1821,6 +2279,83 @@ static bool zasm30_command(word cmd)
     {
         bool ok = z30_run_generic_frozen(Z30_REF(GENERICDATA));
         set_register(sarg1, ok ? 10000 : 0);
+        return true;
+    }
+
+    // -- message strings -----------------------------------------------------------------------
+    case Z30C_MESSAGEDATASETSTRINGR:
+    case Z30C_MESSAGEDATASETSTRINGV:
+    {
+        const long id = Z30_REF(MSGDATA);
+
+        if(BC::checkMessage(id, "messagedata->Set()") == SH::_NoError)
+        {
+            string text;
+            ArrayH::getString(get_register(sarg1) / 10000, text, 8192);
+            z30_msg_set(id, text);
+        }
+        return true;
+    }
+
+    case Z30C_MESSAGEDATAGETSTRINGR:
+    case Z30C_MESSAGEDATAGETSTRINGV:
+    {
+        const long id = Z30_REF(MSGDATA);
+
+        if(BC::checkMessage(id, "messagedata->Get()") == SH::_NoError)
+            ArrayH::setArray(get_register(sarg1) / 10000, string(MsgStrings[id].s));
+        return true;
+    }
+
+    // -- answers a script branches on ---------------------------------------------------------
+    case Z30C_MAPDATAISSOLID:
+    {
+        const int x = ri->d[0] / 10000, y = ri->d[1] / 10000;
+        const long ref = Z30_REF(MAPDATA);
+        const mapscr *m = z30_mapdata(ref);
+
+        if(!m)
+            set_register(sarg1, 10000);
+        else if(m == tmpscr)
+            set_register(sarg1, _walkflag(x, y, 1) ? 10000 : 0);
+        else
+            set_register(sarg1, z30_mapdata_solid(m, x, y) ? 10000 : 0);
+        return true;
+    }
+
+    case Z30C_SCRTRIGGERCOMBO:
+    {
+        const int layer = get_register(sarg1) / 10000, pos = get_register(sarg2) / 10000;
+        set_register(sarg1, q30_trigger_combo_at(layer, pos, 0) ? 10000 : 0);
+        return true;
+    }
+
+    case Z30C_ISVALIDBITMAP:
+        set_register(sarg1, z30_bitmap(get_register(sarg1)) ? 10000 : 0);
+        return true;
+
+    case Z30C_ISALLOCATEDBITMAP:
+        set_register(sarg1, zasm30_bitmaps.count(get_register(sarg1)) ? 10000 : 0);
+        return true;
+
+    case Z30C_GETCOMBOBYNAME:
+    {
+        string name;
+        ArrayH::getString(get_register(sarg1) / 10000, name, 256);
+        long found = -1;
+
+        for(int q = 0; q < MAXCOMBOS && !name.empty(); ++q)
+        {
+            const Q30Combo *c = q30_combo(q);
+
+            if(c && name == c->label)
+            {
+                found = q;
+                break;
+            }
+        }
+
+        set_register(sarg1, found * 10000);
         return true;
     }
 

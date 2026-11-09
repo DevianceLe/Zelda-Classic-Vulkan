@@ -3705,6 +3705,14 @@ bool g_loaded_pending = false;
 
 } // namespace
 
+bool q30_trigger_combo_at(int layer, int pos, int idx)
+{
+    if(layer < 0 || layer > 6 || pos < 0 || pos >= 176 || idx < 0)
+        return false;
+
+    return do_trigger(H(layer, pos), (size_t)idx);
+}
+
 // ---- bridges ----------------------------------------------------------------------
 
 enum { qr30_NEW_DARKROOM = 237, qr30_BRIDGES_ABOVE_2 = 594, qr30_OLD_BRIDGE_COMBOS = 313,
@@ -3936,6 +3944,47 @@ void q30_walk_speed(int x, int y, int z, int &dx, int &dy)
         *fr[a] = m - whole;
         *axes[a] = v < 0 ? -whole : whole;
     }
+}
+
+double q30_walk_speed_scale(int x, int y, int z, double step)
+{
+    if(!q30_active() || (z > 0 && !(tmpscr[0].flags2 & fAIRCOMBOS)))
+        return step;
+
+    int px = x + 7, py = y + 8;
+
+    if(px < 0 || py < 0 || px > 255 || py > 175)
+        return step;
+
+    int pos = ((py >> 4) << 4) + (px >> 4);
+
+    for(int q = 6; q >= 0; --q)
+    {
+        H h(q, pos);
+
+        if(!h_scr(h))
+            continue;
+
+        const Q30Combo *c = h_combo(h);
+
+        if(c && (c->speed_mult != 1 || c->speed_div > 1 || c->speed_add))
+        {
+            step *= c->speed_mult;
+
+            if(c->speed_div)
+                step /= c->speed_div;
+
+            step += c->speed_add / 10000.0;
+        }
+
+        if(q > 0 && q30_has_bridge_at(px, py, q))
+            break;
+    }
+
+    if(step < 0)
+        return 0;
+
+    return step > 3 ? 3 : step;
 }
 
 bool q30_respawn_forced() { return q30_active() && g_respawn_forced; }
@@ -7607,7 +7656,7 @@ bool q30_switchhook_frame(weapon *w)
         return false;
 
     int target = ((ty >> 4) << 4) + (tx >> 4);
-    int maxlayer = get_bit(quest_rules, qr_HOOKSHOTLAYERFIX) ? 2 : 0;
+    int maxlayer = q30_quest_rule(Q30_QR_HOOKSHOTALLLAYER) ? 6 : (get_bit(quest_rules, qr_HOOKSHOTLAYERFIX) ? 2 : 0);
     bool found = false;
 
     for(int q = maxlayer; q >= 0 && !found; --q)
@@ -7662,4 +7711,28 @@ void q30_switchhook_update()
 bool q30_quest_rule(int id)
 {
     return quest_header_zelda_version >= 0x255 && g_rules_known && get_bit(g_rules, id) != 0;
+}
+
+extern dword q255_compat_rule_version;
+
+// Upstream's readrules turns these on for quests saved before the rule existed, so a clear
+// bit in such a file doesn't mean the new behaviour was asked for.
+static dword compat_rule_since(int id)
+{
+    switch(id)
+    {
+    case Q30_QR_ENEMIES_SECRET_ONLY_16_31: return 1;
+    case Q30_QR_STEPTEMP_SECRET_ONLY_16_31: return 6;
+    case Q30_QR_ALLTRIG_PERMSEC_NO_TEMP: return 7;
+    case Q30_QR_DMAP_0_CONTINUE_BUG: return 24;
+    case Q30_QR_PUSHBLOCK_SPRITE_LAYER: return 51;
+    case Q30_QR_BROKEN_PUSHBLOCK_TOP_HALF_SOLIDS: return 71;
+    case Q30_QR_BROKEN_PUSHBLOCK_FLAG_CLONING: return 72;
+    default: return 0;
+    }
+}
+
+bool q30_compat_rule(int id)
+{
+    return quest_header_zelda_version < 0x255 || q30_quest_rule(id) || q255_compat_rule_version < compat_rule_since(id);
 }

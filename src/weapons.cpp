@@ -2453,6 +2453,10 @@ int maxlength=parentitem>-1 ? 16*itemsbuf[parentitem].misc1 : 0;
                 if(get_bit(quest_rules, qr_HOOKSHOTLAYERFIX))
                     hooked = hooked || (combobuf[MAPCOMBO2(0,x+2,y+7)].type==cHSGRAB) || (combobuf[MAPCOMBO2(1,x+2,y+7)].type==cHSGRAB);
                     
+                if(q30_quest_rule(Q30_QR_HOOKSHOTALLLAYER))
+                    for(int q30l=2; q30l<6 && !hooked; ++q30l)
+                        hooked = combobuf[MAPCOMBO2(q30l,x+2,y+7)].type==cHSGRAB;
+
                 if(!hooked && _walkflag(x+2,y+7,1) && !ishookshottable((int)x+2,(int)y+7))
                 {
                     dead=1;
@@ -2469,6 +2473,10 @@ int maxlength=parentitem>-1 ? 16*itemsbuf[parentitem].misc1 : 0;
                 if(get_bit(quest_rules, qr_HOOKSHOTLAYERFIX))
                     hooked = hooked || (combobuf[MAPCOMBO2(0,x+12,y+12)].type==cHSGRAB) || (combobuf[MAPCOMBO2(1,x+12,y+12)].type==cHSGRAB);
                     
+                if(q30_quest_rule(Q30_QR_HOOKSHOTALLLAYER))
+                    for(int q30l=2; q30l<6 && !hooked; ++q30l)
+                        hooked = combobuf[MAPCOMBO2(q30l,x+12,y+12)].type==cHSGRAB;
+
                 if(!hooked && _walkflag(x+12,y+12,1) && !ishookshottable((int)x+12,(int)y+12))
                 {
                     dead=1;
@@ -2492,6 +2500,10 @@ int maxlength=parentitem>-1 ? 16*itemsbuf[parentitem].misc1 : 0;
                 if(get_bit(quest_rules, qr_HOOKSHOTLAYERFIX))
                     hooked = hooked || (combobuf[MAPCOMBO2(0,x+6,y+13)].type==cHSGRAB) || (combobuf[MAPCOMBO2(1,x+6,y+13)].type==cHSGRAB);
                     
+                if(q30_quest_rule(Q30_QR_HOOKSHOTALLLAYER))
+                    for(int q30l=2; q30l<6 && !hooked; ++q30l)
+                        hooked = combobuf[MAPCOMBO2(q30l,x+6,y+13)].type==cHSGRAB;
+
                 if(!hooked && _walkflag(x+6,y+13,1) && !ishookshottable((int)x+6,(int)y+13))
                 {
                     dead=1;
@@ -2515,6 +2527,10 @@ int maxlength=parentitem>-1 ? 16*itemsbuf[parentitem].misc1 : 0;
                 if(get_bit(quest_rules, qr_HOOKSHOTLAYERFIX))
                     hooked = hooked || (combobuf[MAPCOMBO2(0,x+9,y+13)].type==cHSGRAB) || (combobuf[MAPCOMBO2(1,x+9,y+13)].type==cHSGRAB);
                     
+                if(q30_quest_rule(Q30_QR_HOOKSHOTALLLAYER))
+                    for(int q30l=2; q30l<6 && !hooked; ++q30l)
+                        hooked = combobuf[MAPCOMBO2(q30l,x+9,y+13)].type==cHSGRAB;
+
                 if(!hooked && _walkflag(x+9,y+13,1) && !ishookshottable((int)x+9,(int)y+13))
                 {
                     dead=1;

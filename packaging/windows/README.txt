@@ -46,7 +46,7 @@ In ZQuest, use File > Open and browse to a .qst file. Etc > Video Settings has
 the display options. The ZScript headers (std.zh, the std_zh folder, string.zh
 and others) are included.
 
-ZQuest edits quests up to 2.53.2. Until the 2.55/3.0 editor is finished, it
+ZQuest edits quests up to 2.53.1. Until the 2.55/3.0 editor is finished, it
 refuses newer quests with a message and closes. They still play in zplayer.exe.
 
 Default player controls

@@ -26,6 +26,7 @@
 #include <ctype.h>
 #include <string>
 #include <vector>
+#include <set>
 #include <atomic>
 #include <chrono>
 
@@ -146,7 +147,7 @@ int  g_stop_after = 0;          // -frames N (0 = no limit)
 bool g_seed_given = false;
 unsigned int g_seed_value = 0;
 
-std::string g_rec_path, g_play_path, g_hash_path;
+std::string g_rec_path, g_play_path, g_hash_path, g_smoke_path;
 FILE *g_rec = NULL;             // recording being written
 FILE *g_hash = NULL;            // hash log being written
 
@@ -180,6 +181,16 @@ std::vector<CfgEntry> g_cfg;
 // Frame hash of the frame shown in g_frame.
 bool g_have_capture = false;
 uint64_t g_fb_hash = 0, g_pal_hash = 0;
+
+// -quest-smoke FILE: a progress log for the unattended run of a whole quest
+// collection, so a run that "finished" can be told apart from one that never
+// got into the game. Written every SMOKE_EVERY frames and when the player exits.
+const int SMOKE_EVERY = 120;
+FILE *g_smoke = NULL;
+int g_smoke_playing = 0;        // frames with a game in progress
+int g_smoke_first = -1;         // the first such frame
+std::set<int> g_smoke_screens;  // (map << 8) | screen, every screen seen in play
+std::set<uint64_t> g_smoke_hashes;  // distinct pictures shown
 
 // Live mouse (the GUI defaults the game normally uses).
 int (*g_orig_mouse_x)(void) = NULL;
@@ -441,6 +452,36 @@ int replay_readkey_hook(void)
     return g_char_pos < g_chars.size() ? g_chars[g_char_pos++] : 0;
 }
 
+// ---- smoke progress log ----------------------------------------------------
+
+void smoke_write(const char *kind, const char *why)
+{
+    if(!g_smoke)
+        return;
+    bool in_game = Playing && !Quit && game != NULL;
+    fprintf(g_smoke, "%s frame=%d end=%d playing=%d first=%d screens=%u hashes=%u warnings=%d in_game=%d quit=%d map=%d scr=%d dmap=%d life=%d",
+            kind, g_frame, g_end, g_smoke_playing, g_smoke_first, (unsigned)g_smoke_screens.size(),
+            (unsigned)g_smoke_hashes.size(), g_warnings, in_game ? 1 : 0, Quit,
+            in_game ? currmap : -1, in_game ? currscr : -1, in_game ? currdmap : -1, in_game ? int(game->get_life()) : -1);
+    if(why)
+        fprintf(g_smoke, " why=%s", why);
+    fputc('\n', g_smoke);
+    fflush(g_smoke);
+}
+
+void smoke_frame()
+{
+    if(Playing && !Quit && game != NULL)
+    {
+        if(g_smoke_first < 0)
+            g_smoke_first = g_frame;
+        ++g_smoke_playing;
+        g_smoke_screens.insert((currmap << 8) | currscr);
+    }
+    if(g_frame % SMOKE_EVERY == 0)
+        smoke_write("frame", NULL);
+}
+
 // ---- mouse -------------------------------------------------------------
 
 void finish(int code, const char *why);
@@ -519,6 +560,13 @@ void finish(int code, const char *why)
 
     if(g_mode == MODE_PLAYBACK && g_live_key_total + g_live_key_events.load())
         say("%d key(s) were pressed on the playback window", g_live_key_total + g_live_key_events.load());
+
+    if(g_smoke)
+    {
+        smoke_write("end", why);
+        fclose(g_smoke);
+        g_smoke = NULL;
+    }
 
     if(g_rec)
     {
@@ -943,6 +991,13 @@ void replay_init(int argc, char *argv[])
                 g_hash_path = argv[++i];
             g_enabled = true;
         }
+        else if(same_text(a, "-quest-smoke"))
+        {
+            if(!has1)
+                fail("%s needs a file name", a);
+            g_smoke_path = argv[++i];
+            g_enabled = true;
+        }
         else if(same_text(a, "-frames") || same_text(a, "-replay-seed"))
         {
             if(!has1 || !parse_int(argv[i+1], &v) || v < 0)
@@ -1005,6 +1060,14 @@ void replay_init(int argc, char *argv[])
         fprintf(g_hash, "# <frame> <hash of the 256x224 frame> <hash of the palette>, FNV-1a 64\n");
     }
 
+    if(!g_smoke_path.empty())
+    {
+        g_smoke = fopen(g_smoke_path.c_str(), "wt");
+        if(!g_smoke)
+            fail("cannot write smoke log %s", g_smoke_path.c_str());
+        smoke_write("start", NULL);
+    }
+
     atexit(replay_atexit);
 
     if(g_mode != MODE_OFF)
@@ -1055,13 +1118,13 @@ void replay_capture_frame(BITMAP *frame)
 {
     g_in_logic.store(false);
 
-    if(!g_hash && !g_dump)
+    if(!g_hash && !g_dump && !g_smoke)
         return;
 
     PALETTE pal;
     get_palette(pal);
 
-    if(g_hash)
+    if(g_hash || g_smoke)
     {
         int w = zc_min(frame->w, FB_W);
         int h = zc_min(frame->h, FB_H);
@@ -1098,9 +1161,14 @@ void replay_frame_boundary()
 
     if(g_hash && g_have_capture)
         fprintf(g_hash, "%d %016" PRIx64 " %016" PRIx64 "\n", g_frame, g_fb_hash, g_pal_hash);
+    if(g_smoke && g_have_capture)
+        g_smoke_hashes.insert(g_fb_hash ^ g_pal_hash);
     g_have_capture = false;
 
     ++g_frame;
+
+    if(g_smoke)
+        smoke_frame();
 
     if((g_frame & 63) == 0)
     {

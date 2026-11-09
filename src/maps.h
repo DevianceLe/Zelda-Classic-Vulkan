@@ -95,6 +95,11 @@ void loadscr(int tmp,int destdmap,int scr,int ldir,bool overlay);
 void putscr(BITMAP* dest,int x,int y,mapscr* screen);
 void putscrdoors(BITMAP *dest,int x,int y,mapscr* screen);
 bool _walkflag(int x,int y,int cnt);
+
+// 2.55+ push blocks on layers 1 and 2 (zc_sprite.cpp). True if a block on one of those
+// layers started moving.
+bool q30_push_layer_block(int bx, int by, int d, int pushing, bool glove_spent);
+int q30_mblock_layer();                 // the layer the moving block belongs to
 bool water_walkflag(int x,int y,int cnt);
 bool hit_walkflag(int x,int y,int cnt);
 void map_bkgsfx(bool on);

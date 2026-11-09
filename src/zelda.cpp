@@ -2985,7 +2985,8 @@ int main(int argc, char* argv[])
     bool onlyInstance=true;
     
 #ifndef ALLEGRO_MACOSX // Should be done on Mac, too, but I haven't gotten that working
-    if(!is_only_instance("zc.lck"))
+    // A sweep (-quest-load-check, -quest-smoke) runs many copies and must never block the real game.
+    if(!used_switch(argc, argv, "-quest-load-check") && !used_switch(argc, argv, "-quest-smoke") && !is_only_instance("zc.lck"))
     {
         if(used_switch(argc, argv, "-multiple"))
             onlyInstance=false;
@@ -3811,6 +3812,23 @@ int main(int argc, char* argv[])
     }
     
 #ifdef ZC_PORT
+    // -quest-load-check in.qst report.txt: loads a quest the way the game does, of any
+    // version, writes the result and exits. Used to sweep whole quest collections.
+    if(int load_check_arg = used_switch(argc,argv,"-quest-load-check"))
+    {
+        if(argc>load_check_arg+2)
+        {
+            byte load_check_skip[4] = { 0, 0, 0, 0 };
+            int load_check = loadquest(argv[load_check_arg+1],&QHeader,&QMisc,tunes+ZC_MIDI_COUNT,false,true,true,true,load_check_skip);
+            if(FILE *load_check_out = fopen(argv[load_check_arg+2],"w"))
+            {
+                fprintf(load_check_out,"load: %d  version 0x%x build %d\n",load_check,QHeader.zelda_version,QHeader.build);
+                fclose(load_check_out);
+            }
+            exit(load_check == 0 ? 0 : 3);
+        }
+    }
+
     // -q255-check in.qst report.txt: tries the 2.55 section readers on a quest and exits
     if(int q255_check_arg = used_switch(argc,argv,"-q255-check"))
     {

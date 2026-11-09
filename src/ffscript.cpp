@@ -2000,6 +2000,9 @@ static bool zasm30_prepare_type(byte type, word script, long key);
 static void zasm30_init_type(byte type, Zasm30Instance *in);
 static void zasm30_setup_frame(byte type);
 static void zasm30_script_finished(byte type, word script, Zasm30Instance *in);
+static bool zasm30_item_slot_run = false;   // the next SCRIPT_ITEM run uses the item's own slot
+static bool zasm30_item_waitdraw_allowed();
+static void zasm30_item_run_command(int id, long mode);
 static bool zasm30_get_register(const long arg, long &ret);
 static bool zasm30_set_register(const long arg, const long value);
 static bool zasm30_command(word cmd);
@@ -9207,6 +9210,17 @@ int run_script(const byte type, const word script, const byte i)
     
     case SCRIPT_ITEM:
     {
+        // An item script that keeps running across frames has a slot of its own (quest rule 162).
+        if(zasm30_item_slot_run)
+        {
+            zasm30_item_slot_run = false;
+
+            if(!zasm30_prepare_type(type, script, zasm30_run_key))
+                return 0;
+
+            break;
+        }
+
         ri = &itemScriptData;
         zasm30_cur_frame = &zasm30_frames[32];
         ri->Clear(); //Only runs for one frame so we just zero it out
@@ -10241,7 +10255,34 @@ int run_script(const byte type, const word script, const byte i)
             skipcont = 1;
             scommand = 0xFFFF;
             break;
-            
+
+        // 2.53's game loop has no reload state: the title screen is the closest way back to a save.
+        case Z30C_GAMERELOAD:
+            Quit = qQUIT;
+            skipcont = 1;
+            scommand = 0xFFFF;
+            break;
+
+        case Z30C_GAMECONTINUE:
+            Quit = qCONT;
+            skipcont = 1;
+            scommand = 0xFFFF;
+            break;
+
+        case Z30C_GAMESAVEQUIT:
+            save_game(false);
+            Quit = qQUIT;
+            skipcont = 1;
+            scommand = 0xFFFF;
+            break;
+
+        case Z30C_GAMESAVECONTINUE:
+            save_game(false);
+            Quit = qCONT;
+            skipcont = 1;
+            scommand = 0xFFFF;
+            break;
+
         case SAVE:
             if(scriptCanSave)
             {
@@ -10644,6 +10685,27 @@ int run_script(const byte type, const word script, const byte i)
             set_register(sarg1, SH::read_stack(SPR + sarg2));
             break;
 
+        // The condition is the command's third argument, which the quest reader leaves in the
+        // literal table. Without one the condition can't be known, so nothing is written.
+        case Z30C_STACKWRITEATVV_IF:
+        {
+            std::map<const ffscript *, Zasm30Literal>::iterator it = zasm30_literals.find(&curscript[pc]);
+
+            if(it == zasm30_literals.end() || it->second.vec.empty())
+            {
+                zasm30_log_once("command", scommand);
+                break;
+            }
+
+            if(zasm30_check_cmp((int)it->second.vec[0]))
+                SH::write_stack(SPR + sarg2, sarg1);
+            break;
+        }
+
+        case Z30C_STACKWRITEATVV:
+            SH::write_stack(SPR + sarg2, sarg1);
+            break;
+
         case ZASM30_PUSHARGSR:
         case ZASM30_PUSHARGSV:
         {
@@ -10798,6 +10860,12 @@ int run_script(const byte type, const word script, const byte i)
 
         case ZASM30_PUSHVARGV:
             zasm30_frame().vargs.push_back(sarg1);
+            break;
+
+        case Z30C_PUSHVARGSR:
+        case Z30C_PUSHVARGSV:
+            if(sarg2 > 0)
+                zasm30_frame().vargs.insert(zasm30_frame().vargs.end(), (size_t)sarg2, scommand == Z30C_PUSHVARGSV ? sarg1 : get_register(sarg1));
             break;
 
         case ZASM30_MAXVARG:
@@ -10974,7 +11042,10 @@ zasm30_wait:
 
         default:
             if(zasm30_cur_inst)
-                zasm30_cur_inst->waitdraw = true;
+            {
+                if(type != SCRIPT_ITEM || zasm30_item_waitdraw_allowed())
+                    zasm30_cur_inst->waitdraw = true;
+            }
             else if(!zasm30_ffscript_version)
                 Z_scripterrlog("Waitdraw can only be used in the active global script\n");
             break;
@@ -10997,6 +11068,8 @@ zasm30_wait:
             break;
 
         case SCRIPT_ITEM:
+            if(zasm30_cur_inst)     // only a script that keeps running has one
+                zasm30_script_finished(type, script, zasm30_cur_inst);
             break; //item scripts aren't gonna go again anyway
 
         case SCRIPT_SCREEN:

@@ -159,6 +159,7 @@ static void skip_weapon_data(Q255Section &s)
         s.skip(4 + 4);          // viewport ranges
 }
 
+static dword g_item_raw_flags = 0;   // all 32 bits; itemdata keeps only the low 16
 static long g_true_family = 0;   // the family as stored, which itemdata may not hold
 
 static void read_item(Q255Section &s, itemdata &it)
@@ -186,8 +187,13 @@ it.family = (byte)family;
     else
         it.power = s.getc();
 
+    g_item_raw_flags = 0;
+
     if(s.version >= 41)
-        it.flags = (word)(s.igetl() & 0xFFFF);
+    {
+        g_item_raw_flags = (dword)s.igetl();
+        it.flags = (word)(g_item_raw_flags & 0xFFFF);
+    }
     else
         it.flags = s.igetw();
 
@@ -451,6 +457,7 @@ int q255_read_items(Q255Section &s)
         {
             memcpy(&itemsbuf[i], &tempitem, sizeof(itemdata));
             q30_set_item_family(i, g_true_family);
+            q30_set_item_passive_script(i, (g_item_raw_flags & (1u << 23)) != 0);
 q30_set_item_sprite_script(i, g_item_sprite_script, g_item_sprite_initd);
             q30_set_item_weapon_script(i, g_item_weapon_script, g_item_weapon_initd);
         }

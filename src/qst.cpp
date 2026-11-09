@@ -2384,16 +2384,6 @@ int readheader(PACKFILE *f, zquestheader *Header, bool keepdata)
             return qe_invalid;
         }
 	
-	if ( strncmp(tempheader.author, "Lunaria",7) == 0 )
-	{
-		al_trace("Fuck off, Lunaria!\n");
-		return qe_invalid;
-	}		
-	if ( strncmp(tempheader.author, "Lunaria Stalis",7) == 0 ) 
-	{
-		al_trace("Fuck off, Lunaria!\n");
-		return qe_invalid;
-	}
     }
     
 q255_header_done:
@@ -11999,7 +11989,7 @@ int readcolordata(PACKFILE *f, miscQdata *Misc, word version, word build, word s
     return 0;
 }
 
-int readtiles(PACKFILE *f, tiledata *buf, zquestheader *Header, word version, word build, word start_tile, word max_tiles, bool from_init, bool keepdata)
+int readtiles(PACKFILE *f, tiledata *buf, zquestheader *Header, word version, word build, word start_tile, int max_tiles, bool from_init, bool keepdata)
 {
     int dummy;
     word tiles_used=0;

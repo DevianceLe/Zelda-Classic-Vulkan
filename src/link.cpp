@@ -79,6 +79,15 @@ static inline bool isSideview()
     return (tmpscr->flags7&fSIDEVIEW)!=0 && !ignoreSideview;
 }
 
+// 2.55+ movement rules: no snap to the half-tile grid while walking.
+static inline bool q30_no_gridlock()
+{
+    return q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2) || q30_quest_rule(Q30_QR_DISABLE_4WAY_GRIDLOCK);
+}
+
+// Which layer 1 and 2 combos this sword swing has already cut (qr_BUSHESONLAYERS1AND2).
+static byte q30_layer_grid[2][22];
+
 int LinkClass::DrunkClock()
 {
     return drunkclk;
@@ -2134,7 +2143,7 @@ void LinkClass::checkstab()
         {
             for(int q=0; q<176; q++)
             {
-                set_bit(screengrid,q,0);
+                set_bit(screengrid,q,0); memset(q30_layer_grid,0,sizeof(q30_layer_grid));
             }
             
             for(int q=0; q<32; q++)
@@ -2146,7 +2155,7 @@ void LinkClass::checkstab()
             check_slash_block(wx,wy);
             check_slash_block(wx,wy+8);
         }
-        else if(dir==up && ((int(x)&15)==8||diagonalMovement))
+        else if(dir==up && ((int(x)&15)==8||diagonalMovement||q30_no_gridlock()))
         {
             check_slash_block(wx,wy);
             check_slash_block(wx,wy+8);
@@ -2159,7 +2168,7 @@ void LinkClass::checkstab()
             check_slash_block(wx,wy+wysz-8);
             check_slash_block(wx,wy+wysz);
         }
-        else if(dir==down && ((int(x)&15)==8||diagonalMovement))
+        else if(dir==down && ((int(x)&15)==8||diagonalMovement||q30_no_gridlock()))
         {
             check_slash_block(wx,wy+wysz-8);
             check_slash_block(wx,wy+wysz);
@@ -2185,7 +2194,7 @@ void LinkClass::checkstab()
         {
             for(int q=0; q<176; q++)
             {
-                set_bit(screengrid,q,0);
+                set_bit(screengrid,q,0); memset(q30_layer_grid,0,sizeof(q30_layer_grid));
             }
             
             for(int q=0; q<32; q++)
@@ -2198,7 +2207,7 @@ void LinkClass::checkstab()
             check_wand_block(wx,wy);
             check_wand_block(wx,wy+8);
         }
-        else if(dir==up && ((int(x)&15)==8||diagonalMovement))
+        else if(dir==up && ((int(x)&15)==8||diagonalMovement||q30_no_gridlock()))
         {
             check_wand_block(wx,wy);
             check_wand_block(wx,wy+8);
@@ -2211,7 +2220,7 @@ void LinkClass::checkstab()
             check_wand_block(wx,wy+wysz-8);
             check_wand_block(wx,wy+wysz);
         }
-        else if(dir==down && ((int(x)&15)==8||diagonalMovement))
+        else if(dir==down && ((int(x)&15)==8||diagonalMovement||q30_no_gridlock()))
         {
             check_wand_block(wx,wy+wysz-8);
             check_wand_block(wx,wy+wysz);
@@ -2248,7 +2257,7 @@ if ( quakescr >= 0 )
         // poundable blocks
         for(int q=0; q<176; q++)
         {
-            set_bit(screengrid,q,0);
+            set_bit(screengrid,q,0); memset(q30_layer_grid,0,sizeof(q30_layer_grid));
         }
         
         for(int q=0; q<32; q++)
@@ -2259,7 +2268,7 @@ if ( quakescr >= 0 )
             check_pound_block(wx,wy);
             check_pound_block(wx,wy+8);
         }
-        else if(dir==up && ((int(x)&15)==8||diagonalMovement))
+        else if(dir==up && ((int(x)&15)==8||diagonalMovement||q30_no_gridlock()))
         {
             check_pound_block(wx,wy);
             check_pound_block(wx,wy+8);
@@ -2272,7 +2281,7 @@ if ( quakescr >= 0 )
             check_pound_block(wx,wy+wysz-8);
             check_pound_block(wx,wy+wysz);
         }
-        else if(dir==down && ((int(x)&15)==8||diagonalMovement))
+        else if(dir==down && ((int(x)&15)==8||diagonalMovement||q30_no_gridlock()))
         {
             check_pound_block(wx,wy+wysz-8);
             check_pound_block(wx,wy+wysz);
@@ -2298,6 +2307,9 @@ if ( quakescr >= 0 )
 
 void LinkClass::check_slash_block(int bx, int by)
 {
+    q30_slash_layer(bx,by,1);
+    q30_slash_layer(bx,by,2);
+
     //keep things inside the screen boundaries
     bx=vbound(bx, 0, 255);
     by=vbound(by, 0, 176);
@@ -2593,6 +2605,9 @@ void LinkClass::check_wand_block(int bx, int by)
 
 void LinkClass::check_pound_block(int bx, int by)
 {
+    q30_pound_layer(bx,by,1);
+    q30_pound_layer(bx,by,2);
+
     //keep things inside the screen boundaries
     bx=vbound(bx, 0, 255);
     by=vbound(by, 0, 176);
@@ -3078,7 +3093,7 @@ void LinkClass::checkhit()
         {
             int itemid = ((weapon*)(Lwpns.spr(i)))->parentitem;
             
-            if(s->id==wFire && (superman ? (diagonalMovement?s->hit(x+4,y+4,z,7,7,1):s->hit(x+7,y+7,z,2,2,1)) : s->hit(this))&&
+            if(s->id==wFire && (superman ? ((diagonalMovement||q30_no_gridlock())?s->hit(x+4,y+4,z,7,7,1):s->hit(x+7,y+7,z,2,2,1)) : s->hit(this))&&
                         (itemid < 0 || itemsbuf[itemid].family!=itype_dinsfire))
             {
                 if(NayrusLoveShieldClk<=0)
@@ -3279,7 +3294,7 @@ killweapon:
             action==casting || action==drowning || superman || !(scriptcoldet&1))
         return;
         
-    int hit2 = diagonalMovement?GuyHit(x+4,y+4,z,8,8,hzsz):GuyHit(x+7,y+7,z,2,2,hzsz);
+    int hit2 = (diagonalMovement||q30_no_gridlock())?GuyHit(x+4,y+4,z,8,8,hzsz):GuyHit(x+7,y+7,z,2,2,hzsz);
     
     if(hit2!=-1)
     {
@@ -3477,9 +3492,9 @@ void LinkClass::hitlink(int hit2)
             game->set_item(itemid,false);
             
         // Stomp Boots script
-        if(itemsbuf[itemid].script != 0)
+        if(itemsbuf[itemid].script != 0 && !q30_item_script_busy(itemid))
         {
-            ZScriptVersion::RunScript(SCRIPT_ITEM, itemsbuf[itemid].script, itemid & 0xFFF);
+            q30_use_item_script(itemid);
         }
         
         return;
@@ -3927,7 +3942,7 @@ bool LinkClass::animate(int)
         --drunkclk;
     }
     
-    if(!is_on_conveyor && !diagonalMovement && (fall==0 || z>0) && charging==0 && spins<=5
+    if(!is_on_conveyor && !diagonalMovement && !q30_no_gridlock() && (fall==0 || z>0) && charging==0 && spins<=5
             && action != gothit)
     {
         switch(dir)
@@ -4339,7 +4354,7 @@ bool LinkClass::animate(int)
     }
     
     // check for ladder removal
-    if(diagonalMovement)
+    if(diagonalMovement||q30_no_gridlock())
     {
         if(ladderx+laddery)
         {
@@ -4573,25 +4588,25 @@ bool LinkClass::animate(int)
     
     if(isdungeon() && action!=freeze && loaded_guys && !inlikelike && !diveclk && action!=rafting)
     {
-        if(((dtype==dBOMBED)?DrunkUp():dir==up) && (diagonalMovement?x>112&&x<128:x==120) && y<=32 && tmpscr->door[0]==dtype)
+        if(((dtype==dBOMBED)?DrunkUp():dir==up) && ((diagonalMovement||q30_no_gridlock())?x>112&&x<128:x==120) && y<=32 && tmpscr->door[0]==dtype)
         {
             walk=true;
             dir=up;
         }
         
-        if(((dtype==dBOMBED)?DrunkDown():dir==down) && (diagonalMovement?x>112&&x<128:x==120) && y>=128 && tmpscr->door[1]==dtype)
+        if(((dtype==dBOMBED)?DrunkDown():dir==down) && ((diagonalMovement||q30_no_gridlock())?x>112&&x<128:x==120) && y>=128 && tmpscr->door[1]==dtype)
         {
             walk=true;
             dir=down;
         }
         
-        if(((dtype==dBOMBED)?DrunkLeft():dir==left) && x<=32 && (diagonalMovement?y>72&&y<88:y==80) && tmpscr->door[2]==dtype)
+        if(((dtype==dBOMBED)?DrunkLeft():dir==left) && x<=32 && ((diagonalMovement||q30_no_gridlock())?y>72&&y<88:y==80) && tmpscr->door[2]==dtype)
         {
             walk=true;
             dir=left;
         }
         
-        if(((dtype==dBOMBED)?DrunkRight():dir==right) && x>=208 && (diagonalMovement?y>72&&y<88:y==80) && tmpscr->door[3]==dtype)
+        if(((dtype==dBOMBED)?DrunkRight():dir==right) && x>=208 && ((diagonalMovement||q30_no_gridlock())?y>72&&y<88:y==80) && tmpscr->door[3]==dtype)
         {
             walk=true;
             dir=right;
@@ -4864,7 +4879,7 @@ bool LinkClass::startwpn(int itemid)
         
         Lwpns.add(new weapon(x,y,z,wWhistle,0,0,dir,itemid,getUID()));
         
-        if(whistleflag=findentrance(x,y,mfWHISTLE,false))
+        if(whistleflag=findentrance(x,y,mfWHISTLE,q30_quest_rule(Q30_QR_PERMANENT_WHISTLE_SECRETS)))
             didstuff |= did_whistle;
             
         if((didstuff&did_whistle && itemsbuf[itemid].flags&ITEM_FLAG1) || currscr>=128)
@@ -5215,7 +5230,7 @@ bool LinkClass::startwpn(int itemid)
             
         paymagiccost(itemid);
         
-        for(int i=-1; i<2; i++)
+        for(int i=-1; i<(q30_quest_rule(Q30_QR_HOOKSHOTALLLAYER)?6:2); i++)
         {
             if(dir==up)
             {
@@ -5731,9 +5746,9 @@ void do_lens()
 		
 		paymagiccost(itemid);
 		
-		if(itemid>=0 && itemsbuf[itemid].script != 0 && !did_scriptl)
+		if(itemid>=0 && itemsbuf[itemid].script != 0 && !did_scriptl && !q30_item_script_busy(itemid))
 		{
-		    ZScriptVersion::RunScript(SCRIPT_ITEM, itemsbuf[itemid].script, itemid & 0xFFF);
+		    q30_use_item_script(itemid);
 		    did_scriptl=true;
 		}
 		
@@ -5771,9 +5786,9 @@ void do_210_lens()
         
         paymagiccost(itemid);
         
-        if(itemid>=0 && itemsbuf[itemid].script != 0 && !did_scriptl)
+        if(itemid>=0 && itemsbuf[itemid].script != 0 && !did_scriptl && !q30_item_script_busy(itemid))
         {
-            ZScriptVersion::RunScript(SCRIPT_ITEM, itemsbuf[itemid].script, itemid & 0xFFF);
+            q30_use_item_script(itemid);
             did_scriptl=true;
         }
         
@@ -5811,7 +5826,7 @@ void LinkClass::do_hopping()
                 diveclk=80;
         }
         
-        if((!(int(x)&7) && !(int(y)&7)) || diagonalMovement)
+        if((!(int(x)&7) && !(int(y)&7)) || diagonalMovement || q30_no_gridlock())
         {
             action = swimming;
             hopclk = 0;
@@ -5847,7 +5862,7 @@ void LinkClass::do_hopping()
     }
     else                                                      // hopping in or out (need to separate the cases...)
     {
-        if(diagonalMovement)
+        if(diagonalMovement||q30_no_gridlock())
         {
             if(hopclk==1) //hopping out
 		    //>= 1 possible fix for getting stuck on land edges. 
@@ -6240,6 +6255,11 @@ void LinkClass::movelink()
 {
     int xoff=int(x)&7;
     int yoff=int(y)&7;
+    if(q30_no_gridlock())
+    {
+        xoff=0;
+        yoff=0;
+    }
     int push=pushing;
     int oldladderx=-1000, oldladdery=-1000; // moved here because linux complains "init crosses goto ~Koopa
     pushing=0;
@@ -6348,9 +6368,9 @@ void LinkClass::movelink()
 		attackclk=0;
 		sfx(itemsbuf[directWpn>-1 ? directWpn : current_item_id(itype_sword)].usesound, pan(int(x)));
         
-		if(dowpn>-1 && itemsbuf[dowpn].script!=0 && !did_scripta && checkmagiccost(dowpn))
+		if(dowpn>-1 && itemsbuf[dowpn].script!=0 && !did_scripta && checkmagiccost(dowpn) && !q30_item_script_busy(dowpn))
 		{
-			ZScriptVersion::RunScript(SCRIPT_ITEM, itemsbuf[dowpn].script, dowpn & 0xFFF);
+			q30_use_item_script(dowpn);
 			did_scripta=true;
 		}
 	}
@@ -6452,14 +6472,14 @@ void LinkClass::movelink()
             }
         }
         
-        if(dowpn>-1 && itemsbuf[dowpn].script!=0 && !did_scriptb && (paidmagic || checkmagiccost(dowpn)))
+        if(dowpn>-1 && itemsbuf[dowpn].script!=0 && !did_scriptb && (paidmagic || checkmagiccost(dowpn)) && !q30_item_script_busy(dowpn))
         {
             // Only charge for magic if item's magic cost wasn't already charged
             // for the item's main use.
             if(!paidmagic && attack!=wWand)
                 paymagiccost(dowpn);
-                
-            ZScriptVersion::RunScript(SCRIPT_ITEM, itemsbuf[dowpn].script, dowpn & 0xFFF);
+
+            q30_use_item_script(dowpn);
             did_scriptb=true;
         }
         
@@ -6635,7 +6655,13 @@ void LinkClass::movelink()
     {
         action=none;
     }
-    
+
+    if(q30_no_gridlock() && action!=swimming && action!=casting && action!=drowning && !(ladderx+laddery))
+    {
+        q30_free_walk(push);
+        return;
+    }
+
     if(diagonalMovement)
     {
         switch(holddir)
@@ -7711,6 +7737,596 @@ LEFTRIGHT:
     }
 }
 
+// ---- 2.55+ free movement ----------------------------------------------------------
+//
+// qr_NEW_HERO_MOVEMENT2 and qr_DISABLE_4WAY_GRIDLOCK: Link moves by fractions of a pixel
+// with no half-tile grid, and is nudged round corners ("shoved"). This is upstream's
+// movehero / movexy / scr_canmove for walking on land. Swimming and ladders stay on the
+// 2.53 path, which is what deploys them: when a step is blocked, walkflag() is asked as
+// well, so water and ladder entry keep working.
+
+static inline int q30_round(double v)
+{
+    return (int)floor(v + 0.5);
+}
+
+bool LinkClass::q30_walk_solid(double wx, double wy, int d2)
+{
+    (void)d2;
+
+    if(toogam)
+        return false;
+
+    int ix = q30_round(wx), iy = q30_round(wy);
+
+    if(blockpath && iy < 80)
+        return true;
+
+    if(blockmoving && mblock2.hit(ix, iy, 0, 1, 1, 1))
+        return true;
+
+    bool freeform = get_bit(quest_rules, qr_FREEFORM) != 0;
+
+    if(isdungeon() && currscr < 128 && iy < 40 && (x <= 112 || x >= 128 || _walkflag(120, 24, 2)) && !freeform)
+        return true;
+
+    bool solid = _walkflag(ix, iy, 1);
+
+    if(isdungeon() && currscr < 128 && !freeform && iy < 40 && iy >= 32 &&
+       ((ix >= 112 && ix < 120) || (ix >= 136 && ix < 144)))
+        solid = true;
+
+    return solid;
+}
+
+bool LinkClass::q30_can_move(double dx, double dy)
+{
+    if(toogam || (dx == 0 && dy == 0))
+        return true;
+
+    double bx = double(x), by = double(y) + (bigHitbox ? 0 : 8);
+    double rx = double(x) + 15.9999, ry = double(y) + 15.9999;
+
+    if(dx != 0)
+    {
+        double mx = dx < 0 ? bx + dx : rx + dx;
+        int d2 = dx < 0 ? left : right;
+
+        for(double t = 0; by + t < ry; t += 8)
+            if(q30_walk_solid(mx, by + t, d2))
+                return false;
+
+        return !q30_walk_solid(mx, ry, d2);
+    }
+
+    double my = dy < 0 ? by + dy : ry + dy;
+    int d2 = dy < 0 ? up : down;
+
+    for(double t = 0; bx + t < rx; t += 8)
+        if(q30_walk_solid(bx + t, my, d2))
+            return false;
+
+    return !q30_walk_solid(rx, my, d2);
+}
+
+// The nearest clear coordinate from (tx,ty) in direction sdir, no further than earlyterm,
+// given back as Link's own x or y. False if none, or if Link could not step from it.
+bool LinkClass::q30_solid_coord(double tx, double ty, int sdir, int mdir, double earlyterm, double &out)
+{
+    double found = -999;
+
+    switch(sdir)
+    {
+    case up:
+        for(double t = ty; t >= earlyterm; t -= 1)
+            if(!q30_walk_solid(tx, t, mdir))
+            {
+                found = t - 15.9999;
+                break;
+            }
+
+        break;
+
+    case down:
+        for(double t = ty; t <= earlyterm; t += 1)
+            if(!q30_walk_solid(tx, t, mdir))
+            {
+                found = t - (bigHitbox ? 0 : 8);
+                break;
+            }
+
+        break;
+
+    case left:
+        for(double t = tx; t >= earlyterm; t -= 1)
+            if(!q30_walk_solid(t, ty, mdir))
+            {
+                found = t - 15.9999;
+                break;
+            }
+
+        break;
+
+    default:
+        for(double t = tx; t <= earlyterm; t += 1)
+            if(!q30_walk_solid(t, ty, mdir))
+            {
+                found = t;
+                break;
+            }
+
+        break;
+    }
+
+    if(found <= -999)
+        return false;
+
+    fix oldx = x, oldy = y;
+
+    if(sdir == left || sdir == right)
+        x = fix(found);
+    else
+        y = fix(found);
+
+    double nudge = (mdir == left || mdir == up) ? -0.0001 : 0.0001;
+    bool valid = (mdir == left || mdir == right) ? q30_can_move(nudge, 0) : q30_can_move(0, nudge);
+    x = oldx;
+    y = oldy;
+
+    if(valid)
+        out = found;
+
+    return valid;
+}
+
+bool LinkClass::q30_move_xy(double dx, double dy, bool shove)
+{
+    bool ret = true;
+
+    if(isSideview() && !(ladderx && laddery && ladderdir == up))
+        dy = 0;
+
+    if(dx != 0 && dy != 0)
+        shove = false;
+
+    const double scl = 2;
+
+    while(fabs(dx) > scl || fabs(dy) > scl)
+    {
+        if(fabs(dx) > fabs(dy))
+        {
+            double t = dx < 0 ? -scl : scl;
+
+            if(q30_move_xy(t, 0, shove))
+                dx -= t;
+            else
+            {
+                dx = t;
+                ret = false;
+            }
+        }
+        else
+        {
+            double t = dy < 0 ? -scl : scl;
+
+            if(q30_move_xy(0, t, shove))
+                dy -= t;
+            else
+            {
+                dy = t;
+                ret = false;
+            }
+        }
+    }
+
+    const double shove_offset = 6.5;
+    bool sensitive = q30_quest_rule(Q30_QR_SENSITIVE_SOLID_DAMAGE);
+    bool skipdmg = hclk || (z > 0 && !(tmpscr->flags2 & fAIRCOMBOS)) ||
+                   q30_quest_rule(Q30_QR_LENIENT_SOLID_DAMAGE) || get_bit(quest_rules, qr_NOSOLIDDAMAGECOMBOS);
+
+    if(dx != 0)
+    {
+        if(q30_can_move(dx, 0))
+            x = fix(double(x) + dx);
+        else
+        {
+            bool stopped = true;
+
+            if(shove)
+            {
+                double tx = dx < 0 ? double(x) - 4 : double(x) + 20;
+                double ly = double(y) + (bigHitbox ? 0 : 8), ry = double(y) + 15.9999;
+                int mdir = dx < 0 ? left : right;
+                bool top = q30_walk_solid(tx, ly, mdir), bottom = q30_walk_solid(tx, ry, mdir);
+
+                if(top != bottom)
+                {
+                    bool shoved = false;
+                    double target;
+
+                    if(bottom) // shove up
+                    {
+                        if((skipdmg || !checkdamagecombos(int(tx), int(y) + (sensitive ? 15 : 11))) &&
+                           q30_solid_coord(tx, ry, up, mdir, ry - shove_offset, target))
+                        {
+                            double d = target - double(y);
+
+                            if(d < -1)
+                                d = -1;
+
+                            if(d != 0)
+                            {
+                                shoved = true;
+                                q30_move_xy(0, d, false);
+                            }
+                        }
+                    }
+                    else if((skipdmg || !checkdamagecombos(int(tx), int(y) + (sensitive ? 0 : 4))) &&
+                            q30_solid_coord(tx, ly, down, mdir, ly + shove_offset, target)) // shove down
+                    {
+                        double d = target - double(y);
+
+                        if(d > 1)
+                            d = 1;
+
+                        if(d != 0)
+                        {
+                            shoved = true;
+                            q30_move_xy(0, d, false);
+                        }
+                    }
+
+                    if(shoved && q30_can_move(dx, 0))
+                    {
+                        x = fix(double(x) + dx);
+                        stopped = false;
+                    }
+                }
+            }
+
+            if(stopped)
+            {
+                ret = false;
+                double lo = 0, hi = dx;
+
+                for(int n = 0; n < 12; ++n)
+                {
+                    double mid = (lo + hi) / 2;
+
+                    if(q30_can_move(mid, 0))
+                        lo = mid;
+                    else
+                        hi = mid;
+                }
+
+                x = fix(double(x) + lo);
+            }
+        }
+    }
+
+    if(dy != 0)
+    {
+        if(q30_can_move(0, dy))
+            y = fix(double(y) + dy);
+        else
+        {
+            bool stopped = true;
+
+            if(shove)
+            {
+                double ty = dy < 0 ? double(y) + (bigHitbox ? 0 : 8) - 4 : double(y) + 20;
+                double lx = double(x), rx = double(x) + 15.9999;
+                int mdir = dy < 0 ? up : down;
+                bool lhit = q30_walk_solid(lx, ty, mdir), rhit = q30_walk_solid(rx, ty, mdir);
+
+                if(lhit != rhit)
+                {
+                    bool shoved = false;
+                    double target;
+
+                    if(rhit) // shove left
+                    {
+                        if((skipdmg || !checkdamagecombos(int(x) + (sensitive ? 15 : 11), int(ty))) &&
+                           q30_solid_coord(rx, ty, left, mdir, rx - shove_offset, target))
+                        {
+                            double d = target - double(x);
+
+                            if(d < -1)
+                                d = -1;
+
+                            if(d != 0)
+                            {
+                                shoved = true;
+                                q30_move_xy(d, 0, false);
+                            }
+                        }
+                    }
+                    else if((skipdmg || !checkdamagecombos(int(x) + (sensitive ? 0 : 4), int(ty))) &&
+                            q30_solid_coord(lx, ty, right, mdir, lx + shove_offset, target)) // shove right
+                    {
+                        double d = target - double(x);
+
+                        if(d > 1)
+                            d = 1;
+
+                        if(d != 0)
+                        {
+                            shoved = true;
+                            q30_move_xy(d, 0, false);
+                        }
+                    }
+
+                    if(shoved && q30_can_move(0, dy))
+                    {
+                        y = fix(double(y) + dy);
+                        stopped = false;
+                    }
+                }
+            }
+
+            if(stopped)
+            {
+                ret = false;
+                double lo = 0, hi = dy;
+
+                for(int n = 0; n < 12; ++n)
+                {
+                    double mid = (lo + hi) / 2;
+
+                    if(q30_can_move(0, mid))
+                        lo = mid;
+                    else
+                        hi = mid;
+                }
+
+                y = fix(double(y) + lo);
+            }
+        }
+    }
+
+    return ret;
+}
+
+void LinkClass::q30_free_walk(int push)
+{
+    bool du = DrunkUp(), dd = DrunkDown(), dl = DrunkLeft(), dr = DrunkRight();
+    bool freeform = get_bit(quest_rules, qr_FREEFORM) != 0;
+    bool nohorz = isdungeon() && (y <= 26 || y >= 134) && !freeform && !toogam;
+    bool novert = isdungeon() && (x <= 26 || x >= 214) && !freeform && !toogam;
+    int movedir = -1;
+
+    if(diagonalMovement)
+    {
+        if((holddir == up && !Up()) || (holddir == down && !Down()) ||
+           (holddir == left && !Left()) || (holddir == right && !Right()))
+            holddir = -1;
+
+        bool can_turn = charging == 0 && spins == 0;
+
+        if(du && (holddir == -1 || holddir == up) && !novert)
+        {
+            if(can_turn) dir = up;
+
+            movedir = holddir = up;
+            shiftdir = (dr && shiftdir != left && !nohorz) ? right : (dl && shiftdir != right && !nohorz) ? left : -1;
+        }
+        else if(dd && (holddir == -1 || holddir == down) && !novert)
+        {
+            if(can_turn) dir = down;
+
+            movedir = holddir = down;
+            shiftdir = (dr && shiftdir != left && !nohorz) ? right : (dl && shiftdir != right && !nohorz) ? left : -1;
+        }
+        else if(dl && (holddir == -1 || holddir == left) && !nohorz)
+        {
+            if(can_turn) dir = left;
+
+            movedir = holddir = left;
+            shiftdir = (du && shiftdir != down && !novert) ? up : (dd && shiftdir != up && !novert) ? down : -1;
+        }
+        else if(dr && (holddir == -1 || holddir == right) && !nohorz)
+        {
+            if(can_turn) dir = right;
+
+            movedir = holddir = right;
+            shiftdir = (du && shiftdir != down && !novert) ? up : (dd && shiftdir != up && !novert) ? down : -1;
+        }
+    }
+    else
+    {
+        shiftdir = -1;
+        holddir = -1;
+
+        if(!novert && du) movedir = holddir = dir = up;
+        else if(!novert && dd) movedir = holddir = dir = down;
+        else if(!nohorz && dl) movedir = holddir = dir = left;
+        else if(!nohorz && dr) movedir = holddir = dir = right;
+    }
+
+    if(movedir < 0 || inlikelike)
+        return;
+
+    // upstream's default Hero step; the quest's own init-data step is not read yet
+    double step = 1.5;
+    bool slowcombo = (combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement && (z == 0 || (tmpscr->flags2 & fAIRCOMBOS))) ||
+                     (isSideview() && ON_SIDEPLATFORM && combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement);
+    bool slowcharging = get_bit(quest_rules, qr_SLOWCHARGINGWALK) && charging > 0;
+
+    if(slowcombo && slowcharging)
+        step /= 2;
+    else if(slowcombo || slowcharging)
+        step = step * 2 / 3;
+
+    step = q30_walk_speed_scale(int(x), int(y), int(z), step);
+
+    double diag = (diagonalMovement && shiftdir != -1) ? step * 0.7071 : step;
+    double dx = 0, dy = 0;
+
+    switch(movedir)
+    {
+    case up: dy = -diag; break;
+    case down: dy = diag; break;
+    case left: dx = -diag; break;
+    default: dx = diag; break;
+    }
+
+    if(movedir == up || movedir == down)
+    {
+        if(shiftdir == left) dx = -diag;
+        else if(shiftdir == right) dx = diag;
+    }
+    else
+    {
+        if(shiftdir == up) dy = -diag;
+        else if(shiftdir == down) dy = diag;
+    }
+
+    linkstep();
+
+    if(charging == 0 && spins == 0 && z == 0 && !(isSideview() && !ON_SIDEPLATFORM))
+        action = walking;
+
+    if(++link_count > (16 * link_animation_speed))
+        link_count = 0;
+
+    if(charging != 0 && attack == wHammer)
+        return;
+
+    if(q30_move_xy(dx, dy, true))
+        return;
+
+    pushing = push + 1;
+
+    // Blocked: let 2.53's walkflag start a hop into water or put the ladder down.
+    int top = int(y) + (bigHitbox ? 0 : 8);
+    WalkflagInfo info;
+
+    switch(movedir)
+    {
+    case up: info = walkflag(int(x), top - 2, 2, up); break;
+    case down: info = walkflag(int(x), int(y) + 17, 2, down); break;
+    case left: info = walkflag(int(x) - 2, top, 1, left); break;
+    default: info = walkflag(int(x) + 17, top, 1, right); break;
+    }
+
+    execute(info);
+}
+
+// qr_BETTER_RAFT: a dock whose raft path doesn't lead the way Link faces can still start
+// the raft along whichever direction does have a raft flag.
+void LinkClass::q30_board_raft(int tx, int ty)
+{
+    int cx = (tx+8)&0xF0, cy = (ty+8)&0xF0;
+
+    for(int i=0; i<4; i++)
+    {
+        if(isRaftFlag(nextflag(cx,cy,i,false))||isRaftFlag(nextflag(cx,cy,i,true)))
+        {
+            reset_swordcharge();
+            action=rafting;
+            sfx(tmpscr->secretsfx);
+            dir=i;
+            break;
+        }
+    }
+}
+
+// qr_BUSHESONLAYERS1AND2: the sword cuts bushes, flowers and grass on layers 1 and 2.
+void LinkClass::q30_slash_layer(int bx, int by, int layer)
+{
+    if(!q30_quest_rule(Q30_QR_BUSHESONLAYERS1AND2) || attack != wSword)
+        return;
+
+    if(z > 8 || attackclk == SWORDCHARGEFRAME || (attackclk > SWORDTAPFRAME && tapping))
+        return;
+
+    bx = vbound(bx, 0, 255);
+    by = vbound(by, 0, 175);
+    int fx = bx, fy = by;
+    bx &= 0xF0;
+    by &= 0xF0;
+
+    mapscr *s = &tmpscr2[layer - 1];
+    int i = (bx >> 4) + by;
+
+    if(!s->valid || s->data.empty() || i > 175)
+        return;
+
+    int cid = s->data[i];
+    int type = combobuf[cid].type;
+
+    if(get_bit(q30_layer_grid[layer - 1], i) || !isCuttableType(type))
+        return;
+
+    if(q30_has_bridge_above(fx, fy, layer))
+        return;
+
+    int flag = s->sflag[i], flag2 = combobuf[cid].flag;
+
+    if(!isTouchyType(type))
+        set_bit(q30_layer_grid[layer - 1], i, 1);
+
+    if(isCuttableNextType(type))
+        s->data[i]++;
+    else
+    {
+        s->data[i] = s->undercombo;
+        s->cset[i] = s->undercset;
+        s->sflag[i] = 0;
+    }
+
+    if((flag == mfARMOS_ITEM || flag2 == mfARMOS_ITEM) && !getmapflag())
+    {
+        items.add(new item((fix)bx, (fix)by, (fix)0, tmpscr->catchall, ipONETIME2 + ipBIGRANGE + ipHOLDUP, 0));
+        sfx(tmpscr->secretsfx);
+    }
+    else if(isCuttableItemType(type))
+    {
+        int it = select_dropitem(12, bx, by);
+
+        if(it != -1)
+            items.add(new item((fix)bx, (fix)by, (fix)0, it, ipBIGRANGE + ipTIMER, 0));
+    }
+
+    if(isBushType(type) || isFlowersType(type) || isGrassType(type))
+    {
+        if(get_bit(quest_rules, qr_MORESOUNDS))
+            sfx(WAV_ZN1GRASSCUT, int(bx));
+
+        if(isBushType(type))
+            decorations.add(new dBushLeaves((fix)fx, (fix)fy, dBUSHLEAVES, 0));
+        else if(isFlowersType(type))
+            decorations.add(new dFlowerClippings((fix)fx, (fix)fy, dFLOWERCLIPPINGS, 0));
+        else
+            decorations.add(new dGrassClippings((fix)fx, (fix)fy, dGRASSCLIPPINGS, 0));
+    }
+}
+
+// qr_POUNDLAYERS1AND2: the hammer pounds stakes on layers 1 and 2.
+void LinkClass::q30_pound_layer(int bx, int by, int layer)
+{
+    if(!q30_quest_rule(Q30_QR_POUNDLAYERS1AND2) || z > 8)
+        return;
+
+    bx = vbound(bx, 0, 255) & 0xF0;
+    by = vbound(by, 0, 175) & 0xF0;
+
+    mapscr *s = &tmpscr2[layer - 1];
+    int i = (bx >> 4) + by;
+
+    if(!s->valid || s->data.empty() || i > 175)
+        return;
+
+    if(combobuf[s->data[i]].type != cPOUND || get_bit(q30_layer_grid[layer - 1], i))
+        return;
+
+    set_bit(q30_layer_grid[layer - 1], i, 1);
+    s->data[i]++;
+
+    if(get_bit(quest_rules, qr_MORESOUNDS))
+        sfx(WAV_ZN1HAMMERPOST, int(bx));
+}
+
 void LinkClass::move(int d2)
 {
 //al_trace("%s\n",d2==up?"up":d2==down?"down":d2==left?"left":d2==right?"right":"?");
@@ -8033,7 +8649,7 @@ LinkClass::WalkflagInfo LinkClass::walkflag(int wx,int wy,int cnt,byte d2)
         return ret;
     }
     
-    if(isdungeon() && currscr<128 && wy<(bigHitbox?32:40) && ((diagonalMovement?(x<=112||x>=128):x!=120) || _walkflag(120,24,2))
+    if(isdungeon() && currscr<128 && wy<(bigHitbox?32:40) && (((diagonalMovement||q30_no_gridlock())?(x<=112||x>=128):x!=120) || _walkflag(120,24,2))
             && !get_bit(quest_rules,qr_FREEFORM))
     {
         ret.setUnwalkable(true);
@@ -8156,7 +8772,7 @@ LinkClass::WalkflagInfo LinkClass::walkflag(int wx,int wy,int cnt,byte d2)
             bool wtrx  = iswater(MAPCOMBO(wx,wy));
             bool wtrx8 = iswater(MAPCOMBO(x+8,wy));
             
-            if((d2>=left && wtrx) || (d2<=down && wtrx && wtrx8))
+            if(!q30_quest_rule(Q30_QR_NO_SOLID_SWIM) && ((d2>=left && wtrx) || (d2<=down && wtrx && wtrx8)))
             {
                 ret.setUnwalkable(false);
                 return ret;
@@ -8488,7 +9104,7 @@ void LinkClass::checkpushblock()
     // Return early in some cases..
     bool earlyReturn=false;
     
-    if(!diagonalMovement || dir==left)
+    if(!(diagonalMovement||q30_no_gridlock()) || dir==left)
         if(int(x)&15) earlyReturn=true;
         
     // if(y<16) return;
@@ -8611,7 +9227,21 @@ void LinkClass::checkpushblock()
     
     if(earlyReturn)
         return;
-    
+
+    // 2.55+: push blocks on layers 1 and 2 (qr_PUSHBLOCK_LAYER_1_2), topmost first
+    {
+        int q30_glove = current_item_id(itype_bracelet);
+        bool q30_limited = q30_glove>=0 && (itemsbuf[q30_glove].flags & ITEM_FLAG1);
+
+        if(q30_push_layer_block(bx,by,dir,pushing,q30_limited && (didstuff&did_glove)))
+        {
+            if(q30_limited)
+                didstuff|=did_glove;
+
+            return;
+        }
+    }
+
     int itemid=current_item_id(itype_bracelet);
     
     if((t==cPUSH_WAIT || t==cPUSH_HW || t==cPUSH_HW2) && (pushing<16 || hasMainGuy())) return;
@@ -9023,10 +9653,10 @@ void LinkClass::checklocked()
     
     if(!isdungeon()) return;
     
-    if( !diagonalMovement && pushing!=8) return;
+    if( !diagonalMovement && !q30_no_gridlock() && pushing!=8) return;
 	/*This is required to allow the player to open a door, while sliding along a wall (pressing in the direction of the door, and sliding left or right)
 	*/
-	if ( diagonalMovement && pushing < 8 ) return; //Allow wall walking Should I add a quest rule for this? -Z
+	if ( (diagonalMovement||q30_no_gridlock()) && pushing < 8 ) return; //Allow wall walking Should I add a quest rule for this? -Z
     
 	
 	bool found;
@@ -9041,7 +9671,7 @@ void LinkClass::checklocked()
     
     
 	
-	if ( diagonalMovement ) 
+	if ( diagonalMovement || q30_no_gridlock() ) 
 	{
 		//Up door
 		if ( y <= 32 && x >= 112 && x <= 128 )
@@ -9892,7 +10522,7 @@ void LinkClass::checkspecial()
         // clear enemies and open secret
         if(!did_secret && (tmpscr->flags2&fCLEARSECRET))
         {
-            hidden_entrance(0,true,true,-2);
+            hidden_entrance(0,true,q30_compat_rule(Q30_QR_ENEMIES_SECRET_ONLY_16_31),-2);
             
             if(tmpscr->flags4&fENEMYSCRTPERM && !isdungeon())
             {
@@ -10057,7 +10687,7 @@ void LinkClass::checkspecial2(int *ls)
                     if(!didstrig)
                     {
                         stepsecret = ((int)(y+i)&0xF0)+((int)(x+j)>>4);
-                        hidden_entrance(0,true,true);
+                        hidden_entrance(0,true,q30_compat_rule(Q30_QR_STEPTEMP_SECRET_ONLY_16_31));
                         didstrig = true;
                     }
                 }
@@ -10484,7 +11114,7 @@ void LinkClass::checkspecial2(int *ls)
                 hidden_entrance(0,true,false);
             }
             else
-                hidden_entrance(0,true,true);
+                hidden_entrance(0,true,q30_compat_rule(Q30_QR_STEPTEMP_SECRET_ONLY_16_31));
         }
     }
     else if(!didstrig)
@@ -10592,6 +11222,8 @@ void LinkClass::checkspecial2(int *ls)
                     action=rafting;
                     sfx(tmpscr->secretsfx);
                 }
+                else if(q30_quest_rule(Q30_QR_BETTER_RAFT))
+                    q30_board_raft(tx,ty);
             }
             
             return;
@@ -10625,6 +11257,8 @@ void LinkClass::checkspecial2(int *ls)
                     action=rafting;
                     sfx(tmpscr->secretsfx);
                 }
+                else if(q30_quest_rule(Q30_QR_BETTER_RAFT))
+                    q30_board_raft(tx,ty);
             }
             
             return;
@@ -10658,6 +11292,8 @@ void LinkClass::checkspecial2(int *ls)
                     action=rafting;
                     sfx(tmpscr->secretsfx);
                 }
+                else if(q30_quest_rule(Q30_QR_BETTER_RAFT))
+                    q30_board_raft(tx,ty);
             }
             
             return;
@@ -11742,7 +12378,7 @@ bool LinkClass::dowarp(int type, int index)
         }
     }
     
-    if((DMaps[currdmap].type&dmfCONTINUE) || (currdmap==0))
+    if((DMaps[currdmap].type&dmfCONTINUE) || (currdmap==0 && q30_compat_rule(Q30_QR_DMAP_0_CONTINUE_BUG)))
     {
         if(dlevel)
         {
@@ -12440,6 +13076,69 @@ bool LinkClass::nextcombo_solid(int d2)
     
     if(d2==left||d2==right) cy+=bigHitbox?0:8;
     
+    // qr_SMARTER_SMART_SCROLL: look at Link's whole width and at layers 1 and 2, so he
+    // can't be scrolled onto something solid.
+    if(q30_quest_rule(Q30_QR_SMARTER_SMART_SCROLL))
+    {
+        int initcx = cx, initcy = cy;
+        int imax = (bigHitbox && !(d2==up || d2==down)) ? ((initcy&7) ? 2 : 1) : ((initcy&7) ? 1 : 0);
+        int kmax = (initcx&7) ? 2 : 1;
+
+        for(int i=0; i<=imax; cy+=(cy%2)?7:8, i++)
+        {
+            cx = initcx;
+
+            for(int k=0; k<=kmax && cx<256; cx+=(cx%2)?7:8, k++)
+            {
+                int cmb = (cy&0xF0)+(cx>>4);
+
+                if(cmb>175)
+                    return true;
+
+                newcombo const &c = combobuf[TheMaps[ns].data[cmb]];
+                int b=1;
+
+                if(cx&8) b<<=2;
+
+                if(cy&8) b<<=1;
+
+                int walk = c.walk&0xF;
+
+                for(int m=0; m<2; m++)
+                {
+                    int lm = TheMaps[ns].layermap[m];
+
+                    if(lm<=0)
+                        continue;
+
+                    mapscr const &ls = TheMaps[(lm-1)*MAPSCRS + TheMaps[ns].layerscreen[m]];
+
+                    if(ls.data.empty())
+                        continue;
+
+                    int lc = ls.data[cmb];
+                    const Q30Combo *qc = q30_combo(lc);
+
+                    if(qc && qc->type==Q30C_BRIDGE)
+                    {
+                        int eff = (qc->walk&0xF0)>>4, solid = qc->walk&0xF;
+                        walk = ((solid|walk)&~eff)|(solid&eff);
+                    }
+                    else
+                        walk |= combobuf[lc].walk&0xF;
+                }
+
+                bool dried = iswater_type(c.type) && DRIEDLAKE;
+                bool swim = iswater_type(c.type) && (current_item(itype_flippers) || action==rafting) && !dried;
+
+                if((walk&b) && !dried && !swim)
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
     // from MAPCOMBO()
     
     for(int i=0; i<=((bigHitbox&&!(d2==up||d2==down))?((cy&7)?2:1):((cy&7)?1:0)); cy+=8,i++)
@@ -12540,7 +13239,7 @@ void LinkClass::checkscroll()
     
     if(y<0)
     {
-        bool doit=true;
+        bool doit=!(q30_quest_rule(Q30_QR_NO_SCROLL_WHILE_IN_AIR) && (z>0 || stomping));
         y=0;
         
         if(nextcombo_wf(up))
@@ -12597,7 +13296,7 @@ void LinkClass::checkscroll()
     
     if(y>160)
     {
-        bool doit=true;
+        bool doit=!(q30_quest_rule(Q30_QR_NO_SCROLL_WHILE_IN_AIR) && (z>0 || stomping));
         y=160;
         
         if(nextcombo_wf(down))
@@ -12654,7 +13353,7 @@ void LinkClass::checkscroll()
     
     if(x<0)
     {
-        bool doit=true;
+        bool doit=!(q30_quest_rule(Q30_QR_NO_SCROLL_WHILE_IN_AIR) && (z>0 || stomping));
         x=0;
         
         if(nextcombo_wf(left))
@@ -12712,7 +13411,7 @@ void LinkClass::checkscroll()
     
     if(x>240)
     {
-        bool doit=true;
+        bool doit=!(q30_quest_rule(Q30_QR_NO_SCROLL_WHILE_IN_AIR) && (z>0 || stomping));
         x=240;
         
         if(nextcombo_wf(right))
@@ -12988,9 +13687,14 @@ void LinkClass::run_scrolling_script(int scrolldir, int cx, int sx, int sy, bool
         break;
     }
     
+    const bool waitdraw_pass = global_wait;     // this function is also the global script's Waitdraw
+
     if(g_doscript)
         ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_GAME);
-        
+
+    if(!waitdraw_pass)
+        q30_item_scripts_tick(false);
+
     x = storex, y = storey;
 }
 
@@ -13463,7 +14167,9 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
             action = lastaction;
             global_wait=false;
         }
-        
+
+        q30_item_scripts_tick(true);
+
         //Drawing
         tx = sx;
         ty = sy;
@@ -14677,7 +15383,8 @@ void getitem(int id, bool nosound)
             }
             
             game->set_item(id,true);
-            
+            q30_passive_item_script(id);
+
             if(!(itemsbuf[id].flags & ITEM_KEEPOLD))
             {
                 if(current_item(itemsbuf[id].family)<itemsbuf[id].fam_type)
@@ -16130,6 +16837,11 @@ void LinkClass::check_conveyor()
         is_on_conveyor=false;
         int ctype;
         ctype=(combobuf[MAPCOMBO(x+7,y+(bigHitbox?8:12))].type);
+        for(int q30l = q30_quest_rule(Q30_QR_CONVEYORS_ALL_LAYERS) ? 6 : (q30_quest_rule(Q30_QR_CONVEYORS_L1_L2) ? 2 : 0); q30l > 0; --q30l)
+        {
+            int q30t = combobuf[MAPCOMBO2(q30l-1,x+7,y+(bigHitbox?8:12))].type;
+            if(combo_class_buf[q30t].conveyor_x_speed || combo_class_buf[q30t].conveyor_y_speed) { ctype = q30t; break; }
+        }
         deltax=combo_class_buf[ctype].conveyor_x_speed;
         deltay=combo_class_buf[ctype].conveyor_y_speed;
         

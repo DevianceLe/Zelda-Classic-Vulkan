@@ -6,6 +6,9 @@
 
 #include <set>
 
+#include "q30_triggers.h"
+
+extern dword q255_compat_rule_version;
 extern sprite_list guys, items, Ewpns, Lwpns, Sitems, chainlinks, decorations;
 extern ffscript *screenscripts[256];
 extern ffscript *guyscripts[256];
@@ -81,7 +84,22 @@ const Q30ScriptRef *q30_guy_script(int guy) { return zasm30_get_ref(zasm30_guy_s
 void q30_set_guy_weapon_script(int guy, word script, const long *initd) { zasm30_put_ref(zasm30_guy_weapon_scripts, guy, script, initd); }
 const Q30ScriptRef *q30_guy_weapon_script(int guy) { return zasm30_get_ref(zasm30_guy_weapon_scripts, guy); }
 
-void q30_clear_item_scripts() { zasm30_item_sprite_scripts.clear(); zasm30_item_weapon_scripts.clear(); }
+static bool zasm30_item_passive[MAXITEMS];  // upstream's item_passive_script; the reader fills it
+static byte zasm30_item_doscript[MAXITEMS]; // upstream's data.doscript, for an item's own script
+
+void q30_clear_item_scripts()
+{
+    zasm30_item_sprite_scripts.clear();
+    zasm30_item_weapon_scripts.clear();
+    memset(zasm30_item_passive, 0, sizeof(zasm30_item_passive));
+}
+
+void q30_set_item_passive_script(int id, bool on)
+{
+    if(id >= 0 && id < MAXITEMS)
+        zasm30_item_passive[id] = on;
+}
+
 void q30_set_item_sprite_script(int item, word script, const long *initd) { zasm30_put_ref(zasm30_item_sprite_scripts, item, script, initd); }
 const Q30ScriptRef *q30_item_sprite_script(int item) { return zasm30_get_ref(zasm30_item_sprite_scripts, item); }
 void q30_set_item_weapon_script(int item, word script, const long *initd) { zasm30_put_ref(zasm30_item_weapon_scripts, item, script, initd); }
@@ -232,6 +250,7 @@ static ffscript *zasm30_script_for(int type, word script)
 {
     switch(type)
     {
+    case SCRIPT_ITEM:       return script < NUMSCRIPTITEM ? itemscripts[script] : NULL;
     case SCRIPT_LINK:       return script < Q30_HERO_SLOTS ? q30_hero_scripts[script] : NULL;
     case SCRIPT_LWPN:       return script < Q30_LWPN_SLOTS ? q30_lwpn_scripts[script] : NULL;
     case SCRIPT_EWPN:       return script < Q30_EWPN_SLOTS ? q30_ewpn_scripts[script] : NULL;
@@ -276,6 +295,13 @@ static void zasm30_init_type(byte type, Zasm30Instance *in)
 {
     switch(type)
     {
+    case SCRIPT_ITEM:
+        in->ri.idata = in->key;
+        in->frame.inst[0] = in->key;
+        memcpy(in->ri.d, itemsbuf[in->key].initiald, 8 * sizeof(long));
+        memcpy(in->ri.a, itemsbuf[in->key].initiala, 2 * sizeof(long));
+        break;
+
     case SCRIPT_NPC:
     {
         in->ri.guyref = in->key;
@@ -376,6 +402,15 @@ static void zasm30_script_finished(byte type, word script, Zasm30Instance *in)
 {
     switch(type)
     {
+    case SCRIPT_ITEM:
+        // A passive item's script that quits stays quit, as upstream's does.
+        if(zasm30_item_passive[in->key] && game->get_item(in->key))
+            itemsbuf[in->key].script = 0;
+
+        zasm30_item_doscript[in->key] = 0;
+        in->doscript = false;
+        break;
+
     case SCRIPT_NPC:
     case SCRIPT_LWPN:
     case SCRIPT_EWPN:
@@ -449,6 +484,181 @@ static int zasm30_run(byte type, word script, long key, bool)
 {
     zasm30_run_key = key;
     return run_script(type, script, 0);
+}
+
+// ---- item scripts that keep running across frames ---------------------------------------------
+// Quest rule 162, from FFScript::itemScriptEngine in upstream. zasm30_item_doscript holds upstream's
+// states: 0 not running, 1 was just used (ran its first frame), 2 running, 4 told to stop.
+// Passive items just run every frame while the Hero has them. Screen changes don't end a script:
+// the scrolling loop keeps these going, and only a new or continued game resets them.
+
+enum { Z30_QR_ITEMSCRIPTSKEEPRUNNING = 162, Z30_QR_OLD_ITEMDATA_SCRIPT_TIMING = 243,
+       Z30_QR_PASSIVE_ITEM_SCRIPT_ONLY_HIGHEST = 268, Z30_QR_NOITEMWAITDRAW = 657 };
+
+bool q30_items_keep_running()
+{
+    // Upstream switches the rule off for 2.55 quests older than build 44 as it reads them.
+    return q30_quest_rule(Z30_QR_ITEMSCRIPTSKEEPRUNNING)
+           && !(quest_header_zelda_version == 0x255 && quest_header_zelda_build < 44);
+}
+
+static bool zasm30_item_waitdraw_allowed()
+{
+    return !q30_quest_rule(Z30_QR_NOITEMWAITDRAW);
+}
+
+// Runs the item's script until its next Waitframe; a script that ended gives up its slot.
+static void zasm30_item_run(int id)
+{
+    const word script = itemsbuf[id].script;
+    ffscript *code = zasm30_script_for(SCRIPT_ITEM, script);
+
+    if(!code || code[0].command == 0xFFFF)
+    {
+        zasm30_item_doscript[id] = 0;
+        zasm30_drop_instance(SCRIPT_ITEM, id);
+        return;
+    }
+
+    zasm30_item_slot_run = true;
+    zasm30_run(SCRIPT_ITEM, script, id);
+    zasm30_item_slot_run = false;
+
+    if(zasm30_trace_on)
+        al_trace("q30: item %d script %d state %d\n", id, (int)script, (int)zasm30_item_doscript[id]);
+
+    if(!zasm30_item_doscript[id])
+        zasm30_drop_instance(SCRIPT_ITEM, id);
+}
+
+bool q30_item_script_busy(int id)
+{
+    return id >= 0 && id < MAXITEMS && q30_items_keep_running() && zasm30_item_doscript[id] != 0;
+}
+
+// The player used the item.
+void q30_use_item_script(int id)
+{
+    if(!q30_items_keep_running())
+    {
+        ZScriptVersion::RunScript(SCRIPT_ITEM, itemsbuf[id].script, id & 0xFFF);
+        return;
+    }
+
+    zasm30_drop_instance(SCRIPT_ITEM, id);
+    zasm30_item_doscript[id] = 1;
+    zasm30_item_run(id);
+}
+
+static bool zasm30_item_passive_outranked(int id)
+{
+    return q30_quest_rule(Z30_QR_PASSIVE_ITEM_SCRIPT_ONLY_HIGHEST)
+           && current_item(itemsbuf[id].family) > itemsbuf[id].fam_type;
+}
+
+// The Hero just got the item.
+void q30_passive_item_script(int id)
+{
+    if(id < 0 || id >= MAXITEMS || !itemsbuf[id].script || !zasm30_item_passive[id] || !q30_items_keep_running())
+        return;
+
+    zasm30_drop_instance(SCRIPT_ITEM, id);
+
+    if(zasm30_item_passive_outranked(id))
+    {
+        zasm30_item_doscript[id] = 0;
+        return;
+    }
+
+    zasm30_item_doscript[id] = 1;
+    zasm30_item_run(id);
+}
+
+// itemdata->RunScript(mode).
+static void zasm30_item_run_command(int id, long mode)
+{
+    byte &state = zasm30_item_doscript[id];
+
+    if(mode == 0)
+        state = 4;
+    else if(itemsbuf[id].script)
+    {
+        if(mode != 1)
+            state = 2;
+        else if(!state)
+        {
+            zasm30_drop_instance(SCRIPT_ITEM, id);
+            state = 1;
+        }
+    }
+}
+
+static void zasm30_item_engine(bool waitdraw)
+{
+    if(!q30_items_keep_running())
+        return;
+
+    for(int q = 0; q < MAXITEMS; ++q)
+    {
+        const word script = itemsbuf[q].script;
+        byte &state = zasm30_item_doscript[q];
+
+        if(script == 0 || script >= NUMSCRIPTITEM || state == 0)
+            continue;
+
+        if(waitdraw)
+        {
+            std::map<std::pair<int,long>, Zasm30Instance*>::iterator it = zasm30_instances.find(std::make_pair((int)SCRIPT_ITEM, (long)q));
+
+            if(it == zasm30_instances.end() || !it->second->waitdraw)
+                continue;
+
+            it->second->waitdraw = false;
+        }
+
+        if(zasm30_item_passive[q])
+        {
+            if(game->get_item(q))
+            {
+                if(zasm30_item_passive_outranked(q))
+                {
+                    state = 0;
+                    zasm30_drop_instance(SCRIPT_ITEM, q);
+                }
+                else
+                    zasm30_item_run(q);
+            }
+
+            continue;
+        }
+
+        if(state == 1)
+            state = 2;      // it already ran this frame, when it was used
+        else if(state == 2)
+            zasm30_item_run(q);
+        else if(state == 4)
+        {
+            state = 0;
+            zasm30_drop_instance(SCRIPT_ITEM, q);
+        }
+    }
+}
+
+// Also what the scrolling loop calls.
+void q30_item_scripts_tick(bool waitdraw)
+{
+    if(zasm30_ffscript_version)
+        zasm30_item_engine(waitdraw);
+}
+
+// A new or continued game.
+static void zasm30_items_init()
+{
+    for(int q = 0; q < MAXITEMS; ++q)
+    {
+        zasm30_drop_instance(SCRIPT_ITEM, q);
+        zasm30_item_doscript[q] = (zasm30_item_passive[q] && itemsbuf[q].script && game->get_item(q)) ? 1 : 0;
+    }
 }
 
 // ---- sprite scripts ---------------------------------------------------------------------------
@@ -858,6 +1068,7 @@ void q30_run_waitdraw_scripts()
     zasm30_generic_passive(Z30T_WAITDRAW);
     q30_run_ffc_waitdraw();
     q30_run_combo_scripts(true);
+    zasm30_item_engine(true);
     q30_run_npc_scripts(true);
     q30_run_eweapon_scripts(true);
     q30_run_lweapon_scripts(true);
@@ -876,6 +1087,9 @@ void q30_run_onlaunch()
 
 void q30_run_continue()
 {
+    if(zasm30_ffscript_version)
+        zasm30_items_init();
+
     if(zasm30_ffscript_version && q30_global_scripts[5] && q30_global_scripts[5][0].command != 0xFFFF)
     {
         zasm30_drop_instance(SCRIPT_GLOBAL, 5);
@@ -886,8 +1100,16 @@ void q30_run_continue()
 
 void q30_gen_timing(int timing)
 {
-    if(zasm30_ffscript_version)
-        zasm30_generic_passive(timing);
+    if(!zasm30_ffscript_version)
+        return;
+
+    zasm30_generic_passive(timing);
+
+    // Item scripts run just after the Hero, or before for quests made before that timing changed.
+    const bool old_timing = q255_compat_rule_version < 4 || q30_quest_rule(Z30_QR_OLD_ITEMDATA_SCRIPT_TIMING);
+
+    if(timing == (old_timing ? Z30T_POST_EWPN_SCRIPT : Z30T_POST_PLAYER_ANIMATE))
+        zasm30_item_engine(false);
 }
 
 bool q30_scripts_active()
@@ -903,6 +1125,7 @@ void q30_game_init(bool first)
         return;
 
     z30_reset_script_objects();
+    zasm30_items_init();
 
     // Newer scripts draw to the screen unless they ask otherwise. init_game runs before the
     // quest's script format is known, so this is the place that can tell.

@@ -7,7 +7,7 @@ Zelda Classic is a game engine and quest editor for making and playing custom ad
 | Program | What it is | Runs on |
 |---|---|---|
 | `zplayer` | The game. Plays 2.53, 2.55 and 3.0 Nightly quests. | Windows 10/11, Android 8.0+ (in progress) |
-| `zqeditor` | ZQuest, the quest editor. Edits quests up to 2.53.2. | Windows 10/11 |
+| `zqeditor` | ZQuest, the quest editor. Edits quests up to 2.53.1. | Windows 10/11 |
 
 ## Downloads
 
@@ -47,7 +47,7 @@ What that means in practice:
 - Slopes and z-heights
 - Subscreen widget script commands
 - Saving global script variables past 255
-- The 2.55/3.0 Nightly editor. Until it exists, ZQuest refuses quests newer than 2.53.2 and closes. The player still plays them.
+- The 2.55/3.0 Nightly editor. Until it exists, ZQuest refuses quests newer than 2.53.1 and closes. The player still plays them.
 
 ## Getting started
 
@@ -95,6 +95,8 @@ The Android player is a Gradle project in [`android/`](android/). It targets `ar
 Every change has to pass the 2.53 checks. Re-saved reference quests must match byte for byte, and [replays](tests/replay/) must produce identical frames.
 
 ## Quests tested so far
+
+**[COMPATIBILITY.md](COMPATIBILITY.md) has the result for every quest in the PureZC collection, more than 800 quests.** The tables below are the ones played by hand.
 
 **2.55 and 3.0 Nightly quests, in the player**
 

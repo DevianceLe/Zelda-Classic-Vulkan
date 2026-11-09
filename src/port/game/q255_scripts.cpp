@@ -336,7 +336,7 @@ static int read_stream(Q255Section &s)
     {
         word command = s.igetw();
         long arg1 = s.igetl_s(), arg2 = s.igetl_s();
-        s.skip(4); // arg3
+        long arg3 = s.igetl_s();
 
         if(s.failed)
             return qe_invalid;
@@ -362,6 +362,10 @@ static int read_stream(Q255Section &s)
             fprintf(g_zasm_dump, "zasm %ld %d %ld %ld\n", j, (int)command, arg1, arg2);
 
         skip_or_keep_literal(s, code ? &code[j] : NULL, s.keep);
+
+        // STACKWRITEATVV_IF is the one command that needs its third argument, the condition
+        if(code && command == 1115)
+            zasm30_literals[&code[j]].vec.assign(1, arg3);
     }
 
     if(code)
@@ -572,14 +576,19 @@ static int read_one_script(Q255Section &s, word meta, ffscript **slot, int kind,
             script[j].arg2 = s.igetl_s();
             script[j].ptr = NULL;
 
+            long arg3 = 0;
+
             if(s.version >= 24)
-                s.skip(4); // arg3
+                arg3 = s.igetl_s();
 
             if(g_zasm_dump)
                 fprintf(g_zasm_dump, "zasm %ld %d %ld %ld\n", g_dump_pc++, (int)script[j].command, script[j].arg1, script[j].arg2);
 
             if(s.version >= 21)
                 skip_or_keep_literal(s, &script[j], true);
+
+            if(script[j].command == 1115)
+                zasm30_literals[&script[j]].vec.assign(1, arg3);
         }
         s.pos = end;
 
