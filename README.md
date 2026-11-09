@@ -89,8 +89,8 @@ The Android player is a Gradle project in [`android/`](android/). It targets `ar
 
 | Quest made in | Player | ZQuest |
 |---|---|---|
-| 2.53.2 and earlier | Plays exactly as before | Opens and saves as 2.53 |
-| 2.54, 2.55 and 3.0 Nightlies | Plays; never saved as an older quest | Refused for now |
+| 2.53.1 and earlier | Plays exactly as before | Opens and saves as 2.53 |
+| 2.55 and 3.0 Nightlies | Plays; never saved as an older quest | Refused for now |
 
 Every change has to pass the 2.53 checks. Re-saved reference quests must match byte for byte, and [replays](tests/replay/) must produce identical frames.
 
