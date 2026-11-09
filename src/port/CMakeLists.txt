@@ -25,6 +25,12 @@ if(NOT DEFINED ZC_THIRD_PARTY)
 endif()
 set(ZCPORT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
+# glibc declares C23's fadd, fsub and friends, which clash with Allegro's old names
+# for its fixed-point functions. Nothing here uses those names.
+if(UNIX AND NOT ANDROID)
+    add_compile_definitions(ALLEGRO_NO_FIX_ALIASES)
+endif()
+
 # Match the rest of the project: static C runtime (/MT, /MTd).
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
@@ -247,6 +253,10 @@ endif()
 if(NOT MSVC)
     target_compile_options(zplayer_compile_check PRIVATE -fsigned-char)
 endif()
+if(UNIX AND NOT ANDROID)
+    # The game's C++98 tables were written before narrowing became an error.
+    target_compile_options(zplayer_compile_check PRIVATE -Wno-narrowing)
+endif()
 if(NOT MSVC)
     # The Game_Music_Emu headers need C++11; the game itself is built as C++98
     # with GCC/Clang (MSVC uses its own default for everything).
@@ -328,6 +338,10 @@ if(ZC_PORT_SDL)
     target_sources(zplayer PRIVATE $<TARGET_OBJECTS:zplayer_compile_check>)
     add_dependencies(zplayer zplayer_compile_check)
     target_link_libraries(zplayer PRIVATE zcport_sdl zcport ${ZPLAYER_MUSIC_LIBS})
+    if(UNIX AND NOT ANDROID)
+        # One download for every distribution: don't depend on the system's C++ runtime.
+        target_link_options(zplayer PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
     set_target_properties(zplayer PROPERTIES
         OUTPUT_NAME zplayer
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}

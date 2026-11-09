@@ -38,6 +38,10 @@
 
 extern byte epilepsyFlashReduction;
 
+// -quest-tour: the parts that need the game's objects (zelda.cpp).
+void tour_warp(int dmap, int scr);
+void tour_give_items();
+
 namespace
 {
 
@@ -191,6 +195,27 @@ int g_smoke_playing = 0;        // frames with a game in progress
 int g_smoke_first = -1;         // the first such frame
 std::set<int> g_smoke_screens;  // (map << 8) | screen, every screen seen in play
 std::set<uint64_t> g_smoke_hashes;  // distinct pictures shown
+
+// -quest-tour FILE: warps to every screen the quest uses and stays a short while
+// on each, writing the visits to FILE. Needs -replay (the recording only gives the
+// seed and the length; the tour presses the buttons itself).
+struct TourStop
+{
+    int dmap, map, scr, wscr;   // scr = wscr + DMaps[dmap].xoff
+};
+std::string g_tour_path;
+FILE *g_tour = NULL;
+int g_tour_dwell = 90;          // frames of play on each screen
+int g_tour_maxsec = 0;          // wall-clock limit (0 = none)
+bool g_tour_items = true;       // give Link a weapon of each family first (-tour-no-items: don't)
+std::vector<TourStop> g_tour_stops;
+bool g_tour_built = false;
+size_t g_tour_next = 0;         // the next stop
+int g_tour_left = 0;            // frames left on this screen
+int g_tour_settle = 0;          // frames to wait before the next warp
+int g_tour_last_tick = -1;      // replay frame of the last main-loop tick
+int g_tour_arrive = 0;          // replay frame of the last warp
+std::chrono::steady_clock::time_point g_tour_t0;
 
 // Live mouse (the GUI defaults the game normally uses).
 int (*g_orig_mouse_x)(void) = NULL;
@@ -788,6 +813,259 @@ void write_header(int argc, char *argv[])
         fprintf(g_rec, "cfg %s %d\n", cfg_vars[j].name, cfg_get(cfg_vars[j]));
 }
 
+// ---- -quest-tour -----------------------------------------------------------
+
+// Frames the game may stay away from the main loop (a menu, the ending, a
+// script-driven sequence) before the tour taps buttons / gives up.
+const int TOUR_NESTED_FRAMES = 200;
+const int TOUR_STUCK_FRAMES = 7200;
+
+bool tour_screen_used(int map, int scr)
+{
+    size_t i = size_t(map) * MAPSCRS + scr;
+
+    if(i >= TheMaps.size())
+        return false;
+
+    const mapscr &s = TheMaps[i];
+
+    if(!(s.valid & mVALID))
+        return false;
+
+    for(size_t c = 0; c < s.data.size(); ++c)
+        if(s.data[c])
+            return true;
+
+    for(int f = 0; f < 32; ++f)
+        if(s.ffdata[f] || s.ffscript[f])
+            return true;
+
+    for(int e = 0; e < 10; ++e)
+        if(s.enemy[e])
+            return true;
+
+    for(int l = 0; l < 6; ++l)
+        if(s.layermap[l])
+            return true;
+
+    return s.str != 0 || s.script_entry || s.script_occupancy || s.script_exit;
+}
+
+bool tour_not_blank(const char *s, int n)
+{
+    for(int i = 0; i < n && s[i]; ++i)
+        if(s[i] != ' ')
+            return true;
+
+    return false;
+}
+
+bool tour_dmap_defined(const dmap &m)
+{
+    return tour_not_blank(m.name, sizeof(m.name)) || tour_not_blank(m.title, sizeof(m.title)) || tour_not_blank(m.intro, sizeof(m.intro)) ||
+           m.map || m.level || m.xoff || m.cont || m.compass;
+}
+
+// A DMap is walked if it is defined or something warps to it; every screen it
+// covers that holds anything is a stop, once per real screen (the DMap the quest
+// warps to, or else a dungeon DMap, wins), plus one stop for a DMap with no
+// screen of its own so its palette, music and scripts still run.
+void tour_build()
+{
+    g_tour_built = true;
+
+    std::vector<char> ref(MAXDMAPS, 0);
+
+    for(int m = 0; m < (int)map_count; ++m)
+    {
+        for(int s = 0; s < MAPSCRSNORMAL; ++s)
+        {
+            if(!tour_screen_used(m, s))
+                continue;
+
+            const mapscr &c = TheMaps[m * MAPSCRS + s];
+
+            for(int k = 0; k < 4; ++k)
+            {
+                if(c.tilewarpdmap[k] < MAXDMAPS)
+                    ref[c.tilewarpdmap[k]] = 1;
+
+                if(c.sidewarpdmap[k] < MAXDMAPS)
+                    ref[c.sidewarpdmap[k]] = 1;
+            }
+        }
+    }
+
+    if(currdmap >= 0 && currdmap < MAXDMAPS)
+        ref[currdmap] = 1;
+
+    std::vector<int> best(size_t(map_count) * MAPSCRSNORMAL, -1);
+    std::vector<TourStop> chosen(best.size());
+    std::vector<int> score(best.size(), -1);
+    std::vector<char> dmap_has_stop(MAXDMAPS, 0);
+
+    for(int d = 0; d < MAXDMAPS; ++d)
+    {
+        const dmap &m = DMaps[d];
+
+        if(!tour_dmap_defined(m) && !ref[d])
+            continue;
+
+        if(m.map >= map_count)
+            continue;
+
+        int cols = ((m.type & dmfTYPE) == dmOVERW) ? 16 : 8;
+
+        for(int w = 0; w < MAPSCRSNORMAL; ++w)
+        {
+            if((w & 15) >= cols)
+                continue;
+
+            int real = w + m.xoff;
+
+            if(real < 0 || real >= MAPSCRSNORMAL || (real >> 4) != (w >> 4) || !tour_screen_used(m.map, real))
+                continue;
+
+            size_t key = size_t(m.map) * MAPSCRSNORMAL + real;
+            int sc = (ref[d] ? 2 : 0) + ((m.type & dmfTYPE) != dmOVERW ? 1 : 0);
+
+            if(sc > score[key])
+            {
+                score[key] = sc;
+                best[key] = d;
+                TourStop t = { d, m.map, real, w };
+                chosen[key] = t;
+            }
+        }
+    }
+
+    std::vector<TourStop> stops;
+
+    for(size_t k = 0; k < best.size(); ++k)
+    {
+        if(best[k] >= 0)
+        {
+            stops.push_back(chosen[k]);
+            dmap_has_stop[chosen[k].dmap] = 1;
+        }
+    }
+
+    // A DMap whose screens were all claimed by another still gets one visit.
+    for(int d = 0; d < MAXDMAPS; ++d)
+    {
+        const dmap &m = DMaps[d];
+
+        if(dmap_has_stop[d] || m.map >= map_count || (!tour_dmap_defined(m) && !ref[d]))
+            continue;
+
+        int cols = ((m.type & dmfTYPE) == dmOVERW) ? 16 : 8;
+
+        for(int w = 0; w < MAPSCRSNORMAL; ++w)
+        {
+            int real = w + m.xoff;
+
+            if((w & 15) < cols && real >= 0 && real < MAPSCRSNORMAL && (real >> 4) == (w >> 4) && tour_screen_used(m.map, real))
+            {
+                TourStop t = { d, m.map, real, w };
+                stops.push_back(t);
+                break;
+            }
+        }
+    }
+
+    // In DMap order, screen by screen.
+    for(size_t i = 1; i < stops.size(); ++i)
+    {
+        TourStop t = stops[i];
+        size_t j = i;
+
+        while(j > 0 && (stops[j-1].dmap > t.dmap || (stops[j-1].dmap == t.dmap && stops[j-1].wscr > t.wscr)))
+        {
+            stops[j] = stops[j-1];
+            --j;
+        }
+
+        stops[j] = t;
+    }
+
+    g_tour_stops = stops;
+    fprintf(g_tour, "stops %d dwell %d\n", (int)g_tour_stops.size(), g_tour_dwell);
+    fflush(g_tour);
+}
+
+void tour_end(const char *reason)
+{
+    if(g_tour)
+    {
+        fprintf(g_tour, "end visited=%d total=%d reason=%s frame=%d\n", (int)g_tour_next, (int)g_tour_stops.size(), reason, g_frame);
+        fclose(g_tour);
+        g_tour = NULL;
+    }
+
+    char why[128];
+    snprintf(why, sizeof(why), "screen tour %s", reason);
+    why[sizeof(why)-1] = 0;
+    stop_now(EXIT_REPLAY_OK, why);
+}
+
+void tour_refill()
+{
+    if(game == NULL)
+        return;
+
+    game->set_life(game->get_maxlife());
+    game->set_magic(game->get_maxmagic());
+    game->set_bombs(game->get_maxbombs());
+    game->set_sbombs(game->get_maxbombs());
+    game->set_arrows(game->get_maxarrows());
+}
+
+// The buttons the tour presses this frame.
+void tour_input()
+{
+    int gap = g_tour_last_tick < 0 ? g_frame : g_frame - g_tour_last_tick;
+
+    g_keys[DUkey] = g_keys[DDkey] = g_keys[DLkey] = g_keys[DRkey] = 0;
+    g_keys[Akey] = g_keys[Bkey] = g_keys[Skey] = g_keys[Rkey] = 0;
+
+    if(gap >= TOUR_STUCK_FRAMES)
+    {
+        tour_end("stuck");
+        return;
+    }
+
+    if(gap >= TOUR_NESTED_FRAMES)
+    {
+        // Away from the game loop: the ending, a menu, the game-over screen.
+        g_keys[Skey] = ((g_frame >> 3) & 1) ? 1 : 0;
+        g_keys[Akey] = ((g_frame >> 3) & 1) ? 0 : 1;
+        return;
+    }
+
+    int f = g_frame - g_tour_arrive;
+    int stop = (int)g_tour_next;
+    const int dirs[4] = { DUkey, DRkey, DDkey, DLkey };
+
+    if(f >= 10 && f < 34)
+        g_keys[dirs[stop & 3]] = 1;
+
+    if(f >= 50 && f < 70)
+        g_keys[dirs[(stop + 1) & 3]] = 1;
+
+    if(f == 36 || f == 37 || f == 56 || f == 57)
+        g_keys[Akey] = 1;
+
+    if(f == 44 || f == 45 || f == 64 || f == 65)
+        g_keys[Bkey] = 1;
+
+    if((stop & 1) && (f == 72 || f == 73))
+        g_keys[Rkey] = 1;
+
+    // Now and then, open the subscreen and close it again.
+    if(stop % 25 == 12 && (f == 78 || f == 79 || f == 150 || f == 151))
+        g_keys[Skey] = 1;
+}
+
 // ---- input at the frame boundary -------------------------------------------
 
 void inject_buffer()
@@ -887,6 +1165,9 @@ void begin_frame_input()
                 break;
             }
         }
+
+        if(g_tour)
+            tour_input();
     }
 
     if(g_mode == MODE_RECORD)
@@ -998,6 +1279,27 @@ void replay_init(int argc, char *argv[])
             g_smoke_path = argv[++i];
             g_enabled = true;
         }
+        else if(same_text(a, "-quest-tour"))
+        {
+            if(!has1)
+                fail("%s needs a file name", a);
+            g_tour_path = argv[++i];
+            g_enabled = true;
+        }
+        else if(same_text(a, "-tour-no-items"))
+        {
+            g_tour_items = false;
+        }
+        else if(same_text(a, "-tour-dwell") || same_text(a, "-tour-maxsec"))
+        {
+            if(!has1 || !parse_int(argv[i+1], &v) || v < 0)
+                fail("%s needs a number", a);
+            if(same_text(a, "-tour-dwell"))
+                g_tour_dwell = int(v);
+            else
+                g_tour_maxsec = int(v);
+            ++i;
+        }
         else if(same_text(a, "-frames") || same_text(a, "-replay-seed"))
         {
             if(!has1 || !parse_int(argv[i+1], &v) || v < 0)
@@ -1068,6 +1370,15 @@ void replay_init(int argc, char *argv[])
         smoke_write("start", NULL);
     }
 
+    if(!g_tour_path.empty())
+    {
+        if(g_mode != MODE_PLAYBACK)
+            fail("-quest-tour needs -replay");
+        g_tour = fopen(g_tour_path.c_str(), "wt");
+        if(!g_tour)
+            fail("cannot write tour log %s", g_tour_path.c_str());
+    }
+
     atexit(replay_atexit);
 
     if(g_mode != MODE_OFF)
@@ -1100,6 +1411,9 @@ unsigned int replay_seed(unsigned int live_seed)
 
     if(g_mode == MODE_PLAYBACK)
     {
+        // The tour restarts the game when it ends: the same seed every time.
+        if(g_tour && g_sev >= g_seeds.size())
+            return g_seeds.empty() ? 1 : g_seeds[0].value;
         if(g_sev < g_seeds.size())
         {
             const SeedEvent &s = g_seeds[g_sev++];
@@ -1112,6 +1426,72 @@ unsigned int replay_seed(unsigned int live_seed)
     }
 
     return live_seed;
+}
+
+// Called from the main loop before each game frame (zelda.cpp).
+void replay_tour_tick()
+{
+    if(!g_tour || g_finished || game == NULL)
+        return;
+
+    bool resumed = g_tour_last_tick >= 0 && g_frame - g_tour_last_tick > 30;
+    g_tour_last_tick = g_frame;
+
+    if(!g_tour_built)
+    {
+        g_tour_t0 = std::chrono::steady_clock::now();
+        tour_build();
+
+        if(g_tour_stops.empty())
+        {
+            tour_end("no-screens");
+            return;
+        }
+
+        if(g_tour_items)
+            tour_give_items();
+
+        g_tour_settle = 120;
+    }
+
+    if(resumed && g_tour_settle < 20)
+        g_tour_settle = 20;
+
+    game->set_life(game->get_maxlife());
+
+    if(g_tour_maxsec > 0 &&
+       std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - g_tour_t0).count() >= g_tour_maxsec)
+    {
+        tour_end("time-limit");
+        return;
+    }
+
+    if(g_tour_settle > 0)
+    {
+        --g_tour_settle;
+        return;
+    }
+
+    if(g_tour_left > 0)
+    {
+        --g_tour_left;
+        return;
+    }
+
+    if(g_tour_next >= g_tour_stops.size())
+    {
+        tour_end("finished");
+        return;
+    }
+
+    const TourStop s = g_tour_stops[g_tour_next];
+    fprintf(g_tour, "v %d %d %d %d %d %d\n", (int)g_tour_next, s.dmap, s.map, s.scr, s.wscr, g_frame);
+    fflush(g_tour);
+    ++g_tour_next;
+    g_tour_arrive = g_frame;
+    g_tour_left = g_tour_dwell;
+    tour_refill();
+    tour_warp(s.dmap, s.wscr);
 }
 
 void replay_capture_frame(BITMAP *frame)

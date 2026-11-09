@@ -1,4 +1,4 @@
-# ZC Vulkan 2.53.444.1
+# ZC Vulkan 2.53.444.2
 
 [![Build](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml/badge.svg)](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml)
 
@@ -6,12 +6,12 @@ Zelda Classic is a game engine and quest editor for making and playing custom ad
 
 | Program | What it is | Runs on |
 |---|---|---|
-| `zplayer` | The game. Plays 2.53, 2.55 and 3.0 Nightly quests. | Windows 10/11, Android 8.0+ (in progress) |
+| `zplayer` | The game. Plays 2.53, 2.55 and 3.0 Nightly quests. | Windows 10/11, Linux (64-bit), Android 8.0+ (in progress) |
 | `zqeditor` | ZQuest, the quest editor. Edits quests up to 2.53.1. | Windows 10/11 |
 
 ## Downloads
 
-Get the latest Windows zip and Android APK from the [Releases page](https://github.com/DevianceLe/Zelda-Classic-Vulkan/releases/latest). Earlier builds are in [`downloads/`](downloads/).
+Get the latest Windows zip, Linux `.tar.gz` and Android APK from the [Releases page](https://github.com/DevianceLe/Zelda-Classic-Vulkan/releases/latest). Earlier builds are in [`downloads/`](downloads/).
 
 Want to know if a quest works? See the **[quest compatibility list](COMPATIBILITY.md)**.
 
@@ -25,7 +25,7 @@ What that means in practice:
 
 1. **2.53 quests never change.** A 2.53 quest plays exactly as it always has. A 2.53 quest saved here still opens in the original Zelda Classic 2.53.
 2. **Modern foundations.** SDL3 for windows, input and audio, Vulkan for graphics, and our own compatibility layer instead of Allegro.
-3. **Everywhere people play.** Windows today, Android next.
+3. **Everywhere people play.** Windows and Linux today, Android next.
 4. **Every generation of quest.** The player runs 2.55 and 3.0 Nightly quests alongside 2.53 ones, and it never saves a newer quest as an older one.
 5. **An editor for all of it.** ZQuest will become the place where quests convert between the older and newer formats, in both directions.
 
@@ -37,6 +37,7 @@ What that means in practice:
 - New Dear ImGui menus, dialogs and file browser in the player and the editor
 - ZQuest on SDL3 and Vulkan, with Large and Small layouts you can switch while it runs
 - 2.55 and 3.0 Nightly quest files, scripts of every type, music objects, and combo triggers in the player
+- The player on 64-bit Linux, tested on Debian 13 and Arch Linux with Mesa's software Vulkan driver
 
 **Written, but not yet confirmed in play on 2.55 and 3.0 Nightly quests**
 
@@ -49,7 +50,11 @@ What that means in practice:
 - Slopes and z-heights
 - Subscreen widget script commands
 - Saving global script variables past 255
+- Script commands for bitmaps, palettes and lighting
 - The 2.55/3.0 Nightly editor. Until it exists, ZQuest refuses quests newer than 2.53.1 and closes. The player still plays them.
+- ZQuest on Linux
+
+The [compatibility page](COMPATIBILITY.md#what-still-doesnt-work) has the full list of what still doesn't work, including known bugs.
 
 ## Getting started
 
@@ -62,6 +67,8 @@ zplayer -windowed -standalone "My Quest.qst"
 ```
 
 Put a quest's music next to the `.qst` file or in a `Music` folder beside it.
+
+On Linux, unpack the `.tar.gz` and run `./zplayer` from inside the folder. It's one build for nearly every current distribution: you need glibc 2.30 or newer, the Vulkan loader, and a Vulkan driver. ZQuest is Windows only for now.
 
 | Key | Button |
 |---|---|
@@ -86,6 +93,22 @@ cmake --build build --config Release --target zplayer zqeditor
 The programs are written to `build/Release`. They need the game data beside them (`zelda.dat`, `zquest.dat`, `sfx.dat`, `fonts.dat`, `qst.dat` and the default quests), which you can copy from `packaging/windows/`.
 
 The Android player is a Gradle project in [`android/`](android/). It targets `arm64-v8a` and `x86_64`.
+
+To build the player on Linux, install the tools and libraries (these are the Debian 13 names):
+
+```bash
+sudo apt install build-essential cmake ninja-build pkg-config flex bison libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev libxfixes-dev libxkbcommon-dev libwayland-dev wayland-protocols libdrm-dev libgbm-dev libasound2-dev libpulse-dev libpipewire-0.3-dev libdbus-1-dev libudev-dev libvulkan-dev
+```
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DZC_ZPLAYER_ONLY=ON -DZC_PORT_SDL=ON
+```
+
+```bash
+cmake --build build --target zplayer
+```
+
+The program is written to `build/zplayer`. It needs the same game data beside it, plus a General MIDI `soundfont.sf2` for MIDI music.
 
 ## Quest compatibility
 
@@ -117,7 +140,7 @@ The original Allegro `zelda` and `zquest` targets stay in the tree only as a ref
 
 ## Releasing
 
-Every push to `main` builds Windows and Android. To publish a new release:
+Every push to `main` builds Windows, Android and Linux. To publish a new release:
 
 1. Change the number in `VERSION`.
 2. Update `packaging/RELEASE_NOTES.md`.

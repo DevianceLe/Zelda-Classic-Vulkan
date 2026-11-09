@@ -1,6 +1,6 @@
 name: Build
 
-# Every push to main builds Windows and Android. When VERSION holds a number that has no
+# Every push to main builds Windows, Android and Linux. When VERSION holds a number that has no
 # release yet, the builds are published as a new GitHub Release.
 
 on:
@@ -88,8 +88,48 @@ jobs:
           path: ZC-*-Vulkan-Android.apk
           if-no-files-found: error
 
+  linux:
+    runs-on: ubuntu-latest
+    # Built against an old glibc on purpose: the result runs on newer distributions too.
+    container: debian:11
+    timeout-minutes: 90
+    steps:
+      - name: Install build tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates build-essential cmake ninja-build pkg-config \
+            flex bison python3 libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev \
+            libxfixes-dev libxkbcommon-dev libwayland-dev wayland-protocols libdrm-dev libgbm-dev libasound2-dev \
+            libpulse-dev libpipewire-0.3-dev libdbus-1-dev libudev-dev libvulkan-dev
+
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        run: echo "VERSION=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DZC_ZPLAYER_ONLY=ON -DZC_PORT_SDL=ON
+
+      - name: Build
+        run: cmake --build build --target zplayer
+
+      - name: Package
+        run: |
+          folder="ZC-$VERSION-Vulkan-Linux"
+          mkdir "$folder"
+          cp -r packaging/windows/. "$folder/"
+          cp packaging/linux/README.txt packaging/android/soundfont.sf2 "$folder/"
+          install -m 755 build/zplayer "$folder/zplayer"
+          tar -czf "ZC-$VERSION-Vulkan-Linux-x86_64.tar.gz" "$folder"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: ZC-*-Vulkan-Linux-x86_64.tar.gz
+          if-no-files-found: error
+
   release:
-    needs: [windows, android]
+    needs: [windows, android, linux]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

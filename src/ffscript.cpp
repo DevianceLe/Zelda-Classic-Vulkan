@@ -1967,11 +1967,12 @@ struct Zasm30Instance
     refInfo ri;
     Zasm30Frame frame;
     bool doscript, waitdraw, initialized;
+    bool dropped;   // taken out of the table while a script was running: see zasm30_retire_instance
     int type;
     long key;
     word script;
 
-    Zasm30Instance() : doscript(true), waitdraw(false), initialized(false), type(0), key(0), script(0) {}
+    Zasm30Instance() : doscript(true), waitdraw(false), initialized(false), dropped(false), type(0), key(0), script(0) {}
 };
 
 // Filled by the 3.0 script reader (src/port/game/q255_scripts.cpp).
@@ -2035,13 +2036,47 @@ static Zasm30Instance *zasm30_instance(int type, long key)
     return in;
 }
 
+static int zasm30_run_depth = 0;
+static std::vector<Zasm30Instance *> zasm30_retired;
+
+// A script can end its own instance: removing its sprite, reassigning its script, or quitting its
+// generic slot. run_script is still using that memory, and scripts nested inside one another may
+// be using each other's. So while any script runs an instance only leaves the table; run_script
+// stops the script after the current command and the memory goes when the outermost run returns.
+static void zasm30_retire_instance(Zasm30Instance *in)
+{
+    if(zasm30_run_depth > 0)
+    {
+        in->dropped = true;
+        zasm30_retired.push_back(in);
+    }
+    else
+        delete in;
+}
+
+struct Zasm30RunDepth
+{
+    Zasm30RunDepth() { ++zasm30_run_depth; }
+
+    ~Zasm30RunDepth()
+    {
+        if(--zasm30_run_depth == 0 && !zasm30_retired.empty())
+        {
+            for(size_t n = 0; n < zasm30_retired.size(); ++n)
+                delete zasm30_retired[n];
+
+            zasm30_retired.clear();
+        }
+    }
+};
+
 static void zasm30_drop_instance(int type, long key)
 {
     std::map<std::pair<int,long>, Zasm30Instance*>::iterator it = zasm30_instances.find(std::make_pair(type, key));
 
     if(it != zasm30_instances.end())
     {
-        delete it->second;
+        zasm30_retire_instance(it->second);
         zasm30_instances.erase(it);
     }
 }
@@ -5071,6 +5106,20 @@ else \
 
 
 
+// A 2.55 or 3.0 script writing a combo number that doesn't exist: the write is refused.
+// 2.53 quests keep doing what they always did.
+static bool zasm30_bad_combo(const long value)
+{
+    bool q30_active();
+    const long id = value / 10000;
+
+    if(!q30_active() || (id >= 0 && id < MAXCOMBOS))
+        return false;
+
+    zasm30_log_once("combo number written", id);
+    return true;
+}
+
 void set_register(const long arg, const long value)
 {
 
@@ -6784,7 +6833,7 @@ if(GuyH::loadNPC(ri->guyref, str) == SH::_NoError) \
     {
         int pos = (ri->d[0])/10000;
         
-        if(pos >= 0 && pos < 176)
+        if(pos >= 0 && pos < 176 && !zasm30_bad_combo(value))
         {
             screen_combo_modify_preroutine(tmpscr,pos);
             tmpscr->data[pos]=(value/10000);
@@ -6872,9 +6921,12 @@ case COMBODDM:
         
         if(!(pos >= 0 && pos < 176 && scr >= 0 && sc < MAPSCRS && m < map_count)) break;
         
+        if(zasm30_bad_combo(value))
+            break;
+
         if(scr==(currmap*MAPSCRS+currscr))
             screen_combo_modify_preroutine(tmpscr,pos);
-            
+
         TheMaps[scr].data[pos]=value/10000;
         
         if(scr==(currmap*MAPSCRS+currscr))
@@ -9165,6 +9217,8 @@ static void zasm30_resize_array(ZScriptArray &a, long size)
 
 int run_script(const byte type, const word script, const byte i)
 {
+    Zasm30RunDepth run_depth;
+
     if(Quit==qRESET || Quit==qEXIT) // In case an earlier script hung
         return 1;
     
@@ -11005,7 +11059,13 @@ int run_script(const byte type, const word script, const byte i)
         
         if(increment)	pc++;
         else			increment = true;
-        
+
+        if(zasm30_cur_inst && zasm30_cur_inst->dropped)
+        {
+            scommand = WAITFRAME;   // nothing will resume it, and its sprite may be gone
+            goto zasm30_wait;
+        }
+
         if(scommand != 0xFFFF)
         {
             scommand = curscript[pc].command;

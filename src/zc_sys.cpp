@@ -6279,9 +6279,9 @@ int onAbout()
     
     //  sprintf(str_s,"%s",VerStr(ZELDA_VERSION));
 #ifdef ZC_PORT
-    // the port's own version, and the release its quest format comes from
+    // the port's own version, and who made the port
     about_dlg[2].dp = (void *)ZPLAYER_WINDOW_TITLE;
-    sprintf(str_s,"Based on 2.53 Release 3, Build %d",VERSION_BUILD);
+    sprintf(str_s,"Vulkan Port by Deviance");
     about_dlg[4].flags |= D_HIDDEN;
 #endif
     about_dlg[0].dp2=lfont;

@@ -416,9 +416,13 @@ void setmapflag(int mi2, int flag)
                 Z_eventlog("State change carried over to (%d, %02X)\n",nmap,nscr);
                 game->maps[((nmap-1)<<7)+nscr] |= flag;
             }
-            
+
             cmap=nmap;
             cscr=nscr;
+
+            if(cmap>map_count) // A carry-over to a map this quest doesn't have
+                break;
+
             nmap=TheMaps[((cmap-1)*MAPSCRS)+cscr].nextmap;
             nscr=TheMaps[((cmap-1)*MAPSCRS)+cscr].nextscr;
             
@@ -474,9 +478,13 @@ void unsetmapflag(int mi2, int flag, bool anyflag)
                 Z_eventlog("State change carried over to (%d, %02X)\n",nmap,nscr);
                 game->maps[((nmap-1)<<7)+nscr] &= ~flag;
             }
-            
+
             cmap=nmap;
             cscr=nscr;
+
+            if(cmap>map_count) // A carry-over to a map this quest doesn't have
+                break;
+
             nmap=TheMaps[((cmap-1)*MAPSCRS)+cscr].nextmap;
             nscr=TheMaps[((cmap-1)*MAPSCRS)+cscr].nextscr;
             

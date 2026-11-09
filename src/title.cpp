@@ -3229,6 +3229,10 @@ void titlescreen(int lsave)
         return;
     }
     
+#ifdef ZC_PORT
+    set_quest_window_title(false); // Left the quest
+#endif
+
     if(q==qRESET && !skip_title)
     {
         show_subscreen_dmap_dots=true;

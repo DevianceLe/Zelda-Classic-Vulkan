@@ -1,8 +1,7 @@
 // The 2.55 readers for the header, rules, strings and misc sections. See q255.h.
 //
 // Read and dropped (2.53 has nowhere to keep them):
-//   header v4+: version_major, version_minor, version_patch
-//   header v4+: new_version_id fourth, alpha, beta, gamma, release
+//   header v4+: the version numbers, kept only as text for the window title
 //   header v4+: build date year, month, day, hour, minute
 //   header v4+: new_version_devsig, new_version_compilername, new_version_compilerversion
 //   header v4+: product_name
@@ -10,7 +9,6 @@
 //   header v4+: made_in_module_name, build_datestamp, build_timestamp
 //   header v5+: build_timezone
 //   header v6+: external_zinfo
-//   header v7+: new_version_is_nightly
 //   rules v15+: quest_rules bytes 20..99, the rules added after 2.53, except the
 //     two with a home in extra_rules and the frame rule the strings reader needs
 //   rules v18+: compile_setting_version and the compiler settings map
@@ -880,10 +878,60 @@ static void sort_info_strings(miscQdata &m)
     }
 }
 
+// The ZC version this quest was built with, as text, for the window title.
+char q255_quest_built_with[48];
+
+// id: major, minor, patch, fourth, alpha, beta, gamma, release
+static void note_built_with(const int *id, bool nightly, const std::string &text)
+{
+    char buf[80] = "";
+
+    if(id[0] >= 3 && !text.empty())
+    {
+        snprintf(buf, sizeof(buf), "%s", text.c_str());
+    }
+    else if(id[0] > 0)
+    {
+        // 2.55 alpha 86 wrote 56 as its second number
+        int minor = (id[0] == 2 && id[1] == 56 && id[4] == 86) ? 55 : id[1];
+        size_t n = snprintf(buf, sizeof(buf), "%d.%d.%d", id[0], minor, id[2]);
+
+        if(id[3] > 0)
+            n += snprintf(buf + n, sizeof(buf) - n, ".%d", id[3]);
+
+        const char *stage = id[7] ? NULL : id[6] ? "Gamma" : id[5] ? "Beta" : id[4] ? "Alpha" : NULL;
+        int stage_number = id[6] ? id[6] : id[5] ? id[5] : id[4];
+
+        if(stage && stage_number > 0)
+            n += snprintf(buf + n, sizeof(buf) - n, " %s %d", stage, stage_number);
+        else if(stage)
+            n += snprintf(buf + n, sizeof(buf) - n, " %s", stage);
+
+        if(nightly)
+            snprintf(buf + n, sizeof(buf) - n, " Nightly");
+    }
+
+    // It comes from the quest file: printable characters only
+    size_t out = 0;
+
+    for(const char *p = buf; *p && out < sizeof(q255_quest_built_with) - 1; ++p)
+        if(*p >= 0x20 && *p < 0x7F)
+            q255_quest_built_with[out++] = *p;
+
+    q255_quest_built_with[out] = 0;
+}
+
 int q255_read_header(Q255Section &s, byte *map_count, byte *midi_flags)
 {
+    if(s.keep)
+        q255_quest_built_with[0] = 0;
+
     if(s.version < 3 || s.version > 9)
         return Q255_NOT_HANDLED;
+
+    int version_id[8] = {0};
+    bool nightly = false;
+    std::string version_text;
 
     zquestheader h;
     memset(&h, 0, sizeof(h));
@@ -918,7 +966,10 @@ int q255_read_header(Q255Section &s, byte *map_count, byte *midi_flags)
 
     if(s.version >= 4)
     {
-        s.skip(8 * 4);          // version ids
+        for(int i = 0; i < 8; ++i)
+            version_id[i] = (int)s.igetl();
+
+
         s.skip(2 + 4);          // build date
         s.skip(3 * 256);        // devsig, compiler name, compiler version
         s.skip(1024);           // product name
@@ -934,10 +985,10 @@ int q255_read_header(Q255Section &s, byte *map_count, byte *midi_flags)
         s.skip(1);              // external zinfo
 
     if(s.version >= 7)
-        s.skip(1);              // is nightly
+        nightly = s.getc() != 0;
 
     if(s.version >= 9)
-        s.getcstr();            // the program's version text
+        version_text = s.getcstr();
 
     if(s.failed)
         return qe_invalid;
@@ -946,6 +997,8 @@ int q255_read_header(Q255Section &s, byte *map_count, byte *midi_flags)
     {
         if(s.header)
             memcpy(s.header, &h, sizeof(h));
+
+        note_built_with(version_id, nightly, version_text);
 
         if(map_count)
             *map_count = maps;

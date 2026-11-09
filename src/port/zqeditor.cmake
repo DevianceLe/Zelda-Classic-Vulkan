@@ -63,7 +63,7 @@ target_include_directories(zqeditor PRIVATE
 # The game's main() becomes zcport_game_main(); see src/port/entry/zplayer_main.cpp.
 # (On the target: a source file's properties would reach zplayer's copy too.)
 target_compile_definitions(zqeditor PRIVATE ZCPORT_MAGIC_MAIN ZC_ZQEDITOR
-	"ZPLAYER_WINDOW_TITLE=\"ZQuest Vulkan 2.53.444.1\"")
+	"ZPLAYER_WINDOW_TITLE=\"ZQuest Vulkan 2.53.444.2\"")
 target_link_libraries(zqeditor PRIVATE zcport_sdl zcport zc_stb_vorbis zc_minimp3 zc_gme zc_dumb windowscodecs ole32)
 set_target_properties(zqeditor PROPERTIES
 	OUTPUT_NAME zqeditor

@@ -354,9 +354,9 @@ static void zasm30_init_type(byte type, Zasm30Instance *in)
         mapscr *m = layer ? &tmpscr2[layer - 1] : tmpscr;
         const int cid = (pos >= 0 && pos < 176) ? m->data[pos] : 0;
         const Q30ScriptRef *ref = q30_combo_script(cid);
-        in->frame.refs[Z30REF_COMBODATA] = cid * 10000;
+        in->frame.refs[Z30REF_COMBODATA] = cid;
         in->frame.refs[Z30REF_COMBOPOS] = in->key;
-        in->frame.inst[0] = cid * 10000;
+        in->frame.inst[0] = cid;
         if(ref)
             memcpy(in->ri.d, ref->initd, sizeof(ref->initd));
         break;
@@ -435,7 +435,7 @@ static void zasm30_script_finished(byte type, word script, Zasm30Instance *in)
 static void zasm30_drop_all_state()
 {
     for(std::map<std::pair<int,long>, Zasm30Instance*>::iterator it = zasm30_instances.begin(); it != zasm30_instances.end(); ++it)
-        delete it->second;
+        zasm30_retire_instance(it->second);
 
     zasm30_instances.clear();
     zasm30_sprite_states.clear();

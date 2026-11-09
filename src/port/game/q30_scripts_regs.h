@@ -99,16 +99,9 @@ static long z30_fl(fix f) { return (long)(double(f) * 10000.0); }
 
 // ---- SPRITE_* ----------------------------------------------------------------------------------
 
-static bool zasm30_sprite_get(const long arg, long &ret)
+static bool zasm30_sprite_read(const long arg, long &ret, const Z30Sprite &r)
 {
-    Z30Sprite r = z30_sprite(Z30_REF(SPRITE));
     sprite *s = r.s;
-
-    if(r.kind == Z30S_NONE)
-    {
-        ret = 0;
-        return true;
-    }
 
     const bool isffc = r.kind == Z30S_FFC;
     const bool isfloat = isffc;   // 2.53 sprites have no sub-pixel position to report
@@ -222,13 +215,40 @@ static bool zasm30_sprite_get(const long arg, long &ret)
     return false;
 }
 
+// Is this register a sprite field at all? Asked of Link, whose fields can always be read.
+static bool z30_is_sprite_register(const long arg)
+{
+    Z30Sprite hero;
+    hero.s = &Link;
+    hero.kind = Z30S_HERO;
+    hero.ffc = -1;
+
+    long unused;
+    return zasm30_sprite_read(arg, unused, hero);
+}
+
+static bool zasm30_sprite_get(const long arg, long &ret)
+{
+    Z30Sprite r = z30_sprite(Z30_REF(SPRITE));
+
+    if(r.kind != Z30S_NONE)
+        return zasm30_sprite_read(arg, ret, r);
+
+    // With no sprite selected a sprite field reads 0, and any other register isn't ours to answer.
+    if(!z30_is_sprite_register(arg))
+        return false;
+
+    ret = 0;
+    return true;
+}
+
 static bool zasm30_sprite_set(const long arg, const long value)
 {
     Z30Sprite r = z30_sprite(Z30_REF(SPRITE));
     sprite *s = r.s;
 
     if(r.kind == Z30S_NONE)
-        return true;
+        return z30_is_sprite_register(arg);
 
     const bool isffc = r.kind == Z30S_FFC;
     const bool ishero = r.kind == Z30S_HERO;
@@ -441,6 +461,20 @@ void zasm30_no_set_exstate(int, int, bool) {}
 bool zasm30_no_get_xdoor(int, int, int) { return false; }
 void zasm30_no_set_xdoor(int, int, int, bool) {}
 
+// The combo a script has selected. A reference to no combo reads as a blank one, and writes to it
+// go nowhere.
+static newcombo &z30_cdata()
+{
+    static newcombo blank;
+    const long id = Z30_REF(COMBODATA);
+
+    if(id >= 0 && id < MAXCOMBOS)
+        return combobuf[id];
+
+    memset(&blank, 0, sizeof(blank));
+    return blank;
+}
+
 // ---- reading registers -------------------------------------------------------------------------
 
 static bool zasm30_get_register(const long arg, long &ret)
@@ -580,20 +614,20 @@ static bool zasm30_get_register(const long arg, long &ret)
 
     // combodata->
     case Z30R_COMBODATAID: ret = Z30_REF(COMBODATA) * 10000; return true;
-    case Z30R_COMBODTILE: ret = combobuf[Z30_REF(COMBODATA)].tile * 10000; return true;
-    case Z30R_COMBODFLIP: ret = combobuf[Z30_REF(COMBODATA)].flip * 10000; return true;
-    case Z30R_COMBODWALK: ret = (combobuf[Z30_REF(COMBODATA)].walk & 0x0F) * 10000; return true;
-    case Z30R_COMBODTYPE: ret = combobuf[Z30_REF(COMBODATA)].type * 10000; return true;
-    case Z30R_COMBODCSET: ret = (combobuf[Z30_REF(COMBODATA)].csets & 0x0F) * 10000; return true;
-    case Z30R_COMBODFLAG: ret = combobuf[Z30_REF(COMBODATA)].flag * 10000; return true;
-    case Z30R_COMBODFRAMES: ret = combobuf[Z30_REF(COMBODATA)].frames * 10000; return true;
-    case Z30R_COMBODASPEED: ret = combobuf[Z30_REF(COMBODATA)].speed * 10000; return true;
-    case Z30R_COMBODNEXTD: ret = combobuf[Z30_REF(COMBODATA)].nextcombo * 10000; return true;
-    case Z30R_COMBODNEXTC: ret = combobuf[Z30_REF(COMBODATA)].nextcset * 10000; return true;
-    case Z30R_COMBODSKIPANIM: ret = combobuf[Z30_REF(COMBODATA)].skipanim * 10000; return true;
-    case Z30R_COMBODNEXTTIMER: ret = combobuf[Z30_REF(COMBODATA)].nexttimer * 10000; return true;
-    case Z30R_COMBODAKIMANIMY: ret = combobuf[Z30_REF(COMBODATA)].skipanimy * 10000; return true;
-    case Z30R_COMBODANIMFLAGS: ret = combobuf[Z30_REF(COMBODATA)].animflags * 10000; return true;
+    case Z30R_COMBODTILE: ret = z30_cdata().tile * 10000; return true;
+    case Z30R_COMBODFLIP: ret = z30_cdata().flip * 10000; return true;
+    case Z30R_COMBODWALK: ret = (z30_cdata().walk & 0x0F) * 10000; return true;
+    case Z30R_COMBODTYPE: ret = z30_cdata().type * 10000; return true;
+    case Z30R_COMBODCSET: ret = (z30_cdata().csets & 0x0F) * 10000; return true;
+    case Z30R_COMBODFLAG: ret = z30_cdata().flag * 10000; return true;
+    case Z30R_COMBODFRAMES: ret = z30_cdata().frames * 10000; return true;
+    case Z30R_COMBODASPEED: ret = z30_cdata().speed * 10000; return true;
+    case Z30R_COMBODNEXTD: ret = z30_cdata().nextcombo * 10000; return true;
+    case Z30R_COMBODNEXTC: ret = z30_cdata().nextcset * 10000; return true;
+    case Z30R_COMBODSKIPANIM: ret = z30_cdata().skipanim * 10000; return true;
+    case Z30R_COMBODNEXTTIMER: ret = z30_cdata().nexttimer * 10000; return true;
+    case Z30R_COMBODAKIMANIMY: ret = z30_cdata().skipanimy * 10000; return true;
+    case Z30R_COMBODANIMFLAGS: ret = z30_cdata().animflags * 10000; return true;
     case Z30R_COMBODATTRIBUTES:
         ret = z30_combo_attr_get(Z30_REF(COMBODATA), Z30_INDEX);
         return true;
@@ -1027,20 +1061,20 @@ static bool zasm30_set_register(const long arg, const long value)
     }
 
     // combodata->
-    case Z30R_COMBODTILE: combobuf[Z30_REF(COMBODATA)].tile = vbound(value / 10000, 0, NEWMAXTILES - 1); return true;
-    case Z30R_COMBODFLIP: combobuf[Z30_REF(COMBODATA)].flip = (byte)(value / 10000); return true;
-    case Z30R_COMBODWALK: combobuf[Z30_REF(COMBODATA)].walk = (combobuf[Z30_REF(COMBODATA)].walk & ~0x0F) | ((value / 10000) & 0x0F); return true;
-    case Z30R_COMBODTYPE: combobuf[Z30_REF(COMBODATA)].type = (byte)(value / 10000); return true;
-    case Z30R_COMBODCSET: combobuf[Z30_REF(COMBODATA)].csets = (combobuf[Z30_REF(COMBODATA)].csets & 0xF0) | ((value / 10000) & 0x0F); return true;
-    case Z30R_COMBODFLAG: combobuf[Z30_REF(COMBODATA)].flag = (byte)(value / 10000); return true;
-    case Z30R_COMBODFRAMES: combobuf[Z30_REF(COMBODATA)].frames = (byte)(value / 10000); return true;
-    case Z30R_COMBODASPEED: combobuf[Z30_REF(COMBODATA)].speed = (byte)(value / 10000); return true;
-    case Z30R_COMBODNEXTD: combobuf[Z30_REF(COMBODATA)].nextcombo = (word)(value / 10000); return true;
-    case Z30R_COMBODNEXTC: combobuf[Z30_REF(COMBODATA)].nextcset = (byte)(value / 10000); return true;
-    case Z30R_COMBODSKIPANIM: combobuf[Z30_REF(COMBODATA)].skipanim = (byte)(value / 10000); return true;
-    case Z30R_COMBODNEXTTIMER: combobuf[Z30_REF(COMBODATA)].nexttimer = (word)(value / 10000); return true;
-    case Z30R_COMBODAKIMANIMY: combobuf[Z30_REF(COMBODATA)].skipanimy = (byte)(value / 10000); return true;
-    case Z30R_COMBODANIMFLAGS: combobuf[Z30_REF(COMBODATA)].animflags = (byte)(value / 10000); return true;
+    case Z30R_COMBODTILE: z30_cdata().tile = vbound(value / 10000, 0, NEWMAXTILES - 1); return true;
+    case Z30R_COMBODFLIP: z30_cdata().flip = (byte)(value / 10000); return true;
+    case Z30R_COMBODWALK: z30_cdata().walk = (z30_cdata().walk & ~0x0F) | ((value / 10000) & 0x0F); return true;
+    case Z30R_COMBODTYPE: z30_cdata().type = (byte)(value / 10000); return true;
+    case Z30R_COMBODCSET: z30_cdata().csets = (z30_cdata().csets & 0xF0) | ((value / 10000) & 0x0F); return true;
+    case Z30R_COMBODFLAG: z30_cdata().flag = (byte)(value / 10000); return true;
+    case Z30R_COMBODFRAMES: z30_cdata().frames = (byte)(value / 10000); return true;
+    case Z30R_COMBODASPEED: z30_cdata().speed = (byte)(value / 10000); return true;
+    case Z30R_COMBODNEXTD: z30_cdata().nextcombo = (word)(value / 10000); return true;
+    case Z30R_COMBODNEXTC: z30_cdata().nextcset = (byte)(value / 10000); return true;
+    case Z30R_COMBODSKIPANIM: z30_cdata().skipanim = (byte)(value / 10000); return true;
+    case Z30R_COMBODNEXTTIMER: z30_cdata().nexttimer = (word)(value / 10000); return true;
+    case Z30R_COMBODAKIMANIMY: z30_cdata().skipanimy = (byte)(value / 10000); return true;
+    case Z30R_COMBODANIMFLAGS: z30_cdata().animflags = (byte)(value / 10000); return true;
     case Z30R_COMBODATTRIBUTES: z30_combo_attr_set(Z30_REF(COMBODATA), Z30_INDEX, value); return true;
     case Z30R_COMBODATTRIBYTES: z30_combo_attr_set(Z30_REF(COMBODATA), 8 + Z30_INDEX, (value / 10000) * 10000); return true;
     case Z30R_COMBODUSRFLAGARR:

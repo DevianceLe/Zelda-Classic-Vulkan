@@ -16,7 +16,7 @@ struct ZCPORT_MIDI_BACKEND;
 namespace zcport_sdl
 {
    // The MIDI backend of this system (midi_winmm.cpp): winmm's MIDI mapper
-   // on Windows, TinySoundFont on Android (midi_tsf.cpp), NULL elsewhere.
+   // on Windows, TinySoundFont on Android and Linux (midi_tsf.cpp), NULL elsewhere.
    const ZCPORT_MIDI_BACKEND *midi_backend();
 
    // SDL scancode -> Allegro KEY_* (0 = no Allegro key).

@@ -5,7 +5,12 @@ project (ZeldaClassic)
 set(USE_PCH FALSE CACHE BOOL "Use precompiled headers")
 set(UNITY_BUILD FALSE CACHE BOOL "Unity build")
 
-set(CMAKE_CXX_STANDARD 98)
+# Linux's C++ library refuses <atomic> and friends in C++98 mode (Android's doesn't mind).
+if(UNIX AND NOT APPLE AND NOT ANDROID)
+	set(CMAKE_CXX_STANDARD 11)
+else()
+	set(CMAKE_CXX_STANDARD 98)
+endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(WANT_ZSCRIPT "Enable ZScript Compiler" on)
 

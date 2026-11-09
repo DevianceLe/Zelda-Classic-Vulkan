@@ -703,7 +703,10 @@ int do_gfx_open(int w, int h, int windowed, std::string *error)
       SDL_SetWindowFullscreen(g->window, true);
       SDL_SyncWindow(g->window);
    }
-   SDL_RaiseWindow(g->window);
+   // Raising calls SetForegroundWindow, which takes the keyboard even from a
+   // window that can't be focused: the test driver's windows must not.
+   if (!(SDL_GetWindowFlags(g->window) & SDL_WINDOW_NOT_FOCUSABLE))
+      SDL_RaiseWindow(g->window);
 
    g->disp_w = w;
    g->disp_h = h;

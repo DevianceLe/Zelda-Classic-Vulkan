@@ -1096,6 +1096,87 @@ void CatchBrang()
 /***** Main Game Code *****/
 /**************************/
 
+#ifdef ZC_PORT
+// The ZC version the loaded quest was built with, "" if its header doesn't say.
+static std::string quest_built_with()
+{
+    extern char q255_quest_built_with[];
+    int v = QHeader.zelda_version;
+    int b = QHeader.build;
+    char buf[16] = "";
+
+    if(v >= 0x255)
+        return q255_quest_built_with[0] ? q255_quest_built_with : "2.55";
+
+    if(v == 0x250)
+    {
+        return b <= 23 ? "2.50 beta" : b == 24 ? "2.50.0" : b <= 28 ? "2.50.1" : b == 29 ? "2.50.2"
+             : b == 30 ? "2.50.3" : b <= 32 ? "2.53.0" : b == 33 ? "2.53.1" : "";
+    }
+
+    if(v >= 0x100 && v < 0x250)
+        sprintf(buf, "%x.%02x", v>>8, v&0xFF);
+
+    return buf;
+}
+
+// The window title: the program's name, followed by the quest's name and the
+// ZC version it was built with while one is being played.
+void set_quest_window_title(bool in_quest)
+{
+    std::string name;
+
+    if(in_quest)
+    {
+        // Quest titles are 8-bit text from the quest file, the window wants UTF-8.
+        for(size_t i=0; i<sizeof(QHeader.title) && QHeader.title[i]; ++i)
+        {
+            unsigned char c = QHeader.title[i];
+
+            if(c<0x20 || c==0x7F)
+                c = ' ';
+
+            // Some titles are padded with spaces to lay out on the title screen
+            if(c==' ' && !name.empty() && name[name.size()-1]==' ')
+                continue;
+
+            if(c<0x80)
+                name += (char)c;
+            else
+            {
+                name += (char)(0xC0|(c>>6));
+                name += (char)(0x80|(c&0x3F));
+            }
+        }
+
+        size_t first = name.find_first_not_of(' ');
+        name = (first==std::string::npos) ? "" : name.substr(first, name.find_last_not_of(' ')-first+1);
+
+        if(name.empty()) // Untitled quest: its file name
+        {
+            name = get_filename(qstpath);
+            size_t dot = name.find_last_of('.');
+
+            if(dot!=std::string::npos && dot>0)
+                name.erase(dot);
+        }
+    }
+
+    std::string title = ZPLAYER_WINDOW_TITLE;
+
+    if(!name.empty())
+    {
+        title += " - " + name;
+        std::string built_with = quest_built_with();
+
+        if(!built_with.empty())
+            title += " (built with ZC " + built_with + ")";
+    }
+
+    set_window_title(title.c_str());
+}
+#endif
+
 int load_quest(gamedata *g, bool report)
 {
     chop_path(qstpath);
@@ -1347,6 +1428,10 @@ int init_game()
     
     //setPackfilePassword(NULL);
     
+#ifdef ZC_PORT
+    set_quest_window_title(true);
+#endif
+
     char keyfilename[2048]; //master key .key
     char keyfilename2[2048]; //zquest key .zpwd
     char keyfilename3[2048]; //zc cheats only key, .zcheat
@@ -2980,13 +3065,53 @@ int onFullscreen()
 #endif
 }
 
+// -quest-tour (replay.cpp): warps to a screen by the path the Goto cheat uses, in
+// LinkClass::animate(), so it works on a frozen screen too. Does nothing unless the switch is passed.
+void replay_tour_tick();
+
+void tour_warp(int dmap, int scr)
+{
+    cheat_goto_dmap = dmap;
+    cheat_goto_screen = scr;
+    do_cheat_goto = true;
+    Link.animate(0);
+}
+
+// So the buttons have something to fire on every screen: the lowest level of each
+// weapon family the quest defines, unless Link already has one. Scripted item
+// pick-ups (collect scripts) are not run.
+void tour_give_items()
+{
+    static const int families[] = { itype_sword, itype_brang, itype_bow, itype_arrow, itype_candle,
+                                    itype_wand, itype_bomb, itype_sbomb, itype_hookshot, itype_hammer };
+    for(size_t f = 0; f < sizeof(families) / sizeof(families[0]); ++f)
+    {
+        if(getHighestLevelOfFamily(game, itemsbuf, families[f]) >= 0)
+            continue;
+
+        int best = -1;
+        for(int i = 0; i < MAXITEMS; ++i)
+            if(itemsbuf[i].family == families[f] && (best < 0 || itemsbuf[i].fam_type < itemsbuf[best].fam_type))
+                best = i;
+
+        if(best >= 0)
+            getitem(best, true);
+    }
+
+    if(game->get_maxarrows() < 30) game->set_maxarrows(30);
+    if(game->get_maxbombs() < 8) game->set_maxbombs(8);
+    if(game->get_maxmagic() < 32) game->set_maxmagic(32);
+    flushItemCache();
+    verifyBothWeapons();
+}
+
 int main(int argc, char* argv[])
 {
     bool onlyInstance=true;
     
 #ifndef ALLEGRO_MACOSX // Should be done on Mac, too, but I haven't gotten that working
     // A sweep (-quest-load-check, -quest-smoke) runs many copies and must never block the real game.
-    if(!used_switch(argc, argv, "-quest-load-check") && !used_switch(argc, argv, "-quest-smoke") && !is_only_instance("zc.lck"))
+    if(!used_switch(argc, argv, "-quest-load-check") && !used_switch(argc, argv, "-quest-smoke") && !used_switch(argc, argv, "-quest-tour") && !is_only_instance("zc.lck"))
     {
         if(used_switch(argc, argv, "-multiple"))
             onlyInstance=false;
@@ -3921,6 +4046,7 @@ int main(int argc, char* argv[])
             }
             
 #endif
+            replay_tour_tick();
             game_loop();
             advanceframe(true);
         }

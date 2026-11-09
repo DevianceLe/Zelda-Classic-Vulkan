@@ -7,7 +7,7 @@
 // MIDI volume is applied to controller 7 by the player, as in the reference,
 // so midiOutSetVolume() never touches the process' audio session.
 //
-// Android has midi_tsf.cpp; other systems get no backend (silent MIDI).
+// Android and Linux have midi_tsf.cpp; other systems get no backend (silent MIDI).
 //
 // Written from scratch for zcport (no Allegro code).
 
@@ -104,7 +104,7 @@ const ZCPORT_MIDI_BACKEND *zcport_sdl::midi_backend()
    return &g_winmm;
 }
 
-#elif !defined(__ANDROID__)
+#elif !defined(__ANDROID__) && !defined(__linux__)
 
 const ZCPORT_MIDI_BACKEND *zcport_sdl::midi_backend()
 {

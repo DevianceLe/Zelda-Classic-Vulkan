@@ -154,6 +154,9 @@ int  init_game();
 int  cont_game();
 void restart_level();
 int  load_quest(gamedata *g, bool report=true);
+#ifdef ZC_PORT
+void set_quest_window_title(bool in_quest);
+#endif
 void show_details();
 void show_ffscript_names();
 //int  init_palnames();

@@ -1,5 +1,5 @@
 // zcport SDL platform: MIDI through TinySoundFont, for systems with no system
-// synthesizer (Android).
+// synthesizer (Android and Linux).
 //
 // Plays the channel messages of the MIDI player (src/port/al/platform_sound.cpp)
 // on the General MIDI soundfont "soundfont.sf2" in the game folder. Without
@@ -18,7 +18,7 @@
 #include "platform_sdl_internal.h"
 #include "zcport/midi_backend.h"
 
-#ifdef __ANDROID__
+#if defined(__ANDROID__) || defined(__linux__)
 
 #include <SDL3/SDL.h>
 
@@ -208,4 +208,4 @@ const ZCPORT_MIDI_BACKEND *zcport_sdl::midi_backend()
    return &g_tsf_backend;
 }
 
-#endif // __ANDROID__
+#endif // Android or Linux

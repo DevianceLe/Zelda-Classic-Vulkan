@@ -302,7 +302,9 @@ int read_sections(PACKFILE *f, zquestheader *header, miscQdata *misc, zctune *tu
 
         bool keep = keepall && !(skip_flags && kind->skip_flag >= 0 && get_bit(skip_flags, kind->skip_flag));
 
-        if(id == ID_FAVORITES && version > kind->own)
+        // Editor-only data, and the player's arrays are 2.53's size: newer quests can list more
+        // favorites than they hold, and readfavorites doesn't check.
+        if(id == ID_FAVORITES)
         {
             note(id, version, (int)size, (int)size, "skipped (editor favorites only)");
             continue;
