@@ -56,6 +56,9 @@ extern "C" void zqeditor_register_image_loaders(void); // src/port/zqeditor
 #include "zquest.h"
 #include "zquestdat.h"
 #include "ffasm.h"
+#ifdef ZC_ZQEDITOR
+#include "port/zqeditor/zq_q255.h"
+#endif
 
 // the following are used by both zelda.cc and zquest.cc
 #include "zdefs.h"
@@ -19373,6 +19376,16 @@ static DIALOG gscript_sel_dlg[] =
 
 int onCompileScript()
 {
+#ifdef ZC_ZQEDITOR
+    // 2.53's compiler builds 2.53 scripts; it would replace the quest's newer compiled scripts.
+    if(zq255_quest_is_newer())
+    {
+        jwin_alert("Compile ZScript","This quest was made in ZC 2.55 or a 3.0 Nightly.",
+                   "Its scripts can't be compiled in this ZQuest yet.",
+                   "The quest keeps the compiled scripts it came with.","O&K",NULL,'k',0,lfont);
+        return D_O_K;
+    }
+#endif
     compile_dlg[0].dp2 = lfont;
     
     if(is_large)
@@ -22071,6 +22084,17 @@ int main(int argc,char **argv)
     Z_message("OK\n");                                        // Allocating new tile buffer...
     
     Z_message("Resetting new tile buffer...");
+#ifdef ZC_ZQEDITOR
+    // get_qst_buffers() already made one, with data for every tile: about 30 MB at 825 pages
+    if(newtilebuf)
+    {
+        for(int j=0; j<NEWMAXTILES; j++)
+            if(newtilebuf[j].data)
+                zc_free(newtilebuf[j].data);
+
+        zc_free(newtilebuf);
+    }
+#endif
     newtilebuf = (tiledata*)zc_malloc(NEWMAXTILES*sizeof(tiledata));
     
     for(int j=0; j<NEWMAXTILES; j++)
@@ -23246,6 +23270,7 @@ int main(int argc,char **argv)
             skip_quest_password = true;
             zq_batch_load = true;
             int ret = load_quest(argv[resave_arg+1],true,true);
+            al_trace("-resave load: %d, version 0x%x build %d\n", ret, header.zelda_version, header.build);
 
             if(ret == qe_OK)
                 ret = save_unencoded_quest(argv[resave_arg+2],false);
@@ -23253,6 +23278,95 @@ int main(int argc,char **argv)
             al_trace("-resave result: %d\n", ret);
             exit(ret == 0 ? 0 : 3);
         }
+
+#ifdef ZC_ZQEDITOR
+        // -qst-capture-check in.qst report.txt: loads the quest and checks that the copy kept
+        // of its parts (port/zqeditor/zq_sections.h) puts the decoded file back together exactly
+        int capture_arg = used_switch(argc,argv,"-qst-capture-check");
+
+        if(capture_arg && argc>capture_arg+2)
+        {
+            extern bool skip_quest_password;
+            extern bool zq_batch_load;
+            extern int zq_sections_check(const char *filename, const char *report);
+            skip_quest_password = true;
+            zq_batch_load = true;
+            int ret = load_quest(argv[capture_arg+1],true,true);
+            al_trace("-qst-capture-check load: %d, version 0x%x build %d\n", ret, header.zelda_version, header.build);
+
+            if(ret == qe_OK)
+                ret = zq_sections_check(argv[capture_arg+1],argv[capture_arg+2]);
+
+            exit(ret == 0 ? 0 : 3);
+        }
+
+        // -qst-rewrite-check in.qst report.txt: every part of the quest through its writer for
+        // the version it was made in, compared with the original bytes (port/zqeditor/zq_writers.h)
+        int rewrite_arg = used_switch(argc,argv,"-qst-rewrite-check");
+
+        if(rewrite_arg && argc>rewrite_arg+2)
+        {
+            extern bool skip_quest_password;
+            extern bool zq_batch_load;
+            extern int zq_rewrite_check(const char *filename, const char *report);
+            skip_quest_password = true;
+            zq_batch_load = true;
+            int ret = load_quest(argv[rewrite_arg+1],true,true);
+
+            if(ret == qe_OK)
+                ret = zq_rewrite_check(argv[rewrite_arg+1],argv[rewrite_arg+2]);
+
+            exit(ret == 0 ? 0 : 3);
+        }
+
+        // -qst-dump-hashes in.qst report.txt: one hash per part and per map screen
+        // (port/zqeditor/zq_tests.cpp), to see what a save changed
+        int dump_arg = used_switch(argc,argv,"-qst-dump-hashes");
+
+        if(dump_arg && argc>dump_arg+2)
+        {
+            extern bool skip_quest_password;
+            extern bool zq_batch_load;
+            extern int zq_dump_hashes(const char *report);
+            skip_quest_password = true;
+            zq_batch_load = true;
+            int ret = load_quest(argv[dump_arg+1],true,true);
+
+            if(ret == qe_OK)
+                ret = zq_dump_hashes(argv[dump_arg+2]);
+            else
+            {
+                FILE *out = fopen(argv[dump_arg+2], "w");
+                if(out) { fprintf(out, "LOAD FAILED: %d\n", ret); fclose(out); }
+            }
+
+            exit(ret == 0 ? 0 : 3);
+        }
+
+        // -qst-roundtrip-check in.qst report.txt: saves the quest in its own version with every
+        // record encoded by the writers, reloads it, and compares the data (zq_writers.h)
+        int roundtrip_arg = used_switch(argc,argv,"-qst-roundtrip-check");
+
+        if(roundtrip_arg && argc>roundtrip_arg+2)
+        {
+            extern bool skip_quest_password;
+            extern bool zq_batch_load;
+            extern int zq_roundtrip_check(const char *filename, const char *report);
+            skip_quest_password = true;
+            zq_batch_load = true;
+            int ret = load_quest(argv[roundtrip_arg+1],true,true);
+
+            if(ret == qe_OK)
+                ret = zq_roundtrip_check(argv[roundtrip_arg+1],argv[roundtrip_arg+2]);
+            else
+            {
+                FILE *out = fopen(argv[roundtrip_arg+2], "w");    // a report even when the load fails
+                if(out) { fprintf(out, "LOAD FAILED: %d\n", ret); fclose(out); }
+            }
+
+            exit(ret == 0 ? 0 : 3);
+        }
+#endif
 
         // -qst-sections in.qst report.txt: a quest's section versions against this build's
         int sections_arg = used_switch(argc,argv,"-qst-sections");
@@ -24644,7 +24758,16 @@ void check_autosave()
             else
                 strcpy(last_timed_save, "untitled.qt0");
             go();
-            
+
+#ifdef ZC_ZQEDITOR
+            // 2.55 and 3.0 Nightly quests can't be saved yet; try again at the next interval
+            if(zq255_quest_is_newer())
+            {
+                time(&auto_save_time_start);
+                comeback();
+                return;
+            }
+#endif
             if((header.zelda_version != ZELDA_VERSION || header.build != VERSION_BUILD) && first_save)
             {
                 jwin_alert("Auto Save","This quest was saved in an older version of ZQuest.","If you wish to use the autosave feature, you must manually","save the files in this version first.","OK",NULL,13,27,lfont);

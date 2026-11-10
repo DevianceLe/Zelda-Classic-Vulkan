@@ -36,7 +36,27 @@ set(ZQEDITOR_SOURCES
 	${ZCPORT_DIR}/zqeditor/autotest.cpp
 	${ZCPORT_DIR}/zqeditor/image_wic.cpp
 	${ZCPORT_DIR}/zqeditor/image_loaders.cpp
+	# 2.55 and 3.0 Nightly quests: the player's section readers, filling ZQuest's own store
+	${ZCPORT_DIR}/game/q255_core.cpp
+	${ZCPORT_DIR}/game/q255_basic.cpp
+	${ZCPORT_DIR}/game/q255_media.cpp
+	${ZCPORT_DIR}/game/q255_combos.cpp
+	${ZCPORT_DIR}/game/q255_items.cpp
+	${ZCPORT_DIR}/game/q255_guys.cpp
+	${ZCPORT_DIR}/game/q255_maps.cpp
+	${ZCPORT_DIR}/game/q255_init.cpp
+	${ZCPORT_DIR}/game/q255_scripts.cpp
+	${ZCPORT_DIR}/game/q30_types.cpp
+	${ZCPORT_DIR}/game/quest_version.cpp
+	${ZCPORT_DIR}/zqeditor/q255_store_zq.cpp
+	${ZCPORT_DIR}/zqeditor/zq_sections.cpp
+	${ZCPORT_DIR}/zqeditor/zq_writers.cpp
+	${ZCPORT_DIR}/zqeditor/zq_tests.cpp
 )
+# Section writers for saving quests in the version they were made in (see zq_writers.h):
+# one file per area, picked up as they're added.
+file(GLOB ZQEDITOR_SECTION_WRITERS CONFIGURE_DEPENDS ${ZCPORT_DIR}/zqeditor/zqw_*.cpp)
+list(APPEND ZQEDITOR_SOURCES ${ZQEDITOR_SECTION_WRITERS})
 foreach(src ${ZQEDITOR_RELATIVE_SOURCES})
 	if(IS_ABSOLUTE ${src})
 		list(APPEND ZQEDITOR_SOURCES ${src})
@@ -63,7 +83,7 @@ target_include_directories(zqeditor PRIVATE
 # The game's main() becomes zcport_game_main(); see src/port/entry/zplayer_main.cpp.
 # (On the target: a source file's properties would reach zplayer's copy too.)
 target_compile_definitions(zqeditor PRIVATE ZCPORT_MAGIC_MAIN ZC_ZQEDITOR
-	"ZPLAYER_WINDOW_TITLE=\"ZQuest Vulkan 2.53.444.3\"")
+	"ZPLAYER_WINDOW_TITLE=\"ZQuest Vulkan 2.53.444.4-PRE\"")
 target_link_libraries(zqeditor PRIVATE zcport_sdl zcport zc_stb_vorbis zc_minimp3 zc_gme zc_dumb windowscodecs ole32)
 set_target_properties(zqeditor PROPERTIES
 	OUTPUT_NAME zqeditor

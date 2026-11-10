@@ -1,4 +1,4 @@
-// The 2.55 quest loader (player only). Quests made by 2.55 have newer section
+// The 2.55 quest loader, for the player and the port's ZQuest. Quests made by 2.55 have newer section
 // formats than this engine's own readers in src/qst.cpp, which stay as they are
 // so 2.53 quests load and save exactly as before.
 //
@@ -144,6 +144,12 @@ int q255_read_ffscript(Q255Section &s);
 
 // Records a tile number the quest refers to, for the report at the end of the load.
 void q255_note_tile(const char *kind, unsigned long tile);
+
+// True only in the port's ZQuest, which saves these quests back in their own format: readers
+// may then keep what they would otherwise drop, for ZQuest's section writers
+// (src/port/zqeditor/zqw_*.cpp), through hooks those writer files set. The player leaves it
+// false, so nothing a reader keeps can change how a quest plays.
+extern bool q255_keep_for_editor;
 
 // -q255-check in.qst report.txt: runs the readers over a quest without keeping
 // anything and writes how each section went.

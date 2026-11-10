@@ -121,6 +121,18 @@ void extract_name(char *path,char *name,int type)
     name[n]=0;
 }
 
+#ifdef ZC_PORT
+#ifdef _WIN32
+#include <process.h>
+static unsigned long zc_process_id() { return (unsigned long)_getpid(); }
+#elif defined(__SWITCH__)
+static unsigned long zc_process_id() { return 0; }  // one program at a time there
+#else
+#include <unistd.h>
+static unsigned long zc_process_id() { return (unsigned long)getpid(); }
+#endif
+#endif
+
 void temp_name(char temporaryname[])
 {
     int tempnum;
@@ -146,7 +158,22 @@ void temp_name(char temporaryname[])
                 temporaryname[j]='0'+tempnum-52;
             }
         }
-        
+
+#ifdef ZC_PORT
+        // Copies of the programs started together (ZQuest testing a quest in the player, test
+        // runs side by side) get the same rand() names and decode quests into one file. The
+        // first four characters come from the process id instead.
+        {
+            static const char digits[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+            unsigned long id = zc_process_id();
+
+            for(int j=0; j<4; ++j)
+            {
+                temporaryname[j]=digits[id%62];
+                id/=62;
+            }
+        }
+#endif
         if(!exists(temporaryname))
         {
             return;

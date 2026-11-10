@@ -18,6 +18,7 @@
 // Written from scratch for zcport.
 
 #include "files_internal.h"
+#include "zcport/pack_record.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -968,8 +969,47 @@ int pack_fclose(PACKFILE *f)
     return ret;
 }
 
+// ---- recording (zcport extension, see zcport/pack_record.h) -------------------------
+
+static PACKFILE *g_rec_file = NULL;
+static zcport_pack_record_fn g_rec_fn = NULL;
+static void *g_rec_user = NULL;
+
+void zcport_pack_record(PACKFILE *f, zcport_pack_record_fn fn, void *user)
+{
+    g_rec_file = fn ? f : NULL;
+    g_rec_fn = fn;
+    g_rec_user = user;
+}
+
+static inline void rec_bytes(PACKFILE *f, const void *p, long n)
+{
+    if(f == g_rec_file && n > 0)
+        g_rec_fn(g_rec_user, (const unsigned char *)p, n, 0);
+}
+
 int pack_fseek(PACKFILE *f, int offset)
 {
+    // While recording, a forward skip is read, so the skipped bytes are recorded too.
+    if(f == g_rec_file && offset > 0)
+    {
+        unsigned char buf[4096];
+
+        while(offset > 0)
+        {
+            long want = offset < (int)sizeof(buf) ? offset : (long)sizeof(buf);
+            long got = f->vtable->pf_fread(buf, want, f->userdata);
+            rec_bytes(f, buf, got);
+
+            if(got != want)
+                return -1;
+
+            offset -= (int)want;
+        }
+
+        return 0;
+    }
+
     return f->vtable->pf_fseek(f->userdata, offset);
 }
 
@@ -1101,7 +1141,15 @@ PACKFILE *pack_fclose_chunk(PACKFILE *f)
 
 int pack_getc(PACKFILE *f)
 {
-    return f->vtable->pf_getc(f->userdata);
+    int c = f->vtable->pf_getc(f->userdata);
+
+    if(f == g_rec_file && c != EOF)
+    {
+        unsigned char b = (unsigned char)c;
+        g_rec_fn(g_rec_user, &b, 1, 0);
+    }
+
+    return c;
 }
 
 int pack_putc(int c, PACKFILE *f)
@@ -1223,7 +1271,9 @@ long pack_mputl(long l, PACKFILE *f)
 
 long pack_fread(void *p, long n, PACKFILE *f)
 {
-    return f->vtable->pf_fread(p, n, f->userdata);
+    long got = f->vtable->pf_fread(p, n, f->userdata);
+    rec_bytes(f, p, got);
+    return got;
 }
 
 long pack_fwrite(AL_CONST void *p, long n, PACKFILE *f)
@@ -1233,7 +1283,12 @@ long pack_fwrite(AL_CONST void *p, long n, PACKFILE *f)
 
 int pack_ungetc(int c, PACKFILE *f)
 {
-    return f->vtable->pf_ungetc(c, f->userdata);
+    int r = f->vtable->pf_ungetc(c, f->userdata);
+
+    if(f == g_rec_file && r != EOF)
+        g_rec_fn(g_rec_user, NULL, 1, 1);   // take the last byte back
+
+    return r;
 }
 
 char *pack_fgets(char *p, int max, PACKFILE *f)

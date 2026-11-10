@@ -30,6 +30,12 @@
 #include "zq_tiles.h"
 #include "zq_custom.h"
 #include "zc_malloc.h"
+#ifdef ZC_ZQEDITOR
+#include <string>
+#include "port/zqeditor/zq_q255.h"
+#include "port/zqeditor/zq_writers.h"
+#include "port/game/quest_version.h"
+#endif
 
 #ifdef _MSC_VER
 #define getcwd _getcwd
@@ -646,16 +652,87 @@ int onNew()
     return D_O_K;
 }
 
+#ifdef ZC_ZQEDITOR
+int zq255_saving_not_ready()
+{
+    jwin_alert("ZQuest","This quest was made in ZC 2.55 or a 3.0 Nightly.",
+               "ZQuest can open these quests but can't save them yet.",
+               "Nothing was saved.","O&K",NULL,'k',0,lfont);
+    return D_O_K;
+}
+#endif
+
+#ifdef ZC_ZQEDITOR
+// The partial exports write 2.53 files, which keep tile numbers in 16 bits.
+int zq255_export_not_ready()
+{
+    jwin_alert("ZQuest","This quest was made in ZC 2.55 or a 3.0 Nightly.",
+               "This export writes a 2.53 file, which can't hold",
+               "this quest's data yet. Nothing was exported.","O&K",NULL,'k',0,lfont);
+    return D_O_K;
+}
+
+// ---- saving in the version a quest was made in (port/zqeditor/zq_writers.h) ----------
+
+// Saves in the version the quest was made in, unless that's 2.53.1 (ZQuest's own format,
+// saved by its 2.53 writers as always) or ZQuest has no copy of the file to start from.
+static bool zq_saves_own_format()
+{
+    if(zq_quest_file.parts.empty() || zq_quest_file.inexact)
+        return false;
+
+    return !(zq_quest_file.zelda_version == ZELDA_VERSION && zq_quest_file.build == VERSION_BUILD);
+}
+
+static std::string zq_made_in()
+{
+    std::string v = zc_quest_built_with(zq_quest_file.zelda_version, zq_quest_file.build);
+    return v.empty() ? std::string("its own version") : v;
+}
+
+// 0: saved. 1: not saved, and the user was told why. 2: the user chose 2.53.1 instead.
+static int zq_save_own(const char *path)
+{
+    std::string why;
+    int r = zq_save_own_format(path, true, why);
+
+    if(r == 0)
+        return 0;
+
+    std::string v = zq_made_in();
+    std::string line1 = "This quest can't be saved as " + v + " yet.";
+
+    if(r == 2 && !zq255_quest_is_newer())
+    {
+        if(jwin_alert("ZQuest", line1.c_str(), why.c_str(), "Save it as 2.53.1 instead?", "&Yes", "&No", 'y', 'n', lfont) == 1)
+            return 2;
+
+        return 1;
+    }
+
+    jwin_alert("ZQuest", line1.c_str(), why.c_str(), "Nothing was saved.", "O&K", NULL, 'k', 0, lfont);
+    return 1;
+}
+
+static void zq_saved_message(const char *path, const char *as)
+{
+    char buf[200], name[13];
+    extract_name((char *)path, name, FILENAME8_3);
+    snprintf(buf, sizeof(buf), "Saved %s as %s", name, as);
+    jwin_alert("ZQuest", buf, NULL, NULL, "O&K", NULL, 'k', 0, lfont);
+}
+#endif
+
 int onSave()
 {
     restore_mouse();
-    
+
     if(disable_saving)
     {
         jwin_alert("ZQuest","Saving is","disabled in this version.",NULL,"O&K",NULL,'k',0,lfont);
         return D_O_K;
     }
-    
+
     if(!first_save)
         return onSaveAs();
     else if(OverwriteProtection)
@@ -664,12 +741,38 @@ int onSave()
         return D_O_K;
     }
     
+#ifdef ZC_ZQEDITOR
+    // A quest is saved in the version it was made in; 2.55 and 3.0 Nightly quests never older.
+    if(zq_saves_own_format())
+    {
+        int r = zq_save_own(filepath);
+
+        if(r == 0)
+        {
+            zq_saved_message(filepath, zq_made_in().c_str());
+            saved=true;
+            first_save=true;
+            header.dirty_password=false;
+            last_timed_save[0]=0;
+            return D_O_K;
+        }
+
+        if(r != 2)
+            return D_O_K;
+    }
+    else if(zq255_quest_is_newer())
+        return zq255_saving_not_ready();
+#endif
     int ret = save_quest(filepath, false);
     char buf[80],name[13];
     extract_name(filepath,name,FILENAME8_3);
-    
+
     if(!ret)
     {
+#ifdef ZC_ZQEDITOR
+        zq_sections_forget();           // the file is a 2.53.1 quest now
+        zq_set_quest_title(filepath);
+#endif
         sprintf(buf,"Saved %s",name);
         jwin_alert("ZQuest",buf,NULL,NULL,"O&K",NULL,'k',0,lfont);
         saved=true;
@@ -693,7 +796,12 @@ int onSaveAs()
         jwin_alert("ZQuest","Saving is","disabled in this version.",NULL,"O&K",NULL,'k',0,lfont);
         return D_O_K;
     }
-    
+
+#ifdef ZC_ZQEDITOR
+    if(zq255_quest_is_newer() && !zq_saves_own_format())
+        return zq255_saving_not_ready();
+#endif
+
     if(!getname("Save Quest As (.qst)","qst",NULL,filepath,true))
         return D_O_K;
         
@@ -711,6 +819,47 @@ int onSaveAs()
         }
     }
     
+#ifdef ZC_ZQEDITOR
+    // The version it was made in, or a newer one (only 2.53.1 so far); never an older one.
+    if(zq_saves_own_format())
+    {
+        bool own = true;
+
+        if(!zq255_quest_is_newer())
+        {
+            std::string v = zq_made_in();
+            std::string b1 = "As " + v;
+            std::string line = "It was made in " + v + ".";
+            int c = jwin_alert3("Save Quest As", "Which version of ZC should this file be for?", line.c_str(), NULL,
+                                b1.c_str(), "As 2.53.1", "Cancel", 0, 0, 0, lfont);
+
+            if(c == 3 || c == 0)
+                return D_O_K;
+
+            own = c == 1;
+        }
+
+        if(own)
+        {
+            int r = zq_save_own(temppath);
+
+            if(r == 0)
+            {
+                strcpy(filepath,temppath);
+                zq_set_quest_title(filepath);
+                zq_saved_message(filepath, zq_made_in().c_str());
+                saved=true;
+                first_save=true;
+                header.dirty_password=false;
+                last_timed_save[0]=0;
+                return D_O_K;
+            }
+
+            if(r != 2)
+                return D_O_K;
+        }
+    }
+#endif
     int ret = save_quest(temppath, false);
     char buf[1024],name[13];
     extract_name(temppath,name,FILENAME8_3);
@@ -718,8 +867,13 @@ int onSaveAs()
     if(!ret)
     {
         strcpy(filepath,temppath);
+#ifdef ZC_ZQEDITOR
+        zq_sections_forget();           // the file is a 2.53.1 quest now
+        zq_set_quest_title(filepath);
+#else
         sprintf(buf,ZQ_WINDOW_NAME " - [%s]", get_filename(filepath));
         set_window_title(buf);
+#endif
         sprintf(buf,"Saved %s",name);
         jwin_alert("ZQuest",buf,NULL,NULL,"O&K",NULL,'k',0,lfont);
         saved=true;
@@ -1038,6 +1192,10 @@ int onImport_DMaps()
 
 int onExport_DMaps()
 {
+#ifdef ZC_ZQEDITOR
+    if(zq255_quest_is_newer())
+        return zq255_export_not_ready();
+#endif
     if(!getname("Export DMaps (.dmp)","dmp",NULL,datapath,false))
         return D_O_K;
         
@@ -1120,6 +1278,10 @@ int onImport_Msgs()
 
 int onExport_Msgs()
 {
+#ifdef ZC_ZQEDITOR
+    if(zq255_quest_is_newer())
+        return zq255_export_not_ready();
+#endif
     if(!getname("Export String Table (.zqs)","zqs",NULL,datapath,false))
         return D_O_K;
         
@@ -1196,6 +1358,10 @@ int onImport_Combos()
 
 int onExport_Combos()
 {
+#ifdef ZC_ZQEDITOR
+    if(zq255_quest_is_newer())
+        return zq255_export_not_ready();
+#endif
     if(!getname("Export Combo Table (.cmb)","cmb",NULL,datapath,false))
         return D_O_K;
         
@@ -1226,7 +1392,11 @@ int onImport_Tiles()
         return D_O_K;
     }
     
+#ifdef ZC_ZQEDITOR
+    bound(ret,0,zq_tile_limit()/TILES_PER_PAGE-1);
+#else
     bound(ret,0,TILE_PAGES-1);
+#endif
     
     if(!getname("Import Tiles (.til)","til",NULL,datapath,false))
         return D_O_K;
@@ -1248,6 +1418,10 @@ int onImport_Tiles()
 
 int onExport_Tiles()
 {
+#ifdef ZC_ZQEDITOR
+    if(zq255_quest_is_newer())
+        return zq255_export_not_ready();
+#endif
     if(!getname("Export Tiles (.til)","til",NULL,datapath,false))
         return D_O_K;
         
@@ -1288,6 +1462,10 @@ int onImport_Guys()
 
 int onExport_Guys()
 {
+#ifdef ZC_ZQEDITOR
+    if(zq255_quest_is_newer())
+        return zq255_export_not_ready();
+#endif
     if(!getname("Export Enemies (.guy)","guy",NULL,datapath,false))
         return D_O_K;
         
@@ -1377,6 +1555,10 @@ int onImport_ZGP()
 
 int onExport_ZGP()
 {
+#ifdef ZC_ZQEDITOR
+    if(zq255_quest_is_newer())
+        return zq255_export_not_ready();
+#endif
     if(!getname("Export Graphics Pack (.zgp)","zgp",NULL,datapath,false))
         return D_O_K;
         
@@ -1479,6 +1661,10 @@ int onImport_ZQT()
 
 int onExport_ZQT()
 {
+#ifdef ZC_ZQEDITOR
+    if(zq255_quest_is_newer())
+        return zq255_saving_not_ready();
+#endif
     if(!getname("Export Quest Template (.zqt)","zqt",NULL,datapath,false))
         return D_O_K;
         
@@ -1533,6 +1719,10 @@ int onImport_UnencodedQuest()
 
 int onExport_UnencodedQuest()
 {
+#ifdef ZC_ZQEDITOR
+    if(zq255_quest_is_newer())
+        return zq255_saving_not_ready();
+#endif
     if(!getname("Export Unencoded Quest (.qsu)","qsu",NULL,datapath,false))
         return D_O_K;
         

@@ -43,6 +43,11 @@
 #include "zq_strings.h"
 #include "zq_subscr.h"
 #include "mem_debug.h"
+#ifdef ZC_ZQEDITOR
+#include "port/zqeditor/zq_q255.h"
+#include "port/zqeditor/zq_sections.h"
+#include "port/game/quest_version.h"
+#endif
 
 using std::string;
 using std::pair;
@@ -5702,6 +5707,23 @@ bool setMapCount2(int c)
 
 extern BITMAP *bmap;
 
+#ifdef ZC_ZQEDITOR
+// The window title: the quest's file and the ZC version it was built with, as the player
+// shows it. A quest saved here becomes 2.53.1, so Save and Save As call this again.
+void zq_set_quest_title(const char *filename)
+{
+    char buf[2048];
+    std::string built = zc_quest_built_with(header.zelda_version, header.build);
+
+    if(built.empty())
+        snprintf(buf, sizeof(buf), ZQ_WINDOW_NAME " - [%s]", get_filename(filename));
+    else
+        snprintf(buf, sizeof(buf), ZQ_WINDOW_NAME " - [%s] (built with ZC %s)", get_filename(filename), built.c_str());
+
+    set_window_title(buf);
+}
+#endif
+
 int init_quest(const char *templatefile)
 {
     char buf[2048];
@@ -6005,15 +6027,23 @@ int load_quest(const char *filename, bool compressed, bool encrypted)
         skip_flags[i]=0;
     }
     
+#ifdef ZC_ZQEDITOR
+    zq255_store_clear();
+    zq_sections_begin_load();   // keeps each part's original bytes (port/zqeditor/zq_sections.h)
+#endif
     int ret=loadquest(filename,&header,&misc,customtunes,true,compressed,encrypted,true,skip_flags);
+#ifdef ZC_ZQEDITOR
+    zq_sections_end_load(ret==qe_OK);
+#endif
 //  setPackfilePassword(NULL);
 
-    // Newer quests can't be edited yet. The player still plays them.
+    // 2.55 and 3.0 Nightly quests go through the player's readers (src/port/game/q255*.cpp).
+    // This is a quest, or a section in one, newer than those readers know.
     if(ret==qe_version && !zq_batch_load)
     {
         box_end(false);     // this error leaves the loading box open, in front of the message
-        jwin_alert("ZQuest","This quest was made in a version newer than 2.53.1.",
-                   "The 2.55/3.0 editor is currently still being implemented.",
+        jwin_alert("ZQuest","This quest was made in a newer version of ZC",
+                   "than this ZQuest can read yet.",
                    "ZQuest will now close.","O&K",NULL,'k',0,lfont);
         zq_close_requested = true;
         ret = qe_cancel;
@@ -6048,11 +6078,16 @@ int load_quest(const char *filename, bool compressed, bool encrypted)
                 bmap=NULL;
             }
             
+#ifdef ZC_ZQEDITOR
+            zq_set_quest_title(filename);
+            zq_sections_note_loaded();
+#else
             sprintf(buf,ZQ_WINDOW_NAME " - [%s]", get_filename(filename));
 //      if (compressed)
             {
                 set_window_title(buf);
             }
+#endif
         }
     }
     
@@ -8784,13 +8819,13 @@ int writestrings_text(PACKFILE *f)
 }
 
 
-int writetiles(PACKFILE *f, word version, word build, word start_tile, word max_tiles)
+int writetiles(PACKFILE *f, word version, word build, int start_tile, int max_tiles)
 {
     //these are here to bypass compiler warnings about unused arguments
     version=version;
     build=build;
     
-    word tiles_used;
+    int tiles_used;
     dword section_id=ID_TILES;
     dword section_version=V_TILES;
     dword section_cversion=CV_TILES;
@@ -8798,6 +8833,14 @@ int writetiles(PACKFILE *f, word version, word build, word start_tile, word max_
     tiles_used = zc_min(tiles_used, max_tiles);
     tiles_used = zc_min(tiles_used, NEWMAXTILES);
     dword section_size = 0;
+    
+    // A 2.53 file counts its tiles in 16 bits, and 2.53 holds 252 pages: more can't be saved
+    // in this format, and cutting the count would quietly lose tiles.
+    if(tiles_used > TILES_PER_PAGE*252)
+    {
+        al_trace("writetiles: %d tiles, more than a 2.53 file holds\n", tiles_used);
+        new_return(7);
+    }
     
     //section id
     if(!p_mputl(section_id,f))
@@ -10827,6 +10870,12 @@ int writefavorites(PACKFILE *f, zquestheader*)
 
 int save_unencoded_quest(const char *filename, bool compressed)
 {
+#ifdef ZC_ZQEDITOR
+    // Not until the 2.55 and 3.0 Nightly writers exist: 2.53's writers would save the
+    // quest as a 2.53 quest without everything 2.53 can't hold. Callers show why.
+    if(zq255_quest_is_newer())
+        return qe_invalid;
+#endif
     reset_combo_animations();
     reset_combo_animations2();
     strcpy(header.id_str,QH_NEWIDSTR);
@@ -11216,6 +11265,11 @@ static int save_quest_body(const char *filename, bool timed_save)
 int save_quest(const char *filename, bool timed_save)
 #endif
 {
+#ifdef ZC_ZQEDITOR
+    // Before the backups below rename the quest's file (see save_unencoded_quest).
+    if(zq255_quest_is_newer())
+        return qe_invalid;
+#endif
     int retention=timed_save?AutoSaveRetention:AutoBackupRetention;
     bool compress=!(timed_save&&UncompressedAutoSaves);
     char ext1[5];

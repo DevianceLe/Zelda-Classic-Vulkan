@@ -107,9 +107,9 @@ void register_blank_tiles()
 }
 
 //returns the number of tiles
-word count_tiles(tiledata *buf)
+int count_tiles(tiledata *buf)
 {
-    word tiles_used;
+    int tiles_used;
     
     //  bool used;
     //  int x;

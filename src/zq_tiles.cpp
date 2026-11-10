@@ -21,6 +21,11 @@
 #include "gui.h"
 #include "zquestdat.h"
 #include "zq_tiles.h"
+#ifdef ZC_ZQEDITOR
+#include "port/zqeditor/zq_q255.h"  // zq_tile_limit(): 252 pages for 2.53 and older quests
+#else
+static int zq_tile_limit() { return NEWMAXTILES; }
+#endif
 #include "zquest.h"
 #include "tiles.h"
 #include "zq_misc.h"
@@ -1873,7 +1878,7 @@ void edit_tile(int tile,int flip,int &cs)
             case KEY_DOWN:
                 if(key[KEY_ZC_LCONTROL] || key[KEY_ZC_RCONTROL])
                 {
-                    tile=zc_min(tile+TILES_PER_ROW,NEWMAXTILES-1);
+                    tile=zc_min(tile+TILES_PER_ROW,zq_tile_limit()-1);
                     undocount = tilesize(newtilebuf[tile].format);
                     
                     for(int i=0; i<undocount; i++)
@@ -1927,7 +1932,7 @@ void edit_tile(int tile,int flip,int &cs)
             case KEY_RIGHT:
                 if(key[KEY_ZC_LCONTROL] || key[KEY_ZC_RCONTROL])
                 {
-                    tile=zc_min(tile+1, NEWMAXTILES-1);
+                    tile=zc_min(tile+1, zq_tile_limit()-1);
                     undocount = tilesize(newtilebuf[tile].format);
                     
                     for(int i=0; i<undocount; i++)
@@ -3659,7 +3664,7 @@ bool leech_tiles(tiledata *dest,int start,int cs)
         break;
     }
     
-    if(currtile+(width*height)>NEWMAXTILES)
+    if(currtile+(width*height)>zq_tile_limit())
     {
         if(jwin_alert("Confirm Truncation","Too many tiles.","Truncation may occur.",NULL,"&OK","&Cancel",'o','c',lfont)==2)
         {
@@ -3714,7 +3719,7 @@ bool leech_tiles(tiledata *dest,int start,int cs)
             
             canadd=true;
             
-            if(currtile>=NEWMAXTILES)                             //if we've maxed out on our tiles...
+            if(currtile>=zq_tile_limit())                             //if we've maxed out on our tiles...
             {
                 delete[] testtile;
                 return true;
@@ -4811,7 +4816,7 @@ void grab_tile(int tile,int &cs)
         {
             for(int x=0; x<selwidth; x++)
             {
-                word temptile=tile+((TILES_PER_ROW*y)+x);
+                int temptile=tile+((TILES_PER_ROW*y)+x);
                 int format=(bp==8) ? tf8Bit : tf4Bit;
                 
                 if(newtilebuf[temptile].data!=NULL)
@@ -6116,7 +6121,7 @@ bool copy_tiles_united(int &tile,int &tile2,int &copy,int &copycnt, bool rect, b
     // warn if range extends beyond last tile
     sprintf(buf4, "Some tiles will not be %s", move?"moved.":"copied.");
     
-    if(dest_last>=NEWMAXTILES)
+    if(dest_last>=zq_tile_limit())
     {
         sprintf(buf4, "%s operation cancelled.", move?"Move":"Copy");
         jwin_alert("Destination Error", "The destination extends beyond", "the last available tile row.", buf4, "&OK", NULL, 'o', 0, lfont);
@@ -7337,7 +7342,7 @@ bool copy_tiles_united(int &tile,int &tile2,int &copy,int &copycnt, bool rect, b
                     int dt=(dest_first+((r*TILES_PER_ROW)+c));
                     int st=(src_first+((r*TILES_PER_ROW)+c));
                     
-                    if(dt>=NEWMAXTILES)
+                    if(dt>=zq_tile_limit())
                         continue;
                         
                     reset_tile(newtilebuf, dt, newundotilebuf[st].format);
@@ -7377,7 +7382,7 @@ bool copy_tiles_united(int &tile,int &tile2,int &copy,int &copycnt, bool rect, b
                 int dt=(dest_first+c);
                 int st=(src_first+c);
                 
-                if(dt>=NEWMAXTILES)
+                if(dt>=zq_tile_limit())
                     continue;
                     
                 reset_tile(newtilebuf, dt, newundotilebuf[st].format);
@@ -8025,7 +8030,7 @@ void mass_overlay_tile(int dest1, int dest2, int src, int cs, bool backwards, bo
 void sel_tile(int &tile, int &tile2, int &first, int type, int s)
 {
     tile+=s;
-    bound(tile,0,NEWMAXTILES-1);
+    bound(tile,0,zq_tile_limit()-1);
     
     if(type!=0 || !(key[KEY_LSHIFT] || key[KEY_RSHIFT]))
         tile2 = tile;
@@ -8192,7 +8197,7 @@ int select_tile(int &tile,int &flip,int type,int &cs,bool edit_cs,int exnow, boo
     ZQ_PAGE_SCOPE();
     reset_combo_animations();
     reset_combo_animations2();
-    bound(tile,0,NEWMAXTILES-1);
+    bound(tile,0,zq_tile_limit()-1);
     ex=exnow;
     int done=0;
     int oflip=flip;
@@ -8203,7 +8208,7 @@ int select_tile(int &tile,int &flip,int type,int &cs,bool edit_cs,int exnow, boo
     int tile2=tile,copycnt=0;
     int tile_clicked=-1;
     bool rect_sel=true;
-    bound(first,0,(TILES_PER_PAGE*TILE_PAGES)-1);
+    bound(first,0,zq_tile_limit()-1);
     position_mouse_z(0);
     
     go();
@@ -8408,7 +8413,7 @@ int select_tile(int &tile,int &flip,int type,int &cs,bool edit_cs,int exnow, boo
                                     if(pixelrow==15*bitcheck)
                                     {
                                         int srctile=temptile+TILES_PER_ROW;
-                                        if(srctile>=NEWMAXTILES)
+                                        if(srctile>=zq_tile_limit())
                                             srctile-=rows*TILES_PER_ROW;
                                         src_pixelrow=(qword*)(newtilebuf[srctile].data);
                                     }
@@ -8811,7 +8816,7 @@ int select_tile(int &tile,int &flip,int type,int &cs,bool edit_cs,int exnow, boo
                 break;
                 
             case KEY_PGDN:
-                sel_tile(tile,tile2,first,type,(key[KEY_ZC_LCONTROL] || key[KEY_ZC_RCONTROL])?((TILE_PAGES*TILE_ROWS_PER_PAGE)-tile_row(tile)-1)*TILES_PER_ROW:TILES_PER_PAGE);
+                sel_tile(tile,tile2,first,type,(key[KEY_ZC_LCONTROL] || key[KEY_ZC_RCONTROL])?(((zq_tile_limit()/TILES_PER_PAGE)*TILE_ROWS_PER_PAGE)-tile_row(tile)-1)*TILES_PER_ROW:TILES_PER_PAGE);
                 redraw=true;
                 break;
                 
@@ -8821,7 +8826,7 @@ int select_tile(int &tile,int &flip,int type,int &cs,bool edit_cs,int exnow, boo
                 break;
                 
             case KEY_END:
-                sel_tile(tile,tile2,first,type,(key[KEY_ZC_LCONTROL] || key[KEY_ZC_RCONTROL])?(TILE_PAGES)*(TILES_PER_PAGE)-tile-1:(TILES_PER_PAGE)-(tile%TILES_PER_PAGE)-1);
+                sel_tile(tile,tile2,first,type,(key[KEY_ZC_LCONTROL] || key[KEY_ZC_RCONTROL])?zq_tile_limit()-tile-1:(TILES_PER_PAGE)-(tile%TILES_PER_PAGE)-1);
                 redraw=true;
                 break;
                 
@@ -9045,7 +9050,7 @@ int select_tile(int &tile,int &flip,int type,int &cs,bool edit_cs,int exnow, boo
                         break;
                     }
                     
-                    if(tile+(frames*(create_relational_tiles_dlg[3].flags&D_SELECTED?48:96))>NEWMAXTILES)
+                    if(tile+(frames*(create_relational_tiles_dlg[3].flags&D_SELECTED?48:96))>zq_tile_limit())
                     {
                         jwin_alert("Error","Too many tiles will be created",NULL,NULL,"&OK",NULL,13,27,lfont);
                         break;
@@ -9170,7 +9175,7 @@ int select_tile(int &tile,int &flip,int type,int &cs,bool edit_cs,int exnow, boo
                     redraw=true;
                 }
                 
-                if(y>=224*mul && first<TILES_PER_PAGE*(TILE_PAGES-1))
+                if(y>=224*mul && first<zq_tile_limit()-TILES_PER_PAGE)
                 {
                     first+=TILES_PER_PAGE;
                     redraw=true;
@@ -10338,7 +10343,7 @@ int combo_screen(int pg, int tl)
                     for(int i=zc_min(tile,tile2); i<=zc_max(tile,tile2); ++i)
                     {
                         combobuf[i].tile = wrap(combobuf[i].tile + ((key[KEY_LSHIFT] || key[KEY_RSHIFT]) ? 20 : 1),
-                                                0, NEWMAXTILES-1);
+                                                0, zq_tile_limit()-1);
                     }
                     
                     setup_combo_animations();
@@ -10359,7 +10364,7 @@ int combo_screen(int pg, int tl)
                     for(int i=zc_min(tile,tile2); i<=zc_max(tile,tile2); ++i)
                     {
                         combobuf[i].tile = wrap(combobuf[i].tile - ((key[KEY_LSHIFT] || key[KEY_RSHIFT]) ? 20 : 1),
-                                                0, NEWMAXTILES-1);
+                                                0, zq_tile_limit()-1);
                     }
                     
                     setup_combo_animations();
@@ -11299,7 +11304,7 @@ bool edit_combo(int c,bool freshen,int cs)
     
     sprintf(combonumstr,"Combo %d", c);
     sprintf(cset_str,"%d",csets);
-    sprintf(frm,"%d",vbound(curr_combo.frames,0,NEWMAXTILES-curr_combo.tile));
+    sprintf(frm,"%d",vbound(curr_combo.frames,0,zq_tile_limit()-curr_combo.tile));
     sprintf(spd,"%d",curr_combo.speed);
     sprintf(skip,"%d",curr_combo.skipanim);
     sprintf(skipy,"%d",curr_combo.skipanimy);
@@ -11429,7 +11434,7 @@ bool edit_combo(int c,bool freshen,int cs)
         //lastframe = frames+(frames-1)*skip+(frames-1)*TILES_PER_ROW*skipy
         //frames+frames*skip+frames*skipy*TILES_PER_ROW = lastframe + skip + TILES_PER_ROW*skipy
         //frames = (lastframe+skip+TILES_PER_ROW*skipy)/(1+skip+TILES_PER_ROW*skipy)
-        int bound = (NEWMAXTILES-curr_combo.tile+curr_combo.skipanim+TILES_PER_ROW*curr_combo.skipanimy)/
+        int bound = (zq_tile_limit()-curr_combo.tile+curr_combo.skipanim+TILES_PER_ROW*curr_combo.skipanimy)/
                     (1+curr_combo.skipanim+TILES_PER_ROW*curr_combo.skipanimy);
                     
         //curr_combo.frames = vbound(atoi(frm),0,bound); //frames is stored as byte.

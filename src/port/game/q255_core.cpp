@@ -34,6 +34,9 @@ extern std::map<int, std::pair<std::string, std::string> > ffcmap;
 // The hooks src/qst.cpp calls for a quest made by 2.55 (NULL in ZQuest).
 extern int (*q255_header_hook)(PACKFILE *f, zquestheader *header, word s_version, int size, byte *map_count, byte *midi_flags);
 extern int (*q255_sections_hook)(PACKFILE *f, zquestheader *header, miscQdata *misc, zctune *tunes, bool keepall, byte *skip_flags);
+extern void (*qst_section_hook)(PACKFILE *f, dword id, bool start);
+
+bool q255_keep_for_editor = false;  // see q255.h; the port's ZQuest sets it
 
 PACKFILE *open_quest_file(int *open_error, const char *filename, char *deletefilename, bool compressed, bool encrypted, bool show_progress);
 int readheader(PACKFILE *f, zquestheader *Header, bool keepdata);
@@ -244,6 +247,15 @@ int read_sections(PACKFILE *f, zquestheader *header, miscQdata *misc, zctune *tu
     {
         word version = 0, cversion = 0;
         dword size = 0;
+
+        // ZQuest keeps each section's original bytes (see qst_section_hook in qst.cpp)
+        struct HookScope
+        {
+            PACKFILE *f;
+            dword id;
+            HookScope(PACKFILE *pf, dword i) : f(pf), id(i) { if(qst_section_hook) qst_section_hook(f, id, true); }
+            ~HookScope() { if(qst_section_hook) qst_section_hook(f, id, false); }
+        } hook_scope(f, id);
 
         if(!p_igetw(&version, f, true) || !p_igetw(&cversion, f, true))
             return qe_invalid;
@@ -589,8 +601,8 @@ int read_sections_and_dump(PACKFILE *f, zquestheader *header, miscQdata *misc, z
     return ret;
 }
 
-// The player has this file; ZQuest doesn't, so it keeps refusing 2.55 quests
-// rather than saving one back without the data 2.53 can't hold.
+// Both programs build this file. ZQuest's readers fill its own store
+// (src/port/zqeditor/q255_store_zq.cpp), and it doesn't save these quests yet.
 struct RegisterHooks
 {
     RegisterHooks()

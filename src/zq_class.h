@@ -206,6 +206,9 @@ void delete_mapscr(mapscr *dest);
 
 bool setMapCount2(int c);
 int init_quest(const char *templatefile);
+#ifdef ZC_ZQEDITOR
+void zq_set_quest_title(const char *filename);   // file name and the ZC version it was built with
+#endif
 void set_questpwd(const char *pwd, bool use_keyfile);
 int quest_access(const char *filename, zquestheader *hdr, bool compressed);
 bool write_midi(MIDI *m,PACKFILE *f);
@@ -232,7 +235,7 @@ int writecomboaliases(PACKFILE *f, word version, word build);
 
 bool load_tiles(const char *path, int starttile);
 bool save_tiles(const char *path);
-int writetiles(PACKFILE *f, word version, word build, word start_tile, word max_tiles);
+int writetiles(PACKFILE *f, word version, word build, int start_tile, int max_tiles);
 
 bool load_dmaps(const char *path, int startdmap);
 bool save_dmaps(const char *path);

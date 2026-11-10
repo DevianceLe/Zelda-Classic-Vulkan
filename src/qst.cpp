@@ -682,6 +682,19 @@ bool valid_zqt(const char *filename)
 }
 
 
+// The last open_quest_file's storage: the encoding method that opened it (-1: not encoded,
+// read with no password) and whether it was compressed.
+int qst_open_enc_method = -1;
+bool qst_open_compressed = false;
+
+// A failed load used to stop on "-- press a key --" before saying anything else. In the port
+// ZQuest and the player show the error themselves right after, so the box just closes.
+#ifdef ZC_PORT
+#define LOAD_ERROR_PAUSE false
+#else
+#define LOAD_ERROR_PAUSE true
+#endif
+
 PACKFILE *open_quest_file(int *open_error, const char *filename, char *deletefilename, bool compressed,bool encrypted, bool show_progress)
 {
     char tmpfilename[32];
@@ -723,14 +736,14 @@ PACKFILE *open_quest_file(int *open_error, const char *filename, char *deletefil
             case 1:
                 box_out("error.");
                 box_eol();
-                box_end(true);
+                box_end(LOAD_ERROR_PAUSE);
                 *open_error=qe_notfound;
                 return NULL;
                 
             case 2:
                 box_out("error.");
                 box_eol();
-                box_end(true);
+                box_end(LOAD_ERROR_PAUSE);
                 *open_error=qe_internal;
                 return NULL;
                 // be sure not to delete tmpfilename now...
@@ -786,7 +799,15 @@ PACKFILE *open_quest_file(int *open_error, const char *filename, char *deletefil
     {
         oldquest = true;
     }
-    
+
+    // How the file was stored, so the port's ZQuest can save a quest back the same way: old
+    // versions of ZC can't decode the newer methods.
+    {
+        static const int tried[] = { ENC_METHOD_MAX-1, ENC_METHOD_211B9, ENC_METHOD_192B185, ENC_METHOD_192B105, ENC_METHOD_192B104 };
+        qst_open_enc_method = oldquest ? -1 : tried[current_method];
+        qst_open_compressed = compressed;
+    }
+
     box_out("Opening...");
     f = pack_fopen_password(oldquest ? filename : tmpfilename, compressed ? F_READ_PACKED : F_READ, passwd);
     
@@ -816,7 +837,7 @@ PACKFILE *open_quest_file(int *open_error, const char *filename, char *deletefil
             
             box_out("error.");
             box_eol();
-            box_end(true);
+            box_end(LOAD_ERROR_PAUSE);
             *open_error=qe_invalid;
             return NULL;
         }
@@ -1960,9 +1981,17 @@ bool check_questpwd(zquestheader *Header, char *pwd)
 }
 
 
-// Set in the player only (src/port/game/q255_core.cpp); ZQuest keeps refusing 2.55 quests.
+// Set by src/port/game/q255_core.cpp, in the player and in the port's ZQuest (zqeditor).
+// The Allegro reference builds leave them NULL and refuse 2.55 quests.
 int (*q255_header_hook)(PACKFILE *f, zquestheader *header, word s_version, int size, byte *map_count, byte *midi_flags) = NULL;
 int (*q255_sections_hook)(PACKFILE *f, zquestheader *header, miscQdata *misc, zctune *tunes, bool keepall, byte *skip_flags) = NULL;
+
+// Set by the port's ZQuest only (src/port/zqeditor/zq_sections.cpp), which keeps the original
+// bytes of each part of the quest it opens so it can save the quest back in its own format.
+// start true just before a part is read, false just after. id: ID_HEADER for the header, the
+// section's id (whose four bytes were already read), or 0 for the whole body of a quest older
+// than 1.93, which has no sections. Nothing else changes when it's set.
+void (*qst_section_hook)(PACKFILE *f, dword id, bool start) = NULL;
 
 int readheader(PACKFILE *f, zquestheader *Header, bool keepdata)
 {
@@ -12015,7 +12044,7 @@ int readcolordata(PACKFILE *f, miscQdata *Misc, word version, word build, word s
     return 0;
 }
 
-int readtiles(PACKFILE *f, tiledata *buf, zquestheader *Header, word version, word build, word start_tile, int max_tiles, bool from_init, bool keepdata)
+int readtiles(PACKFILE *f, tiledata *buf, zquestheader *Header, word version, word build, int start_tile, int max_tiles, bool from_init, bool keepdata)
 {
     int dummy;
     word tiles_used=0;
@@ -14016,7 +14045,9 @@ int loadquest(const char *filename, zquestheader *Header, miscQdata *Misc, zctun
     
     //header
     box_out("Reading Header...");
+    if(qst_section_hook) qst_section_hook(f, ID_HEADER, true);
     ret=readheader(f, &tempheader, true);
+    if(qst_section_hook) qst_section_hook(f, ID_HEADER, false);
     checkstatus(ret);
     box_out("okay.");
     box_eol();
@@ -14039,10 +14070,12 @@ int loadquest(const char *filename, zquestheader *Header, miscQdata *Misc, zctun
         
         while(!pack_feof(f))
         {
+            if(qst_section_hook) qst_section_hook(f, catchup ? 0xFFFFFFFF : section_id, true);
+
             switch(section_id)
             {
             case ID_RULES:
-            
+
                 //rules
                 if(catchup)
                 {
@@ -14493,7 +14526,9 @@ int loadquest(const char *filename, zquestheader *Header, miscQdata *Misc, zctun
                 catchup=true;
                 break;
             }
-            
+
+            if(qst_section_hook) qst_section_hook(f, section_id, false);
+
             if(catchup)
             {
                 //section id
@@ -14522,6 +14557,8 @@ int loadquest(const char *filename, zquestheader *Header, miscQdata *Misc, zctun
     }
     else
     {
+        if(qst_section_hook) qst_section_hook(f, 0, true);  // no sections before 1.93: the whole body
+
         //rules
         box_out("Reading Rules...");
         ret=readrules(f, &tempheader, keepall&&!get_bit(skip_flags, skip_rules));
@@ -14660,11 +14697,15 @@ int loadquest(const char *filename, zquestheader *Header, miscQdata *Misc, zctun
         ret=readitemdropsets(f, -1, 0, keepall&&!get_bit(skip_flags, skip_itemdropsets));
         box_out("okay.");
         box_eol();
+
+        if(qst_section_hook) qst_section_hook(f, 0, false);
     }
-    
+
     // check data
     if(f)
     {
+        // whatever follows the last part (some files carry a few bytes no reader looks at)
+        if(qst_section_hook) qst_section_hook(f, 0xFFFFFFFE, true);
         pack_fclose(f);
     }
     
@@ -14735,7 +14776,7 @@ int loadquest(const char *filename, zquestheader *Header, miscQdata *Misc, zctun
 invalid:
     box_out("error.");
     box_eol();
-    box_end(true);
+    box_end(LOAD_ERROR_PAUSE);
     
     if(f)
     {

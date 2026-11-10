@@ -269,9 +269,10 @@ extern bool fake_pack_writing;
 #define TILES_PER_ROW       20
 #define TILE_ROWS_PER_PAGE  13
 #define TILES_PER_PAGE      (TILES_PER_ROW*TILE_ROWS_PER_PAGE)
-// ZQuest and 2.53 quest files hold 16-bit tile numbers on 252 pages. The player
-// also reads 2.55 quests, which can have as many as 214500 tiles.
-#ifdef ZC_PLAYER_BUILD
+// 2.53 quest files hold 16-bit tile numbers on 252 pages. The player and the port's
+// ZQuest also read 2.55 quests, which can have as many as 214500 tiles; ZQuest keeps a
+// 2.53 quest within 252 pages (zq_tile_limit). The Allegro reference ZQuest keeps 252.
+#if defined(ZC_PLAYER_BUILD) || defined(ZC_ZQEDITOR)
 typedef int tile_id;
 #define TILE_PAGES          825
 #else
