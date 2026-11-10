@@ -4,7 +4,7 @@
 // keyboard focus or moving the real mouse. Unset, this does nothing.
 //
 // Commands, one per line (coordinates are window pixels):
-//   move X Y | click X Y | rclick X Y | dclick X Y | wait MS | key NAME [MS] | type TEXT
+//   move X Y | click X Y [HOLD_MS] | rclick X Y | dclick X Y | wait MS | key NAME [MS] | type TEXT
 // The number of commands handled is written to <file>.pos after each one.
 //
 // Written from scratch for zcport.
@@ -86,10 +86,14 @@ void button(int which, bool down, float x, float y)
     pause_ms(70);
 }
 
-void click(int which, float x, float y)
+// hold: how long the button stays down. The editor polls the mouse once a frame, and while
+// it is busy redrawing a 70 ms press can fall between two polls.
+void click(int which, float x, float y, int hold = 0)
 {
     motion(x, y);
     button(which, true, x, y);
+    if(hold > 0)
+        pause_ms(hold);
     button(which, false, x, y);
 }
 
@@ -181,12 +185,12 @@ void run(const std::string &path)
                     break;          // the line is not complete yet
                 at = f.tellg();
                 char word[32] = "", name[32] = "";
-                int a = 0, b = 0;
-                if(sscanf(line.c_str(), "%31s %d %d", word, &a, &b) >= 1)
+                int a = 0, b = 0, c = 0;
+                if(sscanf(line.c_str(), "%31s %d %d %d", word, &a, &b, &c) >= 1)
                 {
                     float x = (float)a, y = (float)b;
                     if(!strcmp(word, "move")) motion(x, y);
-                    else if(!strcmp(word, "click")) click(SDL_BUTTON_LEFT, x, y);
+                    else if(!strcmp(word, "click")) click(SDL_BUTTON_LEFT, x, y, c);
                     else if(!strcmp(word, "rclick")) click(SDL_BUTTON_RIGHT, x, y);
                     else if(!strcmp(word, "dclick")) { click(SDL_BUTTON_LEFT, x, y); click(SDL_BUTTON_LEFT, x, y); }
                     else if(!strcmp(word, "wait")) pause_ms(a);

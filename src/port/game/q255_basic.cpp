@@ -224,6 +224,10 @@ static bool scc_runs_here(int code)
     return (code >= 1 && code <= 17) || code == 20 || code == 21 || code == 25;
 }
 
+// ZQuest only (q255_keep_for_editor): how much of a text the conversion below left out, so
+// its string writer knows when a changed text would lose what ZQuest never got.
+static int g_editor_text_dropped = 0;
+
 // Collects a string's text in the binary form, up to what MsgStr::s holds.
 struct MsgWriter
 {
@@ -311,6 +315,8 @@ static void copy_binary_text(const std::string &str, MsgWriter &out)
 
         if(scc_runs_here(defn->code))
             out.command(str.substr(start, cur - start));
+        else if(q255_keep_for_editor)
+            ++g_editor_text_dropped;
     }
 
     // the spaces at the end
@@ -633,6 +639,8 @@ static void write_ascii_literal(const std::string &str, size_t &start, size_t en
         {
             if((byte)str[i] >= 32)
                 out.literal(str[i]);
+            else if(q255_keep_for_editor)
+                ++g_editor_text_dropped;
         }
     }
 
@@ -681,6 +689,10 @@ static void copy_ascii_text(const std::string &str, MsgWriter &out)
             }
 
             write_ascii_literal(str, literal_start, cur, out);
+
+            if(cur < last && q255_keep_for_editor)
+                ++g_editor_text_dropped;    // the character after the braces is skipped
+
             ++cur;
             continue;
         }
@@ -731,6 +743,8 @@ static void copy_ascii_text(const std::string &str, MsgWriter &out)
 
             if(scc_runs_here(code))
                 write_binary_command(code, args, num_args, out);
+            else if(q255_keep_for_editor)
+                ++g_editor_text_dropped;
         }
         else
             write_ascii_literal(str, literal_start, cur, out);
@@ -750,8 +764,46 @@ static void store_message_text(MsgStr &t, const std::string &raw, bool ascii)
     else
         copy_binary_text(text, out);
 
+    if(out.full && q255_keep_for_editor)
+        ++g_editor_text_dropped;
+
     memcpy(t.s, out.text.data(), out.text.size());
     t.s[out.text.size()] = 0;
+}
+
+// For ZQuest's string writer only (src/port/zqeditor/zqw_basic.cpp), which checks with these
+// that the text it writes reads back as the text ZQuest holds. Without q255_keep_for_editor
+// (the player) they do nothing.
+
+// What this reader makes of a string's text as the file holds it, into out[MSGSIZE+1];
+// dropped: whether it left anything out (commands this engine doesn't run, text past MSGSIZE).
+bool q255_editor_message_text(char *out, const char *raw, size_t n, bool ascii, bool *dropped)
+{
+    if(!q255_keep_for_editor)
+        return false;
+
+    MsgStr t;
+    memset(&t, 0, sizeof(t));
+    g_editor_text_dropped = 0;
+    store_message_text(t, std::string(raw, n), ascii);
+    memcpy(out, t.s, MSGSIZE + 1);
+
+    if(dropped)
+        *dropped = g_editor_text_dropped != 0;
+
+    return true;
+}
+
+// How many arguments a text command takes in the binary form, -1 for no such command, and
+// whether this engine runs it (otherwise the reader leaves it out).
+int q255_editor_command_args(int code, bool *runs_here)
+{
+    const SccCommand *c = q255_keep_for_editor ? find_scc_command(code) : NULL;
+
+    if(runs_here)
+        *runs_here = c && scc_runs_here(code);
+
+    return c ? c->min_args : -1;
 }
 
 // ---- save menus -----------------------------------------------------------------

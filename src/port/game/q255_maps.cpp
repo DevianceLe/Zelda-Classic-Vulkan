@@ -813,6 +813,30 @@ static void read_screen_new(Q255Section &s, mapscr *t, int screen, const word *a
         s.skip(8);      // screen_gravity, screen_terminal_v
 }
 
+// For ZQuest's map writer (src/port/zqeditor/zqw_maps.cpp), which checks that what it writes
+// reads back as ZQuest holds it: one screen from s.pos into t (cleared first), read as
+// q255_read_maps reads it, keeping nothing beside it. Only ZQuest sets q255_keep_for_editor.
+int q255_editor_read_screen(Q255Section &s, mapscr *t, int screen, const word *autolayers, word autopalette)
+{
+    if(!q255_keep_for_editor || s.version < 18 || s.version > 41)
+        return Q255_NOT_HANDLED;
+
+    const int index = g_screen_index;
+    const bool keep = s.keep;
+    g_screen_index = -1;
+    s.keep = false;
+    clear_screen(t);
+
+    if(s.version >= 23)
+        read_screen_new(s, t, screen, autolayers, autopalette);
+    else
+        read_screen(s, t);
+
+    g_screen_index = index;
+    s.keep = keep;
+    return s.failed ? qe_invalid : 0;
+}
+
 // DMap scripts read so far. The DMAP section can come before the MAP section, whose
 // reader empties the shared tables, so they go back in afterwards.
 struct DMapScriptRef
@@ -1212,6 +1236,21 @@ static void read_dmap(Q255Section &s, dmap &d, int index)
         int music = q30_music_add(NULL, path, loop_start, loop_end, xfade_in, xfade_out, d.tmusictrack, old_midi_to_object(d.midi));
         q30_set_dmap_music(index, music, false);
     }
+}
+
+// For ZQuest's DMap writer, as q255_editor_read_screen: one DMap from s.pos into d, keeping
+// nothing beside it.
+int q255_editor_read_dmap(Q255Section &s, dmap *d)
+{
+    if(!q255_keep_for_editor || s.version < 9 || s.version > 28)
+        return Q255_NOT_HANDLED;
+
+    const bool keep = s.keep;
+    s.keep = false;
+    blank_dmap(*d);
+    read_dmap(s, *d, -1);
+    s.keep = keep;
+    return s.failed ? qe_invalid : 0;
 }
 
 int q255_read_dmaps(Q255Section &s)

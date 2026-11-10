@@ -48,7 +48,9 @@ const PACKFILE_VTABLE g_discard_vtable = { dc_fclose, dc_getc, dc_ungetc, dc_fre
 
 } // namespace
 
+namespace { std::vector<dword> &every_save_ids(); }
 bool zqw_force_serialize = false;
+std::string zqw_last_error;
 
 namespace
 {
@@ -68,6 +70,11 @@ void zq_writers_note_loaded()
 {
     for(size_t i = 0; i < load_hooks().size(); ++i)
         load_hooks()[i]();
+}
+
+ZqEverySave::ZqEverySave(dword id)
+{
+    every_save_ids().push_back(id);
 }
 
 ZqWriterRegistration::ZqWriterRegistration(dword id, ZqPartWriter writer, const char *name, int priority)
@@ -254,6 +261,34 @@ struct RegisterOwn253
 namespace
 {
 
+// Puts 'from' in place of 'to'. The old file is set aside first and comes back if the
+// rename fails, so 'to' is never left missing.
+bool replace_file(const char *from, const char *to)
+{
+    std::string bak = std::string(to) + ".zqsave.bak";
+    remove(bak.c_str());
+    FILE *t = fopen(to, "rb");
+    bool had = t != NULL;
+
+    if(t)
+        fclose(t);
+
+    if(had && rename(to, bak.c_str()) != 0)
+        return false;
+
+    if(rename(from, to) != 0)
+    {
+        if(had)
+            rename(bak.c_str(), to);
+        return false;
+    }
+
+    if(had)
+        remove(bak.c_str());
+
+    return true;
+}
+
 bool copy_part(PACKFILE *f, const ZqQuestPart &p)
 {
     if(!zq_part_is_raw(p.id) && pack_mputl((long)p.id, f) == EOF)
@@ -274,16 +309,89 @@ bool copy_part(PACKFILE *f, const ZqQuestPart &p)
 
 } // namespace
 
-void zq_own_format_blockers(std::vector<std::string> &names)
+namespace
 {
-    names.clear();
+
+// A pre-1.93 quest's header holds what its body is read with (rules, counts, flags), so when
+// either changed both are written.
+bool flat_pair_changed()
+{
+    if(zq_quest_file.zelda_version >= 0x193)
+        return false;
 
     for(size_t i = 0; i < zq_quest_file.parts.size(); ++i)
     {
         const ZqQuestPart &p = zq_quest_file.parts[i];
 
-        if(zq_part_changed(p) && !writer_for(p))
+        if((p.id == ID_HEADER || p.id == 0) && zq_part_changed(p))
+            return true;
+    }
+
+    return false;
+}
+
+std::vector<dword> &every_save_ids()
+{
+    static std::vector<dword> ids;
+    return ids;
+}
+
+bool every_save(dword id)
+{
+    for(size_t i = 0; i < every_save_ids().size(); ++i)
+        if(every_save_ids()[i] == id)
+            return true;
+
+    return false;
+}
+
+bool needs_writing(const ZqQuestPart &p, bool flat_changed)
+{
+    if(zq_part_changed(p) || (flat_changed && (p.id == ID_HEADER || p.id == 0)))
+        return true;
+
+    // Every save, but only where the section's own writer takes the part: ZQuest's 2.53
+    // fallback would just rewrite an unchanged section its own way.
+    if(!every_save(p.id))
+        return false;
+
+    const Entry *e = writer_for(p);
+    return e != NULL && e->priority > 0;
+}
+
+} // namespace
+
+void zq_own_format_blockers(std::vector<std::string> &names)
+{
+    names.clear();
+    zq_absent_changed(names);       // changed data the version's file has no section for
+    bool flat_changed = flat_pair_changed();
+
+    for(size_t i = 0; i < zq_quest_file.parts.size(); ++i)
+    {
+        const ZqQuestPart &p = zq_quest_file.parts[i];
+
+        if(!needs_writing(p, flat_changed))
+            continue;
+
+        if(!writer_for(p))
+        {
             names.push_back(zq_part_name(p));
+            continue;
+        }
+
+        // the writer takes this version: does it take this data? (a dry run, thrown away)
+        PACKFILE *f = zq_open_sink(&g_discard_vtable, NULL);
+
+        if(!f)
+            continue;
+
+        zqw_last_error.clear();
+        int rc = zq_write_part(f, p);
+        pack_fclose(f);
+
+        if(rc != ZQW_OK)
+            names.push_back(zq_part_name(p) + (zqw_last_error.empty() ? std::string("") : " (" + zqw_last_error + ")"));
     }
 }
 
@@ -321,9 +429,14 @@ int zq_save_own_format_ex(const char *filename, bool encode, bool all_parts, std
         return 2;
     }
 
+    // Everything goes to a temporary file beside the target first, which replaces the target
+    // only once the whole save has worked: a save that fails part way leaves the quest's file
+    // as it was. Encoded quests are first written decoded (tmpname), then encoded into it.
     bool encoded = encode && zq_quest_file.enc_method >= 0;
     char tmpname[64];
-    const char *target = filename;
+    std::string out_tmp = std::string(filename) + ".zqsave.tmp";
+    const char *target = out_tmp.c_str();
+    remove(out_tmp.c_str());
 
     if(encoded)
     {
@@ -342,6 +455,8 @@ int zq_save_own_format_ex(const char *filename, bool encode, bool all_parts, std
 
     int ret = 0;
 
+    bool flat_changed = !all_parts && flat_pair_changed();
+
     for(size_t i = 0; i < zq_quest_file.parts.size() && !ret; ++i)
     {
         ZqQuestPart &p = zq_quest_file.parts[i];
@@ -349,11 +464,12 @@ int zq_save_own_format_ex(const char *filename, bool encode, bool all_parts, std
 
         // A changed part is written into the kept copy first, so the copy matches the file
         // from now on, then goes out like any other part.
-        bool rewrite = all_parts ? writer_for(p) != NULL : zq_part_changed(p);
+        bool rewrite = all_parts ? writer_for(p) != NULL : needs_writing(p, flat_changed);
+        zqw_last_error.clear();
 
         if(rewrite && !zq_part_replace(p, zq_write_part, &rc))
         {
-            why = "Writing " + zq_part_name(p) + " failed.";
+            why = "Writing " + zq_part_name(p) + " failed" + (zqw_last_error.empty() ? std::string(".") : ": " + zqw_last_error + ".");
             ret = 5;
         }
         else if(!copy_part(f, p))
@@ -364,11 +480,10 @@ int zq_save_own_format_ex(const char *filename, bool encode, bool all_parts, std
     }
 
     pack_fclose(f);
-    zq_sections_note_loaded();      // what's saved is the starting point for the next save
 
     if(!ret && encoded)
     {
-        int e = encode_file_007(tmpname, filename, ((INTERNAL_VERSION + rand()) & 0xffff) + 0x413F0000, ENC_STR, zq_quest_file.enc_method);
+        int e = encode_file_007(tmpname, out_tmp.c_str(), ((INTERNAL_VERSION + rand()) & 0xffff) + 0x413F0000, ENC_STR, zq_quest_file.enc_method);
 
         if(e)
         {
@@ -379,6 +494,20 @@ int zq_save_own_format_ex(const char *filename, bool encode, bool all_parts, std
 
     if(encoded)
         delete_file(tmpname);
+
+    if(!ret && !replace_file(out_tmp.c_str(), filename))
+    {
+        why = "The saved file couldn't replace the old one.";
+        ret = 7;
+    }
+
+    remove(out_tmp.c_str());
+
+    // Only a save that worked is the starting point for the next one. After a failed save the
+    // parts the user changed must still count as changed, or the next save would copy their
+    // old bytes over the edits.
+    if(!ret)
+        zq_sections_note_loaded();
 
     return ret;
 }

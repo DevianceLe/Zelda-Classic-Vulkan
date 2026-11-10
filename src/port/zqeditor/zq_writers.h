@@ -28,6 +28,11 @@ struct ZqPartContext
 
 enum { ZQW_OK = 0, ZQW_UNSUPPORTED = -1000 };
 
+// A writer that refuses a part (returns anything but ZQW_OK or ZQW_UNSUPPORTED) says why here,
+// in a short sentence the user can read: "a combo uses a type 1.90 doesn't have". The save
+// clears it before each writer runs and shows it when the part can't be written.
+extern std::string zqw_last_error;
+
 typedef int (*ZqPartWriter)(PACKFILE *f, const ZqPartContext &ctx);
 
 // For writer files: struct ZqWriterRegistration reg_combos(ID_COMBOS, zqw_combos, "combos v1-45");
@@ -36,6 +41,15 @@ typedef int (*ZqPartWriter)(PACKFILE *f, const ZqPartContext &ctx);
 struct ZqWriterRegistration
 {
     ZqWriterRegistration(dword id, ZqPartWriter writer, const char *name, int priority = 100);
+};
+
+// A section whose data an old quest's loader derives partly from other sections (old items and
+// enemies take values from the rules) asks to be written on every own-format save, not only
+// when its own fingerprint changed: its writer then sees an edit elsewhere that would change
+// it on reload, and refuses rather than let it change silently. ZqEverySave items(ID_ITEMS);
+struct ZqEverySave
+{
+    ZqEverySave(dword id);
 };
 
 // A writer area that keeps its own copy of records as loaded (to copy the records nobody

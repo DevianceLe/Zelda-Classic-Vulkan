@@ -47,6 +47,9 @@ int writeitemdropsets(PACKFILE *f, zquestheader *Header);
 int writefavorites(PACKFILE *f, zquestheader *Header);
 void reset_combo_animations();
 void reset_combo_animations2();
+extern tiledata *newtilebuf;
+int count_tiles(tiledata *buf);
+int tilesize(byte format);
 
 ZqQuestFileCopy zq_quest_file;
 
@@ -413,14 +416,32 @@ PACKFILE *zq_open_sink(const PACKFILE_VTABLE *vtable, void *user)
 namespace
 {
 
-// What a pre-1.93 body holds, in the order 2.53 writes it
+// What a pre-1.93 body holds, in the order 2.53 writes it, and what ZQuest could add that such
+// a body can't hold (so a change to those is noticed and the writer can refuse it rather than
+// the save dropping it). Editor favorites are left out: they were never part of that format.
 const dword g_body_ids[] =
 {
     ID_RULES, ID_STRINGS, ID_DOORS, ID_DMAPS, ID_MISC, ID_ITEMS, ID_WEAPONS, ID_GUYS, ID_MAPS,
-    ID_COMBOS, ID_CSETS, ID_TILES, ID_MIDIS, ID_CHEATS, ID_INITDATA
+    ID_COMBOS, ID_CSETS, ID_TILES, ID_MIDIS, ID_CHEATS, ID_INITDATA,
+    ID_COLORS, ID_ICONS, ID_SUBSCREEN, ID_SFX, ID_LINKSPRITES, ID_ITEMDROPSETS, ID_COMBOALIASES, ID_FFSCRIPT
 };
 
 enum { FP_NONE, FP_OK, FP_FAILED };
+
+// The open quest's misc section is older than version 3 and so also holds the colours and icons.
+bool misc_holds_colors()
+{
+    for(size_t i = 0; i < zq_quest_file.parts.size(); ++i)
+    {
+        const ZqQuestPart &p = zq_quest_file.parts[i];
+        byte v[2];
+
+        if(p.id == ID_MISC)
+            return zq_part_read(p, 0, v, 2) && (v[0] | (v[1] << 8)) < 3;
+    }
+
+    return false;
+}
 
 // FP_NONE: ZQuest has no 2.53 writer for this part, so nothing here can change it.
 // FP_FAILED: a writer failed, so its output says nothing about whether the part changed.
@@ -449,10 +470,35 @@ int fingerprint(dword id, unsigned long long *out)
     reset_combo_animations2();
     bool ok = true;
 
+    // More tiles than a 2.53 file holds (2.55 quests reach 214,500): the 2.53 tile writer
+    // refuses them, so these are hashed tile by tile instead.
+    if(id == ID_TILES && count_tiles(newtilebuf) > TILES_PER_PAGE * 252)
+    {
+        for(int t = 0; t < NEWMAXTILES; ++t)
+        {
+            p_putc(newtilebuf[t].format, f);
+
+            if(newtilebuf[t].data)
+                pfwrite(newtilebuf[t].data, tilesize(newtilebuf[t].format), f);
+        }
+
+        pack_fclose(f);
+        *out = sink.h;
+        return FP_OK;
+    }
+
     if(id == 0)
     {
         for(size_t i = 0; i < sizeof(g_body_ids) / sizeof(g_body_ids[0]); ++i)
             ok = zq_write_253_section(f, g_body_ids[i]) && ok;
+    }
+    else if(id == ID_MISC && misc_holds_colors())
+    {
+        // Before misc version 3 the subscreen colours and game icons live in the misc section
+        // (2.10 files have no MCLR or ICON section), so a change to them changes this part.
+        ok = zq_write_253_section(f, ID_MISC);
+        ok = zq_write_253_section(f, ID_COLORS) && ok;
+        ok = zq_write_253_section(f, ID_ICONS) && ok;
     }
     else
         ok = zq_write_253_section(f, id);
@@ -466,6 +512,87 @@ int fingerprint(dword id, unsigned long long *out)
 
 void zq_writers_note_loaded();     // zq_writers.cpp: the writer areas' own copies of records
 
+namespace
+{
+
+struct Absent
+{
+    dword id;
+    int fp_state;
+    unsigned long long fp;
+};
+
+std::vector<Absent> g_absent;
+
+const dword g_absent_candidates[] =
+{
+    ID_RULES, ID_STRINGS, ID_MISC, ID_TILES, ID_COMBOS, ID_COMBOALIASES, ID_CSETS, ID_MAPS, ID_DMAPS,
+    ID_DOORS, ID_ITEMS, ID_WEAPONS, ID_COLORS, ID_ICONS, ID_INITDATA, ID_GUYS, ID_MIDIS, ID_CHEATS,
+    ID_LINKSPRITES, ID_SUBSCREEN, ID_ITEMDROPSETS, ID_FFSCRIPT, ID_SFX
+};
+
+const char *absent_name(dword id)
+{
+    switch(id)
+    {
+    case ID_LINKSPRITES: return "Link's sprites";
+    case ID_SUBSCREEN: return "subscreens";
+    case ID_ITEMDROPSETS: return "item drop sets";
+    case ID_FFSCRIPT: return "scripts";
+    case ID_SFX: return "sound effects";
+    case ID_COLORS: return "misc colors";
+    case ID_ICONS: return "game icons";
+    case ID_COMBOALIASES: return "combo aliases";
+    case ID_CHEATS: return "cheat codes";
+    case ID_DOORS: return "door combo sets";
+    case ID_MIDIS: return "tunes";
+    }
+
+    return "a section";
+}
+
+void note_absent()
+{
+    g_absent.clear();
+
+    // a pre-1.93 body covers all of these itself (g_body_ids)
+    if(zq_quest_file.parts.empty() || zq_quest_file.zelda_version < 0x193)
+        return;
+
+    for(size_t i = 0; i < sizeof(g_absent_candidates) / sizeof(g_absent_candidates[0]); ++i)
+    {
+        dword id = g_absent_candidates[i];
+        bool present = false;
+
+        for(size_t k = 0; k < zq_quest_file.parts.size() && !present; ++k)
+            present = zq_quest_file.parts[k].id == id;
+
+        // an old misc section carries the colours and icons itself
+        if(present || ((id == ID_COLORS || id == ID_ICONS) && misc_holds_colors()))
+            continue;
+
+        Absent a;
+        a.id = id;
+        a.fp = 0;
+        a.fp_state = fingerprint(id, &a.fp);
+        g_absent.push_back(a);
+    }
+}
+
+} // namespace
+
+void zq_absent_changed(std::vector<std::string> &names)
+{
+    for(size_t i = 0; i < g_absent.size(); ++i)
+    {
+        unsigned long long now = 0;
+        int r = fingerprint(g_absent[i].id, &now);
+
+        if(r != g_absent[i].fp_state || now != g_absent[i].fp)
+            names.push_back(std::string(absent_name(g_absent[i].id)) + " (this version's file has no place for them)");
+    }
+}
+
 void zq_sections_note_loaded()
 {
     zq_writers_note_loaded();
@@ -477,6 +604,8 @@ void zq_sections_note_loaded()
         p.has_fingerprint = r != FP_NONE;
         p.fingerprint_failed = r == FP_FAILED;
     }
+
+    note_absent();
 }
 
 bool zq_part_changed(const ZqQuestPart &p)

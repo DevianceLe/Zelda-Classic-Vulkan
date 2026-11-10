@@ -14029,6 +14029,12 @@ int loadquest(const char *filename, zquestheader *Header, miscQdata *Misc, zctun
         reset_scripts();
     }
     
+#ifdef ZC_ZQEDITOR
+    // Set by readinitdata for old quests and never cleared, so it carried into every quest
+    // opened later in the session: their Pols Voice step was halved, then saved that way.
+    // (The player still behaves as 2.53 did here.)
+    fixpolsvoice = false;
+#endif
     zquestheader tempheader;
     memset(&tempheader, 0, sizeof(zquestheader));
     

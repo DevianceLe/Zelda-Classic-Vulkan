@@ -36,6 +36,12 @@ struct ZqQuestFileCopy
 
 extern ZqQuestFileCopy zq_quest_file;
 
+// The sections 2.53 has that the open quest's file doesn't (a 2.10 file has no subscreens,
+// scripts, Link sprites or drop sets): their names, when ZQuest's data for them changed since
+// the load, so a save in the quest's own version stops instead of dropping the change. Editor
+// favorites are left out; they were never part of the old formats.
+void zq_absent_changed(std::vector<std::string> &names);
+
 // Around ZQuest's own load_quest only, so importing from another quest leaves the copy alone.
 void zq_sections_begin_load();
 void zq_sections_end_load(bool loaded);

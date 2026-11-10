@@ -1038,6 +1038,39 @@ int q255_read_combos(Q255Section &s)
     return 0;
 }
 
+// For ZQuest's combo writer (src/port/zqeditor/zqw_combos.cpp), which checks that what it
+// writes reads back as ZQuest holds it: one combo from s.pos, read and narrowed as
+// q255_read_combos does, keeping nothing. Only ZQuest sets q255_keep_for_editor.
+int q255_editor_read_combo(Q255Section &s, newcombo *c, Q30Combo *x)
+{
+    const word v = s.version;
+
+    if(!q255_keep_for_editor || v < 7 || v > 73)
+        return Q255_NOT_HANDLED;
+
+    extern int q255_header_version[3];
+    const bool post_v14_patch = q255_header_version[0] == 2 && q255_header_version[1] == 55 && q255_header_version[2] >= 14;
+    memset(c, 0, sizeof(*c));
+    dword tile = 0;
+
+    if(v <= 32)
+        read_combo_old(s, v, *c, *x, tile);
+    else
+        read_combo_new(s, v, *c, *x, tile);
+
+    if(s.failed)
+        return qe_invalid;
+
+    c->tile = (tile < (dword)NEWMAXTILES) ? (tile_id)tile : (tile_id)0;
+
+    if(c->type >= cMAX)
+        c->type = cNONE;
+
+    c->flag = map_combo_flag(c->flag);
+    apply_load_fixes(v, *x, post_v14_patch);
+    return 0;
+}
+
 // Combo pools, v4+: for each pool a count, then entries of combo, cset, quantity.
 static void skip_combo_pools(Q255Section &s)
 {
