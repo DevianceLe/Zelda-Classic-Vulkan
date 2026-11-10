@@ -106,6 +106,15 @@ static byte map_room(byte room)
     return room < rMAX ? room : (byte)rNONE;
 }
 
+// A room type past 2.53's (the bottle shop) is noted beside the screen, for screens kept in TheMaps.
+static byte read_room(byte room, mapscr *t)
+{
+    if(room >= rMAX && !TheMaps.empty() && t >= &TheMaps[0] && t < &TheMaps[0] + TheMaps.size())
+        q30_note_room((int)(t - &TheMaps[0]), room);
+
+    return map_room(room);
+}
+
 static byte map_door(byte door)
 {
     return door == DOOR_NONE_255 ? (byte)dWALL : door;
@@ -290,7 +299,7 @@ static void read_screen(Q255Section &s, mapscr *t)
     t->valid = s.getc();
     t->guy = s.getc();
     t->str = s.igetw();
-    t->room = map_room(s.getc());
+    t->room = read_room(s.getc(), t);
     t->item = s.getc();
     t->hasitem = s.getc();
     s.read(t->tilewarptype, 4);
@@ -558,7 +567,7 @@ static void read_screen_new(Q255Section &s, mapscr *t, int screen, const word *a
             s.skip(4 + 1 + 2);      // guytile, guycs, roomflags
 
         t->str = s.igetw();
-        t->room = map_room(s.getc());
+        t->room = read_room(s.getc(), t);
         t->catchall = s.igetw();
 
         // these two rooms use it as an item id, which reaches 1023 now
@@ -1160,8 +1169,10 @@ static void read_dmap(Q255Section &s, dmap &d, int index)
         xfade_out = s.igetl_s();
     }
 
+    int overlay_sub = 0, map_sub = -1;     // upstream's defaults: the first overlay, no map subscreen
+
     if(s.version >= 19)
-        s.skip(1);      // overlay_subscreen
+        overlay_sub = s.getc();     // overlay_subscreen
 
     if(s.version >= 20)
         s.skip(4);      // intro_string_id
@@ -1176,7 +1187,13 @@ static void read_dmap(Q255Section &s, dmap &d, int index)
         s.skip(4 + 4 + 4 + 2);  // viewport_follow
 
     if(s.version > 23)
-        s.skip(2 + 1);  // map_subscreen, floor
+    {
+        map_sub = (short)s.igetw();     // map_subscreen
+        s.skip(1);      // floor
+    }
+
+    if(keep && !s.failed)
+        q30_set_dmap_subscreens(index, overlay_sub, map_sub);
 
     if(s.version >= 25)
     {

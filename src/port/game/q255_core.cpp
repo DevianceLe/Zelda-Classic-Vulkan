@@ -16,6 +16,7 @@ extern std::vector<mapscr> TheMaps;
 extern guydata *guysbuf;
 int q30_combo_type(int id);
 long q30_item_family(int item);
+void q30_slope_audit();
 extern MsgStr *MsgStrings;
 extern word msg_count;
 extern byte quest_rules[QUESTRULES_SIZE];
@@ -471,6 +472,7 @@ void dump_loaded_data()
     // ZC_Q255_DUMP_USE: what the quest's screens actually place, to rank what is worth porting
     if(getenv("ZC_Q255_DUMP_USE"))
     {
+        q30_slope_audit();
         std::map<long, int> combos, ffcs, enemies, items;
 
         for(size_t n = 0; n < TheMaps.size(); ++n)
@@ -520,8 +522,8 @@ void dump_loaded_data()
             for(int m = 0; m < MAXSUBSCREENITEMS && custom_subscreen[n].objects[m].type; ++m)
             {
                 const subscreen_object &o = custom_subscreen[n].objects[m];
-                al_trace("  obj %d type %d pos %d x %d y %d w %d h %d c1 %d/%d c2 %d/%d c3 %d/%d d1 %d d2 %d\n", m, o.type, o.pos, o.x, o.y, o.w, o.h,
-                         o.colortype1, o.color1, o.colortype2, o.color2, o.colortype3, o.color3, (int)o.d1, (int)o.d2);
+                al_trace("  obj %d type %d pos %d x %d y %d w %d h %d c1 %d/%d c2 %d/%d c3 %d/%d d1 %d d2 %d d8 %d\n", m, o.type, o.pos, o.x, o.y, o.w, o.h,
+                         o.colortype1, o.color1, o.colortype2, o.color2, o.colortype3, o.color3, (int)o.d1, (int)o.d2, (int)o.d8);
             }
         }
     }

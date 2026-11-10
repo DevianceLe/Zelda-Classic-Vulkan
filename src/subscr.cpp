@@ -22,6 +22,11 @@
 #include <string.h>
 #include "gc.h"
 
+#include <string>
+bool q30_active();
+bool q30_item_has_display_name(int item);
+std::string q30_item_shown_name(int item);
+
 bool show_subscreen_dmap_dots=true;
 bool show_subscreen_numbers=true;
 bool show_subscreen_items=true;
@@ -3168,6 +3173,33 @@ void subscreenitem(BITMAP *dest, int x, int y, int itemtype)
     }
 }
 
+#ifdef ZC_PLAYER_BUILD
+// subscreenitem's item override, for an item q30_subscreen_item chose: drawn whenever it's chosen
+// (the 2.53 ownership test goes by family, which these items don't have here).
+bool q30_subscreen_item(const subscreen_object &o, int *id);
+
+static void q30_subscreen_item_draw(BITMAP *dest, int x, int y, int id)
+{
+    int found = -1;
+
+    for(int i = Sitems.Count() - 1; i >= 0 && found < 0; i--)
+        if(Sitems.spr(i)->id == id && Sitems.spr(i)->misc == -1)
+            found = i;
+
+    if(found < 0)
+    {
+        add_subscr_item(new item((fix)x, (fix)y, (fix)0, id, 0, 0));
+        found = Sitems.Count() - 1;
+        Sitems.spr(found)->misc = -1;
+    }
+
+    Sitems.spr(found)->x = x;
+    Sitems.spr(found)->y = y;
+    Sitems.spr(found)->yofs = 0;
+    Sitems.spr(found)->draw(dest);
+}
+#endif
+
 int subscreen_color(miscQdata *misc, int c1, int c2)
 {
     int ret;
@@ -3648,6 +3680,16 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
                 // Shouldn't really be checking is_zquest here, but it's okay for now...
                 if(css->objects[i].d2 || (is_zquest() && (zinit.ss_flags&ssflagSHOWINVIS)!=0))
                 {
+#ifdef ZC_PLAYER_BUILD
+                    // a newer quest's slot for an item 2.53 has no family for (a bottle)
+                    int q30_id;
+                    if(q30_subscreen_item(css->objects[i], &q30_id))
+                    {
+                        if(q30_id >= 0)
+                            q30_subscreen_item_draw(dest, x, y, q30_id);
+                        break;
+                    }
+#endif
                     subscreenitem(dest, x, y, css->objects[i].d8>0 ? ((css->objects[i].d8-1) | 0x8000) : css->objects[i].d1);
                 }
             }
@@ -3700,6 +3742,12 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
                     
                     break;
                 }
+                
+                // a newer quest's item can have a display name, which upstream shows instead
+#ifdef ZC_PLAYER_BUILD
+                if(q30_active() && q30_item_has_display_name(itemid))
+                    snprintf(itemname, sizeof(itemname), "%s", q30_item_shown_name(itemid).c_str());
+#endif
                 
                 draw_textbox(dest, x, y, css->objects[i].w, css->objects[i].h, tempfont, itemname, css->objects[i].d4!=0, css->objects[i].d5, css->objects[i].d2, css->objects[i].d3, subscreen_color(misc, css->objects[i].colortype1, css->objects[i].color1), subscreen_color(misc, css->objects[i].colortype2, css->objects[i].color2), subscreen_color(misc, css->objects[i].colortype3, css->objects[i].color3));
                 // draw_textbox(dest, x, y, w,                 h,                 tempfont, thetext,  wword,                 tabsize,            alignment,          textstyle,          color,                                             shadowcolor,                                       backcolor);
@@ -4245,6 +4293,12 @@ void put_passive_subscr(BITMAP *dest,miscQdata *misc,int x,int y,bool showtime,i
     
     show_custom_subscreen(subscr, misc, current_subscreen_passive, 0, 0, showtime, pos2);
     destroy_bitmap(subscr);
+
+#ifdef ZC_PLAYER_BUILD
+    // a newer quest's dmap can add an overlay subscreen over the whole screen
+    void q30_draw_overlay_subscreen(BITMAP *dest, miscQdata *misc, int x, bool showtime, int pos2);
+    q30_draw_overlay_subscreen(dest, misc, x, showtime, pos2);
+#endif
 }
 
 /*

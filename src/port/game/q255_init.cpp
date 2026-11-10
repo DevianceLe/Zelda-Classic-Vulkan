@@ -14,7 +14,7 @@
 //   sideswim up, side and down steps (v27+)
 //   exit water jump (v28+)
 //   bunny LTM (v30+)
-//   switchhook style (v31+)
+//   switchhook style (v31+): kept beside zinit for enemies' "Switch w/ Player" (q30_triggers.cpp)
 //   generic script init data (v33+, as bounded maps from v37), instance init (v50+)
 //   Link swim multiplier and divisor (v34+)
 //   screen script data (v35+)
@@ -82,6 +82,7 @@
 #include "q255.h"
 #include <map>
 #include "q30_scripts.h"
+#include "q30_triggers.h"
 #include "zsys.h"
 #include "subscr.h"
 #include "zc_custom.h"
@@ -272,6 +273,58 @@ static void set_level_items(zinitdata &temp, int level, bool map, bool compass, 
 }
 
 // v37 and up: a different layout altogether.
+// Dark room lighting defaults, which zinitdata has no room for: dither type, dither arg, dither
+// percent, light radius, transdark percent, darkness colour. Handed to the script engine.
+static byte g_init_light[6];
+
+static void read_init_light(Q255Section &s, int count)
+{
+    for(int i = 0; i < count; ++i)
+        g_init_light[i] = s.getc();
+}
+
+// bounded_map<dword, bounded_map<dword, int32_t>>: the screen script data (Screen->Data[]) each
+// map screen starts with, handed to the script engine.
+static void read_screen_data_init(Q255Section &s)
+{
+    dword sz = s.igetl();
+    if(!sz)
+        return;
+
+    byte pairs = s.getc();
+    dword count = s.igetl();
+
+    for(dword q = 0; q < count && !s.failed; ++q)
+    {
+        dword index = pairs ? s.igetl() : q;
+        dword isz = s.igetl();
+
+        if(!isz)
+            continue;
+
+        byte ipairs = s.getc();
+        dword icount = s.igetl();
+
+        if(icount > s.left() / (ipairs ? 8 : 4))
+        {
+            s.failed = true;
+            return;
+        }
+
+        if(s.keep)
+            q30_set_screen_data_init((int)index, (long)isz, -1, 0);
+
+        for(dword k = 0; k < icount && !s.failed; ++k)
+        {
+            dword key = ipairs ? s.igetl() : k;
+            long val = s.igetl_s();
+
+            if(s.keep)
+                q30_set_screen_data_init((int)index, (long)isz, (int)key, val);
+        }
+    }
+}
+
 static void read_init_new(Q255Section &s, zinitdata &temp)
 {
     const int v = s.version;
@@ -347,7 +400,7 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
     byte hp_per_heart = s.getc();
     s.skip(1);  // magic per block
     s.skip(2);  // Link and enemy damage multipliers
-    s.skip(6);  // dither, light radius, transdark, darkness colour
+    read_init_light(s, 6);  // dither, light radius, transdark, darkness colour
 
     temp.ss_grid_x = (int)s.igetl_s();
     temp.ss_grid_y = (int)s.igetl_s();
@@ -400,7 +453,12 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
     s.skip(4);  // bunny LTM
     temp.start_dmap = s.igetw();
     s.skip(2);  // subscreen speed
-    s.skip(1);  // switchhook style
+    {
+        byte sw_style = s.getc();     // switchhook style, for enemies' "Switch w/ Player"
+
+        if(s.keep && !s.failed)
+            q30_set_init_switch_style(sw_style);
+    }
 
     byte drain = s.getc();
     set_bit(temp.misc, idM_DOUBLEMAGIC, drain <= 1 ? 1 : 0);
@@ -511,7 +569,7 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
         }
     }
 
-    skip_nested_l(s, skip_long_map);    // screen script data
+    read_screen_data_init(s);           // screen script data
 
     if(v >= 38)
         s.skip(3);  // sprite flicker
@@ -530,7 +588,13 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
     }
 
     if(v >= 43)
-        s.skip(256);    // bottle slots
+    {
+        byte slots[256];
+        s.read(slots, 256);     // starting bottle contents, kept for 2.55+ quests (q30_triggers.cpp)
+
+        if(s.keep && !s.failed)
+            q30_set_init_bottle_slots(slots, 256);
+    }
     if(v >= 44)
         skip_bounded_w(s, 4);   // level switch states
     if(v >= 45)
@@ -538,7 +602,14 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
     if(v >= 46)
         s.skip(5 * 2);  // sprite Z thresholds
     if(v >= 48)
-        s.skip(4);      // Link's item box
+    {
+        // Link's item box (signed offsets, then size), used by 3.0 quests' item pickups
+        int xofs = (signed char)s.getc(), yofs = (signed char)s.getc();
+        int w = s.getc(), h = s.getc();
+
+        if(s.keep && !s.failed)
+            q30_set_item_box(xofs, yofs, w, h);
+    }
 
     if(v >= 50)
     {
@@ -579,6 +650,16 @@ int q255_read_initdata(Q255Section &s)
     zinitdata temp;
     memset(&temp, 0, sizeof(zinitdata));
 
+    if(s.keep)
+    {
+        q30_clear_screen_data_init();
+        q30_set_init_switch_style(0);
+    }
+
+    // upstream's defaults for a section too old to have them
+    const byte light_defaults[6] = { 0, 0, 20, 24, 0, BLACK };
+    memcpy(g_init_light, light_defaults, sizeof(g_init_light));
+
     if(v >= 37)
     {
         read_init_new(s, temp);
@@ -590,6 +671,7 @@ int q255_read_initdata(Q255Section &s)
         {
             memcpy(&zinit, &temp, sizeof(zinitdata));
             link_animation_speed = (zinit.linkanimationstyle == las_zelda3slow) ? 2 : 1;
+            q30_set_light_init(g_init_light[0], g_init_light[1], g_init_light[2], g_init_light[3], g_init_light[4], g_init_light[5]);
         }
 
         return 0;
@@ -680,9 +762,9 @@ int q255_read_initdata(Q255Section &s)
     if(v > 22)
         s.skip(25 * 2 * 2); // custom counters: 25 start, 25 max
     if(v > 23)
-        s.skip(5);  // dither, light radius, transdark
+        read_init_light(s, 5);  // dither, light radius, transdark
     if(v > 24)
-        s.skip(1);  // darkness colour
+        g_init_light[5] = s.getc();     // darkness colour
 
     if(v > 25)
     {
@@ -697,7 +779,12 @@ int q255_read_initdata(Q255Section &s)
     if(v > 29)
         s.skip(4);  // bunny LTM
     if(v > 30)
-        s.skip(1);  // switchhook style
+    {
+        byte sw_style = s.getc();     // switchhook style, for enemies' "Switch w/ Player"
+
+        if(s.keep && !s.failed)
+            q30_set_init_switch_style(sw_style);
+    }
 
     if(v > 31)
     {
@@ -737,8 +824,19 @@ int q255_read_initdata(Q255Section &s)
             dword sz = s.igetl();
             if(sz)
             {
+                // screen script data: a size, then the values, which upstream keeps as given
                 dword n = s.igetl();
-                walk_items(s, n, 4);
+                if(n > s.left() / 4)
+                {
+                    s.failed = true;
+                    break;
+                }
+                for(dword k = 0; k < n && !s.failed; ++k)
+                {
+                    long val = s.igetl_s();
+                    if(s.keep)
+                        q30_set_screen_data_init((int)q, (long)n, (int)k, val);
+                }
             }
         }
     }
@@ -753,6 +851,7 @@ int q255_read_initdata(Q255Section &s)
     {
         memcpy(&zinit, &temp, sizeof(zinitdata));
         link_animation_speed = (zinit.linkanimationstyle == las_zelda3slow) ? 2 : 1;
+        q30_set_light_init(g_init_light[0], g_init_light[1], g_init_light[2], g_init_light[3], g_init_light[4], g_init_light[5]);
     }
 
     return 0;
@@ -1172,6 +1271,11 @@ static void skip_selector_info(Q255Section &s)
     walk_items(s, n, 12);
 }
 
+// What scripts can ask of each widget (q30_scripts_subscr.h): the last one's base and label.
+static SubWidget255 g_sub_last;
+static std::string g_sub_label;
+static int g_sub_list = -1;
+
 // SubscrWidget::read, everything after the widget type
 static void read_widget_base(Q255Section &s, SubWidget255 &b)
 {
@@ -1188,8 +1292,9 @@ static void read_widget_base(Q255Section &s, SubWidget255 &b)
     b.genflags = s.igetl();
     b.flags = s.igetl();
 
+    g_sub_label.clear();
     if(v >= 9)
-        s.getwstr();    // label
+        g_sub_label = s.getwstr();    // label
     if(v >= 11)
         s.skip(1);      // compat flags
 
@@ -1254,6 +1359,8 @@ static void read_widget_base(Q255Section &s, SubWidget255 &b)
             s.skip(2 + 2 + 4 + 4 + 4 + 2);      // screen and level state conditions
         }
     }
+
+    g_sub_last = b;
 }
 
 // SW_GaugePiece::read
@@ -1532,6 +1639,9 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
         t.d6 = selectable ? b.pos_left : -1;
         t.d7 = selectable ? b.pos_right : -1;
         t.d8 = (iid >= 0 && iid < MAXITEMS) ? (int)iid + 1 : 0;
+        // a class 2.53 has no family for (bottles, lanterns...): kept + 1 for q30_subscreen_item,
+        // which picks the item the way upstream does; 2.53 never reads d10 of this object
+        t.d10 = (iclass >= itype_max) ? (int)iclass + 1 : 0;
         break;
     }
 
@@ -1702,7 +1812,9 @@ static void store_sub_object(subscreen_group &g, int &count, subscreen_object t,
 // SubscrPage::read; dest is NULL for a page that isn't kept.
 static void read_sub_page(Q255Section &s, subscreen_group *dest)
 {
-    s.skip(4);      // cursor position
+    const long cursor_pos = s.igetl_s();
+    if(s.keep)
+        q30_sub_page(g_sub_list, (int)cursor_pos);
 
     word widgets = s.igetw();
     int stored = 0;
@@ -1713,8 +1825,18 @@ static void read_sub_page(Q255Section &s, subscreen_group *dest)
         subscreen_object t;
         std::string text;
 
+        const int before = stored;
+        memset(&g_sub_last, 0, sizeof(g_sub_last));
+
         if(read_widget(s, ty, t, text) && dest)
             store_sub_object(*dest, stored, t, text);
+
+        if(s.keep && !s.failed)
+        {
+            const SubWidget255 &b = g_sub_last;
+            q30_sub_widget(g_sub_list, ty, g_sub_label.c_str(), stored > before ? before : -1, b.posflags, b.x, b.y, b.w, b.h,
+                           b.pos, b.genflags, b.flags);
+        }
     }
 
     if(s.version >= 16)
@@ -1765,6 +1887,10 @@ static void read_new_subscreen(Q255Section &s, int slot, byte ss_type)
 
     subscreen_group *g = NULL;
 
+    g_sub_list = ss_type;
+    if(s.keep && !s.failed)
+        q30_sub_begin(ss_type, (s.keep && slot >= 0 && slot < MAXCUSTOMSUBSCREENS) ? slot : -1, name.c_str());
+
     if(s.keep && slot >= 0 && slot < MAXCUSTOMSUBSCREENS && !s.failed)
     {
         g = &custom_subscreen[slot];
@@ -1809,10 +1935,14 @@ static int read_new_subscreens(Q255Section &s)
         {
             int slot = -1;
 
-            if(list < 2 && next_slot < MAXCUSTOMSUBSCREENS)
+            // Overlay and map subscreens (lists 2, 3) are kept too, for q30_scripts_subscr.h to
+            // draw and open; 2.53's own search only ever matches types 0 and 1. Two slots stay
+            // free for the placeholders below.
+            if(list < 2 ? next_slot < MAXCUSTOMSUBSCREENS : next_slot < MAXCUSTOMSUBSCREENS - 2)
             {
                 slot = next_slot++;
-                ++kept[list];
+                if(list < 2)
+                    ++kept[list];
             }
 
             read_new_subscreen(s, slot, (byte)list);
@@ -1841,6 +1971,9 @@ static int read_new_subscreens(Q255Section &s)
 
 int q255_read_subscreens(Q255Section &s)
 {
+    if(s.keep)
+        q30_sub_clear();     // what scripts know of the subscreens (q30_scripts_subscr.h)
+
     if(s.version < 6 || s.version > 21)
         return Q255_NOT_HANDLED;
 

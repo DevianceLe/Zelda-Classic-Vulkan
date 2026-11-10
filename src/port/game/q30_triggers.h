@@ -242,6 +242,7 @@ struct Q30Combo
 
 void q30_combos_clear();
 void q30_trigger_stats();   // logs what the quest uses when ZC_Q30_TRIGSTATS is set
+void q30_slope_audit();     // logs where slopes are placed (ZC_Q255_DUMP_USE)
 bool q30_trigger_combo_at(int layer, int pos, int idx);     // Screen->TriggerCombo
 
 // Item scripts that keep running across frames (quest rule 162). See q30_scripts_engine.h.
@@ -340,6 +341,23 @@ bool q30_link_stunned();
 long q30_item_switch_family(int itemid);    // the family startwpn should treat this item as
 bool q30_switchhook_frame(weapon *w);       // true: the hook head is done
 void q30_switchhook_update();
+// The switch hook's switch (upstream's doSwitchHook): Link is held while it runs.
+bool q30_switchhook_defer_cost(int itemid); // startwpn: true when the item pays at the swap instead
+void q30_switchhook_tick();                 // Link.animate, each frame the hookshot holds him
+bool q30_switchhook_hide_link();            // the Flicker style's off frames
+int q30_switchhook_rise();                  // the Rise style's lift, in pixels
+void q30_set_item_usesound2(int item, int sfx);     // readers
+void q30_set_init_switch_style(int style);
+void q30_set_guy_defenses(int guy, const byte *defs);  // the 41 stored slots; NULL clears (guy < 0: all)
+int q30_misc_sprite(int i);                 // upstream's QMisc.sprites
+void q30_set_misc_sprite(int i, int spr);
+void q30_add_sprite_deco(int x, int y, int spr, int duration, bool hold_last);
+int q30_pitfall_at(int x, int y);           // the pitfall combo at a point, or 0
+// zc_sprite.cpp: a block put down at x,y as if pushed there; true if it landed on a block
+// trigger. hole: it filled a block hole.
+bool q30_switch_block_land(int x, int y, int combo, int cset, int layer, int placed_flag, int dir, bool force_many, bool *hole);
+// Slashing a ->Next combo: 0 as 2.53, 1 skip the 16-31 secret flag, 2 skip every flag.
+int q30_slash_next_skip(int type);
 long q30_item_family(int item);             // upstream's family number for any item
 void q30_clear_item_families();
 void q30_set_item_family(int item, long family);   // families 2.53 can't hold; reader only
@@ -420,6 +438,67 @@ bool q30_no_active_subscreen();
 int q30_hero_cset_base(int normal);
 bool q30_hero_immortal();
 int q30_hero_hurt_sfx();
+
+// ---- slopes (upstream's slopes.cpp) -----------------------------------------------
+// Positions and sizes are zfix raw values (1/10000 pixel). A box is a sprite's solid box;
+// otx,oty is where that box was last frame. A slot names one slope: a combo position on
+// a layer, or an FFC. Nothing here is used by a 2.53 quest: q30_slopes_here() is false.
+bool q30_slopes_here();
+void q30_slopes_update();       // once a frame, and when a screen loads: where each slope is now
+// upstream's check_slope / check_new_slope: -1 the box is on top of a slope, 1 it hits one, 0 none
+int q30_check_slope(int tx, int ty, int tw, int th, bool fallthrough, bool platformonly);
+int q30_check_new_slope(int tx, int ty, int tw, int th, int otx, int oty, bool fallthrough, bool platformonly, int id);
+int q30_get_new_slope(int tx, int ty, int tw, int th, int otx, int oty);   // nearest such slot, or -1
+int q30_slope_value(int slot);  // the slot's gradient (dy/dx, zfix raw), 0 for none
+// Sideview: standing on a slope that moved, or a slippery one. Sets id to the slope's gradient.
+bool q30_slide_slope(int tx, int ty, int tw, int th, int &dx, int &dy, int &id);
+// How far the box must move to get off the slot's line; dx or dy of -10000 holds that axis.
+void q30_slope_push(int slot, int bx, int by, int bw, int bh, bool sideview, int &dx, int &dy, bool onplatform, bool fallthrough);
+
+// ---- bottles (upstream's bottle types, bottle shops and bottle slots) -------------
+// A bottle item (upstream's family 270) holds the contents of slot misc1; a bottle-fill
+// item (271) fills an empty bottle with type misc1. Slot contents live in the save's
+// generic bytes 128-253 (see q30_triggers.cpp), so 2.53 saves never see them.
+struct Q30BottleType
+{
+    char name[33];
+    signed char counter[3];     // -1 none
+    word amount[3];             // percent of the counter's max when flags bit 0/1/2
+    byte flags;                 // upstream's BTFLAG_*
+    byte next_type;             // what the slot holds after drinking (0 empty)
+};
+struct Q30BottleShop
+{
+    char name[33];
+    byte fill[3];
+    word comb[3];
+    byte cset[3];
+    word price[3];
+    word str[3];
+};
+// readers
+void q30_bottles_clear();
+void q30_set_bottle_type(int i, const Q30BottleType &t);
+void q30_set_bottle_shop(int i, const Q30BottleShop &s);
+void q30_set_init_bottle_slots(const byte *slots, int count);
+void q30_set_misc_sfx(int i, int sfx);      // upstream's QMisc.miscsfx
+void q30_note_room(int screen_index, int room);     // room types 2.53 has no number for
+// game
+bool q30_bottle_shop_here(int *shop);       // the screen Link is on is a bottle shop
+const Q30BottleShop *q30_bottle_shop(int i);
+int q30_bottle_slot(int slot);
+void q30_set_bottle_slot(int slot, int type);
+bool q30_has_bottle(int type);              // an owned bottle holds this (0: an empty one)
+int q30_fill_bottle(int type);              // fills an owned empty bottle; its slot or -1
+int q30_bottle_item_for_slot(int slot);     // the owned bottle item using the slot, or -1
+bool q30_is_bottle(int item);
+int q30_bottle_tile_offset(int item, int frames);   // tiles past the item's own for its contents
+bool q30_bottle_revive();                   // Link at 0 life: drink a revive bottle; true if it saved him
+std::string q30_bottle_contents_name(int item);     // a bottle item's contents, "Empty", or "" for other items
+// Link's item pickup box for newer quests (upstream's itembox, off with qr_OLD_ITEM_HITBOXES):
+// false when the old pickup point applies, as for every 2.53 quest.
+void q30_set_item_box(int xofs, int yofs, int w, int h);   // init data reader
+bool q30_item_box(bool big_hitbox, int *xofs, int *yofs, int *w, int *h);
 
 bool q30_get_exstate(int mi, int bit);
 void q30_set_exstate(int mi, int bit, bool on);

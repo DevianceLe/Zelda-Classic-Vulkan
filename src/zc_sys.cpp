@@ -78,6 +78,15 @@ static inline const SAMPLE *q30_sfx_sample(int) { return NULL; }
 #endif
 byte linear_quest_loading = 0;
 int intro_choice = 0;   // Settings > Intro, what follows the arcade title: 0 random, 1 flames, 2 ZC 3.0 Nightly
+// Settings > Controls > Extra Pad Support: SDL's HIDAPI controller drivers. The
+// platform reads zc.cfg for it at startup (platform_sdl.cpp, which explains why
+// Windows defaults to off).
+#ifdef _WIN32
+#define CONTROLLER_HIDAPI_DEFAULT 0
+#else
+#define CONTROLLER_HIDAPI_DEFAULT 1
+#endif
+int controller_hidapi = CONTROLLER_HIDAPI_DEFAULT;
 extern FFScript FFCore;
 
 // Voices of the sounds in use. Slots from WAV_COUNT up are only reached by 2.55/3.0
@@ -358,7 +367,8 @@ void load_game_configs()
     loadlast = get_config_int(cfg_sect,"load_last",0);
     linear_quest_loading = get_config_int("zeldadx","linear_quest_progression",1);
     intro_choice = vbound(get_config_int(cfg_sect,"intro_choice",0),0,2);
-    
+    controller_hidapi = get_config_int(cfg_sect,"controller_hidapi",CONTROLLER_HIDAPI_DEFAULT) ? 1 : 0;
+
 // Fullscreen, page flipping may be problematic on newer windows systems.
 #ifdef _WIN32
     fullscreen = get_config_int(cfg_sect,"fullscreen",0);
@@ -531,6 +541,7 @@ void save_game_configs()
     set_config_int(cfg_sect,"load_last",loadlast);
     set_config_int(cfg_sect,"linear_quest_progression",linear_quest_loading);
     set_config_int(cfg_sect,"intro_choice",intro_choice);
+    set_config_int(cfg_sect,"controller_hidapi",controller_hidapi);
     chop_path(qstdir);
     set_config_string(cfg_sect,qst_dir_name,qstdir);
     set_config_string("SAVEFILE","save_filename",save_file_name);
@@ -7439,6 +7450,22 @@ static MENU snapshot_format_menu[] =
     { NULL,                                NULL,                     NULL,                      0, NULL }
 };
 
+#if defined(ZC_PORT) && !defined(__SWITCH__)
+// SDL's HIDAPI controller drivers: needed only for pads that work through them
+// alone (a Switch Pro Controller on USB, GameCube adapters, the Steam
+// Controller). Off by default on Windows, where they have been seen writing over
+// the game's memory; see platform_sdl.cpp. SDL starts before the game reads
+// zc.cfg, so platform_sdl.cpp reads the value itself and a change applies at the
+// next start.
+#define ZC_PAD_SUPPORT_MENU 1
+static int onPadSupport()
+{
+    controller_hidapi = !controller_hidapi;
+    save_game_configs();
+    return D_O_K;
+}
+#endif
+
 static MENU controls_menu[] =
 {
     { (char *)"Key &Buttons...",            onKeyboard,              NULL,                      0, NULL },
@@ -7446,6 +7473,9 @@ static MENU controls_menu[] =
     { (char *)"&Joystick Buttons...",       onJoystick,              NULL,                      0, NULL },
     { (char *)"Joy&stick Directions...",    onJoystickDir,           NULL,                      0, NULL },
     { (char *)"&Cheat Modifier Keys...",    onKeyboardModifierKeys,           NULL,                      0, NULL },
+#ifdef ZC_PAD_SUPPORT_MENU
+    { (char *)"Extra &Pad Support (applies next start)", onPadSupport, NULL,                    0, NULL },
+#endif
     { NULL,                                 NULL,                    NULL,                      0, NULL }
 };
 
@@ -9074,6 +9104,9 @@ void System()
 #ifdef ZC_PORT
         for(int i = 0; i < 3; ++i)
             intro_menu[i].flags = (intro_choice==i)?D_SELECTED:0;
+#endif
+#ifdef ZC_PAD_SUPPORT_MENU
+        controls_menu[5].flags = controller_hidapi?D_SELECTED:0;
 #endif
         name_entry_mode_menu[0].flags = (NameEntryMode==0)?D_SELECTED:0;
         name_entry_mode_menu[1].flags = (NameEntryMode==1)?D_SELECTED:0;

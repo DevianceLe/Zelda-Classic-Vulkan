@@ -20,6 +20,11 @@
 
 extern ffscript *zasm30_stream;
 
+#include "q30_scripts_light.h"
+#include "subscr.h"
+#include "q30_scripts_subscr.h"
+#include "q30_scripts_save.h"
+
 // ---- bitmaps ------------------------------------------------------------------------------------
 // A script bitmap reference: 0 none; 10..17 the render targets; 1000+ a bitmap the script made.
 
@@ -669,7 +674,6 @@ static bool zasm30_family_get(const long arg, long &ret)
         ret = z30_stack() ? 0 : -10000;     // only memory limits a stack here
         return true;
     default:
-        // Subscreen objects aren't modeled in this engine: pages and transitions read as 0.
         ret = 0;
         return true;
     }
@@ -701,7 +705,7 @@ void q30_enemy_constant_walk_8(enemy *e, int rate, int homing, int special);
 // Upstream's user_paldata. Colours are in the script's own range: 0-255, or 0-63 with
 // qr_SCRIPTS_6_BIT_COLOR. This engine's palette and quest colour data are 6-bit.
 
-enum { Z30_QR_SCRIPTS_6_BIT_COLOR = 443, Z30_PALDATA_COLORS = 256, Z30_MAX_PALDATAS = 4096 };
+enum { Z30_QR_SCRIPTS_6_BIT_COLOR = 480, Z30_PALDATA_COLORS = 256, Z30_MAX_PALDATAS = 4096 };
 
 struct Z30PalData
 {
@@ -1229,6 +1233,277 @@ static void z30_user_bitmap_draw(int command, int base_command, int numargs)
 static void z30_arrayptr_to_string(long ptr, string &out)
 {
     ArrayH::getString(ptr / 10000, out, 4096);
+}
+
+// Writes a string into a script's array as upstream's ArrayH::setArray does: an array a script
+// made grows to fit it first. Returns what setArray returns.
+static int z30_set_string(long ptr, const std::string &s)
+{
+    ZScriptArray &a = ArrayH::getArray(ptr);
+
+    if(&a != &INVALIDARRAY && a.Size() < s.size() + 1)
+        zasm30_resize_array(a, (long)s.size() + 1);
+
+    return ArrayH::setArray(ptr, s);
+}
+
+// sprintf for the variadic forms (args from PUSHVARG): the same conversions as zasm255_format,
+// which reads its arguments off the stack instead.
+static std::string z30_format(const std::string &format, const std::vector<long> &args)
+{
+    std::string out;
+    size_t next = 0;
+
+    for(size_t i = 0; i < format.size(); ++i)
+    {
+        if(format[i] != '%')
+        {
+            out += format[i];
+            continue;
+        }
+
+        if(++i >= format.size())
+            break;
+
+        bool zero_fill = false;
+        int min_digits = 0;
+
+        if(format[i] == '0')
+        {
+            zero_fill = true;
+            ++i;
+        }
+
+        while(i < format.size() && format[i] >= '0' && format[i] <= '9')
+            min_digits = min_digits * 10 + (format[i++] - '0');
+
+        if(i >= format.size())
+            break;
+
+        const char f = format[i];
+
+        if(f == '%')
+        {
+            out += '%';
+            continue;
+        }
+
+        const long arg = next < args.size() ? args[next] : 0;
+        ++next;
+        char spec[16], buf[64];
+        min_digits = zc_min(min_digits, 10);
+        sprintf(spec, "%%%s%dl%c", zero_fill ? "0" : "", min_digits, (f == 'x' || f == 'X') ? f : 'd');
+
+        switch(f)
+        {
+        case 'd': case 'f': case 'i': case 'p':
+        {
+            sprintf(buf, min_digits ? spec : "%ld", arg / 10000);
+
+            if(arg < 0 && buf[0] != '-')
+                out += '-';
+
+            out += buf;
+
+            if(f == 'f' || (f == 'd' && (arg % 10000)))
+            {
+                unsigned long fraction = (arg < 0 ? (0ul - (unsigned long)arg) : (unsigned long)arg) % 10000;
+                sprintf(buf, ".%04lu", fraction);
+                size_t end = strlen(buf);
+
+                while(end > 2 && buf[end - 1] == '0')
+                    buf[--end] = 0;
+
+                out += buf;
+            }
+            break;
+        }
+        case 'l':
+            sprintf(buf, min_digits ? spec : "%ld", arg);
+            out += buf;
+            break;
+        case 's':
+            if(arg)
+            {
+                std::string text;
+                ArrayH::getString(arg / 10000, text, 4096);
+                out += text;
+            }
+            else
+                out += "<NULL>";
+            break;
+        case 'c':
+            out += (char)(arg / 10000);
+            break;
+        case 'x': case 'X':
+            sprintf(buf, min_digits ? spec : (f == 'x' ? "%lx" : "%lX"), arg / 10000);
+            out += "0x";
+            out += buf;
+            break;
+        case 'b': case 'B':
+        {
+            const unsigned long bits = f == 'b' ? (unsigned long)(arg / 10000) : (unsigned long)arg;
+            int digits = min_digits;
+
+            for(int q = digits; q < 32; ++q)
+                if(bits & (1ul << q))
+                    digits = q + 1;
+
+            for(int q = digits - 1; q >= 0; --q)
+                out += (bits & (1ul << q)) ? '1' : '0';
+            break;
+        }
+        }
+    }
+
+    return out;
+}
+
+FONT *get_zc_font(int index);
+void textout_styled_aligned_ex(BITMAP *bmp, const FONT *f, const char *s, int x, int y, int textstyle, int alignment, int color, int shadow, int bg);
+
+// bitmap->Dither(layer, mask, color, type, arg)
+static void z30_bmp_dither()
+{
+    BITMAP *dest = z30_bitmap(SH::read_stack(SPR + 5));
+    BITMAP *mask = z30_bitmap(SH::read_stack(SPR + 3));
+    const long color = SH::read_stack(SPR + 2) / 10000;
+    const long type = SH::read_stack(SPR + 1) / 10000;
+    const long arg = SH::read_stack(SPR) / 10000;
+
+    if(!dest || !mask)
+        return;
+
+    if(type < 0 || type >= Z30_DITH_MAX)
+    {
+        Z_scripterrlog("bitmap->Dither() used an invalid dither type: %ld. Aborting.\n", type);
+        return;
+    }
+
+    z30_ditherblit(dest, mask, (byte)color, (int)type, (byte)arg, 0, 0);
+}
+
+// bitmap->DrawScreenComboFlags(layer, map, screen, x, y, rotation): each square of the screen
+// filled with the palette index of its placed flag, as upstream's draw_map_cflag.
+static void z30_bmp_draw_screen_flags()
+{
+    enum { Z30_QR_BROKEN_DRAWSCREEN_FUNCTIONS = 320 };
+
+    BITMAP *dest = z30_bitmap(SH::read_stack(SPR + 6));
+    const long map = SH::read_stack(SPR + 4) / 10000 - 1;
+    const long scr = SH::read_stack(SPR + 3) / 10000;
+    const int x = SH::read_stack(SPR + 2) / 10000;
+    const int y = SH::read_stack(SPR + 1) / 10000;
+    const int rotation = SH::read_stack(SPR) / 10000;
+
+    if(!dest)
+        return;
+
+    const long index = map * MAPSCRS + scr;
+
+    if(map < 0 || scr < 0 || scr >= MAPSCRS || index >= (long)TheMaps.size())
+    {
+        al_trace("DrawScreen: invalid map or screen index. \n");
+        return;
+    }
+
+    const bool broken = q30_quest_rule(Z30_QR_BROKEN_DRAWSCREEN_FUNCTIONS);
+    BITMAP *b = dest;
+    int ox = x, oy = y;
+
+    if(rotation != 0)
+    {
+        b = create_bitmap_ex(8, 256, 176);
+        if(!b)
+            return;
+        clear_bitmap(b);
+        ox = oy = 0;
+    }
+
+    // with the old rule, the layers' flags are drawn over layer 0's
+    for(int lyr = 0; lyr < (broken ? 7 : 1); ++lyr)
+    {
+        const mapscr *m = &TheMaps[index];
+
+        if(lyr)
+        {
+            if(!m->layermap[lyr - 1])
+                continue;
+            const long li = (m->layermap[lyr - 1] - 1) * MAPSCRS + m->layerscreen[lyr - 1];
+            if(li < 0 || li >= (long)TheMaps.size())
+                continue;
+            m = &TheMaps[li];
+        }
+
+        for(int i = 0; i < 176 && i < (int)m->sflag.size(); ++i)
+        {
+            const int c = m->sflag[i];
+
+            if(c || broken)
+                rectfill(b, ox + ((i & 15) << 4), oy + (i & 0xF0), ox + ((i & 15) << 4) + 15, oy + (i & 0xF0) + 15, c);
+        }
+    }
+
+    if(rotation != 0)
+    {
+        rotate_sprite(dest, b, x, y, ftofix(rotation / 360.0 * 256.0));    // degrees to allegro's 256ths
+        destroy_bitmap(b);
+    }
+}
+
+// bitmap->DrawString(layer, x, y, font, color, bg, format, string, opacity, shadow type, shadow colour)
+static void z30_bmp_draw_string2()
+{
+    long a[12];
+
+    for(int k = 1; k <= 11; ++k)
+        a[k] = SH::read_stack(SPR + (11 - k));
+
+    BITMAP *dest = z30_bitmap(SH::read_stack(SPR + 11));
+
+    if(!dest)
+        return;
+
+    std::string text;
+    ArrayH::getString(a[8] / 10000, text, 256);
+
+    int x = a[2] / 10000;
+    const int y = a[3] / 10000;
+    FONT *f = get_zc_font(a[4] / 10000);
+    const int color = a[5] / 10000;
+    int bg = a[6] / 10000;
+    const int format = a[7] / 10000;
+    const int opacity = a[9] / 10000;
+    const int style = a[10] / 10000;
+    const int shadow = a[11] / 10000;
+
+    if(bg < -1)
+        bg = -1;
+
+    if(opacity < 128)
+    {
+        const int w = zc_min(text_length(f, text.c_str()), 512);
+        const int h = text_height(f);
+        BITMAP *t = w > 0 && h > 0 ? create_bitmap_ex(8, w, h) : NULL;
+
+        if(!t)
+            return;
+
+        clear_bitmap(t);
+        textout_styled_aligned_ex(t, f, text.c_str(), 0, 0, style, 0, color, shadow, bg);     // left-aligned
+
+        if(format == 2)
+            x -= w;
+        else if(format == 1)
+            x -= w / 2;
+
+        color_map = &trans_table2;
+        draw_trans_sprite(dest, t, x, y);
+        color_map = &trans_table;
+        destroy_bitmap(t);
+    }
+    else
+        textout_styled_aligned_ex(dest, f, text.c_str(), x, y, style, format, color, shadow, bg);
 }
 
 // One-shot nested run of a generic script, frame after frame, frozen.
@@ -1845,6 +2120,9 @@ static void zasm30_apply_pending_warp()
 
 static bool zasm30_command(word cmd)
 {
+    if(zasm30_sub_command(cmd))
+        return true;
+
     switch(cmd)
     {
     case Z30C_WARPEX:
@@ -2303,11 +2581,6 @@ static bool zasm30_command(word cmd)
     {
         long uid = get_register(sarg1);
         ri->ewpn = Ewpns.getByUID(uid) ? uid : 0;
-        return true;
-    }
-    case Z30C_LOADSUBDATARV:
-    {
-        set_register(sarg1, 0);
         return true;
     }
 
@@ -3150,9 +3423,72 @@ static bool zasm30_command(word cmd)
         zasm30_paldatas.erase(Z30_REF(PALDATA));
         return true;
 
+    // -- bitmap drawing that the 2.53 draw commands have no form of ----------------------------
+    case Z30C_BMPDITHER: z30_bmp_dither(); return true;
+    case Z30C_BMPDRAWSCREENCOMBOFR: z30_bmp_draw_screen_flags(); return true;
+    case Z30C_BMPDRAWSTRINGR2: z30_bmp_draw_string2(); return true;
+
+    // -- lights for the dark rooms: drawn with the darkness (q30_scripts_light.h) --------------
+    case Z30C_DRAWLIGHT_CIRCLE:
+    case Z30C_DRAWLIGHT_SQUARE:
+    case Z30C_DRAWLIGHT_CONE:
+        z30_drawlight_command(cmd);
+        return true;
+
+    // -- itemdata->GetDisplayName/SetDisplayName/GetShownName ----------------------------------
+    case Z30C_ITEMGETDISPLAYNAME:
+    case Z30C_ITEMSETDISPLAYNAME:
+    case Z30C_ITEMGETSHOWNNAME:
+    {
+        const long id = ri->idata;
+        const long ptr = get_register(sarg1) / 10000;
+
+        if(id < 0 || id >= MAXITEMS)
+            return true;
+
+        if(cmd == Z30C_ITEMSETDISPLAYNAME)
+        {
+            std::string s;
+            ArrayH::getString(ptr, s, 255);
+            q30_set_item_display_name(id, s.c_str());
+        }
+        else
+        {
+            const std::string s = cmd == Z30C_ITEMGETSHOWNNAME ? q30_item_shown_name(id) : z30_item_display_name(id);
+            if(z30_set_string(ptr, s) == SH::_Overflow)
+                Z_scripterrlog("Array supplied to 'itemdata->GetDisplayName' not large enough.\n");
+        }
+        return true;
+    }
+
+    // sprintf(dest, format, ...): the arguments are the ones PUSHVARG collected.
+    case Z30C_SPRINTFVARG:
+    {
+        Zasm30Frame &f = zasm30_frame();
+        const long dest = SH::read_stack(SPR + 1) / 10000;
+        std::string format;
+        ArrayH::getString(SH::read_stack(SPR) / 10000, format, 65535);
+        const std::string out = z30_format(format, f.vargs);
+
+        if(z30_set_string(dest, out) == SH::_Overflow)
+        {
+            std::string kept;
+            ArrayH::getString(dest, kept, 65535);
+            ri->d[2] = (long)kept.size() * 10000;
+        }
+        else
+            ri->d[2] = (long)out.size() * 10000;
+
+        f.vargs.clear();
+        return true;
+    }
+
+    // run_script reaches here with the end marker only when it stopped the script itself (the
+    // game is quitting during a long script): nothing to do.
+    case 0xFFFF:
+        return true;
+
     // -- misc no-effect commands: these only tell the engine about objects it doesn't keep ------
-case Z30C_SUBPAGE_FIND_WIDGET_BY_LABEL:
-    case Z30C_SUBWIDG_TY_SETTEXT:
     case Z30C_ZCLASS_FREE:
         zasm30_log_once("command", cmd);
         ri->d[2] = 0;

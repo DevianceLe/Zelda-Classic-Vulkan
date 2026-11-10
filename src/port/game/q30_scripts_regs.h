@@ -5,6 +5,7 @@
 #ifndef ZC_Q30_SCRIPTS_REGS_H
 #define ZC_Q30_SCRIPTS_REGS_H
 
+#include <limits.h>
 #include <math.h>
 
 #include "port/game/q30_audio.h"
@@ -621,11 +622,359 @@ static int z30_new_midi_id(int id)
 
 static bool zasm30_paldata_get(const long arg, long &ret);
 static bool zasm30_paldata_set(const long arg, const long value);
+static bool zasm30_sub_get(const long arg, long &ret);       // q30_scripts_subscr.h
+static bool zasm30_scrdata_get(const long arg, long &ret);   // q30_scripts_save.h
+static bool zasm30_scrdata_set(const long arg, const long value);
+static bool zasm30_sub_set(const long arg, const long value);
+
+// ---- smaller 3.0 fields ------------------------------------------------------------------------
+
+enum { Z30_QR_WRITE_ENTRYPOINTS_AFFECTS_HEROCLASS = 685 };
+
+// Per-item and per-enemy fields 2.53's itemdata and guydata have no room for, from the quest's
+// item and enemy sections (q255_items.cpp, q255_guys.cpp). Scripts can change them at runtime.
+static std::map<int, std::string> zasm30_item_display_names;
+static std::map<int, int> zasm30_item_override_flags, zasm30_guy_wpnsprite;
+
+void q30_clear_item_extras() { zasm30_item_display_names.clear(); zasm30_item_override_flags.clear(); }
+void q30_clear_guy_extras() { zasm30_guy_wpnsprite.clear(); }
+
+void q30_set_item_display_name(int id, const char *name)
+{
+    if(name && name[0]) zasm30_item_display_names[id] = name;
+    else zasm30_item_display_names.erase(id);
+}
+
+void q30_set_item_override_flags(int id, int flags)
+{
+    if(flags) zasm30_item_override_flags[id] = flags;
+    else zasm30_item_override_flags.erase(id);
+}
+
+void q30_set_guy_wpnsprite(int id, int spr)
+{
+    if(spr) zasm30_guy_wpnsprite[id] = spr;
+    else zasm30_guy_wpnsprite.erase(id);
+}
+
+static int z30_map_get(const std::map<int, int> &m, int key)
+{
+    std::map<int, int>::const_iterator it = m.find(key);
+    return it == m.end() ? 0 : it->second;
+}
+
+bool q30_item_has_display_name(int id) { return zasm30_item_display_names.count(id) != 0; }
+
+static std::string z30_item_display_name(int id)
+{
+    std::map<int, std::string>::const_iterator it = zasm30_item_display_names.find(id);
+    return it == zasm30_item_display_names.end() ? std::string() : it->second;
+}
+
+// The name a subscreen shows for an item: the display name when it has one (upstream puts a bottle's
+// contents where "%s" is; this engine has no bottles, so "%s" is dropped), otherwise its name.
+std::string q30_item_shown_name(int id)
+{
+    std::string s = z30_item_display_name(id);
+
+    if(s.empty())
+        return (id >= 0 && id < ITEMCNT) ? std::string(item_string[id]) : std::string();
+
+    // "%s" is a bottle's contents ("Empty" when it holds nothing; q30_triggers.cpp), else nothing
+    const std::string contents = q30_bottle_contents_name(id);
+
+    for(size_t p = 0; (p = s.find("%s", p)) != std::string::npos; p += contents.size())
+        s.replace(p, 2, contents);
+
+    return s;
+}
+
+// npc->Core: false for the extra segments of the multi-part bosses, which 2.53 spawns with
+// id + 0x1000 or more (upstream sets isCore false in exactly these classes' constructors).
+static bool z30_npc_is_core(enemy *e)
+{
+    if((e->id & 0xF000) == 0)
+        return true;
+
+    switch(e->family)
+    {
+    case eeMOLD: case eeLANM: case eeMANHAN: case eeGLEEOK: case eePATRA:
+        return false;
+    default:
+        return true;
+    }
+}
+
+// combodata->Frame and ->OriginalTile. 2.53 animates by stepping combobuf[].tile from the
+// original tile in its animation table, so the frame is found by stepping the same way.
+static tile_id z30_combo_otile(int id)
+{
+    return (combobuf[id].animflags & AF_FRESH) ? animated_combo_table2[id][1] : animated_combo_table[id][1];
+}
+
+static tile_id z30_combo_frame_tile(int id, tile_id otile, int frame)
+{
+    const newcombo &c = combobuf[id];
+    tile_id t = otile;
+
+    for(int f = 0; f < frame; ++f)
+    {
+        tile_id before = t;
+        t += 1 + c.skipanim;
+
+        if(before / TILES_PER_ROW != t / TILES_PER_ROW)
+            t += TILES_PER_ROW * c.skipanimy;
+    }
+
+    return t;
+}
+
+static int z30_combo_frame(int id)
+{
+    const newcombo &c = combobuf[id];
+    const tile_id otile = z30_combo_otile(id);
+
+    for(int f = 0; f < zc_max(1, (int)c.frames); ++f)
+        if(z30_combo_frame_tile(id, otile, f) == c.tile)
+            return f;
+
+    return 0;
+}
+
+// Game->GameOverScreen[] (upstream's SaveScreenSettings), read by game_over() in title.cpp for newer
+// quests. Each game starts from upstream's defaults, which are what 2.53's game over screen draws.
+enum
+{
+    Z30_GOS_BACKGROUND, Z30_GOS_TEXT, Z30_GOS_USETILE, Z30_GOS_CURSOR_CSET, Z30_GOS_CUR_SOUND,
+    Z30_GOS_CONTINUE_COLOUR, Z30_GOS_SAVE_COLOUR, Z30_GOS_RETRY_COLOUR, Z30_GOS_CONTINUE_FLASH,
+    Z30_GOS_SAVE_FLASH, Z30_GOS_RETRY_FLASH, Z30_GOS_MIDI, Z30_GOS_CUR_FLIP, Z30_GOS_DONTSAVE_COLOUR,
+    Z30_GOS_SAVEQUIT_COLOUR, Z30_GOS_SAVE2_COLOUR, Z30_GOS_QUIT_COLOUR, Z30_GOS_DONTSAVE_FLASH,
+    Z30_GOS_SAVEQUIT_FLASH, Z30_GOS_SAVE2_FLASH, Z30_GOS_QUIT_FLASH, Z30_GOS_EXTRA1, Z30_GOS_EXTRA2,
+    Z30_GOS_EXTRA3, Z30_GOS_LAST
+};
+
+static int zasm30_gameover[Z30_GOS_LAST];
+static bool zasm30_gameover_set = false;
+static std::string zasm30_gameover_text[3];     // CONTINUE, SAVE, RETRY; empty for the default
+
+static void z30_gameover_reset()
+{
+    for(int i = 0; i < Z30_GOS_LAST; ++i)
+        zasm30_gameover[i] = 0;
+
+    zasm30_gameover[Z30_GOS_TEXT] = QMisc.colors.msgtext;
+    zasm30_gameover[Z30_GOS_USETILE] = 2;
+    zasm30_gameover[Z30_GOS_CURSOR_CSET] = 1;
+    zasm30_gameover[Z30_GOS_CUR_SOUND] = WAV_CHINK;
+    zasm30_gameover[Z30_GOS_MIDI] = -4;     // + ZC_MIDI_COUNT - 1: the built-in game over tune
+    zasm30_gameover_set = false;
+
+    for(int i = 0; i < 3; ++i)
+        zasm30_gameover_text[i].clear();
+}
+
+// As upstream's SetSaveScreenSetting: each value bounded, the three extras not writable.
+static void z30_gameover_write(int index, int v)
+{
+    if(index < 0 || index >= Z30_GOS_EXTRA1)
+        return;
+
+    int hi = 255;
+
+    if(index == Z30_GOS_USETILE) hi = NEWMAXTILES;
+    else if(index == Z30_GOS_CURSOR_CSET) hi = 14;
+    else if(index == Z30_GOS_CUR_FLIP) hi = 3;
+
+    zasm30_gameover[index] = vbound(v, 0, hi);
+    zasm30_gameover_set = true;
+}
+
+// Game->GameOverStrings[]: CONTINUE, SAVE and RETRY are the only lines this game over screen has.
+static void z30_gameover_text_write(int index, long ptr)
+{
+    std::string s;
+    ArrayH::getString(ptr / 10000, s, 73);
+
+    if(s.size() > 31)
+        s.resize(31);
+
+    index = vbound(index, 0, 6);
+
+    if(index < 3)
+    {
+        zasm30_gameover_text[index] = s;
+        zasm30_gameover_set = true;
+    }
+}
+
+// title.cpp's game_over: a colour or other setting, or the text for line 0..2 (NULL for the default).
+bool q30_gameover_custom() { return zasm30_gameover_set; }
+int q30_gameover_setting(int index) { return (index >= 0 && index < Z30_GOS_LAST) ? zasm30_gameover[index] : 0; }
+const char *q30_gameover_text(int line)
+{
+    return (line >= 0 && line < 3 && !zasm30_gameover_text[line].empty()) ? zasm30_gameover_text[line].c_str() : NULL;
+}
+
+// Hero->ShieldJinx (upstream's shieldjinxclk): while not 0 the shield blocks nothing; it counts
+// down each frame, and -1 lasts until cured. link.cpp asks q30_shield_jinxed() before blocking.
+static int zasm30_shield_jinx = 0;
+
+bool q30_shield_jinxed() { return zasm30_ffscript_version && zasm30_shield_jinx != 0; }
+
+// LinkClass::resetflags: jinxes that count down are cured, and all of them with 'all'.
+void q30_shield_jinx_reset(bool all)
+{
+    if(zasm30_shield_jinx > 0 || all)
+        zasm30_shield_jinx = 0;
+}
+
+// Viewport->Mode: 0 keeps the viewport on the screen, which is all this engine draws; 1 (centred on
+// the Hero) and 2 (moved by the script) can move it, which nothing here draws yet.
+static int zasm30_viewport_mode = 0;
 
 // ---- reading registers -------------------------------------------------------------------------
 
+// ZC_Q30_REGLOG=n,n,...: logs the first 40 reads and writes of each register number listed, with
+// the values, to see what a quest's scripts actually get (diagnostics only).
+static bool z30_reglog_wanted(long arg)
+{
+    static std::set<long> wanted;
+    static bool parsed = false;
+
+    if(!parsed)
+    {
+        parsed = true;
+        if(const char *s = getenv("ZC_Q30_REGLOG"))
+            for(const char *p = s; *p; )
+            {
+                wanted.insert(strtol(p, NULL, 0));
+                while(*p && *p != ',') ++p;
+                if(*p) ++p;
+            }
+    }
+
+    return !wanted.empty() && wanted.count(arg) != 0;
+}
+
+static void z30_reglog(const char *what, long arg, long value)
+{
+    static std::map<long, int> counts;
+
+    if(z30_reglog_wanted(arg) && counts[arg]++ < 40)
+        al_trace("q30 reglog: %s %ld = %ld (index %ld, refs npc %ld npcdata %ld combodata %ld idata %ld widg %ld)\n", what, arg, value,
+                 Z30_INDEX, (long)ri->guyref, Z30_REF(NPCDATA), Z30_REF(COMBODATA), (long)ri->idata, Z30_REF(SUBSCREENWIDG));
+}
+
+static bool zasm30_get_register_inner(const long arg, long &ret);
+static bool zasm30_set_register_inner(const long arg, const long value);
+
 static bool zasm30_get_register(const long arg, long &ret)
 {
+    const bool r = zasm30_get_register_inner(arg, ret);
+    z30_reglog("read", arg, ret);
+    return r;
+}
+
+static bool zasm30_set_register(const long arg, const long value)
+{
+    z30_reglog("write", arg, value);
+    return zasm30_set_register_inner(arg, value);
+}
+
+// Rotation, scale and shadow registers of the Hero, items and weapons that the sprite draw code
+// (q30_triggers.cpp, through q30_sprite_values) reads: kept in the sprite's script state, in the
+// same units as the npc and Sprite-> forms (degrees, percent, sprite id, pixels).
+enum { Z30DRAW_ROT, Z30DRAW_SCALE, Z30DRAW_SHADOW, Z30DRAW_SHX, Z30DRAW_SHY };
+
+static bool z30_draw_reg(long arg, sprite *&s, int &field)
+{
+    struct Entry { long reg; int kind; int field; };
+    static const Entry table[] =
+    {
+        { Z30R_LINKROTATION, Z30S_HERO, Z30DRAW_ROT }, { Z30R_ITEMROTATION, Z30S_ITEM, Z30DRAW_ROT },
+        { Z30R_LINKSCALE, Z30S_HERO, Z30DRAW_SCALE }, { Z30R_ITEMSCALE, Z30S_ITEM, Z30DRAW_SCALE },
+        { Z30R_LWPNSCALE, Z30S_LWPN, Z30DRAW_SCALE }, { Z30R_EWPNSCALE, Z30S_EWPN, Z30DRAW_SCALE },
+        { Z30R_LWPNSHADOWSPR, Z30S_LWPN, Z30DRAW_SHADOW },
+        { Z30R_HEROSHADOWXOFS, Z30S_HERO, Z30DRAW_SHX }, { Z30R_HEROSHADOWYOFS, Z30S_HERO, Z30DRAW_SHY },
+        { Z30R_NPCSHADOWXOFS, Z30S_NPC, Z30DRAW_SHX },
+        { Z30R_ITEMSHADOWXOFS, Z30S_ITEM, Z30DRAW_SHX }, { Z30R_ITEMSHADOWYOFS, Z30S_ITEM, Z30DRAW_SHY },
+        { Z30R_LWPNSHADOWXOFS, Z30S_LWPN, Z30DRAW_SHX }, { Z30R_LWPNSHADOWYOFS, Z30S_LWPN, Z30DRAW_SHY },
+        { Z30R_EWPNSHADOWXOFS, Z30S_EWPN, Z30DRAW_SHX }, { Z30R_EWPNSHADOWYOFS, Z30S_EWPN, Z30DRAW_SHY },
+    };
+
+    for(size_t i = 0; i < sizeof(table) / sizeof(table[0]); ++i)
+    {
+        if(table[i].reg != arg)
+            continue;
+
+        switch(table[i].kind)
+        {
+        case Z30S_HERO: s = &Link; break;
+        case Z30S_ITEM: s = z30_item_ref(); break;
+        case Z30S_LWPN: s = z30_lwpn_ref(); break;
+        case Z30S_EWPN: s = z30_ewpn_ref(); break;
+        default: s = z30_npc_ref(); break;
+        }
+
+        field = table[i].field;
+        return true;
+    }
+
+    return false;
+}
+
+static bool zasm30_draw_get(const long arg, long &ret)
+{
+    sprite *s;
+    int field;
+
+    if(!z30_draw_reg(arg, s, field))
+        return false;
+
+    Zasm30SpriteState *st = z30_state_of(s);
+
+    if(!st)
+        ret = field == Z30DRAW_SHADOW ? 0 : -10000;
+    else switch(field)
+    {
+    case Z30DRAW_ROT: ret = st->rotation * 10000; break;
+    case Z30DRAW_SCALE: ret = st->scale * 100; break;
+    case Z30DRAW_SHADOW: ret = st->shadow_spr * 10000; break;
+    case Z30DRAW_SHX: ret = st->shadow_xofs * 10000; break;
+    default: ret = st->shadow_yofs * 10000; break;
+    }
+
+    return true;
+}
+
+static bool zasm30_draw_set(const long arg, const long value)
+{
+    sprite *s;
+    int field;
+
+    if(!z30_draw_reg(arg, s, field))
+        return false;
+
+    if(Zasm30SpriteState *st = z30_state_of(s))
+    {
+        switch(field)
+        {
+        case Z30DRAW_ROT: st->rotation = value / 10000; break;
+        case Z30DRAW_SCALE: st->scale = value / 100; break;
+        case Z30DRAW_SHADOW: st->shadow_spr = vbound(value / 10000, 0, 255); break;
+        case Z30DRAW_SHX: st->shadow_xofs = value / 10000; break;
+        default: st->shadow_yofs = value / 10000; break;
+        }
+    }
+
+    return true;
+}
+
+static bool zasm30_get_register_inner(const long arg, long &ret)
+{
+    if(zasm30_sub_get(arg, ret) || zasm30_scrdata_get(arg, ret) || zasm30_draw_get(arg, ret))
+        return true;
+
     switch(arg)
     {
     case Z30R_ENGINE_MUSIC_ACTIVE: ret = q30_engine_music_active() ? 10000 : 0; return true;
@@ -866,9 +1215,20 @@ static bool zasm30_get_register(const long arg, long &ret)
         return true;
 
     // mapdata->
+    // Game->LoadMapData(map, screen), as upstream's loadMapData: the screen's index + 1.
     case Z30R_LOADMAPDATA:
+    {
+        const long map = ri->d[0] / 10000, scr = ri->d[1] / 10000;
         ret = 0;
+        if(map < 1 || map > (long)(TheMaps.size() / MAPSCRS))
+            Z_scripterrlog("Invalid Map ID passed to Game->LoadMapData: %ld\n", map);
+        else if(scr < 0 || scr > 129)
+            Z_scripterrlog("Invalid Screen Index passed to Game->LoadMapData: %ld\n", scr);
+        else
+            ret = (map - 1) * MAPSCRS + scr + 1;
+        Z30_REF(MAPDATA) = ret;
         return true;
+    }
     case Z30R_MAPDATACOMBODD:
     case Z30R_MAPDATACOMBOCD:
     case Z30R_MAPDATACOMBOFD:
@@ -1010,7 +1370,7 @@ static bool zasm30_get_register(const long arg, long &ret)
     case Z30R_GAMESCROLLING: ret = zasm30_store_get(arg, 0, Z30_INDEX) * 10000; return true;
     case Z30R_GAMESUSPEND: ret = zasm30_store_get(arg, 0, Z30_INDEX) * 10000; return true;
     case Z30R_GAMEEVENTDATA: ret = zasm30_store_get(arg, 0, Z30_INDEX); return true;
-    case Z30R_GAMEBOTTLEST: ret = zasm30_store_get(arg, 0, Z30_INDEX) * 10000; return true;
+    case Z30R_GAMEBOTTLEST: ret = q30_bottle_slot(Z30_INDEX) * 10000; return true;   // the save's bottle slots (q30_triggers.cpp)
     case Z30R_MUSICUPDATECOND: ret = zasm30_store_get(arg, 0, 0) * 10000; return true;
     case Z30R_GAMEASUBYOFF: ret = zasm30_store_get(arg, 0, 0) * 10000; return true;
     case Z30R_FFRULE: ret = (Z30_INDEX >= 0 && Z30_INDEX < QUESTRULES_SIZE * 8) ? (get_bit(quest_rules, Z30_INDEX) ? 10000 : 0) : 0; return true;
@@ -1045,10 +1405,92 @@ static bool zasm30_get_register(const long arg, long &ret)
     case Z30R_REGION_SCREEN_HEIGHT: ret = 10000; return true;
     case Z30R_REGION_NUM_COMBOS: ret = 176 * 10000; return true;
     case Z30R_REGION_ORIGIN_SCREEN: ret = currscr * 10000; return true;
+    // The viewport is the screen (upstream's 256x176 outside extended height mode). Only a
+    // script-moved viewport (mode 2) keeps the position a script gives it.
     case Z30R_VIEWPORT_X:
-    case Z30R_VIEWPORT_Y: ret = zasm30_store_get(arg, 0, 0); return true;
+    case Z30R_VIEWPORT_Y: ret = zasm30_viewport_mode == 2 ? zasm30_store_get(arg, 0, 0) : 0; return true;
     case Z30R_VIEWPORT_WIDTH: ret = 256 * 10000; return true;
-    case Z30R_VIEWPORT_HEIGHT: ret = zasm30_store_get(arg, 0, 0) ? zasm30_store_get(arg, 0, 0) : 232 * 10000; return true;
+    case Z30R_VIEWPORT_HEIGHT: ret = zasm30_store_get(arg, 0, 0) ? zasm30_store_get(arg, 0, 0) : 176 * 10000; return true;
+    case Z30R_VIEWPORT_MODE: ret = zasm30_viewport_mode; return true;
+    case Z30R_HEROSHIELDJINX: ret = zasm30_shield_jinx * 10000; return true;
+
+    // Game->MaxLWeapons(): 2.53's sprite lists hold 255 each.
+    case Z30R_SPRITEMAXLWPN: ret = 255 * 10000; return true;
+
+    // ->LightRadius and ->LightShape of an npc, weapon or item (also Sprite->LightRadius): what
+    // a script gave it, drawn in new dark rooms by q30_script_lights.
+    case Z30R_NPCGLOWRAD: case Z30R_LWPNGLOWRAD: case Z30R_EWPNGLOWRAD: case Z30R_ITEMGLOWRAD:
+    case Z30R_NPCGLOWSHP: case Z30R_LWPNGLOWSHP: case Z30R_EWPNGLOWSHP: case Z30R_ITEMGLOWSHP:
+    {
+        sprite *s = (arg == Z30R_NPCGLOWRAD || arg == Z30R_NPCGLOWSHP) ? (sprite *)z30_npc_ref()
+                  : (arg == Z30R_LWPNGLOWRAD || arg == Z30R_LWPNGLOWSHP) ? (sprite *)z30_lwpn_ref()
+                  : (arg == Z30R_EWPNGLOWRAD || arg == Z30R_EWPNGLOWSHP) ? (sprite *)z30_ewpn_ref() : (sprite *)z30_item_ref();
+        Zasm30SpriteState *st = z30_state_of(s);
+        const bool shape = arg >= Z30R_ITEMGLOWSHP;
+        ret = st ? (shape ? st->glow_shape : st->glow_rad) * 10000 : -10000;
+        return true;
+    }
+
+    // combodata->Frame, ->OriginalTile
+    case Z30R_COMBODFRAME:
+    {
+        const long id = Z30_REF(COMBODATA);
+        ret = (id >= 0 && id < MAXCOMBOS) ? z30_combo_frame(id) * 10000 : 0;
+        return true;
+    }
+    case Z30R_COMBODOTILE:
+    {
+        const long id = Z30_REF(COMBODATA);
+        ret = (id >= 0 && id < MAXCOMBOS) ? (long)z30_combo_otile(id) * 10000 : 0;
+        return true;
+    }
+
+    // itemdata->SizeFlags, npcdata->WeaponSprite, npc->Core
+    case Z30R_IDATAOVERRIDEFL: ret = z30_map_get(zasm30_item_override_flags, ri->idata) * 10000; return true;
+    case Z30R_NPCDATAWPNSPRITE:
+        ret = unsigned(Z30_REF(NPCDATA)) < MAXGUYS ? z30_map_get(zasm30_guy_wpnsprite, Z30_REF(NPCDATA)) * 10000 : -10000;
+        return true;
+    case Z30R_NPCISCORE:
+    {
+        enemy *e = z30_npc_ref();
+        if(!e)
+            ret = -10000;
+        else
+        {
+            const long set = zasm30_store_get(arg, ri->guyref, 0);     // 0 unset, 1 false, 2 true
+            ret = (set ? set == 2 : z30_npc_is_core(e)) ? 10000 : 0;
+        }
+        return true;
+    }
+
+    // Screen->EntryX/Y: kept per screen, cleared when the Hero arrives on it, as upstream's
+    // copy of the screen is reloaded then.
+    case Z30R_SCREENDATAENTRYX:
+    case Z30R_SCREENDATAENTRYY:
+        ret = zasm30_store_get(arg, currmap * MAPSCRS + currscr, 0) * 10000;
+        return true;
+    case Z30R_SCREENDATAOCEANSFX: ret = tmpscr->oceansfx * 10000; return true;
+
+    // mapdata->LayerMap[], ->LayerScreen[] (1-based from script format 11), ->D[]
+    case Z30R_MAPDATALAYERMAP:
+    case Z30R_MAPDATALAYERSCREEN:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX - (zasm30_ffscript_version < 11 ? 0 : 1);
+        ret = -10000;
+        if(m && n >= 0 && n < 6)
+            ret = (arg == Z30R_MAPDATALAYERMAP ? m->layermap[n] : m->layerscreen[n]) * 10000;
+        return true;
+    }
+    case Z30R_MAPDATAMISCD:
+    {
+        const int mi = z30_mapdata_mi(Z30_REF(MAPDATA));
+        const long n = Z30_INDEX;
+        ret = -10000;
+        if(mi >= 0 && mi < MAXDMAPS * MAPSCRSNORMAL && n >= 0 && n < 8)
+            ret = game->screen_d[mi][n] * 10000;
+        return true;
+    }
 
     // Hero
     case Z30R_HEROFALLCLK:
@@ -1254,6 +1696,14 @@ static bool zasm30_get_register(const long arg, long &ret)
         ret = m ? get_screeneflags(m, n) : -10000;
         return true;
     }
+    // mapdata->GetFFCInitD(ffc, d): the ffc's run arguments as the screen holds them
+    case Z30R_MAPDATAINTID:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long f = ri->d[0] / 10000, d = ri->d[1] / 10000;
+        ret = (m && f >= 0 && f < Z30_FFC_COUNT && d >= 0 && d < 8) ? m->initd[f][d] : -10000;
+        return true;
+    }
     case Z30R_MAPDATAINITDARRAY:
     {
         mapscr *m = z30_mapdata_now();
@@ -1437,11 +1887,6 @@ static bool zasm30_get_register(const long arg, long &ret)
     case Z30R_DIRECTORYSIZE:
     case Z30R_STACKSIZE:
     case Z30R_STACKFULL:
-    case Z30R_SUBDATACURPG:
-    case Z30R_SUBDATAPAGES:
-    case Z30R_SUBDATATRANSCLK:
-    case Z30R_SUBDATATRANSTOPG:
-    case Z30R_SUBWIDGPOSFLAG:
         return zasm30_family_get(arg, ret);
 
     default:
@@ -1454,8 +1899,11 @@ static bool zasm30_get_register(const long arg, long &ret)
     return false;
 }
 
-static bool zasm30_set_register(const long arg, const long value)
+static bool zasm30_set_register_inner(const long arg, const long value)
 {
+    if(zasm30_sub_set(arg, value) || zasm30_scrdata_set(arg, value) || zasm30_draw_set(arg, value))
+        return true;
+
     switch(arg)
     {
     case Z30R_MUSICUPDATECOND:     q30_set_music_update_cond(value / 10000); return true;
@@ -1691,6 +2139,14 @@ static bool zasm30_set_register(const long arg, const long value)
 
     // mapdata->
     case Z30R_LOADMAPDATA: return true;
+    case Z30R_MAPDATAINTID:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long f = ri->d[0] / 10000, d = ri->d[1] / 10000;
+        if(m && f >= 0 && f < Z30_FFC_COUNT && d >= 0 && d < 8)
+            m->initd[f][d] = value;
+        return true;
+    }
     case Z30R_MAPDATACOMBODD:
     case Z30R_MAPDATACOMBOCD:
     case Z30R_MAPDATACOMBOFD:
@@ -1837,8 +2293,8 @@ static bool zasm30_set_register(const long arg, const long value)
         return true;
     }
     case Z30R_GAMESCROLLING: return true;
+    case Z30R_GAMEBOTTLEST: q30_set_bottle_slot(Z30_INDEX, vbound(value / 10000, 0, 64)); return true;
     case Z30R_GAMESUSPEND:
-    case Z30R_GAMEBOTTLEST:
     case Z30R_MUSICUPDATECOND:
     case Z30R_GAMEASUBYOFF:
         zasm30_store_set(arg, 0, Z30_INDEX, value / 10000);
@@ -1858,11 +2314,130 @@ static bool zasm30_set_register(const long arg, const long value)
     case Z30R_REGION_NUM_COMBOS:
     case Z30R_REGION_ORIGIN_SCREEN:
         return true;
+    // Nothing here draws the screen anywhere but at the viewport's origin, so a script that
+    // really moves it (or centres it on the Hero, mode 1) is logged.
     case Z30R_VIEWPORT_X:
     case Z30R_VIEWPORT_Y:
+        zasm30_store_set(arg, 0, 0, value);
+        if(zasm30_viewport_mode == 2 && value != 0)
+            zasm30_log_once("register write", arg);
+        return true;
     case Z30R_VIEWPORT_HEIGHT:
         zasm30_store_set(arg, 0, 0, value);
         return true;
+    case Z30R_HEROSHIELDJINX: zasm30_shield_jinx = value / 10000; return true;
+    case Z30R_VIEWPORT_MODE:
+        if(value < 0 || value > 2)
+            return true;
+        zasm30_viewport_mode = value;
+        if(value == 1)
+            zasm30_log_once("register write", arg);
+        return true;
+
+    // Game->MaxLWeapons(n): the list can't grow past its 255, and nothing lowers it here: a
+    // script asking for another limit is logged.
+    case Z30R_SPRITEMAXLWPN:
+        if(value / 10000 != 255)
+            zasm30_log_once("register write", arg);
+        return true;
+
+    case Z30R_NPCGLOWRAD: case Z30R_LWPNGLOWRAD: case Z30R_EWPNGLOWRAD: case Z30R_ITEMGLOWRAD:
+    case Z30R_NPCGLOWSHP: case Z30R_LWPNGLOWSHP: case Z30R_EWPNGLOWSHP: case Z30R_ITEMGLOWSHP:
+    {
+        sprite *s = (arg == Z30R_NPCGLOWRAD || arg == Z30R_NPCGLOWSHP) ? (sprite *)z30_npc_ref()
+                  : (arg == Z30R_LWPNGLOWRAD || arg == Z30R_LWPNGLOWSHP) ? (sprite *)z30_lwpn_ref()
+                  : (arg == Z30R_EWPNGLOWRAD || arg == Z30R_EWPNGLOWSHP) ? (sprite *)z30_ewpn_ref() : (sprite *)z30_item_ref();
+        Zasm30SpriteState *st = z30_state_of(s);
+        if(st)
+        {
+            if(arg >= Z30R_ITEMGLOWSHP) st->glow_shape = vbound(value / 10000, 0, 2);
+            else st->glow_rad = vbound(value / 10000, 0, 255);
+        }
+        return true;
+    }
+
+    case Z30R_COMBODFRAME:
+    {
+        const long id = Z30_REF(COMBODATA);
+        if(id >= 0 && id < MAXCOMBOS)
+        {
+            const int f = vbound(value / 10000, 0, zc_max(1, (int)combobuf[id].frames) - 1);
+            combobuf[id].tile = z30_combo_frame_tile(id, z30_combo_otile(id), f);
+        }
+        return true;
+    }
+    case Z30R_COMBODOTILE:
+    {
+        const long id = Z30_REF(COMBODATA);
+        if(id >= 0 && id < MAXCOMBOS)
+        {
+            const int f = z30_combo_frame(id);
+            const tile_id t = vbound(value / 10000, 0, NEWMAXTILES - 1);
+            int (*table)[2] = (combobuf[id].animflags & AF_FRESH) ? animated_combo_table2 : animated_combo_table;
+            table[id][1] = t;
+            combobuf[id].tile = z30_combo_frame_tile(id, t, f);
+        }
+        return true;
+    }
+
+    case Z30R_IDATAOVERRIDEFL: q30_set_item_override_flags(ri->idata, value / 10000); return true;
+    case Z30R_NPCDATAWPNSPRITE:
+        if(unsigned(Z30_REF(NPCDATA)) < MAXGUYS)
+            q30_set_guy_wpnsprite(Z30_REF(NPCDATA), vbound(value / 10000, 0, 255));
+        return true;
+    case Z30R_NPCISCORE:
+        if(z30_npc_ref())
+            zasm30_store_set(arg, ri->guyref, 0, value ? 2 : 1);
+        return true;
+
+    // Screen->EntryX/Y; with qr_WRITE_ENTRYPOINTS_AFFECTS_HEROCLASS also where the Hero comes back
+    // after drowning or falling, which is Link's entry point in this engine.
+    case Z30R_SCREENDATAENTRYX:
+    case Z30R_SCREENDATAENTRYY:
+    {
+        const bool is_x = arg == Z30R_SCREENDATAENTRYX;
+        const int v = vbound(value / 10000, 0, is_x ? 255 : 175);
+        zasm30_store_set(arg, currmap * MAPSCRS + currscr, 0, v);
+        if(q30_quest_rule(Z30_QR_WRITE_ENTRYPOINTS_AFFECTS_HEROCLASS))
+            Link.setEntryPoints(is_x ? v : Link.getEntryX(), is_x ? Link.getEntryY() : v);
+        return true;
+    }
+    case Z30R_SCREENDATAOCEANSFX:
+    {
+        const int v = vbound(value / 10000, 0, 255);
+        if(tmpscr->oceansfx != v)
+        {
+            stop_sfx(tmpscr->oceansfx);
+            tmpscr->oceansfx = (byte)v;
+            cont_sfx(tmpscr->oceansfx);
+        }
+        return true;
+    }
+
+    case Z30R_MAPDATALAYERMAP:
+    case Z30R_MAPDATALAYERSCREEN:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX - (zasm30_ffscript_version < 11 ? 0 : 1);
+        if(m && n >= 0 && n < 6)
+        {
+            const byte v = (byte)vbound(value / 10000, 0, 255);
+            if(arg == Z30R_MAPDATALAYERMAP) m->layermap[n] = v;
+            else m->layerscreen[n] = v;
+        }
+        return true;
+    }
+    case Z30R_MAPDATAMISCD:
+    {
+        const int mi = z30_mapdata_mi(Z30_REF(MAPDATA));
+        const long n = Z30_INDEX;
+        if(mi >= 0 && mi < MAXDMAPS * MAPSCRSNORMAL && n >= 0 && n < 8)
+            game->screen_d[mi][n] = value / 10000;
+        return true;
+    }
+
+    case Z30R_SETGAMEOVERELEMENT: z30_gameover_write(Z30_INDEX, value / 10000); return true;
+    case Z30R_SETGAMEOVERSTRING: z30_gameover_text_write(Z30_INDEX, value); return true;
 
     // Hero
     case Z30R_LINKHITBY: return true;       // read only upstream too
@@ -2242,11 +2817,6 @@ static bool zasm30_set_register(const long arg, const long value)
     case Z30R_BITMAPHEIGHT:
     case Z30R_CREATEBITMAP:
     case Z30R_DROPSETCHOOSE:
-    case Z30R_SUBDATACURPG:
-    case Z30R_SUBDATAPAGES:
-    case Z30R_SUBDATATRANSCLK:
-    case Z30R_SUBDATATRANSTOPG:
-    case Z30R_SUBWIDGPOSFLAG:
         return zasm30_family_set(arg, value);
 
     default:
@@ -2369,6 +2939,30 @@ void q30_sprite_appearance(sprite *s, int *tile, int *flip, fix *yofs)
     }
 }
 
+// sprite drawing extras for q30_triggers.cpp (engine area): { rotation, scale, whole ScriptFlip,
+// shadow sprite, shadow x offset, shadow y offset } a script set on this sprite.
+void q30_sprite_values(sprite *s, int *v)
+{
+    if(!zasm30_ffscript_version)
+        return;
+
+    if(s == (sprite *)&Link)
+        v[2] = (int)zasm30_hero_script_flip;
+
+    if(Zasm30SpriteState *st = zasm30_sprite_state_if(s->getUID()))
+    {
+        v[0] = (int)st->rotation;
+        v[1] = (int)st->scale;
+
+        if(s != (sprite *)&Link)
+            v[2] = (int)st->script_flip;
+
+        v[3] = (int)st->shadow_spr;
+        v[4] = (int)st->shadow_xofs;
+        v[5] = (int)st->shadow_yofs;
+    }
+}
+
 // Game start: nothing a script set on the player or the input carries over from the last game.
 static void zasm30_reset_register_state()
 {
@@ -2385,6 +2979,28 @@ static void zasm30_reset_register_state()
     memset(zasm30_key_disabled, 0, sizeof(zasm30_key_disabled));
     memset(zasm30_key_was_down, 0, sizeof(zasm30_key_was_down));
     memset(zasm30_button_disabled, 0, sizeof(zasm30_button_disabled));
+    z30_gameover_reset();
+    zasm30_viewport_mode = 0;
+    zasm30_shield_jinx = 0;
+}
+
+// The start of each frame of a newer quest.
+static int zasm30_frame_screen = -1;
+
+static void zasm30_frame_start()
+{
+    if(zasm30_shield_jinx > 0)
+        --zasm30_shield_jinx;
+
+    // Screen->EntryX/Y belong to upstream's copy of the screen, made afresh on arrival.
+    const int index = currmap * MAPSCRS + currscr;
+
+    if(index != zasm30_frame_screen)
+    {
+        zasm30_frame_screen = index;
+        zasm30_store.erase(std::make_pair(std::make_pair((long)Z30R_SCREENDATAENTRYX, (long)index), 0L));
+        zasm30_store.erase(std::make_pair(std::make_pair((long)Z30R_SCREENDATAENTRYY, (long)index), 0L));
+    }
 }
 
 #endif

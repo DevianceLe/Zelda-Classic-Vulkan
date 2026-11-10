@@ -133,6 +133,10 @@ enum { ssiBOMB, ssiSWORD, ssiSHIELD, ssiCANDLE, ssiLETTER, ssiPOTION, ssiLETTERP
 
 static byte deprecated_rules[QUESTRULES_SIZE];
 
+// "Correct Offset Enemy Weapon Collision" as the quest saved it, before readrules forces
+// it on for 2.50.0/2.50.1 quests. weapons.cpp gives those quests the old meaning.
+byte quest_ewpn_offset_rule_saved = 0;
+
 
 void delete_combo_aliases()
 {
@@ -2448,7 +2452,11 @@ int readrules(PACKFILE *f, zquestheader *Header, bool keepdata)
     //al_trace("Rules version %d\n", s_version);
     
     memcpy(deprecated_rules, quest_rules, QUESTRULES_SIZE);
-    
+    quest_ewpn_offset_rule_saved = get_bit(deprecated_rules, qr_OFFSETEWPNCOLLISIONFIX) ? 1 : 0;
+
+    if(keepdata && tempheader.zelda_version == 0x250 && tempheader.build >= 20 && tempheader.build <= 28)
+        al_trace("Offset enemy weapon collision rule as saved: %d (2.50 build %d)\n", quest_ewpn_offset_rule_saved, tempheader.build);
+
     if(s_version<2)
     {
         set_bit(quest_rules,14,0);
@@ -5322,7 +5330,11 @@ int readitems(PACKFILE *f, word version, word build, bool keepdata, bool zgpmode
                 tempitem.speed = itemsbuf[iLetter].speed;
                 tempitem.ltm = itemsbuf[iLetter].ltm;
             }
-            
+
+            // 1.9x stopped heart containers at 16 hearts unless the 24-heart rule (old bit 12) was on.
+            if(version < 0x193 && i==iHeartC && !get_bit(deprecated_rules, 12))
+                tempitem.max = 16*HP_PER_HEART;
+
             if(s_version < 3)
             {
                 switch(i)
@@ -9767,6 +9779,18 @@ darknuts:
 }
 
 
+// Up to 1.92 build 163, warp type 8 was "no warp" and 9 the whistle warp. The wave
+// insta-warp was put at 8 later (somewhere in builds 164-181), moving those two up.
+static byte renumber_old_warp_type(zquestheader *Header, byte type)
+{
+    if(Header->zelda_version < 0x192 || (Header->zelda_version == 0x192 && Header->build <= 163))
+    {
+        if(type == 8) return wtNOWARP;
+        if(type == 9) return wtWHISTLE;
+    }
+    return type;
+}
+
 int readmapscreen(PACKFILE *f, zquestheader *Header, mapscr *temp_mapscr, zcmap *temp_map, word version)
 {
     byte tempbyte, padding;
@@ -9832,7 +9856,8 @@ int readmapscreen(PACKFILE *f, zquestheader *Header, mapscr *temp_mapscr, zcmap 
     {
         return qe_invalid;
     }
-    
+    temp_mapscr->tilewarptype[0] = renumber_old_warp_type(Header, temp_mapscr->tilewarptype[0]);
+
     if(Header->zelda_version < 0x193)
     {
         if(!p_getc(&tempbyte,f,true))
@@ -10129,7 +10154,8 @@ int readmapscreen(PACKFILE *f, zquestheader *Header, mapscr *temp_mapscr, zcmap 
     {
         return qe_invalid;
     }
-    
+    temp_mapscr->sidewarptype[0] = renumber_old_warp_type(Header, temp_mapscr->sidewarptype[0]);
+
     if((Header->zelda_version > 0x211)||((Header->zelda_version == 0x211)&&(Header->build>7)))
     {
         for(int i=1; i<4; i++)
@@ -13566,11 +13592,12 @@ int readinitdata(PACKFILE *f, zquestheader *Header, bool keepdata)
         temp_zinit.linkanimationstyle=get_bit(quest_rules,qr_BSZELDA)?1:0;
     }
     
+    // The old "999 Rupies" rule (1.9x, 2.10) only raised the wallet to 999; the
+    // starting rupees stay as the quest set them.
     if(s_version < 16 && get_bit(deprecated_rules, qr_COOLSCROLL+1))
     {
         //addOldStyleFamily(&temp_zinit, itemsbuf, itype_wallet, 4);   //is this needed?
         temp_zinit.max_rupees=999;
-        temp_zinit.rupies=999;
     }
     
     if(Header->zelda_version < 0x190) //1.84 bugfix. -Z

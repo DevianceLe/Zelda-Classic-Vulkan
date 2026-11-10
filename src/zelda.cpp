@@ -244,10 +244,10 @@ char       palnames[MAXLEVELS][PALNAMESIZE];
 /*
 tiledata   *newtilebuf, *grabtilebuf;
 newcombo   *combobuf;
-word animated_combo_table[MAXCOMBOS][2];                    //[0]=position in act2, [1]=original tile
+int animated_combo_table[MAXCOMBOS][2];                     //[0]=position in act2, [1]=original tile
 word animated_combo_table4[MAXCOMBOS][2];                   //[0]=combo, [1]=clock
 word animated_combos;
-word animated_combo_table2[MAXCOMBOS][2];                    //[0]=position in act2, [1]=original tile
+int animated_combo_table2[MAXCOMBOS][2];                     //[0]=position in act2, [1]=original tile
 word animated_combo_table24[MAXCOMBOS][2];                   //[0]=combo, [1]=clock
 word animated_combos2;
 bool blank_tile_table[NEWMAXTILES];                         //keeps track of blank tiles
@@ -1380,7 +1380,12 @@ int init_game()
     add_nl2bsparkle=false;
     gofast=false;
     //al_trace("Clearing old RenderTarget\n");
-    zscriptDrawingRenderTarget->SetCurrentRenderTarget(q30_scripts_active() ? -1 : 0); //clear the last set Rendertarget between games
+    // Clear the last set render target between games, back to the screen (-1).
+    // The 2.53 build this port started from cleared it to 0, an off-screen
+    // bitmap, so every script drawing in a 2.53-or-older quest was invisible
+    // until the script picked a target itself; upstream fixed that two days
+    // later (89e1373d, "old ghosted enemies were invisible") and 2.53.1 ships -1.
+    zscriptDrawingRenderTarget->SetCurrentRenderTarget(-1);
     
     cheat=0;
     wavy=quakeclk=0;
@@ -1725,6 +1730,10 @@ int init_game()
     
     if(!get_bit(quest_rules,qr_SELECTAWPN))
     {
+        // Nothing else sets these without qr_SELECTAWPN, so don't keep an item from
+        // a quest played earlier in this session on the A button.
+        directItem = -1;
+        directItemA = -1;
         Awpn = selectSword();
         apos = -1;
         bpos = selectWpn_new(SEL_VERIFY_RIGHT, usesaved ? game->bwpn : 0xFF, -1);

@@ -88,6 +88,28 @@ static inline bool q30_no_gridlock()
 // Which layer 1 and 2 combos this sword swing has already cut (qr_BUSHESONLAYERS1AND2).
 static byte q30_layer_grid[2][22];
 
+// 2.55+ slopes are ground in sideview. q30_slope_under is false at once on a screen with none.
+#undef ON_SIDEPLATFORM
+#define ON_SIDEPLATFORM (_walkflag(x+4,y+16,0) || (y>=160 && currscr>=0x70 && !(tmpscr->flags2&wfDOWN)) || q30_slope_under(0, false))
+
+// Link's slope state (upstream keeps these in the sprite): where his box was when this
+// frame began, the gradient of the slope he stands on, and how long that holds.
+static int q30_slope_ox = 0, q30_slope_oy = 0;
+static int q30_slopeid = 0;
+static int q30_onplatid = 0;
+static bool q30_platformfell = false;
+static FILE *q30_slope_trace = NULL;     // ZC_SLOPE_TRACE
+
+static inline int q30_raw(fix v)
+{
+    return (int)floor(double(v) * 10000 + 0.5);
+}
+
+static inline int q30_sign(int v)
+{
+    return v < 0 ? -1 : 1;
+}
+
 int LinkClass::DrunkClock()
 {
     return drunkclk;
@@ -113,6 +135,9 @@ bool is_moving()
     return DrunkUp()||DrunkDown()||DrunkLeft()||DrunkRight();
 }
 
+bool q30_shield_jinxed();            // q30_scripts_regs.h: a newer quest's script jinxed the shield
+void q30_shield_jinx_reset(bool all);
+
 // called by ALLOFF()
 void LinkClass::resetflags(bool all)
 {
@@ -126,6 +151,8 @@ void LinkClass::resetflags(bool all)
     if(itemclk>0 || all)
         itemclk=0;
         
+    q30_shield_jinx_reset(all);     // newer quests' shield jinx (q30_scripts_regs.h)
+    
     if(all)
     {
         NayrusLoveShieldClk=0;
@@ -1119,8 +1146,8 @@ void LinkClass::draw(BITMAP* dest)
     int oxofs, oyofs;
     bool shieldModify = false;
     
-    bool invisible=dontdraw || (tmpscr->flags3&fINVISLINK);
-    
+    bool invisible=dontdraw || (tmpscr->flags3&fINVISLINK) || q30_switchhook_hide_link();
+
     if(action==dying)
     {
         if(!invisible)
@@ -1136,10 +1163,10 @@ void LinkClass::draw(BITMAP* dest)
     
     oxofs=xofs;
     oyofs=yofs;
-    
+
     if(!invisible)
-        yofs = oyofs-((!BSZ && isdungeon() && currscr<128 && !get_bit(quest_rules,qr_LINKDUNGEONPOSFIX)) ? 2 : 0);
-        
+        yofs = oyofs-((!BSZ && isdungeon() && currscr<128 && !get_bit(quest_rules,qr_LINKDUNGEONPOSFIX)) ? 2 : 0)-q30_switchhook_rise();
+
     // Stone of Agony
     bool agony=false;
     int agonyid = current_item_id(itype_agony);
@@ -2099,6 +2126,10 @@ void LinkClass::checkstab()
             {
                 if(((item*)items.spr(j))->clk2 >= 32)
                 {
+                    // 2.55+ bottle fillers can't be taken without an empty bottle to fill
+                    if(q30_item_family(items.spr(j)->id) == 271 && q30_active() && !q30_has_bottle(0))
+                        continue;
+
                     if(items.spr(j)->hit(wx,wy,z,wxsz,wysz,1) || (attack==wWand && items.spr(j)->hit(x,y-8,z,wxsz,wysz,1))
                             || (attack==wHammer && items.spr(j)->hit(x,y-8,z,wxsz,wysz,1)))
                     {
@@ -2140,7 +2171,9 @@ void LinkClass::checkstab()
     
     if(attack==wSword)
     {
-        if(attackclk == 6)
+        // 2.10 quests: forget the cut tiles on every frame of the swing, so sword
+        // triggers and slashable secret combos are checked again each frame.
+        if(attackclk == 6 || quest_header_zelda_version == 0x210)
         {
             for(int q=0; q<176; q++)
             {
@@ -2367,12 +2400,27 @@ void LinkClass::check_slash_block(int bx, int by)
     }
     
     mapscr *s = tmpscr + ((currscr>=128) ? 1 : 0);
-    
+
     int sworditem = (directWpn>-1 && itemsbuf[directWpn].family==itype_sword) ? itemsbuf[directWpn].fam_type : current_item(itype_sword);
-    
-    if(!ignorescreen)
+    bool plain_cut = false; // cut to its undercombo (not a secret or trigger flag)
+    int q30_nextskip = q30_slash_next_skip(type);  // 2.55+ ->Next combos: 1 skip the 16-31 secret, 2 skip every flag
+
+    if(!ignorescreen && q30_nextskip == 2)
     {
-        if((flag >= 16)&&(flag <= 31))
+        plain_cut = true;
+
+        if(isCuttableNextType(type))
+            s->data[i]++;
+        else
+        {
+            s->data[i] = s->undercombo;
+            s->cset[i] = s->undercset;
+            s->sflag[i] = 0;
+        }
+    }
+    else if(!ignorescreen)
+    {
+        if((flag >= 16)&&(flag <= 31)&&q30_nextskip == 0)
         {
             s->data[i] = s->secretcombo[(s->sflag[i])-16+4];
             s->cset[i] = s->secretcset[(s->sflag[i])-16+4];
@@ -2418,6 +2466,8 @@ void LinkClass::check_slash_block(int bx, int by)
         }
         else
         {
+            plain_cut = true;
+
             if(isCuttableNextType(type))
             {
                 s->data[i]++;
@@ -2428,7 +2478,7 @@ void LinkClass::check_slash_block(int bx, int by)
                 s->cset[i] = s->undercset;
                 s->sflag[i] = 0;
             }
-            
+
             //pausenow=true;
         }
     }
@@ -2457,7 +2507,9 @@ void LinkClass::check_slash_block(int bx, int by)
     
     if(!ignorescreen)
     {
-        if(!isTouchyType(type) && !emulation_patches[emuSWORDTRIGARECONTINUOUS]) set_bit(screengrid,i,1);
+        // 2.10 only remembered plain cuts, and only for the rest of that frame.
+        if(quest_header_zelda_version == 0x210 ? plain_cut
+           : (!isTouchyType(type) && !emulation_patches[emuSWORDTRIGARECONTINUOUS])) set_bit(screengrid,i,1);
         
         if((flag==mfARMOS_ITEM||flag2==mfARMOS_ITEM) && !getmapflag())
         {
@@ -2801,7 +2853,7 @@ int LinkClass::EwpnHit()
                 return i;
             }
             
-            int itemid = current_item_id(itype_shield);
+            int itemid = q30_shield_jinxed() ? -1 : current_item_id(itype_shield);
             
             if(itemid<0 || !checkmagiccost(itemid)) return i;
             
@@ -2944,7 +2996,7 @@ int LinkClass::LwpnHit()                                    //only here to check
                 break;
             }
             
-            int itemid = current_item_id(itype_shield);
+            int itemid = q30_shield_jinxed() ? -1 : current_item_id(itype_shield);
             bool reflect = false;
             
             switch(lw->id)
@@ -3721,6 +3773,7 @@ bool LinkClass::animate(int)
     int lsave=0;
 
     q30_cutscene_input();
+    q30_slopes_begin();
 
     if(do_cheat_goto)
     {
@@ -3766,6 +3819,8 @@ bool LinkClass::animate(int)
         
     if(isSideview())  // Sideview gravity
     {
+        q30_slope_fall_through();
+
         // Fall, unless on a ladder, rafting, using the hookshot, drowning or cheating.
         if(!(toogam && Up()) && !drownclk && action!=rafting && !pull_link && !((ladderx || laddery) && fall>0))
         {
@@ -3791,11 +3846,13 @@ bool LinkClass::animate(int)
         }
         
         // Stop hovering/falling if you land on something.
-        if(ON_SIDEPLATFORM && !(pull_link && dir==down) && action!=rafting)
+        if(ON_SIDEPLATFORM && !(pull_link && dir==down) && action!=rafting && !q30_platformfell)
         {
             stop_item_sfx(itype_hoverboots);
             fall = hoverclk = jumping = 0;
-            y-=(int)y%8; //fix position
+
+            if(!q30_slope_under(0, false))  // a slope keeps Link where it holds him
+                y-=(int)y%8; //fix position
             
             if(y>=160 && currscr>=0x70 && !(tmpscr->flags2&wfDOWN))  // Landed on the bottommost screen.
                 y = 160;
@@ -3993,7 +4050,8 @@ bool LinkClass::animate(int)
         if(hookshot_used==true)
         {
             action=freeze;
-            
+            q30_switchhook_tick();  // 2.55+: a switch hook switch in progress
+
             if(pull_link==true)
             {
                 sprite *t;
@@ -4161,6 +4219,10 @@ bool LinkClass::animate(int)
     
     q30_hero_hit_clear();
     checkhit();
+
+    // A newer quest's revive bottle (a fairy in a bottle) is drunk before Link dies.
+    if(game->get_life()<=0 && !q30_hero_immortal() && q30_active())
+        q30_bottle_revive();
 
     if(game->get_life()<=0 && !q30_hero_immortal())
     {
@@ -4359,7 +4421,9 @@ bool LinkClass::animate(int)
     default:
         movelink();                                           // call the main movement routine
     }
-    
+
+    q30_slopes_snap_down();
+
     // check for ladder removal
     if(diagonalMovement||q30_no_gridlock())
     {
@@ -4570,9 +4634,11 @@ bool LinkClass::animate(int)
                 dowarp(1,ind);
             }
         }
-        
+
     }
-    
+
+    q30_slopes_push();
+
     if(ffwarp)
     {
         if(ffpit)
@@ -5232,11 +5298,12 @@ bool LinkClass::startwpn(int itemid)
     case itype_hookshot:
         if(inlikelike || Lwpns.idCount(wHookshot))
             return false;
-            
+
         if(!checkmagiccost(itemid))
             return false;
-            
-        paymagiccost(itemid);
+
+        if(!q30_switchhook_defer_cost(itemid))  // 2.55+ switch hook "Cost on Swap"
+            paymagiccost(itemid);
         
         for(int i=-1; i<(q30_quest_rule(Q30_QR_HOOKSHOTALLLAYER)?6:2); i++)
         {
@@ -7753,9 +7820,11 @@ LEFTRIGHT:
 // 2.53 path, which is what deploys them: when a step is blocked, walkflag() is asked as
 // well, so water and ladder entry keep working.
 
+// upstream's zfix_round as scr_walkflag uses it: ROUND_TRUNC. Rounding to nearest made
+// y+15.9999 land on the row below, so Link standing on a floor couldn't walk sideways.
 static inline int q30_round(double v)
 {
-    return (int)floor(v + 0.5);
+    return (int)(v + (v < 0 ? -0.00001 : 0.00001));
 }
 
 bool LinkClass::q30_walk_solid(double wx, double wy, int d2)
@@ -8235,6 +8304,394 @@ void LinkClass::q30_free_walk(int push)
 
 // qr_BETTER_RAFT: a dock whose raft path doesn't lead the way Link faces can still start
 // the raft along whichever direction does have a raft flag.
+// ---- 2.55+ slopes: upstream's hero.cpp slope handling ------------------------------
+// Every function returns at once on a screen without slopes, so 2.53 quests never get here.
+// Positions are zfix raw values (1/10000 pixel), as in q30_triggers.cpp's slope code.
+
+void LinkClass::q30_slope_box(int yofs, int &bx, int &by, int &bw, int &bh)
+{
+    bx = q30_raw(x);
+    by = q30_raw(y) + (bigHitbox ? 0 : 80000) + yofs;
+    bw = 160000;
+    bh = bigHitbox ? 160000 : 80000;
+}
+
+// The start of Link's frame: upstream's old_x and old_y.
+// Test aids for 2.55+ quests: ZC_SLOPE_TEST="dmap,screen,x,y" warps there on the first frame
+// of play (the Goto cheat's way) and puts Link at x,y; ZC_SLOPE_TRACE=file logs Link on
+// screens with slopes.
+void LinkClass::q30_slopes_begin()
+{
+    static int test = -1, tdmap = 0, tscr = 0, tx = 0, ty = 0;
+
+    q30_platformfell = false;
+
+    if(!q30_active())
+        return;
+
+    if(test < 0)
+    {
+        const char *t = getenv("ZC_SLOPE_TEST");
+        test = (t && sscanf(t, "%d,%d,%d,%d", &tdmap, &tscr, &tx, &ty) == 4) ? 1 : 0;
+
+        if(test)
+        {
+            cheat_goto_dmap = tdmap;
+            cheat_goto_screen = tscr;
+            do_cheat_goto = true;
+        }
+
+        const char *tr = getenv("ZC_SLOPE_TRACE");
+        q30_slope_trace = tr ? fopen(tr, "w") : NULL;
+    }
+    else if(test == 1 && currdmap == tdmap)
+    {
+        x = tx;
+        y = ty;
+        fall = 0;
+        test = 2;
+
+        // more test aids: ZC_TEST_ITEMS="id,id" gives items, ZC_TEST_BITEM=id puts one on B,
+        // ZC_TEST_LIFE / ZC_TEST_RUPEES set those, ZC_TEST_BOTTLE="slot,type" fills a bottle slot
+        if(const char *gi = getenv("ZC_TEST_ITEMS"))
+            for(const char *p = gi; *p;)
+            {
+                int id = atoi(p);
+
+                if(id > 0 && id < MAXITEMS)
+                    getitem(id, true);
+
+                while(*p && *p != ',')
+                    ++p;
+
+                if(*p)
+                    ++p;
+            }
+
+        if(const char *gb = getenv("ZC_TEST_BITEM"))
+            Bwpn = directItemB = atoi(gb);
+
+        if(const char *gl = getenv("ZC_TEST_LIFE"))
+            game->set_life((word)atoi(gl));
+
+        if(const char *gr = getenv("ZC_TEST_RUPEES"))
+            game->set_rupies((word)atoi(gr));
+
+        int bslot = 0, btype = 0, did = 0, dx = 0, dy = 0;
+
+        if(const char *gd = getenv("ZC_TEST_DROP"))     // "id,x,y": an item on the ground
+            if(sscanf(gd, "%d,%d,%d", &did, &dx, &dy) == 3 && did > 0 && did < MAXITEMS)
+                additem(dx, dy, did, 0);
+
+        if(const char *gs = getenv("ZC_TEST_BOTTLE"))
+            if(sscanf(gs, "%d,%d", &bslot, &btype) == 2)
+                q30_set_bottle_slot(bslot, btype);
+
+        // the screen's solidity by quarter tiles: # solid, / slope, . open
+        for(int r = 0; q30_slope_trace && r < 22; ++r)
+        {
+            char row[33];
+
+            for(int c = 0; c < 32; ++c)
+            {
+                bool sl = q30_check_slope((c * 8) * 10000, (r * 8) * 10000, 80000, 80000, false, false) != 0;
+                row[c] = sl ? '/' : _walkflag(c * 8 + 4, r * 8 + 4, 1) ? '#' : '.';
+            }
+
+            row[32] = 0;
+            fprintf(q30_slope_trace, "map %2d %s\n", r * 8, row);
+        }
+    }
+
+    static FILE *link_trace = getenv("ZC_LINK_TRACE") ? fopen(getenv("ZC_LINK_TRACE"), "w") : NULL;  // diagnostics
+
+    if(link_trace)
+    {
+        fprintf(link_trace, "%d scr %d x %.4f y %.4f dir %d action %d keys %d%d%d%d ctype %d conv %d\n", frame, currscr, double(x), double(y), dir, int(action),
+                Up(), Down(), Left(), Right(), COMBOTYPE(x+7,y+(bigHitbox?8:12)), is_on_conveyor ? 1 : 0);
+        fflush(link_trace);
+    }
+
+    if(q30_slope_trace && getenv("ZC_TEST_ITEMS") && test == 2)
+    {
+        fprintf(q30_slope_trace, "%d scr %d x %.1f y %.1f life %d rupies %d action %d bottles %d %d %d %d B %d keys %d%d%d%d\n", frame, currscr, double(x), double(y),
+                game->get_life(), game->get_rupies(), int(action), q30_bottle_slot(0), q30_bottle_slot(1), q30_bottle_slot(2), q30_bottle_slot(3), Bwpn,
+                Up(), Down(), Left(), Right());
+        fflush(q30_slope_trace);
+    }
+    else if(q30_slope_trace && q30_slopes_here())
+    {
+        fprintf(q30_slope_trace, "%d scr %d x %.4f y %.4f fall %d jump %d slopeid %d onplat %d action %d keys %d%d%d%d\n", frame, currscr,
+                double(x), double(y), int(fall), jumping, q30_slopeid, q30_onplatid, int(action), Up(), Down(), Left(), Right());
+        fflush(q30_slope_trace);
+    }
+
+    q30_slope_ox = q30_raw(x);
+    q30_slope_oy = q30_raw(y) + (bigHitbox ? 0 : 80000);
+}
+
+// Standing on a slope in sideview (the slope test of upstream's on_sideview_solid_oldpos).
+bool LinkClass::q30_slope_under(int yofs, bool fallthrough)
+{
+    if(!q30_slopes_here() || !isSideview())
+        return false;
+
+    int bx, by, bw, bh;
+    q30_slope_box(yofs + 1, bx, by, bw, bh);
+    return q30_check_new_slope(bx, by, bw, bh, q30_slope_ox, q30_slope_oy, fallthrough, true, q30_slopeid) < 0;
+}
+
+// upstream's platform_fallthrough
+bool LinkClass::q30_fallthrough_input()
+{
+    if(!(q30_quest_rule(181) ? DrunkDown() : Down()))
+        return false;
+
+    if(q30_quest_rule(180))     // qr_DOWN_FALL_THROUGH_SIDEVIEW_PLATFORMS
+        return true;
+
+    if(jumping < 0 && q30_quest_rule(183))
+        return true;
+
+    // about to step onto a slope: a full 16x16 box at Link's own position
+    int hx = q30_raw(x), hy = q30_raw(y), oy = q30_slope_oy - (bigHitbox ? 0 : 80000);
+
+    if(q30_check_new_slope(hx, hy + 1, 160000, 160000, q30_slope_ox, oy, false, true, 0) < 0)
+        return false;
+
+    return q30_check_new_slope(hx, hy + 10001, 160000, 160000, q30_slope_ox, oy, false, true, 0) < 0
+        || q30_check_new_slope(hx, hy + 20001, 160000, 160000, q30_slope_ox, oy, false, true, 0) < 0;
+}
+
+// upstream's on_sideview_solid_oldpos: misc 1 leaves slopes out, 2 tests only slopes, 3 lets
+// slopes marked to fall through be fallen through.
+bool LinkClass::q30_sideview_solid(int yofs, bool ignore_fallthrough, int misc)
+{
+    int bx, by, bw, bh;
+    q30_slope_box(yofs + 1, bx, by, bw, bh);
+
+    if(misc != 1 && q30_check_new_slope(bx, by, bw, bh, q30_slope_ox, q30_slope_oy, misc == 3, true, q30_slopeid) < 0)
+        return true;
+
+    if(misc == 2)
+        return false;
+
+    double fy = double(y) + yofs / 10000.0;
+    int ix = q30_round(double(x)), iy = q30_round(fy);     // truncated, as upstream's zfix_round
+
+    if(_walkflag(ix + 4, iy + 16, 1) || _walkflag(ix + 12, iy + 16, 1))
+        return true;
+
+    if(fy >= 160 && currscr >= 0x70 && !(tmpscr->flags2 & wfDOWN))
+        return true;
+
+    if(!ignore_fallthrough && q30_fallthrough_input())
+        return false;
+
+    return misc != 1 && q30_check_new_slope(bx, by, bw, bh, q30_slope_ox, q30_slope_oy, false, true, q30_slopeid) < 0;
+}
+
+// upstream's push_move: a pixel at a time, stopping at solid combos. Bit 1: x was blocked, 2: y.
+int LinkClass::q30_push_move(int dx, int dy)
+{
+    int ret = 0;
+
+    for(int guard = 0; (dx || dy) && guard < 4096; ++guard)
+    {
+        if(dy)
+        {
+            int cy = abs(dy) >= 10000 ? q30_sign(dy) * 10000 : dy;
+            dy -= cy;
+
+            if(q30_can_move(0, cy / 10000.0))
+                y = fix(double(y) + cy / 10000.0);
+            else
+            {
+                dy = 0;
+                ret |= 2;
+            }
+        }
+
+        if(dx)
+        {
+            int cx = abs(dx) >= 10000 ? q30_sign(dx) * 10000 : dx;
+            dx -= cx;
+
+            if(q30_can_move(cx / 10000.0, 0))
+                x = fix(double(x) + cx / 10000.0);
+            else
+            {
+                dx = 0;
+                ret |= 1;
+            }
+        }
+    }
+
+    return ret;
+}
+
+// Sideview: a slope marked to fall through lets go when Down is held.
+void LinkClass::q30_slope_fall_through()
+{
+    if(!q30_slopes_here() || toogam)
+        return;
+
+    if(q30_sideview_solid(0, true, 3) && !q30_sideview_solid(0, false, 3))
+    {
+        y += 1;
+
+        if(fall < 0)
+            fall = 0;
+
+        if(jumping < 0)
+            jumping = 0;
+
+        q30_platformfell = true;
+    }
+}
+
+// Sideview, after walking: follow a slope down rather than step off it into the air.
+void LinkClass::q30_slopes_snap_down()
+{
+    if(!q30_slopes_here() || !isSideview() || !q30_slopeid || toogam)
+        return;
+
+    if(hoverclk >= 1 || fall != 0 || q30_sideview_solid(0, false, 0))
+        return;
+
+    int dy = 0;
+
+    for(int q = 0; q <= 4; ++q)
+        if(q30_sideview_solid(q * 10000, false, 0))
+        {
+            dy = q * 10000;
+            break;
+        }
+
+    // upstream's binary_search_zfix for the nearest offset that stands
+    int b1 = 0, b2 = dy, ret = 0, len = dy;
+
+    for(bool running = true; running;)
+    {
+        int val = b1 + len / 2;
+
+        if(len <= 0)
+        {
+            running = false;
+            val = b1;
+        }
+
+        if(q30_sideview_solid(val, false, 0))
+        {
+            ret = val;
+
+            if(b2 == val)
+                break;
+
+            b2 = val;
+        }
+        else
+        {
+            if(b1 == val)
+                break;
+
+            b1 = val;
+        }
+
+        len = b2 - b1;
+    }
+
+    if(ret)
+        q30_push_move(0, ret);
+}
+
+// After moving: ride a moving or slippery slope, then get out of any slope Link walked into.
+void LinkClass::q30_slopes_push()
+{
+    if(!q30_slopes_here())
+        return;
+
+    bool sv = isSideview();
+    int bx, by, bw, bh, dx = 0, dy = 0;
+
+    if(sv && !toogam && !q30_sideview_solid(0, false, 1) && q30_sideview_solid(0, false, 2))
+    {
+        q30_slope_box(0, bx, by, bw, bh);
+
+        if(q30_slide_slope(bx, by, bw, bh, dx, dy, q30_slopeid))
+        {
+            q30_onplatid = 1;
+
+            if(dx || dy)
+                q30_push_move(dx, dy);
+        }
+    }
+
+    if(q30_onplatid <= 0)
+        q30_slopeid = 0;
+    else
+        --q30_onplatid;
+
+    if(toogam)
+        return;
+
+    bool onplatform = q30_sideview_solid(0, false, 1) && !Up();
+
+    for(int q = 0; q < 2; ++q)
+    {
+        q30_slope_box(0, bx, by, bw, bh);
+
+        if(!q30_check_new_slope(bx, by, bw, bh, q30_slope_ox, q30_slope_oy, false, false, 0))
+            break;
+
+        int slot = q30_get_new_slope(bx, by, bw, bh, q30_slope_ox, q30_slope_oy);
+        int sl = q30_slope_value(slot);
+        bool staircheck = (sl != q30_slopeid && q30_slopeid) || onplatform;
+        dx = dy = 0;
+        q30_slope_push(slot, bx, by, bw, bh, sv, dx, dy, staircheck, q30_platformfell);
+
+        if(!dx && !dy)
+            continue;
+
+        if(q30_slope_trace)
+            fprintf(q30_slope_trace, "  push slot %d dx %d dy %d\n", slot, dx, dy);
+
+        // upstream's reset_hookshot leaves a walking Link walking; 2.53's doesn't
+        actiontype was = action;
+        reset_hookshot();
+
+        if(was == walking)
+            action = walking;
+
+        int pushret = q30_push_move(dx, dy);
+        onplatform = q30_sideview_solid(0, false, 1) && !Up();
+
+        if(onplatform)
+            staircheck = true;
+
+        if(sv && q30_slopeid)
+            q30_onplatid = 0;
+
+        if(pushret == 1)
+        {
+            q30_slope_box(0, bx, by, bw, bh);
+            dx = -10000;
+            dy = 0;
+            q30_slope_push(slot, bx, by, bw, bh, sv, dx, dy, staircheck, false);
+            q30_push_move(0, dy);
+        }
+
+        if(pushret == 2)
+        {
+            q30_slope_box(0, bx, by, bw, bh);
+            dx = 0;
+            dy = -10000;
+            q30_slope_push(slot, bx, by, bw, bh, sv, dx, dy, staircheck, false);
+            q30_push_move(dx, 0);
+        }
+    }
+}
+
 void LinkClass::q30_board_raft(int tx, int ty)
 {
     int cx = (tx+8)&0xF0, cy = (ty+8)&0xF0;
@@ -9680,7 +10137,7 @@ void LinkClass::checklocked()
 	if ( (diagonalMovement||q30_no_gridlock()) && pushing < 8 ) return; //Allow wall walking Should I add a quest rule for this? -Z
     
 	
-	bool found;
+	bool found = false;
 	for ( int q = 0; q < 4; q++ ) {
 		if ( tmpscr->door[q] == dLOCKED || tmpscr->door[q] == dBOSS ) { found = true; }
 	}
@@ -10597,6 +11054,15 @@ void LinkClass::checkspecial()
 
 void LinkClass::checkspecial2(int *ls)
 {
+    // 2.10 quests: the arrival spot only stays safe while Link stands exactly on it.
+    // Any step off it, aligned or not, ends the protection (2.10 checked this before
+    // its alignment test).
+    const bool warp210 = quest_header_zelda_version <= 0x210;
+    const bool on_warp210 = warp210 && warpy!=-1 && warpx!=-1
+                            && (int(y)&0xF8)==warpy && x==warpx;
+    if(warp210 && !on_warp210 && !toogam)
+        warpy=255;
+
     if(get_bit(quest_rules,qr_OLDSTYLEWARP) && !diagonalMovement)
     {
         if(int(y)&7)
@@ -10717,7 +11183,12 @@ void LinkClass::checkspecial2(int *ls)
     }
     
     // check if he's standing on a warp he just came out of
-    if(((int)y>=warpy-8&&(int)y<=warpy+7)&&warpy!=-1)
+    if(warp210)
+    {
+        if(on_warp210)
+            return;
+    }
+    else if(((int)y>=warpy-8&&(int)y<=warpy+7)&&warpy!=-1)
     {
         if(((int)x>=warpx-8&&(int)x<=warpx+7)&&warpx!=-1)
         {
@@ -13900,13 +14371,18 @@ void LinkClass::scrollscr(int scrolldir, int destscr, int destdmap)
     
     lstep = (lstep + 6) % 12;
     cx = scx;
-    
-    if(global_wait)
+
+    // 2.50.0 and 2.50.1 (build < 29) left a pending post-Waitdraw part of the global
+    // script to the scroll loop below, which runs it on the new screen and keeps
+    // global_wait set until the frame after the scroll. 2.50.2 ran it here, on the old screen.
+    const bool waitdraw_old250 = quest_header_zelda_version == 0x250 && quest_header_zelda_build < 29;
+
+    if(global_wait && !waitdraw_old250)
     {
         ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_GAME);
         global_wait=false;
     }
-    
+
     do
     {
         draw_screen(tmpscr);
@@ -13925,9 +14401,10 @@ void LinkClass::scrollscr(int scrolldir, int destscr, int destdmap)
         ++cx;
     }
     while(cx < 32);
-    
-    script_drawing_commands.Clear();
-    
+
+    if(!waitdraw_old250)
+        script_drawing_commands.Clear();
+
     if((DMaps[currdmap].type&dmfTYPE)==dmCAVE)
         markBmap(scrolldir);
         
@@ -14186,7 +14663,9 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
             action = scrolling;
             ZScriptVersion::RunScrollingScript(scrolldir, cx, sx, sy, end_frames);
             action = lastaction;
-            global_wait=false;
+
+            if(!waitdraw_old250)
+                global_wait=false;
         }
 
         q30_item_scripts_tick(true);
@@ -15360,6 +15839,10 @@ void getitem(int id, bool nosound)
         return;
     }
 
+    // A newer quest's bottle filler pours its bottle type (misc1) into an empty bottle.
+    if(q30_active() && q30_item_family(id) == 271 && itemsbuf[id].misc1)
+        q30_fill_bottle((int)itemsbuf[id].misc1);
+
     // A bundle in a newer quest hands over each item it lists.
     if(q30_item_family(id) == 275)
     {
@@ -15657,7 +16140,13 @@ void LinkClass::checkitems(int index)
     
     if(index==-1)
     {
-        if(diagonalMovement)
+        int ibx, iby, ibw, ibh;
+
+        if(q30_item_box(bigHitbox, &ibx, &iby, &ibw, &ibh))     // newer quests: Link's item box
+        {
+            index=items.hit(x+ibx,y+iby,z,ibw,ibh,1);
+        }
+        else if(diagonalMovement)
         {
             index=items.hit(x,y+(bigHitbox?0:8),z,6,6,1);
         }
@@ -15673,7 +16162,13 @@ void LinkClass::checkitems(int index)
     int pickup = ((item*)items.spr(index))->pickup;
     int PriceIndex = ((item*)items.spr(index))->PriceIndex;
     int id2 = ((item*)items.spr(index))->id;
-    
+    int q30_shop = -1;
+    const bool q30_bottle_buy = (pickup&ipCHECK) && PriceIndex > -1 && q30_bottle_shop_here(&q30_shop);
+
+    // 2.55+ bottle fillers, and what a bottle shop sells, need an empty bottle to go in
+    if((q30_bottle_buy || (q30_active() && q30_item_family(id2) == 271)) && !q30_has_bottle(0))
+        return;
+
     if((pickup&ipTIMER) && (((item*)items.spr(index))->clk2 < 32))
         if((items.spr(index)->id!=iFairyMoving)&&(items.spr(index)->id!=iFairyMoving))
             // wait for it to stop flashing, doesn't check for other items yet
@@ -15759,10 +16254,42 @@ void LinkClass::checkitems(int index)
                 if(((item*)items.spr(i))->PriceIndex >-1 && i!=index)
                     ((item*)items.spr(i))->pickup=ipDUMMY+ipFADE;
             }
-            
+
             break;
         }
-        
+
+    // 2.55+ bottle shop: pay, fill an empty bottle, and hold that bottle up (upstream's bottledummy)
+    if(q30_bottle_buy)
+    {
+        if(prices[PriceIndex]!=100000) // 100000 is a placeholder price for free items
+        {
+            if(game->get_spendable_rupies()<abs(prices[PriceIndex]) && !current_item_power(itype_wallet))
+                return;
+
+            if(!current_item_power(itype_wallet))
+                game->change_drupy(-abs(prices[PriceIndex]));
+        }
+
+        boughtsomething=true;
+
+        for(int i=0; i<items.Count(); i++)
+        {
+            if(((item*)items.spr(i))->PriceIndex >-1 && i!=index)
+                ((item*)items.spr(i))->pickup=ipDUMMY+ipFADE;
+        }
+
+        const Q30BottleShop *bs = q30_bottle_shop(q30_shop);
+        int bottle = q30_bottle_item_for_slot(q30_fill_bottle(bs ? bs->fill[PriceIndex] : 0));
+
+        if(bottle >= 0)
+        {
+            id2 = bottle;
+            items.spr(index)->id = bottle;
+        }
+
+        pickup |= ipHOLDUP;
+    }
+
     if(pickup&ipONETIME)    // set mITEM for one-time-only items
     {
 		setmapflag(mITEM);

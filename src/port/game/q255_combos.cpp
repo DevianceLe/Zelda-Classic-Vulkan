@@ -956,6 +956,9 @@ static bool combo_needs_entry(const newcombo &c, const Q30Combo &x)
     return false;
 }
 
+// The combo section's version, which some game behaviour depends on (q30_slash_next_skip).
+int q255_combo_section_version = 0;
+
 int q255_read_combos(Q255Section &s)
 {
     const word v = s.version;
@@ -974,9 +977,13 @@ int q255_read_combos(Q255Section &s)
 
     const int combos_used = s.igetw();
 
-    // Upstream's v<67 fix is skipped for quests saved by 2.55.14 and later, but the
-    // header's patch number isn't kept. Those quests are v67+ from that version on anyway.
-    const bool post_v14_patch = false;
+    if(s.keep)
+        q255_combo_section_version = v;
+
+    // Upstream's v<67 fix is skipped for quests saved by 2.55.14 and later: the 2.55 release
+    // line kept writing its own, lower, combo section versions after it fixed this.
+    extern int q255_header_version[3];
+    const bool post_v14_patch = q255_header_version[0] == 2 && q255_header_version[1] == 55 && q255_header_version[2] >= 14;
 
     for(int i = 0; i < combos_used && !s.failed; ++i)
     {

@@ -11,6 +11,7 @@
 #include "precompiled.h" //always first
 
 #include "port/game/q30_scripts.h"
+#include "port/game/q30_triggers.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -44,8 +45,38 @@ extern byte emulation_patches[emuLAST];
 extern word quest_header_zelda_version;
 extern word quest_header_zelda_build;
 
+// Quests saved by 1.92 or 2.10 (behaviour checked in the 1.92 b114 and 2.10 sources).
+static bool quest_192_210()
+{
+    return quest_header_zelda_version > 0x190 && quest_header_zelda_version < 0x211;
+}
+
+// 2.50.0, 2.50.1 and the 2.50 betas, including the 2.50-era 0x211 quests.
+static bool quest_250_before_build29()
+{
+    return quest_header_zelda_version == 0x211
+           || (quest_header_zelda_version == 0x250 && quest_header_zelda_build < 29);
+}
+
 void never_return(int index);
 void playLevelMusic();
+
+bool q30_slopes_here();
+int q30_check_slope(int tx, int ty, int tw, int th, bool fallthrough, bool platformonly);
+
+// 2.55+ slopes hold enemies up in sideview, as upstream's isOnSideviewPlatform does
+// (a 16x16 box one pixel lower touching any slope). False at once on a screen with none.
+static bool q30_enemy_on_slope(fix ex, fix ey)
+{
+    if(!q30_slopes_here())
+        return false;
+
+    int rx = (int)floor(double(ex) * 10000 + 0.5), ry = (int)floor(double(ey) * 10000 + 0.5);
+    return q30_check_slope(rx, ry + 10000, 160000, 160000, false, false) != 0;
+}
+
+#undef ON_SIDEPLATFORM
+#define ON_SIDEPLATFORM (_walkflag(x+4,y+16,0) || (y>=160 && currscr>=0x70 && !(tmpscr->flags2&wfDOWN)) || q30_enemy_on_slope(x,y))
 
 // If an enemy is this far out of the playing field, just remove it.
 #define OUTOFBOUNDS ((int)y>((tmpscr->flags7&fSIDEVIEW && canfall(id))?192:352) || y<-176 || x<-256 || x > 512)
@@ -451,7 +482,7 @@ bool enemy::animate(int index)
             }
             else
             {
-                if(fall!=0)   // Only fix pos once
+                if(fall!=0 && !q30_enemy_on_slope(x,y))   // Only fix pos once
                     y-=(int)y%8; // Fix position
                     
                 fall = 0;
@@ -6380,9 +6411,10 @@ bool eStalfos::animate(int index)
         {
             hp=-1000;
 //        weapon *ew=new weapon(x,y,z, ewBomb, 0, d->wdp, dir);
-            weapon *ew=new weapon(x,y,z, wpn, 0, dmisc4, dir,-1,getUID(),false);
+            // 2.50.0/2.50.1: the death blast does the enemy's weapon damage.
+            weapon *ew=new weapon(x,y,z, wpn, 0, quest_250_before_build29() ? wdp : dmisc4, dir,-1,getUID(),false);
             Ewpns.add(ew);
-            
+
             if(wpn==ewSBomb || wpn==ewBomb)
             {
                 ew->step=0;
@@ -6390,7 +6422,7 @@ bool eStalfos::animate(int index)
                 ew->misc=50;
                 ew->clk=48;
             }
-            
+
             fired=true;
         }
         else if(wpn && wpn!=ewBrang && dmisc2==e2tFIREOCTO)  // Fire Octo
@@ -6398,21 +6430,23 @@ bool eStalfos::animate(int index)
             if(!dummy_bool[0])
             {
                 int wpn2 = wpn+dmisc3;
-                
+
                 if(wpn2 <= wEnemyWeapons || wpn2 >= wMax)
                 {
                     wpn2=wpn;
                 }
-                
+
+                // 2.50.0/2.50.1 fired the burst as type 2, so fireballs home in on Link.
+                const int t = quest_250_before_build29() ? 2 : 0;
                 dummy_bool[0]=true;
-                addEwpn(x,y,z,wpn2,0,dmisc4,up, getUID());
-                addEwpn(x,y,z,wpn2,0,dmisc4,down, getUID());
-                addEwpn(x,y,z,wpn2,0,dmisc4,left, getUID());
-                addEwpn(x,y,z,wpn2,0,dmisc4,right, getUID());
-                addEwpn(x,y,z,wpn2,0,dmisc4,l_up, getUID());
-                addEwpn(x,y,z,wpn2,0,dmisc4,r_up, getUID());
-                addEwpn(x,y,z,wpn2,0,dmisc4,l_down, getUID());
-                addEwpn(x,y,z,wpn2,0,dmisc4,r_down, getUID());
+                addEwpn(x,y,z,wpn2,t,dmisc4,up, getUID());
+                addEwpn(x,y,z,wpn2,t,dmisc4,down, getUID());
+                addEwpn(x,y,z,wpn2,t,dmisc4,left, getUID());
+                addEwpn(x,y,z,wpn2,t,dmisc4,right, getUID());
+                addEwpn(x,y,z,wpn2,t,dmisc4,l_up, getUID());
+                addEwpn(x,y,z,wpn2,t,dmisc4,r_up, getUID());
+                addEwpn(x,y,z,wpn2,t,dmisc4,l_down, getUID());
+                addEwpn(x,y,z,wpn2,t,dmisc4,r_down, getUID());
                 sfx(wpnsfx(wpn2),pan(int(x)));
             }
         }
@@ -7336,6 +7370,17 @@ eWizzrobe::eWizzrobe(fix X,fix Y,int Id,int Clk) : enemy(X,Y,Id,Clk)
     if(!dmisc1) frate=1200+146; //1200 = 20 seconds
 }
 
+// 1.92 and 2.10 quests: every teleporting Wizzrobe but the red one appears at a random
+// spot facing Link. Their spot test also let through any spot at least 32 px above or
+// below Link, walkable or not; later versions require a walkable spot either way.
+static bool wizzrobe_spot_ok(fix wx, fix wy)
+{
+    const bool open  = !m_walkflag(wx,wy,spw_door);
+    const bool far_x = abs(wx-Link.getX())>=32;
+    const bool far_y = abs(wy-Link.getY())>=32;
+    return quest_192_210() ? ((open && far_x) || far_y) : (open && (far_x || far_y));
+}
+
 bool eWizzrobe::animate(int index)
 {
     if(dying)
@@ -7367,7 +7412,7 @@ bool eWizzrobe::animate(int index)
 		    // Wizzrobe Misc4 controls whether wizzrobes can teleport on top of solid combos,
 		    // but should not appear on dungeon walls.	
 		    if ( quest_header_zelda_version <= 0x190 ) place_on_axis(true, false); //1.84, and probably 1.90 wizzrobes should NEVER appear in dungeon walls.-Z (1.84 confirmed, 15th January, 2019 by Chris Miller).
-                    else if ( (quest_header_zelda_version == 0x210 || quest_header_zelda_version == 0x192 ) && id == eWWIZ && emulation_patches[emu210WINDROBES] ) 
+                    else if ( quest_192_210() && (id&0xFFF) != eWIZ1 ) // 1.92/2.10: all but the red one
 		    {
 			    //2.10 Windrobe
 			    //randomise location and face Link
@@ -7387,7 +7432,7 @@ bool eWizzrobe::animate(int index)
 					y=((rand()%9)+1)*16;
 				}
                         
-				if(!m_walkflag(x,y,spw_door)&&((abs(x-Link.getX())>=32)||(abs(y-Link.getY())>=32)))
+				if(wizzrobe_spot_ok(x,y))
 				{
 					placed=true;
 				}
@@ -7445,7 +7490,7 @@ bool eWizzrobe::animate(int index)
                             y=((rand()%9)+1)*16;
                         }
                         
-                        if(!m_walkflag(x,y,spw_door)&&((abs(x-Link.getX())>=32)||(abs(y-Link.getY())>=32)))
+                        if(wizzrobe_spot_ok(x,y))
                         {
                             placed=true;
                         }
@@ -9099,7 +9144,8 @@ bool eMoldorm::animate(int index)
             if(flags&guy_neverret)
                 never_return(index);
                 
-            if(!dmisc2 || ( quest_header_zelda_version >= 0x210 && emulation_patches[emuITEMPERSEG]) )
+            // 1.92/2.10: every segment drops and the Moldorm drops once more at the end.
+            if(!dmisc2 || quest_192_210() || ( quest_header_zelda_version >= 0x210 && emulation_patches[emuITEMPERSEG]) )
                 leave_item();
                 
             stop_bgsfx(index);
@@ -9209,9 +9255,9 @@ bool esMoldorm::animate(int index)
     
     if(dying)
     {
-        if(!dmisc2)
+        if(!dmisc2 && !quest_192_210())
             item_set=0;
-            
+
         return Dead(index);
     }
     
@@ -9354,8 +9400,8 @@ bool eLanmola::animate(int index)
 		//al_trace("Leaving a lanmola drop\n");
              //   leave_item();
 	    //}
-	    if(!dmisc3) //is this INTENTIONALLY backwards? -Z (14th January, 2019)
-                leave_item(); //oh, is this for the CORE? Flidd. I think this is to leave a drop for the CORE. 
+	    if(!dmisc3 || quest_192_210()) //1.92/2.10: the core drops as well as every segment
+                leave_item(); //oh, is this for the CORE? Flidd. I think this is to leave a drop for the CORE.
 		//I'm unsure if the core left a drop in all older versions, but I suspect that it did. 
 		//The decision to drop per segment is in esLanmola::animate(), and the way this works, is that
 		//the engine sets the dropset to 0 if we are not leaving a segment-drop. 
@@ -9464,7 +9510,7 @@ bool esLanmola::animate(int index)
     {
         xofs=0;
         //al_trace("Thinking about leaving a esLanmola drop: %s\n"," ");
-        if( ( !dmisc3 ) || ( quest_header_zelda_version <= 0x210 && emulation_patches[emuITEMPERSEG] == 0 ) )
+        if( !quest_192_210() && ( ( !dmisc3 ) || ( quest_header_zelda_version <= 0x210 && emulation_patches[emuITEMPERSEG] == 0 ) ) )
 	{
 	    //al_trace("Setting a esLanmola dropset %d to 0.\n",item_set);
             item_set=0;
@@ -9609,7 +9655,8 @@ bool eManhandla::animate(int index)
             }
 	    //al_trace("Manhandla arm died in quest version: %d\n", quest_header_zelda_version);
 	    //al_trace("emulation_patches[emuITEMPERSEG] is: %d\n",emulation_patches[emuITEMPERSEG]);
-	    if( ( quest_header_zelda_version <= 0x210 && emulation_patches[emuITEMPERSEG] ) ) //They only did this in 2.10
+	    // 1.92/2.10 quests: each arm drops its own item where it dies (esManhandla keeps its item set).
+	    if( ( quest_header_zelda_version <= 0x210 && emulation_patches[emuITEMPERSEG] && !quest_192_210() ) ) //They only did this in 2.10
 	    {
                 leave_item();
 	    }
@@ -9937,7 +9984,10 @@ esManhandla::esManhandla(fix X,fix Y,int Id,int Clk) : enemy(X,Y,Id,Clk)
     clk=0;
     mainguy=count_enemy=false;
     dummy_bool[0]=false;
-    item_set=0;
+
+    if(!quest_192_210()) // 1.92/2.10: arms use the Manhandla's item set
+        item_set=0;
+
     bgsfx=-1;
     deadsfx = WAV_EDEAD;
     flags &= (~guy_neverret);
@@ -12054,7 +12104,6 @@ void loadguys()
         switch(tmpscr->room)
         {
         case rSP_ITEM:
-        case rMONEY:
         case rGRUMBLE:
         case rBOMBS:
         case rARROWS:
@@ -12062,11 +12111,20 @@ void loadguys()
         case rMUPGRADE:
         case rLEARNSLASH:
         case rTAKEONE:
-        case rREPAIR:
-        case rRP_HC:
             if(getmapflag())
                 Guy=0;
-                
+
+            break;
+
+        case rMONEY:
+        case rREPAIR:
+        case rRP_HC:
+            // Before 2.11 these rooms only went away in caves (handled above); on other
+            // screens Door Repair charged on every visit and the money or potion/heart
+            // container guy came back.
+            if(getmapflag() && !(quest_header_zelda_version < 0x211 && currscr<128))
+                Guy=0;
+
             break;
             
         case rTRIFORCE:
@@ -13013,6 +13071,74 @@ void putprices(bool sign)
     }
 }
 
+// 2.55+ bottle shop (upstream's rBOTTLESHOP): up to three fills, each shown as its combo's
+// tile on a dummy item; buying one fills an empty bottle (LinkClass::checkitems).
+static void q30_setup_bottle_shop(int shop)
+{
+    const Q30BottleShop *bs = q30_bottle_shop(shop);
+
+    if(!bs)
+        return;
+
+    int count = 0;
+    int base  = 88;
+    int step  = 5;
+
+    moneysign();
+
+    for(int i=0; i<3; ++i)
+    {
+        if(bs->fill[count] != 0)
+            ++count;
+        else
+            break;
+    }
+
+    if(count==1)
+        base = 88+32;
+
+    if(count==2)
+        step = 6;
+
+    for(int i=0; i<count; i++)
+    {
+        additem((i<<step)+base, 89, 0, ipHOLDUP+ipFADE+ipCHECK);   // item 0 as the dummy, as upstream
+        item *it = (item*)items.spr(items.Count()-1);
+        const newcombo &cmb = combobuf[bs->comb[i]];
+        it->PriceIndex = i;
+        it->o_tile = it->tile = cmb.tile;
+        it->o_cset = bs->cset[i];
+        it->cs = it->o_cset & 15;
+        it->o_speed = cmb.speed;
+        it->o_delay = 0;
+        it->frames = cmb.frames;
+        it->flip = cmb.flip;
+        it->anim = true;
+        it->flash = false;
+        it->twohand = false;
+        it->txsz = it->tysz = 1;
+
+        prices[i] = bs->price[i];
+        if(prices[i]==0)
+            prices[i]=100000; // So putprices() knows there's an item here and positions the price correctly
+        int itemid = current_item_id(itype_wealthmedal);
+
+        if(itemid>=0 && prices[i]!=100000)
+        {
+            if(itemsbuf[itemid].flags & ITEM_FLAG1)
+                prices[i]=((prices[i]*itemsbuf[itemid].misc1)/100);
+            else
+                prices[i]+=itemsbuf[itemid].misc1;
+            prices[i]=vbound(prices[i], 0, 99999);
+            if(prices[i]==0)
+                prices[i]=100000;
+        }
+
+        if(bs->price[i]>1 && prices[i]<1)
+            prices[i]=1;
+    }
+}
+
 // Setting up special rooms
 // Also called when the Letter is used successfully.
 void setupscreen()
@@ -13020,7 +13146,11 @@ void setupscreen()
     boughtsomething=false;
     int t=currscr<128?0:1;
     word str=tmpscr[t].str;
-    
+    int q30_shop = -1;
+
+    if(q30_bottle_shop_here(&q30_shop))
+        q30_setup_bottle_shop(q30_shop);
+
     // Prices are already set to 0 in dowarp()
     switch(tmpscr[t].room)
     {

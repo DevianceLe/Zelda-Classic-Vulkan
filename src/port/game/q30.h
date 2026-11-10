@@ -32,6 +32,11 @@ void q30_set_combo_script(int combo, word script, const long *initd);
 const Q30ScriptRef *q30_combo_script(int combo);
 void q30_set_dmap_script(int dmap, int kind, word script, const long *initd);
 const Q30ScriptRef *q30_dmap_script(int dmap, int kind);
+// Each dmap's overlay subscreen (an index into the quest's overlay subscreens; upstream's byte,
+// 0 by default) and map subscreen (-1 for none, which opens the old map).
+void q30_set_dmap_subscreens(int dmap, int overlay, int map);
+int q30_dmap_overlay_subscreen(int dmap);
+int q30_dmap_map_subscreen(int dmap);
 
 // q30_audio.cpp
 int q30_read_advmusic(Q255Section &s);

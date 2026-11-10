@@ -215,6 +215,7 @@ int g_tour_left = 0;            // frames left on this screen
 int g_tour_settle = 0;          // frames to wait before the next warp
 int g_tour_last_tick = -1;      // replay frame of the last main-loop tick
 int g_tour_arrive = 0;          // replay frame of the last warp
+int g_tour_resumes = 0;         // times this stop came back from a long stay out of the main loop
 bool g_tour_script_looped = false; // a script on this screen never waited
 std::chrono::steady_clock::time_point g_tour_t0;
 
@@ -1454,8 +1455,12 @@ void replay_tour_tick()
     if(!g_tour || g_finished || game == NULL)
         return;
 
-    bool resumed = g_tour_last_tick >= 0 && g_frame - g_tour_last_tick > 30;
+    const int gap = g_tour_last_tick >= 0 ? g_frame - g_tour_last_tick : 0;
+    bool resumed = gap > 30;
     g_tour_last_tick = g_frame;
+    // A stop that keeps leaving the main loop (Link on a conveyor at a screen edge, scrolling
+    // back and forth for good) would restart the settle forever: after a few, frames count.
+    const bool keeps_leaving = resumed && g_tour_resumes >= 3;
 
     if(!g_tour_built)
     {
@@ -1474,7 +1479,7 @@ void replay_tour_tick()
         g_tour_settle = 120;
     }
 
-    if(resumed && g_tour_settle < 20)
+    if(resumed && g_tour_settle < 20 && ++g_tour_resumes <= 3)
         g_tour_settle = 20;
 
     game->set_life(game->get_maxlife());
@@ -1488,13 +1493,13 @@ void replay_tour_tick()
 
     if(g_tour_settle > 0)
     {
-        --g_tour_settle;
+        g_tour_settle -= keeps_leaving ? zc_min(gap, g_tour_settle) : 1;
         return;
     }
 
     if(g_tour_left > 0)
     {
-        --g_tour_left;
+        g_tour_left -= keeps_leaving ? zc_min(gap, g_tour_left) : 1;
         return;
     }
 
@@ -1509,6 +1514,7 @@ void replay_tour_tick()
     fflush(g_tour);
     ++g_tour_next;
     g_tour_arrive = g_frame;
+    g_tour_resumes = 0;
     g_tour_left = g_tour_dwell;
     g_tour_script_looped = false;
     tour_refill();

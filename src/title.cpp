@@ -3311,6 +3311,33 @@ void titlescreen(int lsave)
     }
 }
 
+bool q30_active();
+bool q30_gameover_custom();
+int q30_gameover_setting(int index);
+const char *q30_gameover_text(int line);
+
+// A newer quest's scripts can change the game over screen (Game->GameOverScreen[] and
+// GameOverStrings[]). These give 2.53's own look unless a script did.
+enum { GOS_BG, GOS_TILE = 2, GOS_CSET, GOS_SOUND, GOS_COLOUR, GOS_FLASH = 8, GOS_MIDI = 11, GOS_FLIP };
+
+static bool gos_custom()
+{
+    return q30_active() && q30_gameover_custom();
+}
+
+static int gos_colour(int line, bool flash)
+{
+    int v = gos_custom() ? q30_gameover_setting((flash ? GOS_FLASH : GOS_COLOUR) + line) : 0;
+    return v > 0 ? v : (flash ? QMisc.colors.caption : QMisc.colors.msgtext);
+}
+
+static const char *gos_text(int line)
+{
+    static const char *const def[3] = { "CONTINUE", "SAVE", "RETRY" };
+    const char *s = gos_custom() ? q30_gameover_text(line) : NULL;
+    return s ? s : def[line];
+}
+
 void game_over(int type)
 {
     kill_sfx();
@@ -3318,27 +3345,37 @@ void game_over(int type)
     clear_to_color(screen,BLACK);
     loadfullpal();
     
+    const bool custom = gos_custom();
+    const int bg = custom ? q30_gameover_setting(GOS_BG) : 0;
+
     if(Quit==qGAMEOVER)
-        jukebox(ZC_MIDI_GAMEOVER);
+    {
+        const int tune = custom ? q30_gameover_setting(GOS_MIDI) + ZC_MIDI_COUNT - 1 : ZC_MIDI_GAMEOVER;
+        if(tune >= 0 && tune < MAXMIDIS)
+            jukebox(tune);
+    }
         
     Quit=0;
     
-    clear_bitmap(framebuf);
+    clear_to_color(framebuf,bg);
     //  text_mode(-1);
-    textout_ex(framebuf,zfont,"CONTINUE",88,72,QMisc.colors.msgtext,-1);
+    textout_ex(framebuf,zfont,gos_text(0),88,72,gos_colour(0,false),-1);
     
     if(!type)
     {
-        textout_ex(framebuf,zfont,"SAVE",88,96,QMisc.colors.msgtext,-1);
-        textout_ex(framebuf,zfont,"RETRY",88,120,QMisc.colors.msgtext,-1);
+        textout_ex(framebuf,zfont,gos_text(1),88,96,gos_colour(1,false),-1);
+        textout_ex(framebuf,zfont,gos_text(2),88,120,gos_colour(2,false),-1);
     }
     else
-        textout_ex(framebuf,zfont,"RETRY",88,96,QMisc.colors.msgtext,-1);
+        textout_ex(framebuf,zfont,gos_text(2),88,96,gos_colour(2,false),-1);
         
     int pos = 0;
     int f=-1;
     //  int htile = QHeader.old_dat_flags[ZQ_TILES] ? 2 : 0;
-    int htile = 2;
+    int htile = custom ? q30_gameover_setting(GOS_TILE) : 2;
+    const int curcset = custom ? q30_gameover_setting(GOS_CSET) : 1;
+    const int curflip = custom ? q30_gameover_setting(GOS_FLIP) : 0;
+    const int cursfx = custom ? q30_gameover_setting(GOS_SOUND) : WAV_CHINK;
     bool done=false;
    
     do load_control_state();
@@ -3353,7 +3390,7 @@ void game_over(int type)
         {
             if(rUp())
             {
-                sfx(WAV_CHINK);
+                sfx(cursfx);
                 pos=(pos==0)?2:pos-1;
                 
                 if(type)
@@ -3364,7 +3401,7 @@ void game_over(int type)
             
             if(rDown())
             {
-                sfx(WAV_CHINK);
+                sfx(cursfx);
                 pos=(pos+1)%3;
                 
                 if(type)
@@ -3383,30 +3420,30 @@ void game_over(int type)
                 
             if(!(f&3))
             {
-                int c = (f&4) ? QMisc.colors.msgtext : QMisc.colors.caption;
+                const bool flash = (f&4) == 0;
                 
                 switch(pos)
                 {
                 case 0:
-                    textout_ex(framebuf,zfont,"CONTINUE",88,72,c,-1);
+                    textout_ex(framebuf,zfont,gos_text(0),88,72,gos_colour(0,flash),-1);
                     break;
                     
                 case 1:
-                    textout_ex(framebuf,zfont,"SAVE",88,96,c,-1);
+                    textout_ex(framebuf,zfont,gos_text(1),88,96,gos_colour(1,flash),-1);
                     break;
                     
                 case 2:
                     if(!type)
-                        textout_ex(framebuf,zfont,"RETRY",88,120,c,-1);
-                    else textout_ex(framebuf,zfont,"RETRY",88,96,c,-1);
+                        textout_ex(framebuf,zfont,gos_text(2),88,120,gos_colour(2,flash),-1);
+                    else textout_ex(framebuf,zfont,gos_text(2),88,96,gos_colour(2,flash),-1);
                     
                     break;
                 }
             }
         }
         
-        rectfill(framebuf,72,72,79,127,0);
-        puttile8(framebuf,htile,72,pos*(type?12:24)+72,1,0);
+        rectfill(framebuf,72,72,79,127,bg);
+        puttile8(framebuf,htile,72,pos*(type?12:24)+72,curcset,curflip);
         advanceframe(true);
     }
     while(!Quit && !done);

@@ -54,6 +54,38 @@ void q30_set_guy_weapon_script(int guy, word script, const long *initd);
 void q30_set_guy_moveflags(int guy, dword flags);
 const Q30ScriptRef *q30_guy_weapon_script(int guy);
 
+// Item and enemy fields 2.53's structures have no room for (q30_scripts_regs.h).
+void q30_clear_item_extras();
+void q30_clear_guy_extras();
+void q30_set_item_display_name(int item, const char *name);
+void q30_set_item_override_flags(int item, int flags);
+void q30_set_guy_wpnsprite(int guy, int spr);
+std::string q30_item_shown_name(int item);   // the display name if it has one, else its name
+
+// Dark rooms (q30_scripts_light.h): the quest's lighting defaults, and the lights scripts draw.
+void q30_set_light_init(int dith_type, int dith_arg, int dith_perc, int light_rad, int trans_perc, int dark_color);
+int q30_default_light_radius();
+void q30_script_lights(BITMAP *mask);    // adds them to the 256x176 dark mask: 0 lit, 1 dark, 2 half
+
+// What each upstream subscreen widget became, from the subscreen reader (q30_scripts_subscr.h).
+// list: 0 active, 1 passive, 2 overlay, 3 map; slot: custom_subscreen[] index or -1; obj: the
+// widget's index in that subscreen's objects, -1 if it isn't drawn.
+void q30_sub_clear();
+void q30_sub_begin(int list, int slot, const char *name);
+void q30_sub_page(int list, int cursor_pos);
+void q30_sub_widget(int list, int type, const char *label, int obj, int posflags, int x, int y, int w, int h,
+                    int pos, dword genflags, dword flags);
+
+// The screen script data (Screen->Data[]) a new game starts with, from the init data reader
+// (q30_scripts_save.h). key -1 only sets the size.
+void q30_clear_screen_data_init();
+void q30_set_screen_data_init(int index, long size, int key, long value);
+
+// Game->GameOverScreen[] and GameOverStrings[], for title.cpp's game_over.
+bool q30_gameover_custom();
+int q30_gameover_setting(int index);     // upstream's SAVESC_* order
+const char *q30_gameover_text(int line); // CONTINUE, SAVE, RETRY; NULL for the default text
+
 void q30_clear_item_scripts();
 void q30_set_item_sprite_script(int item, word script, const long *initd);
 const Q30ScriptRef *q30_item_sprite_script(int item);

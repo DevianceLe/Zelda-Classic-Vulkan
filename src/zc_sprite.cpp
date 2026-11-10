@@ -145,7 +145,7 @@ static bool is_push_at(mapscr *m, int pos)
         return true;
 
     const Q30Combo *c = q30_combo(m->data[pos]);
-    return c && c->type == Q30C_PUSHBLOCK;
+    return c && (c->type == Q30C_PUSHBLOCK || (c->type == Q30C_SWITCHHOOK && (c->usrflags & 0x40)));
 }
 
 static bool flag_here(int layer, int x, int y, int flag)
@@ -251,16 +251,127 @@ bool q30_push_layer_block(int bx, int by, int d, int pushing, bool glove_spent)
     return false;
 }
 
+// A block coming to rest: the moving block, or one the switch hook puts down.
+struct BlockLanding
+{
+    int x, y, bcombo, oldcset, cs, oldflag, dir, layer;
+    bool force_many;            // a switch-hook combo that counts as a block: never locks
+    bool trigger, hole;         // out
+};
+
+static void land_block(BlockLanding &b);
+
 // Upstream's end of movingblock::animate for 2.55+ quests, with block triggers and holes
 // looked for on the block's own layer and, under qr_PUSHBLOCK_LAYER_1_2, the others.
-static void block_landed(movingblock &b)
+static void block_landed(movingblock &mb)
 {
-    int pos = (int(b.y) & 0xF0) + (int(b.x) >> 4);
-    int layer = g_block_layer;
-    mapscr *m = block_screen(layer);
+    BlockLanding b;
+    b.x = int(mb.x);
+    b.y = int(mb.y);
+    b.bcombo = mb.bcombo;
+    b.oldcset = mb.oldcset;
+    b.cs = mb.cs;
+    b.oldflag = mb.oldflag;
+    b.dir = mb.dir;
+    b.layer = g_block_layer;
+    b.force_many = false;
 
     blockmoving = false;
     g_block_layer = 0;
+    land_block(b);
+    mb.trigger = b.trigger;
+}
+
+bool q30_switch_block_land(int x, int y, int combo, int cset, int layer, int placed_flag, int dir, bool force_many, bool *hole)
+{
+    BlockLanding b;
+    b.x = x;
+    b.y = y;
+    b.bcombo = combo;
+    b.oldcset = b.cs = cset;
+    b.oldflag = placed_flag;
+    b.dir = dir;
+    b.layer = layer;
+    b.force_many = force_many;
+    b.trigger = b.hole = false;
+
+    // a block still sliding keeps going
+    bool moving = blockmoving;
+    land_block(b);
+    blockmoving = moving;
+
+    if(hole)
+        *hole = b.hole;
+
+    return b.trigger;
+}
+
+// A block hole where the block stops, on its layer or (unless qr_BLOCKHOLE_SAME_ONLY)
+// another push layer.
+static bool hole_at(int layer, int pos)
+{
+    int maxlayer = q30_quest_rule(Q30_QR_PUSHBLOCK_LAYER_1_2) ? 2 : 0;
+
+    for(int lyr = 0; lyr <= maxlayer; ++lyr)
+    {
+        if(lyr != layer && q30_quest_rule(Q30_QR_BLOCKHOLE_SAME_ONLY))
+            continue;
+
+        mapscr *o = block_screen(lyr);
+
+        if(o && (o->sflag[pos] == mfBLOCKHOLE || combobuf[o->data[pos]].flag == mfBLOCKHOLE))
+            return true;
+    }
+
+    return false;
+}
+
+// 2.55's push blocks drop into a pitfall they stop on (a block hole there is filled
+// instead): the pit's sound, upstream's falling sprite for 70 frames, and the block is gone.
+static bool block_fell(movingblock &mb)
+{
+    int bx = int(mb.x), by = int(mb.y);
+    int pit = q30_pitfall_at(bx + 8, by + 8);
+    int pos = (by & 0xF0) + (bx >> 4);
+
+    if(!pit || pos < 0 || pos > 175 || hole_at(g_block_layer, pos))
+        return false;
+
+    const Q30Combo *pc = q30_combo(pit);
+    const Q30Combo *bc = q30_combo(mb.bcombo);
+    int s = pc ? int(pc->attributes[8] / 10000) : 0;
+
+    if(bc && bc->sfx_falling)
+        s = bc->sfx_falling;
+
+    if(s > 0)
+        sfx(s, pan(bx));
+
+    int spr = q30_misc_sprite(0);       // sprFALL
+
+    if(bc && bc->spr_falling)
+        spr = bc->spr_falling;
+
+    if(spr >= 0 && spr <= 255)
+        q30_add_sprite_deco(bx, by, spr, 70, true);     // PITFALL_FALL_FRAMES
+
+    blockmoving = false;
+    g_block_layer = 0;
+    mb.trigger = false;
+
+    if(getenv("ZC_SW_DEBUG"))
+        al_trace("swdbg block fell at %d,%d pit %d sfx %d sprite %d\n", bx, by, pit, s, spr);
+
+    return true;
+}
+
+static void land_block(BlockLanding &b)
+{
+    int pos = (b.y & 0xF0) + (b.x >> 4);
+    int layer = b.layer;
+    mapscr *m = block_screen(layer);
+
+    b.trigger = b.hole = false;
 
     if(!m || pos < 0 || pos > 175)
         return;
@@ -327,6 +438,7 @@ static void block_landed(movingblock &b)
     }
 
     int d = b.dir;
+    b.hole = hole;
 
     if(hole)
         m->sflag[pos] = mfNONE;
@@ -334,16 +446,16 @@ static void block_landed(movingblock &b)
     {
         f2 = combobuf[m->data[pos]].flag;
 
-        if(!((f2 == mfPUSHUDINS && d <= down) || (f2 == mfPUSHLRINS && d >= left) || (f2 == mfPUSHUINS && d == up) ||
+        if(!(b.force_many || (f2 == mfPUSHUDINS && d <= down) || (f2 == mfPUSHLRINS && d >= left) || (f2 == mfPUSHUINS && d == up) ||
              (f2 == mfPUSHDINS && d == down) || (f2 == mfPUSHLINS && d == left) || (f2 == mfPUSHRINS && d == right) ||
              f2 == mfPUSH4INS))
             m->sflag[pos] = mfPUSHED;
     }
 
-    // every block trigger on the screen has to be covered
+    // every block trigger on the push layers has to be covered
     bool didtrigger = b.trigger;
 
-    for(int lyr = 0; didtrigger && lyr <= 6; ++lyr)
+    for(int lyr = 0; didtrigger && lyr <= maxlayer; ++lyr)
     {
         mapscr *s = block_screen(lyr);
 
@@ -480,7 +592,9 @@ bool movingblock::animate(int index)
     {
         if(q30_active())
         {
-            block_landed(*this);
+            if(!block_fell(*this))
+                block_landed(*this);
+
             return false;
         }
 

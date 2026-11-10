@@ -30,10 +30,10 @@ extern byte        quest_rules[QUESTRULES_SIZE];
 //BITMAP* tilebuf[NEWMAXTILES];
 tiledata *newtilebuf, *grabtilebuf;
 newcombo *combobuf;
-word animated_combo_table[MAXCOMBOS][2];                    //[0]=position in act2, [1]=original tile
+int animated_combo_table[MAXCOMBOS][2];                     //[0]=position in act2, [1]=original tile
 word animated_combo_table4[MAXCOMBOS][2];                   //[0]=combo, [1]=clock
 word animated_combos;
-word animated_combo_table2[MAXCOMBOS][2];                    //[0]=position in act2, [1]=original tile
+int animated_combo_table2[MAXCOMBOS][2];                     //[0]=position in act2, [1]=original tile
 word animated_combo_table24[MAXCOMBOS][2];                   //[0]=combo, [1]=clock
 word animated_combos2;
 bool blank_tile_table[NEWMAXTILES];                         //keeps track of blank tiles
@@ -153,7 +153,7 @@ word count_combos()
 
 void setup_combo_animations()
 {
-    memset(animated_combo_table, 0, MAXCOMBOS*2*2);
+    memset(animated_combo_table, 0, sizeof(animated_combo_table));
     memset(animated_combo_table4, 0, MAXCOMBOS*2*2);
     int y=0;
     
@@ -175,7 +175,7 @@ void setup_combo_animations()
 
 void setup_combo_animations2()
 {
-    memset(animated_combo_table2, 0, MAXCOMBOS*2*2);
+    memset(animated_combo_table2, 0, sizeof(animated_combo_table2));
     memset(animated_combo_table24, 0, MAXCOMBOS*2*2);
     int y=0;
     

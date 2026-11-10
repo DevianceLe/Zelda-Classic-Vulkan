@@ -5,6 +5,7 @@
 #include "precompiled.h" //always first
 
 #include <deque>
+#include <map>
 //#include <algorithm>
 #include <string>
 #include <sstream>
@@ -3173,7 +3174,30 @@ int whichlayer(long scr)
 
 sprite *s;
 
+// True for a quest saved by a version older than 2.50, or by 2.50 build 'build' or earlier.
+// Some ZASM meanings changed between builds (2.50 betas 19-23, 2.50.0 24, 2.50.1 25-28,
+// 2.50.2/2.53 29-33). 2.53.0 R2/R3 and 2.53.1 are all build 33.
+static bool quest_saved_by_250_build(int build)
+{
+    return quest_header_zelda_version < 0x250
+        || (quest_header_zelda_version == 0x250 && quest_header_zelda_build <= build);
+}
 
+// lweapon/eweapon->Jump up to build 32: -Fall/100 in 16.16 fixed point, its raw value
+// multiplied by 100000 as a 32-bit integer (so anything past 32767 wraps), then rounded.
+// Small jumps read 10 times too big; most real ones read as garbage.
+static int old_weapon_jump(fix fall)
+{
+    const fix q = -fall / fix(100.0);
+    const uint32_t raw = (uint32_t)q.v * 100000u;
+    return fixtoi((fixed)(int32_t)raw);
+}
+
+// npc->Jump up to build 32: -Fall/100 rounded to a whole number.
+static int old_npc_jump(fix fall)
+{
+    return fixtoi((-fall / fix(100.0)).v) * 10000;
+}
 
 long get_register(const long arg)
 {
@@ -3349,7 +3373,13 @@ long get_register(const long arg)
         break;
         
     case LINKEQUIP:
-        ret = ((Awpn&0xFF)|((Bwpn&0xFF)<<8))*10000;
+        if(quest_saved_by_250_build(24))
+        {
+            // 2.50.0 and older didn't mask the flag bits, and the product could wrap.
+            ret = (int)(int32_t)((uint32_t)(Awpn|(Bwpn<<8)) * 10000u);
+        }
+        else
+            ret = ((Awpn&0xFF)|((Bwpn&0xFF)<<8))*10000;
         break;
         
     case LINKINVIS:
@@ -4027,6 +4057,8 @@ long get_register(const long arg)
     case NPCJUMP:
         if(GuyH::loadNPC(ri->guyref, "npc->Jump") != SH::_NoError)
             ret = -10000;
+        else if(quest_saved_by_250_build(32))
+            ret = old_npc_jump(GuyH::getNPC()->fall);
         else
             ret = long(GuyH::getNPC()->fall) * -100.0;
             
@@ -4116,7 +4148,8 @@ long get_register(const long arg)
         
     case LWPNJUMP:
         if(0!=(s=checkLWpn(ri->lwpn,"Jump")))
-            ret = long(((weapon*)(s))->fall) * -100.0;
+            ret = quest_saved_by_250_build(32) ? old_weapon_jump(((weapon*)(s))->fall)
+                : (int)(long(((weapon*)(s))->fall) * -100.0);
             
         break;
         
@@ -4341,7 +4374,8 @@ long get_register(const long arg)
         
     case EWPNJUMP:
         if(0!=(s=checkEWpn(ri->ewpn, "Jump")))
-            ret = long(((weapon*)(s))->fall) * -100.0;
+            ret = quest_saved_by_250_build(32) ? old_weapon_jump(((weapon*)(s))->fall)
+                : (int)(long(((weapon*)(s))->fall) * -100.0);
             
         break;
         
@@ -4576,8 +4610,10 @@ long get_register(const long arg)
         
     case GAMEGUYCOUNT:
     {
-        int mi = (currmap*MAPSCRSNORMAL)+(ri->d[0]/10000);
-        ret=game->guys[mi]*10000;
+        // Up to 2.50 RC3 (build 21) the index was ignored: always the current screen.
+        int mi = (currmap*MAPSCRSNORMAL)+(quest_saved_by_250_build(21) ? currscr : (ri->d[0]/10000));
+        if(mi >= 0 && mi < MAXMAPS2*MAPSCRSNORMAL)
+            ret=game->guys[mi]*10000;
     }
     break;
     
@@ -6680,8 +6716,9 @@ if(GuyH::loadNPC(ri->guyref, str) == SH::_NoError) \
         
     case GAMEGUYCOUNT:
     {
-        int mi2 = (currmap*MAPSCRSNORMAL)+(ri->d[0]/10000);
-        game->guys[mi2]=value/10000;
+        int mi2 = (currmap*MAPSCRSNORMAL)+(quest_saved_by_250_build(21) ? currscr : (ri->d[0]/10000));
+        if(mi2 >= 0 && mi2 < MAXMAPS2*MAPSCRSNORMAL)
+            game->guys[mi2]=value/10000;
     }
     break;
     
@@ -7048,7 +7085,10 @@ case COMBODDM:
 
 		if(pos < 0 || pos >= 176 || scr < 0) break;
 
-		combobuf[TheMaps[scr].data[pos]].walk=(value/10000)&15;	    
+		// The map+1 pick is kept, but a map or screen past the end of TheMaps is ignored.
+		if((size_t)scr >= TheMaps.size() || TheMaps[scr].data[pos] >= MAXCOMBOS) break;
+
+		combobuf[TheMaps[scr].data[pos]].walk=(value/10000)&15;
     }
     break;
     
@@ -7555,6 +7595,14 @@ void do_rnd(const bool v)
 
 	if(temp > 0)
 		set_register(sarg1, (rand() % temp) * 10000);
+	else if(quest_saved_by_250_build(21))
+	{
+		// The early 2.50 betas took rand() % n as it came: 0 to |n|-1 for a negative n
+		// (and a crash for 0, which returns 0 here).
+		set_register(sarg1, temp ? (rand() % temp) * 10000 : 0);
+	}
+	else if(quest_saved_by_250_build(27))
+		set_register(sarg1, 0); // 2.50 RC4 to 2.50.1 RC3: 0 for any n <= 0
 	else if(temp < 0)
 		set_register(sarg1, (rand() % (-temp)) * -10000);
 	else
@@ -7939,7 +7987,8 @@ void do_triggersecrets()
 
 void do_getscreenflags()
 {
-    long map     = (ri->d[2] / 10000) - 1;
+    // Up to 2.50 RC3 (build 21) the map was 0-based.
+    long map     = (ri->d[2] / 10000) - (quest_saved_by_250_build(21) ? 0 : 1);
     long scrn  = ri->d[1] / 10000;
     long flagset = ri->d[0] / 10000;
     
@@ -7953,7 +8002,7 @@ void do_getscreenflags()
 
 void do_getscreeneflags()
 {
-    long map     = (ri->d[2] / 10000) - 1;
+    long map     = (ri->d[2] / 10000) - (quest_saved_by_250_build(21) ? 0 : 1);
     long scrn  = ri->d[1] / 10000;
     long flagset = ri->d[0] / 10000;
     
@@ -9216,6 +9265,45 @@ static void zasm30_resize_array(ZScriptArray &a, long size)
         a[n] = n < (long)keep.size() ? keep[n] : 0;
 }
 
+// A script that runs on without a Waitframe freezes the game for good: nothing else runs
+// until it waits. (DragonDream's FFC script 24 loops without waiting while Link can't walk
+// where it wants him to.) After 30 million commands, a script that comes back next frame
+// is paused there instead, and from then on that script gets 100000 commands a frame.
+// Scripts that run only once (the init, end and continue global scripts, item scripts
+// without a slot of their own) are left alone: a pause would end them. `slices` counts
+// blocks of 100000 commands. Only games that would otherwise hang are affected.
+//
+// runaway_scripts: each script that was paused, with the code it was running then (a
+// quest loaded later has its own scripts under the same numbers).
+static std::map<int, const ffscript *> runaway_scripts;
+
+static bool script_runs_away(int slices, byte type, word script)
+{
+    const int key = (type << 16) | script;
+    std::map<int, const ffscript *>::const_iterator it = runaway_scripts.find(key);
+    const bool known = it != runaway_scripts.end() && it->second == curscript;
+
+    if(slices < (known ? 1 : 300))
+        return false;
+
+    if(!(type == SCRIPT_FFC || type == SCRIPT_SCREEN || zasm30_cur_inst != NULL ||
+         (type == SCRIPT_GLOBAL && script == GLOBAL_SCRIPT_GAME)))
+        return false;
+
+    if(!known)
+    {
+        runaway_scripts[key] = curscript;
+        const char *kind = type == SCRIPT_FFC ? "FFC" : type == SCRIPT_GLOBAL ? "Global" : type == SCRIPT_SCREEN ? "Screen" : NULL;
+
+        if(kind)
+            al_trace("%s script %d ran 30 million commands without waiting: it is paused until the next frame whenever it runs on\n", kind, script);
+        else
+            al_trace("Script %d (type %d) ran 30 million commands without waiting: it is paused until the next frame whenever it runs on\n", script, type);
+    }
+
+    return true;
+}
+
 int run_script(const byte type, const word script, const byte i)
 {
     Zasm30RunDepth run_depth;
@@ -9465,11 +9553,18 @@ int run_script(const byte type, const word script, const byte i)
             checkQuitKeys();
             if(Quit)
                 scommand=0xFFFF;
-            else if(replay_tour_script_looping(++tour_slices, type, script))
+            else
             {
-                pc--;       // the wait below steps forward; this command hasn't run yet
-                scommand = WAITFRAME;
-                goto zasm30_wait;
+                ++tour_slices;
+                const bool tour_pause = replay_tour_script_looping(tour_slices, type, script);
+
+                // Not at command 0: a saved pc of 0 means "not started yet".
+                if((script_runs_away(tour_slices, type, script) || tour_pause) && pc > 0)
+                {
+                    pc--;       // the wait below steps forward; this command hasn't run yet
+                    scommand = WAITFRAME;
+                    goto zasm30_wait;
+                }
             }
         }
         
@@ -10956,9 +11051,8 @@ int run_script(const byte type, const word script, const byte i)
         }
 
         case ZASM30_PRINTFVARG:
-        case ZASM30_SPRINTFVARG:
             zasm30_frame().vargs.clear(); // scripts' debug log lines
-            break;
+            break;   // (SPRINTFVARG: zasm30_command, q30_scripts_cmds.h)
 
         case ZASM30_WRAPRADIANS:
             ri->d[2] = zasm30_wrap(get_register(sarg1), 31416);
@@ -11065,6 +11159,14 @@ int run_script(const byte type, const word script, const byte i)
         ++script_execount[*command];
 #endif
         
+        // A jump to a negative command (corrupt or overflowed ZASM) stops the script
+        // instead of reading before its first command.
+        if(!increment && (int32_t)pc < 0)
+        {
+            Z_scripterrlog("A script jumped to command %d; stopping it.\n", (int)(int32_t)pc);
+            scommand = 0xFFFF;
+        }
+
         if(increment)	pc++;
         else			increment = true;
 

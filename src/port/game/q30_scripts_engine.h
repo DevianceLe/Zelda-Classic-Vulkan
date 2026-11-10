@@ -1147,13 +1147,33 @@ void q30_run_continue()
 
 static void zasm30_update_input();
 
+static void zasm30_frame_start();
+static void z30_scrdata_savetest();
+static void zasm30_subdump_tick();
+static void z30_clear_script_lights();
+
 void q30_gen_timing(int timing)
 {
     if(!zasm30_ffscript_version)
         return;
 
+    if(timing == Z30T_START_FRAME)
+    {
+        zasm30_frame_start();
+        z30_scrdata_savetest();
+        zasm30_subdump_tick();
+    }
+
     if(timing == Z30T_POST_POLL_INPUT)
+    {
         zasm30_update_input();
+
+        // with the frame's other script drawing: game_loop keeps it while a message freezes the game
+        const bool freezemsg = (msg_active || (intropos && intropos < 72) || (linkedmsgclk && get_bit(quest_rules, qr_MSGDISAPPEAR)))
+                               && get_bit(quest_rules, qr_MSGFREEZE);
+        if(!freezemsg)
+            z30_clear_script_lights();
+    }
 
     zasm30_generic_passive(timing);
 
@@ -1171,6 +1191,7 @@ bool q30_scripts_active()
 
 static void z30_reset_script_objects();
 static void zasm30_reset_register_state();
+static void z30_scrdata_game_init(bool first);     // q30_scripts_save.h
 
 void q30_game_init(bool first)
 {
@@ -1179,6 +1200,7 @@ void q30_game_init(bool first)
 
     z30_reset_script_objects();
     zasm30_reset_register_state();
+    z30_scrdata_game_init(first);
     zasm30_items_init();
 
     // Newer scripts draw to the screen unless they ask otherwise. init_game runs before the

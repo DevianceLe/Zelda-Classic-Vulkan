@@ -205,6 +205,12 @@ void (*q30_sprite_destroy_hook)(long) = NULL;
 // 2.55+ quests only (the script engine installs this): what a script has set a sprite to draw as.
 void (*q30_sprite_appearance_hook)(sprite *, int *, int *, fix *) = NULL;
 
+// 2.55+ quests only (the player's q30_triggers.cpp installs these, ZQuest never does): draws a
+// sprite a script has rotated, scaled or quarter-turned, returning true if it did; and moves or
+// swaps the tile of a sprite's shadow.
+bool (*q30_sprite_draw_hook)(sprite *, BITMAP *, int, int) = NULL;
+void (*q30_sprite_shadow_hook)(sprite *, int *, int *, int *, int *, int *) = NULL;
+
 namespace
 {
     // Holds a sprite's script-set appearance for one draw, then puts its own back.
@@ -406,13 +412,16 @@ void sprite::draw(BITMAP* dest)
         return;
         
     int e = extend>=3 ? 3 : extend;
-    
+
+    if(q30_sprite_draw_hook && clk>=0 && q30_sprite_draw_hook(this, dest, sx, sy))
+        return;
+
     if(clk>=0)
     {
         switch(e)
         {
             BITMAP *temp;
-            
+
         case 1:
             temp = create_bitmap_ex(8,16,32);
             blit(dest, temp, sx, sy-16, 0, 0, 16, 32);
@@ -717,19 +726,23 @@ void sprite::drawshadow(BITMAP* dest,bool translucent)
     
     int shadowcs = wpnsbuf[iwShadow].csets & 0xFFFF;
     int shadowflip = wpnsbuf[iwShadow].misc & 0xFF;
-    
+
     int sx = real_x(x+xofs)+(txsz-1)*8;
     int sy = real_y(y+yofs+(tysz-1)*16);
-    
+    int stile = shadowtile;
+
+    if(q30_sprite_shadow_hook)
+        q30_sprite_shadow_hook(this, &stile, &shadowcs, &shadowflip, &sx, &sy);
+
     if(clk>=0)
     {
         if(translucent)
         {
-            overtiletranslucent16(dest,shadowtile,sx,sy,shadowcs,shadowflip,128);
+            overtiletranslucent16(dest,stile,sx,sy,shadowcs,shadowflip,128);
         }
         else
         {
-            overtile16(dest,shadowtile,sx,sy,shadowcs,shadowflip);
+            overtile16(dest,stile,sx,sy,shadowcs,shadowflip);
         }
     }
 }

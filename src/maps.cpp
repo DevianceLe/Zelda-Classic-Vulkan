@@ -32,6 +32,7 @@
 #include "zc_subscr.h"
 #include "link.h"
 #include "guys.h"
+#include "items.h"
 #include "ffscript.h"
 #include "particles.h"
 #include "mem_debug.h"
@@ -2853,6 +2854,39 @@ void do_walkflags(BITMAP *dest,mapscr* layer,int x, int y, int tempscreen)
     }
 }
 
+// 2.55+ quest rules qr_WEAPONSHADOWS (649) and qr_ITEMSHADOWS (650): weapons and items in the
+// air cast the shadow sprite, drawn just before them as upstream's draw() does. Off for 2.53.
+static void q30_draw_air_shadows(sprite_list &list, bool items_list, int behind)
+{
+    if(!q30_quest_rule(items_list ? 650 : 649))
+        return;
+
+    bool trans = get_bit(quest_rules, qr_TRANSSHADOWS) != 0;
+
+    for(int i = 0; i < list.Count(); ++i)
+    {
+        sprite *s = list.spr(i);
+
+        if(s->z <= 0)
+            continue;
+
+        if(items_list)
+        {
+            item *it = (item *)s;
+
+            if((it->pickup & ipNODRAW) || it->tile == 0)
+                continue;
+        }
+        else if(behind >= 0 && ((weapon *)s)->behind != (behind != 0))
+            continue;
+
+        int keep = s->shadowtile;
+        s->shadowtile = wpnsbuf[iwShadow].tile + (items_list ? ((item *)s)->aframe : 0);
+        s->sprite::drawshadow(framebuf, trans);
+        s->shadowtile = keep;
+    }
+}
+
 void draw_screen(mapscr* this_screen, bool showlink)
 {
 
@@ -3075,6 +3109,9 @@ void draw_screen(mapscr* this_screen, bool showlink)
     {
         if(get_bit(quest_rules,qr_NOFLICKER) || (frame&1))
         {
+            q30_draw_air_shadows(Ewpns, false, 1);
+            q30_draw_air_shadows(Lwpns, false, 1);
+
             for(int i=0; i<Ewpns.Count(); i++)
             {
                 if(((weapon *)Ewpns.spr(i))->behind)
@@ -3096,6 +3133,9 @@ void draw_screen(mapscr* this_screen, bool showlink)
             chainlinks.draw(framebuf,true);
             //Lwpns.draw(framebuf,true);
             
+            q30_draw_air_shadows(Ewpns, false, 0);
+            q30_draw_air_shadows(Lwpns, false, 0);
+
             for(int i=0; i<Ewpns.Count(); i++)
             {
                 if(!((weapon *)Ewpns.spr(i))->behind)
@@ -3109,10 +3149,14 @@ void draw_screen(mapscr* this_screen, bool showlink)
             }
 	    
             
+            q30_draw_air_shadows(items, true, -1);
             items.draw(framebuf,true);
         }
         else
         {
+            q30_draw_air_shadows(Ewpns, false, 1);
+            q30_draw_air_shadows(Lwpns, false, 1);
+
             for(int i=0; i<Ewpns.Count(); i++)
             {
                 if(((weapon *)Ewpns.spr(i))->behind)
@@ -3130,11 +3174,15 @@ void draw_screen(mapscr* this_screen, bool showlink)
                 guys.drawshadow(framebuf,get_bit(quest_rules,qr_TRANSSHADOWS)!=0,true);
             }
             
+            q30_draw_air_shadows(items, true, -1);
             items.draw(framebuf,false);
             chainlinks.draw(framebuf,false);
             //Lwpns.draw(framebuf,false);
             guys.draw(framebuf,false);
             
+            q30_draw_air_shadows(Ewpns, false, 0);
+            q30_draw_air_shadows(Lwpns, false, 0);
+
             for(int i=0; i<Ewpns.Count(); i++)
             {
                 if(!((weapon *)Ewpns.spr(i))->behind)
@@ -4866,6 +4914,11 @@ void ViewMap()
 
 int onViewMap()
 {
+    // a newer quest's dmap can have a map subscreen instead
+    bool q30_open_map_subscreen();
+    if(q30_open_map_subscreen())
+        return D_O_K;
+
     if(Playing && currscr<128 && DMaps[currdmap].flags&dmfVIEWMAP)
     {
         clear_to_color(framebuf,BLACK);

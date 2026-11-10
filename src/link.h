@@ -255,6 +255,16 @@ class LinkClass : public sprite
     void q30_board_raft(int tx, int ty);
     void q30_slash_layer(int bx, int by, int layer);
     void q30_pound_layer(int bx, int by, int layer);
+    // 2.55+ slopes (link.cpp); no data members, so the class layout is unchanged
+    void q30_slope_box(int yofs, int &bx, int &by, int &bw, int &bh);
+    void q30_slopes_begin();
+    bool q30_slope_under(int yofs, bool fallthrough);
+    bool q30_fallthrough_input();
+    bool q30_sideview_solid(int yofs, bool ignore_fallthrough, int misc);
+    int  q30_push_move(int dx, int dy);
+    void q30_slope_fall_through();
+    void q30_slopes_snap_down();
+    void q30_slopes_push();
     int  lookahead(int d);
     int  lookaheadflag(int d);
     bool  lookaheadraftflag(int d);
@@ -326,6 +336,8 @@ public:
     int DrunkClock();
     void setDrunkClock(int newdrunkclk);
     void setEntryPoints(int x, int y);
+    int getEntryX() const { return int(entry_x); }   // for 3.0 scripts' Screen->EntryX/Y
+    int getEntryY() const { return int(entry_y); }
     LinkClass();
     void init();
     virtual void drawshadow(BITMAP* dest, bool translucent);

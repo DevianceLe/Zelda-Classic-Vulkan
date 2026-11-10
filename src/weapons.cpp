@@ -34,10 +34,54 @@ extern LinkClass Link;
 extern zinitdata zinit;
 extern int directWpn;
 extern byte epilepsyFlashReduction;
+extern word quest_header_zelda_version, quest_header_zelda_build;
+extern byte quest_ewpn_offset_rule_saved; // qst.cpp
 
 /**************************************/
 /***********  Weapon Class  ***********/
 /**************************************/
+
+// "Correct Offset Enemy Weapon Collision" in 2.50.0 and 2.50.1 (builds 20-28, their
+// betas included): on gave boomerangs, rocks, swords and magic the narrow 8-pixel box,
+// off a 0/15 box, and no other weapon read it. 2.50.2 turned it into "use 16x16 boxes",
+// and the loader forces it on for these quests, so their own setting comes from qst.cpp.
+// Returns -1 for other quests, else the rule as those versions read it. A player who
+// toggles the rule (the half-tile collision menu entry) flips it here too.
+static int ewpn_offset_rule_250()
+{
+    if(quest_header_zelda_version != 0x250 || quest_header_zelda_build < 20 || quest_header_zelda_build > 28)
+        return -1;
+
+    return quest_ewpn_offset_rule_saved ^ (get_bit(quest_rules, qr_OFFSETEWPNCOLLISIONFIX) ? 0 : 1);
+}
+
+// The 16x16 boxes of 2.50.2 and later. Never for 2.50.0/2.50.1 quests.
+static bool ewpn_full_boxes()
+{
+    return ewpn_offset_rule_250() < 0 && get_bit(quest_rules, qr_OFFSETEWPNCOLLISIONFIX);
+}
+
+// The box of an enemy boomerang, rock, sword or magic shot.
+static void ewpn_shot_box(weapon *w)
+{
+    const int old = ewpn_offset_rule_250();
+
+    if(old == 0)
+    {
+        w->hxofs = 0;
+        w->hxsz = 15;
+    }
+    else if(old < 0 && get_bit(quest_rules, qr_OFFSETEWPNCOLLISIONFIX))
+    {
+        w->hxofs = w->hyofs = 0;
+        w->hxsz = w->hysz = 16;
+    }
+    else
+    {
+        w->hxofs = 4;
+        w->hxsz = 8;
+    }
+}
 
 byte boomframe[16] = {0,0,1,0,2,0,1,1,0,1,1,3,2,2,1,2};
 byte bszboomflip[4] = {0,2,3,1};
@@ -876,8 +920,8 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
         LOADGFX(ewBOMB);
         hxofs=0;
         hxsz=16;
-        
-		if(get_bit(quest_rules, qr_OFFSETEWPNCOLLISIONFIX))
+
+		if(ewpn_full_boxes())
 		{
 			hyofs=0;
 			hysz=16;
@@ -913,7 +957,7 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
         LOADGFX(ewSBOMB);
         hxofs=0;
         hxsz=16;
-		if(get_bit(quest_rules, qr_OFFSETEWPNCOLLISIONFIX))
+		if(ewpn_full_boxes())
 		{
 			hyofs=0;
 			hysz=16;
@@ -946,19 +990,8 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
         break;
         
     case ewBrang:
-        if(get_bit(quest_rules, qr_OFFSETEWPNCOLLISIONFIX))
-        {
-            hxofs=0;
-            hxsz=16;
-			hyofs=0;
-			hysz=16;
-        }
-        else
-        {
-            hxofs=4;
-            hxsz=8;
-        }
-        
+        ewpn_shot_box(this);
+
         wid = zc_min(zc_max(current_item(itype_brang),1),3)-1+wBRANG;
         LOADGFX(wid);
         break;
@@ -987,20 +1020,9 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
         
     case ewRock:
         LOADGFX(ewROCK);
-        
-        if(get_bit(quest_rules, qr_OFFSETEWPNCOLLISIONFIX))
-        {
-            hxofs=0;
-            hxsz=16;
-			hyofs=0;
-			hysz=16;
-        }
-        else
-        {
-            hxofs=4;
-            hxsz=8;
-        }
-        
+
+        ewpn_shot_box(this);
+
         step=3;
         break;
         
@@ -1034,20 +1056,9 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
         
     case ewSword:
         LOADGFX(ewSWORD);
-        
-        if(get_bit(quest_rules, qr_OFFSETEWPNCOLLISIONFIX))
-        {
-            hxofs=0;
-            hxsz=16;
-			hyofs=0;
-			hysz=16;
-        }
-        else
-        {
-            hxofs=4;
-            hxsz=8;
-        }
-        
+
+        ewpn_shot_box(this);
+
         step=3;
         
         switch(dir)
@@ -1075,20 +1086,9 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
     case wRefMagic:
     case ewMagic:
         LOADGFX(ewMAGIC);
-        
-        if(get_bit(quest_rules, qr_OFFSETEWPNCOLLISIONFIX))
-        {
-            hxofs=0;
-            hxsz=16;
-			hyofs=0;
-			hysz=16;
-        }
-        else
-        {
-            hxofs=4;
-            hxsz=8;
-        }
-        
+
+        ewpn_shot_box(this);
+
         step=3;
         
         switch(dir)
@@ -1145,7 +1145,7 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
             }
         }
         
-		if(get_bit(quest_rules, qr_OFFSETEWPNCOLLISIONFIX))
+		if(ewpn_full_boxes())
 		{
 			hxofs=hyofs=0;
 			hxsz=hysz=16;
@@ -1166,7 +1166,7 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
         step=0;
         dir=-1;
         
-        if(get_bit(quest_rules, qr_OFFSETEWPNCOLLISIONFIX))
+        if(ewpn_full_boxes())
 		{
 			hxofs=hyofs=0;
 			hxsz=hysz=16;
@@ -1183,7 +1183,7 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
         break;
         
     case ewWind:
-        if(get_bit(quest_rules, qr_OFFSETEWPNCOLLISIONFIX))
+        if(ewpn_full_boxes())
 		{
 			hxofs=hyofs=0;
 			hxsz=hysz=16;
@@ -2799,16 +2799,15 @@ mirrors:
 
             if(hitcombo(checkx,checky,cMIRROR))
 {
-                weapon *w=new weapon(*this);
-                
+                // Enemy magic leaves a reflected copy behind; anything else turns
+                // itself. (A copy used to be made either way, and leaked.)
+                weapon *w=this;
+
                 if(id==ewMagic)
                 {
+                    w=new weapon(*this);
                     Lwpns.add(w);
                     dead=0;
-                }
-                else
-                {
-                    w=this;
                 }
                 
                 
@@ -2832,16 +2831,15 @@ mirrors:
             
             if(hitcombo(checkx,checky,cMIRRORSLASH))
             {
-                weapon *w=new weapon(*this);
-                
+                // Enemy magic leaves a reflected copy behind; anything else turns
+                // itself. (A copy used to be made either way, and leaked.)
+                weapon *w=this;
+
                 if(id==ewMagic)
                 {
+                    w=new weapon(*this);
                     Lwpns.add(w);
                     dead=0;
-                }
-                else
-                {
-                    w=this;
                 }
                 
                 w->dir = 3-w->dir;
@@ -2876,16 +2874,15 @@ mirrors:
             
             if(hitcombo(checkx,checky,cMIRRORBACKSLASH))
             {
-                weapon *w=new weapon(*this);
-                
+                // Enemy magic leaves a reflected copy behind; anything else turns
+                // itself. (A copy used to be made either way, and leaked.)
+                weapon *w=this;
+
                 if(id==ewMagic)
                 {
+                    w=new weapon(*this);
                     Lwpns.add(w);
                     dead=0;
-                }
-                else
-                {
-                    w=this;
                 }
                 
                 w->dir ^= 2;

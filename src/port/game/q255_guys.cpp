@@ -1,10 +1,13 @@
 // Enemy data (GUY section), format versions 24 to 60.
 //
-// Read and dropped, 2.53 has no field for these:
+// Kept beside guysbuf as stored (q30_set_guy_defenses), for the switch hook's own defense
+// and "Switch w/ Player"; 2.53's enemy::defend doesn't see them:
 //   defense[18]                                  v25+  upstream's unused edefLAST250 slot
 //   defense[20-29]                               v25+  script weapons 1-10
 //   defense[30-40]                               v25+  ice, bait, wind, sparkle, sonic, whistle,
 //                                                      switchhook, thrown, refl. arrow, fire, fire 2
+//
+// Read and dropped, 2.53 has no field for these:
 //   txsz, tysz, hxsz, hysz, hzsz                 v26+  tile and hit sizes
 //   hxofs, hyofs, xofs, yofs, zofs               v27+  hit and draw offsets
 //   wpnsprite                                    v28+
@@ -60,6 +63,7 @@
 #include "q30_scripts.h"
 
 #include "q255.h"
+#include "q30_triggers.h"
 
 extern guydata *guysbuf;
 extern char *guy_string[eMAXGUYS];
@@ -210,7 +214,9 @@ static void skip_script_config(Q255Section &s)
 // The npc and weapon script of the enemy being read: set while its fields go by.
 static word g_npc_script, g_npc_weapon_script;
 static dword g_npc_moveflags;
+static long g_npc_wpnsprite;     // kept for scripts (npcdata->WeaponSprite)
 static long g_npc_initd[8], g_npc_weapon_initd[8];
+static byte g_npc_raw_defense[FILE_DEFENSES_ALL];    // as stored: the switch hook's and edSWITCH need them
 
 // read_weap_data: every field of the block, which carries its own version.
 static void skip_weapon_data(Q255Section &s)
@@ -334,9 +340,12 @@ static void read_guy(Q255Section &s, guydata &g)
 
     // Indices 0-17 match 2.53. Index 18 is 2.53's Quake slot only in v24; later
     // versions moved Quake to index 19.
+    memset(g_npc_raw_defense, 0, sizeof(g_npc_raw_defense));
+
     for(int j = 0; j < FILE_DEFENSES_FIRST; ++j)
     {
         byte d = s.getc();
+        g_npc_raw_defense[j] = d;
 
         if(j < edefQUAKE || v <= 24)
             g.defense[j] = map_defense(d);
@@ -353,6 +362,7 @@ static void read_guy(Q255Section &s, guydata &g)
         for(int j = FILE_DEFENSES_FIRST; j < FILE_DEFENSES_ALL; ++j)
         {
             byte d = s.getc();
+            g_npc_raw_defense[j] = d;
 
             if(j == FILE_QUAKE)
                 g.defense[edefQUAKE] = map_defense(d);
@@ -366,7 +376,7 @@ static void read_guy(Q255Section &s, guydata &g)
         s.skip(5 * 4);     // hit and draw offsets
 
     if(v > 27)
-        s.skip(4);         // wpnsprite
+        g_npc_wpnsprite = s.igetl_s();     // wpnsprite
 
     if(v > 28)
         s.skip(4);         // SIZEflags
@@ -485,12 +495,14 @@ int q255_read_guys(Q255Section &s)
     {
         init_guys(s.version);
         q30_clear_guy_scripts();
+        q30_clear_guy_extras();
+        q30_set_guy_defenses(-1, NULL);
     }
 
     for(int i = 0; i < FILE_GUYS; ++i)
     {
         guydata g;
-        g_npc_script = g_npc_weapon_script = 0; g_npc_moveflags = 0;
+        g_npc_script = g_npc_weapon_script = 0; g_npc_moveflags = 0; g_npc_wpnsprite = 0;
         memset(g_npc_initd, 0, sizeof(g_npc_initd));
         memset(g_npc_weapon_initd, 0, sizeof(g_npc_weapon_initd));
         read_guy(s, g);
@@ -504,6 +516,8 @@ int q255_read_guys(Q255Section &s)
             q30_set_guy_script(i, g_npc_script, g_npc_initd);
             q30_set_guy_moveflags(i, g_npc_moveflags);
             q30_set_guy_weapon_script(i, g_npc_weapon_script, g_npc_weapon_initd);
+            q30_set_guy_wpnsprite(i, (int)g_npc_wpnsprite);
+            q30_set_guy_defenses(i, g_npc_raw_defense);
         }
     }
 

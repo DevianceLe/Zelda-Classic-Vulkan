@@ -11,6 +11,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -43,9 +44,19 @@ void SDLCALL make_unfocusable(void *)
     SDL_free(list);
 }
 
+// The driver thread runs until the program ends. It reads its file through the
+// C++ runtime's streams, and exit() frees their locale data after the program's
+// own static objects are gone: a read at that moment called through freed
+// memory and crashed the program as it closed (about 1 run in 150 under the
+// test tools). ~Start stops the thread before that.
+std::atomic<bool> g_stop(false);
+std::atomic<bool> g_running(false);
+
+// In short steps, so the thread notices g_stop.
 void pause_ms(int ms)
 {
-    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+    for(int left = ms; left > 0 && !g_stop; left -= 10)
+        std::this_thread::sleep_for(std::chrono::milliseconds(left < 10 ? left : 10));
 }
 
 void motion(float x, float y)
@@ -141,7 +152,7 @@ void run(const std::string &path)
     std::streamoff at = 0;
     int handled = 0;
     bool unfocusable = false;
-    for(;;)
+    while(!g_stop)
     {
         // A window under test must never take the keyboard from whoever is
         // using the computer, and the UI reads the real mouse when focused.
@@ -164,7 +175,7 @@ void run(const std::string &path)
         {
             f.seekg(at);
             std::string line;
-            while(std::getline(f, line))
+            while(!g_stop && std::getline(f, line))
             {
                 if(f.eof())
                     break;          // the line is not complete yet
@@ -204,6 +215,7 @@ void run(const std::string &path)
         }
         pause_ms(40);
     }
+    g_running = false;
 }
 
 struct Start
@@ -214,8 +226,18 @@ struct Start
         if(e && e[0])
         {
             std::string path(e);
+            g_running = true;
             std::thread(run, path).detach();
         }
+    }
+
+    // Static objects are destroyed in the reverse order of their construction,
+    // so this runs before the C++ runtime's own clean-up.
+    ~Start()
+    {
+        g_stop = true;
+        for(int i = 0; i < 300 && g_running; ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 } g_start;
 

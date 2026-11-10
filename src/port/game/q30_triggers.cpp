@@ -23,6 +23,7 @@
 #include "pal.h"
 #include "q30.h"
 #include "q30_triggers.h"
+#include "q30_scripts.h"
 
 extern word quest_header_zelda_version;
 extern newcombo *combobuf;
@@ -220,6 +221,1056 @@ int q30_combo_flag(int id)
 }
 
 // A histogram of what the quest uses, for ZC_Q30_TRIGSTATS=1.
+// ZC_Q255_DUMP_USE: where the quest's slopes and standing combos are placed
+void q30_slope_audit()
+{
+    int standing = 0, withz = 0, dive = 0;
+
+    for(size_t n = 0; n < TheMaps.size(); ++n)
+    {
+        const mapscr &m = TheMaps[n];
+
+        if(!(m.valid & mVALID))
+            continue;
+
+        for(int layer = -1; layer < 6; ++layer)
+        {
+            const mapscr *s = &m;
+
+            if(layer >= 0)
+            {
+                if(m.layermap[layer] <= 0)
+                    continue;
+
+                size_t at = (m.layermap[layer] - 1) * MAPSCRS + m.layerscreen[layer];
+
+                if(at >= TheMaps.size())
+                    continue;
+
+                s = &TheMaps[at];
+            }
+
+            for(size_t p = 0; p < s->data.size(); ++p)
+            {
+                int cid = s->data[p];
+                const Q30Combo *c = q30_combo(cid);
+
+                if(!c)
+                    continue;
+
+                if(c->type == Q30C_SLOPE)
+                    al_trace("slope map %d scr %d layer %d pos %d cid %d (%d,%d)-(%d,%d) slip %d usr %x side %d\n", (int)(n / MAPSCRS), (int)(n % MAPSCRS), layer, (int)p, cid,
+                             (int)(c->attributes[16] / 10000), (int)(c->attributes[17] / 10000), (int)(c->attributes[18] / 10000), (int)(c->attributes[19] / 10000),
+                             (int)c->attributes[0], (unsigned)c->usrflags, (m.flags7 & fSIDEVIEW) ? 1 : 0);
+
+                if(c->genflags & 4)
+                    ++standing;
+
+                if(c->z_height || c->z_step_height)
+                    ++withz;
+
+                if(c->dive_under_level)
+                    ++dive;
+            }
+        }
+
+        for(int i = 0; i < 32; ++i)
+            if(m.ffdata[i] && q30_combo_type(m.ffdata[i]) == Q30C_SLOPE)
+                al_trace("slope ffc map %d scr %d ffc %d cid %d flags %x side %d\n", (int)(n / MAPSCRS), (int)(n % MAPSCRS), i, m.ffdata[i], (unsigned)m.ffflags[i], (m.flags7 & fSIDEVIEW) ? 1 : 0);
+    }
+
+    al_trace("standing audit: standing %d withz %d dive %d\n", standing, withz, dive);
+
+    // screens with switch-hook targets, pits and push blocks, to find test screens
+    for(size_t n = 0; n < TheMaps.size(); ++n)
+    {
+        const mapscr &m = TheMaps[n];
+
+        if(!(m.valid & mVALID))
+            continue;
+
+        int sw = 0, sw_push = 0, push = 0, pits = 0, holes = 0, trigs = 0;
+
+        for(int layer = -1; layer < 6; ++layer)
+        {
+            const mapscr *s = &m;
+
+            if(layer >= 0)
+            {
+                if(m.layermap[layer] <= 0)
+                    continue;
+
+                size_t at = (m.layermap[layer] - 1) * MAPSCRS + m.layerscreen[layer];
+
+                if(at >= TheMaps.size())
+                    continue;
+
+                s = &TheMaps[at];
+            }
+
+            for(size_t p = 0; p < s->data.size() && p < 176; ++p)
+            {
+                int cid = s->data[p];
+                const Q30Combo *c = q30_combo(cid);
+                int f1 = s->sflag[p], f2 = combobuf[cid].flag;
+                bool is_push = false;
+
+                for(int k = 0; k < 2; ++k)
+                {
+                    int f = k ? f2 : f1;
+                    is_push = is_push || (f >= mfPUSHUD && f <= mfPUSH4) || (f >= mfPUSHLR && f <= mfPUSHR) || (f >= mfPUSHUDNS && f <= mfPUSHRINS);
+                }
+
+                is_push = is_push || (c && c->type == Q30C_PUSHBLOCK);
+
+                if(is_push && layer < 2)
+                    ++push;
+
+                if(c && c->type == Q30C_PITFALL)
+                    ++pits;
+
+                if(f1 == mfBLOCKHOLE || f2 == mfBLOCKHOLE)
+                    ++holes;
+
+                if(f1 == mfBLOCKTRIGGER || f2 == mfBLOCKTRIGGER)
+                    ++trigs;
+
+                if(c && (c->type == Q30C_SWITCHHOOK || (c->genflags & 2)))
+                {
+                    ++sw;
+
+                    if(is_push || (c->usrflags & 0x40))
+                        ++sw_push;
+
+                    al_trace("swhook map %d scr %d layer %d pos %d cid %d type %d usr %x lvl %d sflag %d\n", (int)(n / MAPSCRS), (int)(n % MAPSCRS),
+                             layer + 1, (int)p, cid, c->type, (unsigned)c->usrflags, (int)(c->attributes[8] / 10000), f1);
+                }
+            }
+        }
+
+        if(sw || (pits && push))
+            al_trace("swaudit map %d scr %d: switch %d (push %d) push %d pits %d holes %d triggers %d\n", (int)(n / MAPSCRS), (int)(n % MAPSCRS),
+                     sw, sw_push, push, pits, holes, trigs);
+
+        // a layer-0 push block next to a pit it may be pushed into (no "no push blocks" flag)
+        for(int p = 0; pits && push && p < 176 && p < (int)m.data.size(); ++p)
+        {
+            int fl[2] = { m.sflag[p], combobuf[m.data[p]].flag };
+
+            for(int d = 0; d < 4; ++d)
+            {
+                bool ok = false;
+
+                for(int k = 0; k < 2; ++k)
+                {
+                    int f = fl[k];
+                    ok = ok || f == mfPUSH4 || f == mfPUSH4NS || f == mfPUSH4INS
+                         || (d <= down && (f == mfPUSHUD || f == mfPUSHUDNS || f == mfPUSHUDINS))
+                         || (d >= left && (f == mfPUSHLR || f == mfPUSHLRNS || f == mfPUSHLRINS))
+                         || (d == up && (f == mfPUSHU || f == mfPUSHUNS || f == mfPUSHUINS))
+                         || (d == down && (f == mfPUSHD || f == mfPUSHDNS || f == mfPUSHDINS))
+                         || (d == left && (f == mfPUSHL || f == mfPUSHLNS || f == mfPUSHLINS))
+                         || (d == right && (f == mfPUSHR || f == mfPUSHRNS || f == mfPUSHRINS));
+                }
+
+                int to = d == up ? p - 16 : d == down ? p + 16 : d == left ? ((p & 15) ? p - 1 : -1) : ((p & 15) < 15 ? p + 1 : -1);
+
+                if(!ok || to < 0 || to > 175)
+                    continue;
+
+                const Q30Combo *tc = q30_combo(m.data[to]);
+
+                if(tc && tc->type == Q30C_PITFALL && m.sflag[to] != mfNOBLOCKS && combobuf[m.data[to]].flag != mfNOBLOCKS)
+                    al_trace("swpit map %d scr %d block %d dir %d pit %d\n", (int)(n / MAPSCRS), (int)(n % MAPSCRS), p, d, to);
+            }
+        }
+    }
+
+    {
+        extern int q255_header_version[3];
+        extern int q255_header_build;
+        extern int q255_combo_section_version;
+        int poof = q30_misc_sprite(3) & 255;
+        al_trace("swaudit misc sprites fall %d poof %d (tile %d frames %d speed %d); slash ->Next mode %d; saved by %d.%d.%d build %d, combos v%d\n",
+                 q30_misc_sprite(0), q30_misc_sprite(3), (int)wpnsbuf[poof].tile, wpnsbuf[poof].frames, wpnsbuf[poof].speed, q30_slash_next_skip(cSLASHNEXT),
+                 q255_header_version[0], q255_header_version[1], q255_header_version[2], q255_header_build, q255_combo_section_version);
+    }
+
+    for(int i = 0; i < MAXDMAPS; ++i)
+        if(DMaps[i].map || DMaps[i].xoff || DMaps[i].level)
+            al_trace("swaudit dmap %d map %d xoff %d level %d flags %x\n", i, (int)DMaps[i].map, (int)DMaps[i].xoff, (int)DMaps[i].level, (unsigned)DMaps[i].flags);
+
+    for(int i = 0; i < MAXITEMS; ++i)
+    {
+        int fam = (int)q30_item_family(i);
+
+        if(fam == 274 || fam == 269 || fam == 273)
+            al_trace("swaudit item %d family %d level %d misc5 %d flags %x magic %d\n", i, fam, itemsbuf[i].fam_type, (int)itemsbuf[i].misc5,
+                     (unsigned)itemsbuf[i].flags, itemsbuf[i].magic);
+    }
+
+    static const int rules[] = { 80, 180, 181, 183, 184, 199, 200, 352, 406, 563, 584, 597, 644, 648, 649, 650, 681 };
+    char line[256];
+    line[0] = 0;
+    for(size_t i = 0; i < sizeof(rules) / sizeof(rules[0]); ++i)
+        if(q30_quest_rule(rules[i]))
+            sprintf(line + strlen(line), " %d", rules[i]);
+    al_trace("rules audit:%s\n", line);
+
+    // which sprite drawing registers the quest's scripts name (rotation, scale, script flip, shadows)
+    static const int regs[] = { 0x1332, 0x1334, 0x1336, 0x1363, 0x1285, 0x133F, 0x1340, 0x1341, 0x1342, 0x1343, 0x1344, 0x1345,
+                                0x1346, 0x1347, 0x1348, 0x13EF, 0x13F0, 0x13F1, 0x13F2, 0x13F5, 0x1441, 0x1442, 0x1443, 0x1444,
+                                0x1445, 0x1446, 0x1447, 0x1448, 0x1449, 0x144A, 0x15C9, 0x15D0, 0x15D6, 0x15E4, 0x15E8, 0x16E7 };
+    const int nregs = sizeof(regs) / sizeof(regs[0]);
+    int hits[sizeof(regs) / sizeof(regs[0])];
+    memset(hits, 0, sizeof(hits));
+    extern ffscript *zasm30_stream;
+    std::vector<ffscript *> all;
+    all.push_back(zasm30_stream);
+    for(int i = 0; i < 512; ++i) all.push_back(ffscripts[i]);
+    for(int i = 0; i < 256; ++i) { all.push_back(itemscripts[i]); all.push_back(guyscripts[i]); all.push_back(wpnscripts[i]); all.push_back(screenscripts[i]); }
+    for(int i = 0; i < NUMSCRIPTGLOBAL; ++i) all.push_back(globalscripts[i]);
+    for(int i = 0; i < 3; ++i) all.push_back(linkscripts[i]);
+    for(int i = 0; i < Q30_GLOBAL_SLOTS; ++i) all.push_back(q30_global_scripts[i]);
+    for(int i = 0; i < Q30_HERO_SLOTS; ++i) all.push_back(q30_hero_scripts[i]);
+    for(int i = 0; i < 256; ++i)
+    {
+        all.push_back(q30_lwpn_scripts[i]); all.push_back(q30_ewpn_scripts[i]); all.push_back(q30_dmap_scripts[i]);
+        all.push_back(q30_itemsprite_scripts[i]); all.push_back(q30_subscreen_scripts[i]);
+    }
+    for(int i = 0; i < 512; ++i) { all.push_back(q30_combo_scripts[i]); all.push_back(q30_generic_scripts[i]); }
+
+    // counted only where the command names a register: writes by SETV/SETR/POP (arg1); reads by
+    // SETR (arg2) and PUSHR are left out, since a read alone changes no drawing
+    for(size_t s = 0; s < all.size(); ++s)
+        for(int pc = 0; all[s] && pc < 20000000 && all[s][pc].command != 0xFFFF; ++pc)
+        {
+            word c = all[s][pc].command;
+
+            if(c != 0 && c != 1 && c != 68)    // SETV, SETR, POP
+                continue;
+
+            for(int r = 0; r < nregs; ++r)
+                if(all[s][pc].arg1 == regs[r])
+                    ++hits[r];
+        }
+
+    line[0] = 0;
+    for(int r = 0; r < nregs; ++r)
+        if(hits[r])
+            sprintf(line + strlen(line), " %x:%d", regs[r], hits[r]);
+    al_trace("sprite audit:%s\n", line);
+
+    for(int i = 0; i < MAXITEMS; ++i)
+    {
+        int fam = (int)q30_item_family(i);
+
+        if(fam == 270 || fam == 271)
+            al_trace("bottle audit: item %d family %d name %s misc1 %d misc4 %d tile %d frames %d\n", i, fam, item_string[i],
+                     (int)itemsbuf[i].misc1, (int)itemsbuf[i].misc4, (int)itemsbuf[i].tile, (int)itemsbuf[i].frames);
+    }
+
+    void q30_bottle_audit();
+    q30_bottle_audit();
+}
+
+// ---- sprite drawing extras -------------------------------------------------------------
+// What upstream's sprite::draw adds for newer quests: a script's Rotation (degrees) and Scale
+// (percent), ScriptFlip 4-7 (the tile turned a quarter clockwise, then flipped), and the
+// shadow's own sprite and offsets. The script engine owns the values and gives them through
+// q30_sprite_values (q30_scripts_regs.h) as { rotation, scale, flip (-1 none), shadow sprite
+// (0 none), shadow x offset, shadow y offset }.
+
+void q30_sprite_values(sprite *s, int *v);
+extern bool (*q30_sprite_draw_hook)(sprite *, BITMAP *, int, int);
+extern void (*q30_sprite_shadow_hook)(sprite *, int *, int *, int *, int *, int *);
+
+static bool sprite_values(sprite *s, int *v)
+{
+    v[0] = 0;
+    v[1] = 0;
+    v[2] = -1;
+    v[3] = v[4] = v[5] = 0;
+
+    if(!q30_active())
+        return false;
+
+    q30_sprite_values(s, v);
+    return true;
+}
+
+// upstream's doSpriteDraw
+static void sprite_blit(int drawstyle, BITMAP *dest, BITMAP *src, int x, int y)
+{
+    if(drawstyle == 1)
+    {
+        color_map = &trans_table2;
+        draw_trans_sprite(dest, src, x, y);
+        color_map = &trans_table;
+    }
+    else
+        draw_sprite(dest, src, x, y);
+}
+
+static bool q30_sprite_draw(sprite *s, BITMAP *dest, int sx, int sy)
+{
+    int v[6];
+
+    if(!sprite_values(s, v))
+        return false;
+
+    int rot = v[0] % 360, scale = v[1], fl = v[2];
+    bool scaled = scale != 0 && scale != 100, quarter = fl >= 4;
+
+    if(!rot && !scaled && !quarter)
+        return false;
+
+    static int trace_left = getenv("ZC_Q30_TRACE_SPRITES") ? 40 : 0;   // diagnostics: which sprites draw turned
+
+    if(trace_left > 0)
+    {
+        --trace_left;
+        al_trace("q30 sprite draw frame %d uid %d id %d rot %d scale %d flip %d at %d,%d\n", frame, (int)s->getUID(), s->id, rot, scale, fl, sx, sy);
+    }
+
+    int e = s->extend >= 3 ? 3 : s->extend;
+    int w = 16, h = 16, ox = sx, oy = sy;
+
+    if(e == 1)
+    {
+        h = 32;
+        oy = sy - 16;
+    }
+    else if(e == 2)
+    {
+        w = 48;
+        h = 32;
+        ox = sx - 16;
+        oy = sy - 16;
+    }
+    else if(e == 3)
+    {
+        w = zc_max(1, s->txsz) * 16;
+        h = zc_max(1, s->tysz) * 16;
+    }
+
+    if(w > 256 || h > 256)
+        return false;
+
+    BITMAP *tmp = create_bitmap_ex(8, w, h);
+    clear_bitmap(tmp);
+    int f = quarter ? 0 : (s->flip & 3), t = s->tile, cs = s->cs;
+
+    switch(e)
+    {
+    case 1:
+        overtile16(tmp, t - TILES_PER_ROW, 0, 0, cs, f);
+        overtile16(tmp, t, 0, 16, cs, f);
+        break;
+
+    case 2:
+    {
+        int d = f ? -1 : 1;
+        overtile16(tmp, t - TILES_PER_ROW, 16, 0, cs, f);
+        overtile16(tmp, t - TILES_PER_ROW - d, 0, 0, cs, f);
+        overtile16(tmp, t - TILES_PER_ROW + d, 32, 0, cs, f);
+        overtile16(tmp, t, 16, 16, cs, f);
+        overtile16(tmp, t - d, 0, 16, cs, f);
+        overtile16(tmp, t + d, 32, 16, cs, f);
+        break;
+    }
+
+    case 3:
+        for(int i = 0; i < h / 16; ++i)
+            for(int j = 0; j < w / 16; ++j)
+            {
+                int td = t + i * TILES_PER_ROW + j;
+
+                if(td % TILES_PER_ROW < j)
+                    td += TILES_PER_ROW * (h / 16 - 1);
+
+                int dx = (f & 1) ? (w / 16 - j - 1) : j, dy = (f & 2) ? (h / 16 - i - 1) : i;
+                overtile16(tmp, td, dx * 16, dy * 16, cs, f);
+            }
+        break;
+
+    default:
+        overtile16(tmp, t, 0, 0, cs, f);
+        break;
+    }
+
+    // upstream's flips 4-7: a quarter turn clockwise, then its horizontal and vertical flips
+    if(quarter && w == h)
+    {
+        BITMAP *turned = create_bitmap_ex(8, w, h);
+
+        for(int r = 0; r < h; ++r)
+            for(int c = 0; c < w; ++c)
+            {
+                int tr = r, tc = c;
+
+                if(fl & 1)
+                    tc = w - 1 - tc;
+
+                if(fl & 2)
+                    tr = h - 1 - tr;
+
+                turned->line[tr][tc] = tmp->line[h - 1 - c][r];
+            }
+
+        destroy_bitmap(tmp);
+        tmp = turned;
+    }
+
+    if(rot || scaled)
+    {
+        // as upstream: turned into a scratch bitmap at 0,0, which is then drawn at the sprite
+        static BITMAP *scratch = NULL;
+
+        if(!scratch)
+            scratch = create_bitmap_ex(8, 256, 256);
+
+        clear_bitmap(scratch);
+        rotate_scaled_sprite(scratch, tmp, 0, 0, ftofix(rot * 0.7111111111111), ftofix(scaled ? scale / 100.0 : 1.0));
+        sprite_blit(s->drawstyle, dest, scratch, ox, oy);
+    }
+    else
+        sprite_blit(s->drawstyle, dest, tmp, ox, oy);
+
+    destroy_bitmap(tmp);
+    return true;
+}
+
+static void q30_sprite_shadow(sprite *s, int *tile, int *cs, int *flip, int *sx, int *sy)
+{
+    int v[6];
+
+    if(!sprite_values(s, v))
+        return;
+
+    if(v[3] > 0 && v[3] < MAXWPNS && v[3] != iwShadow)
+    {
+        int frame_ofs = *tile - wpnsbuf[iwShadow].tile;
+
+        if(frame_ofs < 0 || frame_ofs >= 16)
+            frame_ofs = 0;
+
+        *tile = wpnsbuf[v[3]].tile + frame_ofs;
+        *cs = wpnsbuf[v[3]].csets & 0xFFFF;
+        *flip = wpnsbuf[v[3]].misc & 0xFF;
+    }
+
+    *sx += v[4];
+    *sy += v[5];
+}
+
+extern int (*q30_bottle_tile_hook)(int item, int frames);   // items.cpp
+static int bottle_tile(int item, int frames)
+{
+    return q30_is_bottle(item) ? q30_bottle_tile_offset(item, frames) : -1;
+}
+
+namespace
+{
+struct InstallSpriteHooks
+{
+    InstallSpriteHooks()
+    {
+        q30_sprite_draw_hook = q30_sprite_draw;
+        q30_sprite_shadow_hook = q30_sprite_shadow;
+        q30_bottle_tile_hook = bottle_tile;
+    }
+} install_sprite_hooks;
+}
+
+// ---- slopes ----------------------------------------------------------------------------
+// Upstream's slopes.cpp. Every value is a zfix's raw value (1/10000 pixel) and the
+// arithmetic truncates the way zfix does, so a slope pushes the way it does upstream.
+
+namespace
+{
+typedef int zr;
+
+const double Q30_PI = 3.14159265358979323846;
+const int SLOPE_SLOTS = 7 * 176 + 32;   // a combo position on each layer, then the FFCs
+
+inline zr zmul(zr a, zr b) { return (zr)((int64_t)a * b / 10000); }
+inline zr zdiv(zr a, zr b) { return b ? (zr)((int64_t)a * 10000 / b) : 0; }   // zfix's divide by 0 gives 0
+inline zr zfromd(double v) { return (zr)(v * 10000L); }
+inline zr zfromf(float v) { return (zr)(v * 10000L); }
+inline double ztod(zr v) { return v / 10000.0; }
+inline float ztof(zr v) { return (float)(v / 10000.0); }
+
+zr zbound(zr v, zr lo, zr hi)
+{
+    if(lo > hi)
+        std::swap(lo, hi);
+    return v < lo ? lo : v > hi ? hi : v;
+}
+
+zr zlerp(zr a, zr b, zr t)
+{
+    float fa = ztof(a), fb = ztof(b), ft = ztof(t);
+    volatile float d = (fb - fa) * ft;
+    return zfromf(fa + d);
+}
+
+struct SlopeInfo
+{
+    zr x1, y1, x2, y2;
+    const Q30Combo *c;
+
+    SlopeInfo() : x1(0), y1(0), x2(0), y2(0), c(NULL) {}
+
+    zr slope() const { return zdiv(y2 - y1, x2 - x1); }
+    zr slipperiness() const { return c ? (zr)c->attributes[0] : 0; }
+    bool stairs() const { return c && (c->usrflags & 0x01); }
+    bool ignorebottom() const { return c && (c->usrflags & 0x02); }
+    bool ignoretop() const { return c && (c->usrflags & 0x04); }
+    bool ignoreleft() const { return c && (c->usrflags & 0x08); }
+    bool ignoreright() const { return c && (c->usrflags & 0x10); }
+    bool falldown() const { return c && (c->usrflags & 0x20); }
+
+    bool ignore(zr sinangle, zr cosangle, bool canfall, bool onplatform) const
+    {
+        if(!c)
+            return true;
+        if(sinangle <= 0 && ((onplatform && stairs()) || ignoretop() || (canfall && falldown())))
+            return true;
+        if(sinangle >= 0 && (ignorebottom() || stairs()))
+            return true;
+        if(cosangle <= 0 && ignoreleft())
+            return true;
+        if(cosangle >= 0 && ignoreright())
+            return true;
+        return false;
+    }
+
+    zr getX(zr y) const
+    {
+        zr b = y1 - zmul(slope(), x1);
+        return zdiv(y - b, slope());
+    }
+};
+
+struct SlopeOld
+{
+    zr x1, y1, x2, y2;
+};
+
+SlopeOld g_slope_old[SLOPE_SLOTS];
+std::vector<int> g_slopes;   // slots that held a slope at the last update
+
+// What the slot holds now; c stays NULL if that isn't a slope.
+SlopeInfo slot_info(int slot)
+{
+    SlopeInfo s;
+    int cid = 0;
+    zr xo = 0, yo = 0;
+
+    if(slot < 7 * 176)
+    {
+        int layer = slot / 176, pos = slot % 176;
+        const mapscr *m = layer ? &tmpscr2[layer - 1] : &tmpscr[0];
+
+        if(layer && tmpscr[0].layermap[layer - 1] <= 0)
+            return s;
+
+        if((size_t)pos >= m->data.size())
+            return s;
+
+        cid = m->data[pos];
+        xo = (pos % 16) * 16 * 10000;
+        yo = (pos / 16) * 16 * 10000;
+    }
+    else
+    {
+        int i = slot - 7 * 176;
+
+        if(!tmpscr[0].ffdata[i] || (tmpscr[0].ffflags[i] & ffCHANGER))
+            return s;
+
+        cid = tmpscr[0].ffdata[i];
+        xo = (zr)tmpscr[0].ffx[i];
+        yo = (zr)tmpscr[0].ffy[i];
+    }
+
+    const Q30Combo *c = q30_combo(cid);
+
+    if(!c || c->type != Q30C_SLOPE)
+        return s;
+
+    s.c = c;
+    s.x1 = xo + (zr)c->attributes[16];
+    s.y1 = yo + (zr)c->attributes[17];
+    s.x2 = xo + (zr)c->attributes[18];
+    s.y2 = yo + (zr)c->attributes[19];
+
+    if(s.x1 > s.x2)
+    {
+        std::swap(s.x1, s.x2);
+        std::swap(s.y1, s.y2);
+    }
+
+    if(s.x2 != s.x1)
+        s.x2 += 9999;
+
+    if(s.y1 > s.y2)
+        s.y1 += 9999;
+    else if(s.y1 < s.y2)
+        s.y2 += 9999;
+
+    return s;
+}
+
+// upstream's lineLineColl: the products are zfix ones, the rest is float
+bool line_line(zr x1, zr y1, zr x2, zr y2, zr x3, zr y3, zr x4, zr y4)
+{
+    float den = ztof(zmul(x2 - x1, y4 - y3) - zmul(y2 - y1, x4 - x3));
+    float n1 = ztof(zmul(y1 - y3, x4 - x3) - zmul(x1 - x3, y4 - y3));
+    float n2 = ztof(zmul(y1 - y3, x2 - x1) - zmul(x1 - x3, y2 - y1));
+
+    if(den == 0)
+    {
+        if((x3 >= x1 && x3 <= x2) || (x3 <= x1 && x3 >= x2) || (x4 >= x1 && x4 <= x2) || (x4 <= x1 && x4 >= x2))
+            return n1 == 0 && n2 == 0;
+        return false;
+    }
+
+    float r = n1 / den, q = n2 / den;
+    return r >= 0 && r <= 1 && q >= 0 && q <= 1;
+}
+
+bool line_box(zr lx1, zr ly1, zr lx2, zr ly2, zr bx, zr by, zr bw, zr bh)
+{
+    return line_line(lx1, ly1, lx2, ly2, bx, by, bx + bw - 1, by)
+        || line_line(lx1, ly1, lx2, ly2, bx, by, bx, by + bh - 1)
+        || line_line(lx1, ly1, lx2, ly2, bx + bw - 1, by, bx + bw - 1, by + bh - 1)
+        || line_line(lx1, ly1, lx2, ly2, bx, by + bh - 1, bx + bw - 1, by + bh - 1);
+}
+
+bool slope_box(const SlopeInfo &s, zr bx, zr by, zr bw, zr bh)
+{
+    return line_box(s.x1, s.y1, s.x2, s.y2, bx, by, bw, bh);
+}
+
+bool old_slope_box(int slot, zr bx, zr by, zr bw, zr bh)
+{
+    const SlopeOld &o = g_slope_old[slot];
+    return line_box(o.x1, o.y1, o.x2, o.y2, bx, by, bw, bh);
+}
+
+double compare_point_line(double x, double y, double x1, double y1, double x2, double y2)
+{
+    if(x1 == x2)
+        return y1 < y2 ? x1 - x : x - x1;
+
+    if(y1 == y2)
+        return x1 < x2 ? y - y1 : y1 - y;
+
+    double sl = (y2 - y1) / (x2 - x1);
+    double b = y1 - (sl * x1);
+    return y - (sl * x + b);
+}
+
+// The side of the line the box's centre is on, as upstream works it out everywhere.
+double slope_normal(const SlopeInfo &s, zr tx, zr ty, zr tw, zr th, zr &sinangle, zr &cosangle)
+{
+    zr cx = tx + tw / 2 - 10000, cy = ty + th / 2 - 10000;
+    double angle = atan2(ztod(s.y2 - s.y1), ztod(s.x2 - s.x1));
+
+    if(compare_point_line(ztod(cx), ztod(cy), ztod(s.x1), ztod(s.y1), ztod(s.x2), ztod(s.y2)) < 0)
+        angle -= Q30_PI / 2;
+    else
+        angle += Q30_PI / 2;
+
+    sinangle = zfromd(sin(angle));
+    cosangle = zfromd(cos(angle));
+
+    if(s.x2 == s.x1)
+        sinangle = 0;
+
+    if(s.y2 == s.y1)
+        cosangle = 0;
+
+    return angle;
+}
+
+zr line_point_dist(const SlopeInfo &s, zr tx, zr ty)
+{
+    zr cx, cy;
+
+    if(s.x1 == s.x2)
+    {
+        cx = s.x1;
+        cy = zbound(ty, s.y1, s.y2);
+    }
+    else if(s.y1 == s.y2)
+    {
+        cx = zbound(tx, s.x1, s.x2);
+        cy = s.y1;
+    }
+    else
+    {
+        zr b = s.y1 - zmul(s.slope(), s.x1);
+        zr slope2 = -1 * zdiv(10000, s.slope());
+        zr b2 = ty - zmul(tx, slope2);
+        cx = zdiv(b2 - b, s.slope() - slope2);
+        cx = zbound(cx, s.x1, s.x2);
+        cy = zmul(s.slope(), cx) + b;
+    }
+
+    double ax = fabs(ztod(tx - cx)), ay = fabs(ztod(ty - cy));
+    return zfromd(sqrt(pow(ax, 2) + pow(ay, 2)));
+}
+
+enum { BS_UP, BS_DOWN, BS_AWAY0, BS_TOWARD0 };
+
+struct SlopeProbe
+{
+    virtual int test(zr val, zr &ret) = 0;
+    virtual ~SlopeProbe() {}
+};
+
+// upstream's binary_search_zfix
+zr slope_bsearch(zr b1, zr b2, SlopeProbe &p)
+{
+    zr ret = 0;
+
+    if(b2 < b1)
+        std::swap(b1, b2);
+
+    zr len = b2 - b1;
+    bool running = true;
+
+    while(running)
+    {
+        zr val;
+
+        if(len <= 0)
+        {
+            running = false;
+            val = b1;
+        }
+        else
+            val = b1 + len / 2;
+
+        int res = p.test(val, ret);
+
+        if(res == BS_AWAY0)
+            res = val < 0 ? BS_DOWN : BS_UP;
+        else if(res == BS_TOWARD0)
+            res = val < 0 ? BS_UP : BS_DOWN;
+
+        if(res == BS_UP)
+        {
+            if(b1 == val)
+                break;
+            b1 = val;
+        }
+        else
+        {
+            if(b2 == val)
+                break;
+            b2 = val;
+        }
+
+        len = b2 - b1;
+    }
+
+    return ret;
+}
+
+// clear of the line at an offset along one axis: the largest clear offset
+struct OffsetProbe : SlopeProbe
+{
+    const SlopeInfo &s;
+    zr rx, ry, rw, rh;
+    bool alongx;
+
+    OffsetProbe(const SlopeInfo &s_, zr rx_, zr ry_, zr rw_, zr rh_, bool ax) : s(s_), rx(rx_), ry(ry_), rw(rw_), rh(rh_), alongx(ax) {}
+
+    int test(zr val, zr &ret)
+    {
+        if(slope_box(s, alongx ? rx + val : rx, alongx ? ry : ry + val, rw, rh))
+            return BS_TOWARD0;
+        ret = val;
+        return BS_AWAY0;
+    }
+};
+
+struct LerpProbe : SlopeProbe
+{
+    const SlopeInfo &s;
+    zr rx2, ry2, rx, ry, rw, rh;
+
+    LerpProbe(const SlopeInfo &s_, zr rx2_, zr ry2_, zr rx_, zr ry_, zr rw_, zr rh_) : s(s_), rx2(rx2_), ry2(ry2_), rx(rx_), ry(ry_), rw(rw_), rh(rh_) {}
+
+    int test(zr val, zr &ret)
+    {
+        if(slope_box(s, zlerp(rx2, rx, val), zlerp(ry2, ry, val), rw, rh))
+            return BS_AWAY0;
+        ret = val;
+        return BS_TOWARD0;
+    }
+};
+
+const int SLOPE_STEP_CAP = 4096;   // a guard upstream doesn't have, against a line that never lets go
+}
+
+bool q30_slopes_here()
+{
+    return q30_active() && !g_slopes.empty();
+}
+
+void q30_slopes_update()
+{
+    g_slopes.clear();
+
+    if(!q30_active() || tmpscr[0].data.empty())
+        return;
+
+    for(int slot = 0; slot < SLOPE_SLOTS; ++slot)
+    {
+        SlopeInfo s = slot_info(slot);
+        SlopeOld &o = g_slope_old[slot];
+        o.x1 = s.x1;
+        o.y1 = s.y1;
+        o.x2 = s.x2;
+        o.y2 = s.y2;
+
+        if(s.c)
+            g_slopes.push_back(slot);
+    }
+}
+
+int q30_check_slope(int tx, int ty, int tw, int th, bool fallthrough, bool platformonly)
+{
+    for(size_t i = 0; i < g_slopes.size(); ++i)
+    {
+        SlopeInfo s = slot_info(g_slopes[i]);
+
+        if(!s.c || !slope_box(s, tx, ty, tw, th))
+            continue;
+
+        zr sn, cs;
+        double angle = slope_normal(s, tx, ty, tw, th, sn, cs);
+
+        if(s.ignore(sn, cs, fallthrough, false))
+            continue;
+
+        int ret = sin(angle) < 0 ? -1 : 1;
+
+        if(ret < 0 || !platformonly)
+            return ret;
+    }
+
+    return 0;
+}
+
+int q30_check_new_slope(int tx, int ty, int tw, int th, int otx, int oty, bool fallthrough, bool platformonly, int id)
+{
+    for(size_t i = 0; i < g_slopes.size(); ++i)
+    {
+        int slot = g_slopes[i];
+        SlopeInfo s = slot_info(slot);
+
+        if(!s.c)
+            continue;
+
+        if(s.stairs() && id != 0 && s.slope() != id)
+            continue;
+
+        if(!slope_box(s, tx, ty, tw, th) || old_slope_box(slot, otx, oty, tw, th))
+            continue;
+
+        zr sn, cs;
+        double angle = slope_normal(s, tx, ty, tw, th, sn, cs);
+
+        if(s.ignore(sn, cs, fallthrough, false))
+            continue;
+
+        int ret = sin(angle) < 0 ? -1 : 1;
+
+        if(ret < 0 || !platformonly)
+            return ret;
+    }
+
+    return 0;
+}
+
+int q30_get_new_slope(int tx, int ty, int tw, int th, int otx, int oty)
+{
+    zr dist = 99999 * 10000;
+    int ret = -1;
+
+    for(size_t i = 0; i < g_slopes.size(); ++i)
+    {
+        int slot = g_slopes[i];
+        SlopeInfo s = slot_info(slot);
+
+        if(!s.c || !slope_box(s, tx, ty, tw, th) || old_slope_box(slot, otx, oty, tw, th))
+            continue;
+
+        zr sn, cs;
+        slope_normal(s, tx, ty, tw, th, sn, cs);
+
+        if(s.ignore(sn, cs, false, false))
+            continue;
+
+        zr d = line_point_dist(s, tx + tw / 2 - 10000, ty + th / 2 - 10000);
+
+        if(d > dist)
+            continue;
+
+        dist = d;
+        ret = slot;
+    }
+
+    return ret;
+}
+
+int q30_slope_value(int slot)
+{
+    if(slot < 0)
+        return 0;
+
+    SlopeInfo s = slot_info(slot);
+    return s.c ? s.slope() : 0;
+}
+
+bool q30_slide_slope(int tx, int ty, int tw, int th, int &dx, int &dy, int &id)
+{
+    dx = dy = 0;
+    zr oty = ty;
+
+    for(size_t i = 0; i < g_slopes.size(); ++i)
+    {
+        int slot = g_slopes[i];
+        SlopeInfo s = slot_info(slot);
+
+        if(!s.c)
+            continue;
+
+        if(s.stairs() && id != 0 && s.slope() != id)
+            continue;
+
+        if(!slope_box(s, tx, ty + 10000, tw, th))
+            continue;
+
+        zr sn, cs;
+        double angle = slope_normal(s, tx, ty, tw, th, sn, cs);
+        double sinangle = (s.x1 == s.x2) ? 0 : sin(angle);
+
+        if(sinangle >= 0)   // upstream's sign() is never 0
+            continue;
+
+        dx += s.x1 - g_slope_old[slot].x1;
+        dy += s.y1 - g_slope_old[slot].y1;
+        id = s.slope();
+
+        if(s.slipperiness())
+        {
+            ty += s.slipperiness();
+            int my = (s.y1 < s.y2 ? s.y1 : s.y2) / 10000;
+
+            if((oty + th) / 10000 < my)
+                return false;
+
+            dx += s.getX(ty) - s.getX(oty);
+            dy += ty - oty;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+void q30_slope_push(int slot, int bx, int by, int bw, int bh, bool sideview, int &dx, int &dy, bool onplatform, bool fallthrough)
+{
+    SlopeInfo s = slot_info(slot);
+
+    if(slot < 0 || !s.c)
+        return;
+
+    bool disabledY = (dy == -10000);
+    bool disabledX = (dx == -10000);
+    zr rx = bx, ry = by, rw = bw, rh = bh;
+    zr orx = rx, ory = ry;
+    zr sn, cs;
+    slope_normal(s, rx, ry, rw, rh, sn, cs);
+
+    if(s.ignore(sn, cs, fallthrough, onplatform))
+        return;
+
+    if(sideview && sn < 0)
+    {
+        for(int n = 0; n < SLOPE_STEP_CAP && slope_box(s, rx, ry, rw, rh); ++n)
+            ry -= 10000;
+
+        OffsetProbe p(s, rx, ry, rw, rh, false);
+        ry += slope_bsearch(0, 10000, p);
+    }
+    else
+    {
+        zr mx = cs, my = sn;
+
+        if(disabledX && !my)
+            return;
+
+        if(disabledY && !mx)
+            return;
+
+        if(mx && my)
+        {
+            for(int n = 0; n < SLOPE_STEP_CAP && slope_box(s, rx, ry, rw, rh); ++n)
+            {
+                if(!disabledX)
+                    rx += cs;
+                if(!disabledY)
+                    ry += sn;
+            }
+
+            zr rx2 = rx - cs, ry2 = ry - sn;
+            LerpProbe p(s, rx2, ry2, rx, ry, rw, rh);
+            zr percent = slope_bsearch(1, 10000, p);
+            zr nx = zlerp(rx2, rx, percent), ny = zlerp(ry2, ry, percent);
+            rx = nx;
+            ry = ny;
+        }
+        else
+        {
+            if(s.y1 == s.y2 && s.x1 != s.x2)
+            {
+                if(!my || disabledY)
+                    return;
+
+                for(int n = 0; n < SLOPE_STEP_CAP && slope_box(s, rx, ry, rw, rh); ++n)
+                    ry += sn;
+
+                OffsetProbe p(s, rx, ry, rw, rh, false);
+                ry += slope_bsearch(0, -sn, p);
+            }
+
+            if(s.x1 == s.x2 && s.y1 != s.y2)
+            {
+                if(!mx || disabledX)
+                    return;
+
+                for(int n = 0; n < SLOPE_STEP_CAP && slope_box(s, rx, ry, rw, rh); ++n)
+                    rx += cs;
+
+                OffsetProbe p(s, rx, ry, rw, rh, true);
+                rx += slope_bsearch(0, -cs, p);
+            }
+        }
+    }
+
+    dx += rx - orx;
+    dy += ry - ory;
+}
+
 void q30_trigger_stats()
 {
     if(!getenv("ZC_Q30_TRIGSTATS"))
@@ -4110,6 +5161,7 @@ void q30_trig_screen_load()
                 q30_set_combo_script(i, g_combos[i]->script, g_combos[i]->initd);
     }
 
+    q30_slopes_update();
     pos_setup();
     states_setup();
     states_sync();
@@ -4248,6 +5300,8 @@ void q30_trig_update()
 {
     if(!q30_active() || tmpscr[0].data.empty())
         return;
+
+    q30_slopes_update();    // upstream's update_slopes(): where each slope starts the frame
 
     if(g_pending_clear)
     {
@@ -4641,10 +5695,17 @@ static void match_weapon_at(weapon *w, int bx, int by, int layer)
     }
 }
 
+static bool switch_weapon_check(weapon *w);
+
 void q30_trig_weapon(weapon *w)
 {
     if(q30_active())
+    {
         q30_thrown_frame(w);
+
+        if(switch_weapon_check(w))
+            return;
+    }
 
 if(!q30_active() || screenscrolling || (w->dead != -1 && w->dead != 0 && w->id != wBomb && w->id != wSBomb && w->id != ewBomb && w->id != ewSBomb))
         return;
@@ -5083,6 +6144,14 @@ static int pit_cid_at(int x, int y)
     }
 
     return 0;
+}
+
+int q30_pitfall_at(int x, int y)
+{
+    if(!q30_active() || x < 0 || y < 0 || x > 255 || y > 175)
+        return 0;
+
+    return pit_cid_at(x, y);
 }
 
 static void check_pitfall()
@@ -6782,9 +7851,12 @@ void q30_draw_beams(BITMAP *dest)
 
 static std::map<int, byte> g_true_sflags;
 
+static void bottle_rooms_clear();
+
 void q30_clear_placed_flags()
 {
     g_true_sflags.clear();
+    bottle_rooms_clear();
 }
 
 void q30_note_placed_flag(int screen_index, int pos, byte flag)
@@ -7193,10 +8265,509 @@ void q30_do_liftglove(int liftid, bool passive)
 }
 
 // >=0: the use was handled, the return for startwpn. -1: not a lift matter.
+// ---- bottles -------------------------------------------------------------------------
+// Upstream's bottle system. Slot contents are kept in the save's generic bytes, which 2.53
+// saves to zc.sav whole: 128-253 hold slots 0-125 and 127 says the quest's starting
+// contents have been put in. Only 0-6 are the engine's own; 254 and 255 are the X and Y
+// item positions; upstream's own generic values stop near 34.
+
+void put_passive_subscr(BITMAP *dest, miscQdata *misc, int x, int y, bool showtime, int pos2);
+
+namespace
+{
+enum { BOTTLE_GEN_READY = 127, BOTTLE_GEN_FIRST = 128, BOTTLE_SLOTS = 126, BOTTLE_TYPES = 64 };
+enum { ITYPE_BOTTLE = 270, ITYPE_BOTTLEFILL = 271 };
+enum { BT_CURESHJINX = 0x08, BT_CURESWJINX = 0x10, BT_CUREITJINX = 0x20, BT_ALLOWIFFULL = 0x40, BT_AUTOONDEATH = 0x80 };
+enum { MSFX_LOWHEART = 2, MSFX_ERROR = 3, MSFX_REFILL = 8, MSFX_MAX = 256 };
+enum { ROOM_BOTTLESHOP = 22 };
+
+Q30BottleType g_bottle_types[BOTTLE_TYPES];
+Q30BottleShop g_bottle_shops[256];
+byte g_init_bottle_slots[256];
+int g_misc_sfx[MSFX_MAX];
+std::map<int, int> g_new_rooms;     // screen index -> upstream room type past 2.53's
+
+void bottles_ready()
+{
+    if(!game || game->get_generic(BOTTLE_GEN_READY) == 1)
+        return;
+
+    for(int i = 0; i < BOTTLE_SLOTS; ++i)
+        game->set_generic(g_init_bottle_slots[i], (byte)(BOTTLE_GEN_FIRST + i));
+
+    game->set_generic(1, BOTTLE_GEN_READY);
+}
+
+// the slots of the bottles Link owns
+void owned_bottle_slots(bool *owned)
+{
+    memset(owned, 0, BOTTLE_SLOTS);
+
+    for(int i = 0; i < MAXITEMS; ++i)
+        if(game->item[i] && q30_item_family(i) == ITYPE_BOTTLE)
+        {
+            long slot = itemsbuf[i].misc1;
+
+            if(slot >= 0 && slot < BOTTLE_SLOTS)
+                owned[slot] = true;
+        }
+}
+
+void bottle_amounts(const Q30BottleType &bt, word *fill)
+{
+    for(int q = 0; q < 3; ++q)
+    {
+        int c = bt.counter[q];
+        fill[q] = 0;
+
+        if(c < 0 || c >= 32)
+            continue;
+
+        int max = game->get_maxcounter((byte)c), now = game->get_counter((byte)c);
+
+        if(bt.flags & (1 << q))
+            fill[q] = (bt.amount[q] == 100) ? (word)max : (word)((max / 100.0) * bt.amount[q]);
+        else
+            fill[q] = bt.amount[q];
+
+        if(fill[q] + now > max)
+            fill[q] = (word)(now < max ? max - now : 0);
+    }
+}
+
+// upstream's do_refill_waitframe: the game holds still while the passive subscreen counts up
+void refill_waitframe()
+{
+    put_passive_subscr(framebuf, &QMisc, 0, passive_subscreen_offset, false, 1);
+    advanceframe(true);
+}
+
+// always: drinking takes its time even with nothing to fill (using a bottle; a revive only
+// drinks when there is something to fill)
+void drink(const Q30BottleType &bt, word *fill, int usesound, bool always)
+{
+    word max = fill[0];
+
+    if(fill[1] > max)
+        max = fill[1];
+
+    if(fill[2] > max)
+        max = fill[2];
+
+    if(!max && !always)
+        return;
+
+    stop_sfx(g_misc_sfx[MSFX_LOWHEART]);
+
+    if(usesound)
+        sfx(usesound, pan(int(Link.getX())));
+
+    for(int q = 0; q < 20; ++q)
+        refill_waitframe();
+
+    double inc = max / 60.0, extra[3] = { 0, 0, 0 };
+
+    for(int q = 0; q < 60; ++q)
+    {
+        if(!(q % 6) && (fill[0] || fill[1] || fill[2]))
+            sfx(g_misc_sfx[MSFX_REFILL]);
+
+        for(int j = 0; j < 3; ++j)
+        {
+            extra[j] += inc;
+            word f = (word)floor(extra[j]);
+            extra[j] -= f;
+
+            if(fill[j] > f)
+            {
+                fill[j] -= f;
+                game->change_counter(f, (byte)bt.counter[j]);
+            }
+            else if(fill[j])
+            {
+                game->change_counter(fill[j], (byte)bt.counter[j]);
+                fill[j] = 0;
+            }
+        }
+
+        refill_waitframe();
+    }
+
+    for(int j = 0; j < 3; ++j)
+        if(fill[j])
+            game->change_counter(fill[j], (byte)bt.counter[j]);
+
+    for(int q = 0; q < 20; ++q)
+        refill_waitframe();
+}
+
+void bottle_cures(const Q30BottleType &bt)
+{
+    if(bt.flags & BT_CURESWJINX)
+    {
+        Link.setSwordClk(0);
+        verifyAWpn();
+    }
+
+    if(bt.flags & BT_CUREITJINX)
+        Link.setItemClk(0);
+}
+
+// upstream's startwpn case itype_bottle
+void use_bottle(int itemid)
+{
+    const itemdata &itm = itemsbuf[itemid];
+    const bool script_pays = itm.script != 0;   // movelink charges magic when it runs the item script
+
+    if(!script_pays && !checkmagiccost(itemid))
+    {
+        if(g_misc_sfx[MSFX_ERROR])
+            sfx(g_misc_sfx[MSFX_ERROR]);
+        return;
+    }
+
+    int bind = q30_bottle_slot((int)itm.misc1);
+
+    if(bind <= 0 || bind > BOTTLE_TYPES)
+        return;
+
+    const Q30BottleType &bt = g_bottle_types[bind - 1];
+    word fill[3];
+    bottle_amounts(bt, fill);
+    bool run = fill[0] || fill[1] || fill[2], check_jinxes = true;
+
+    if(q30_quest_rule(251))     // qr_NO_BOTTLE_IF_ANY_COUNTER_FULL
+    {
+        for(int q = 0; q < 3; ++q)
+            if(bt.counter[q] > -1)
+            {
+                check_jinxes = false;
+
+                if(!fill[q])
+                {
+                    run = false;
+                    break;
+                }
+            }
+    }
+
+    if(check_jinxes && (((bt.flags & BT_CURESWJINX) && Link.getSwordClk()) || ((bt.flags & BT_CUREITJINX) && Link.getItemClk())))
+        run = true;
+
+    if(!run && !(bt.flags & BT_ALLOWIFFULL))
+        return;
+
+    bottle_cures(bt);
+
+    if(!script_pays)
+        paymagiccost(itemid);
+
+    drink(bt, fill, itm.usesound, true);
+    q30_set_bottle_slot((int)itm.misc1, bt.next_type);
+}
+}
+
+static int g_item_box[4];
+static bool g_item_box_set = false;
+
+static void bottle_rooms_clear()
+{
+    g_new_rooms.clear();
+}
+
+// ZC_Q255_DUMP_USE: the quest's bottle types, shops, starting contents and bottle shop screens
+void q30_bottle_audit()
+{
+    for(int i = 0; i < BOTTLE_TYPES; ++i)
+    {
+        const Q30BottleType &t = g_bottle_types[i];
+
+        if(t.name[0] || t.flags || t.next_type || t.counter[0] > -1)
+            al_trace("bottle type %d '%.32s' counters %d/%d/%d amounts %d/%d/%d flags %x next %d\n", i + 1, t.name, t.counter[0], t.counter[1], t.counter[2],
+                     t.amount[0], t.amount[1], t.amount[2], t.flags, t.next_type);
+    }
+
+    for(int i = 0; i < 256; ++i)
+    {
+        const Q30BottleShop &b = g_bottle_shops[i];
+
+        if(b.fill[0] || b.name[0])
+            al_trace("bottle shop %d '%.32s' fill %d/%d/%d price %d/%d/%d combo %d/%d/%d\n", i, b.name, b.fill[0], b.fill[1], b.fill[2],
+                     b.price[0], b.price[1], b.price[2], b.comb[0], b.comb[1], b.comb[2]);
+    }
+
+    for(int i = 0; i < 256; ++i)
+        if(g_init_bottle_slots[i])
+            al_trace("bottle start slot %d holds %d\n", i, g_init_bottle_slots[i]);
+
+    for(std::map<int, int>::const_iterator it = g_new_rooms.begin(); it != g_new_rooms.end(); ++it)
+    {
+        int map = it->first / MAPSCRS, scr = it->first % MAPSCRS, dm = -1, wscr = -1;
+
+        for(int d = 0; d < MAXDMAPS && dm < 0; ++d)
+            if(DMaps[d].map == map && scr < 128 && (scr & 15) - DMaps[d].xoff >= 0 && (scr & 15) - DMaps[d].xoff < 16)
+            {
+                dm = d;
+                wscr = scr - DMaps[d].xoff;
+            }
+
+        al_trace("bottle room: map %d scr %d room %d catchall %d (dmap %d screen %d)\n", map, scr, it->second,
+                 it->first < (int)TheMaps.size() ? (int)TheMaps[it->first].catchall : -1, dm, wscr);
+    }
+
+    al_trace("bottle sfx: lowheart %d refill %d error %d\n", g_misc_sfx[MSFX_LOWHEART], g_misc_sfx[MSFX_REFILL], g_misc_sfx[MSFX_ERROR]);
+
+    for(size_t n = 0; n < TheMaps.size(); ++n)
+    {
+        const mapscr &m = TheMaps[n];
+        long fam = q30_item_family(m.item);
+
+        if((m.valid & mVALID) && m.hasitem && (fam == ITYPE_BOTTLE || fam == ITYPE_BOTTLEFILL))
+            al_trace("bottle item placed: map %d scr %d item %d at %d,%d\n", (int)(n / MAPSCRS), (int)(n % MAPSCRS), m.item, m.itemx, m.itemy);
+    }
+}
+
+void q30_bottles_clear()
+{
+    memset(g_bottle_types, 0, sizeof(g_bottle_types));
+    memset(g_bottle_shops, 0, sizeof(g_bottle_shops));
+    memset(g_init_bottle_slots, 0, sizeof(g_init_bottle_slots));    // the init section comes later
+    g_item_box_set = false;
+
+    for(int i = 0; i < BOTTLE_TYPES; ++i)
+        for(int q = 0; q < 3; ++q)
+            g_bottle_types[i].counter[q] = -1;
+
+    // upstream's defaults for quests older than the misc sounds
+    memset(g_misc_sfx, 0, sizeof(g_misc_sfx));
+    g_misc_sfx[0] = WAV_ZN1GRASSCUT;    // sfxBUSHGRASS
+    g_misc_sfx[MSFX_LOWHEART] = WAV_ER;
+    g_misc_sfx[MSFX_REFILL] = WAV_MSG;
+}
+
+void q30_set_item_box(int xofs, int yofs, int w, int h)
+{
+    g_item_box[0] = xofs;
+    g_item_box[1] = yofs;
+    g_item_box[2] = w;
+    g_item_box[3] = h;
+    g_item_box_set = true;
+}
+
+bool q30_item_box(bool big_hitbox, int *xofs, int *yofs, int *w, int *h)
+{
+    if(q30_compat_rule(570))    // qr_OLD_ITEM_HITBOXES, on for compat versions before 103
+        return false;
+
+    if(g_item_box_set)
+    {
+        *xofs = g_item_box[0];
+        *yofs = g_item_box[1];
+        *w = g_item_box[2];
+        *h = g_item_box[3];
+    }
+    else
+    {
+        // upstream's defaults: the lower half of Link, or all of him with big hitboxes
+        *xofs = 0;
+        *yofs = big_hitbox ? 0 : 8;
+        *w = 16;
+        *h = big_hitbox ? 16 : 8;
+    }
+
+    return true;
+}
+
+void q30_set_bottle_type(int i, const Q30BottleType &t)
+{
+    if(i >= 0 && i < BOTTLE_TYPES)
+        g_bottle_types[i] = t;
+}
+
+void q30_set_bottle_shop(int i, const Q30BottleShop &s)
+{
+    if(i >= 0 && i < 256)
+        g_bottle_shops[i] = s;
+}
+
+void q30_set_init_bottle_slots(const byte *slots, int count)
+{
+    memset(g_init_bottle_slots, 0, sizeof(g_init_bottle_slots));
+
+    for(int i = 0; slots && i < count && i < 256; ++i)
+        g_init_bottle_slots[i] = slots[i];
+}
+
+void q30_set_misc_sfx(int i, int s)
+{
+    if(i >= 0 && i < MSFX_MAX)
+        g_misc_sfx[i] = s;
+}
+
+void q30_note_room(int screen_index, int room)
+{
+    g_new_rooms[screen_index] = room;
+}
+
+bool q30_bottle_shop_here(int *shop)
+{
+    if(!q30_active())
+        return false;
+
+    std::map<int, int>::const_iterator it = g_new_rooms.find(currmap * MAPSCRS + currscr);
+
+    if(it == g_new_rooms.end() || it->second != ROOM_BOTTLESHOP)
+        return false;
+
+    if(shop)
+        *shop = tmpscr[currscr >= 128 ? 1 : 0].catchall & 0xFF;
+
+    return true;
+}
+
+const Q30BottleShop *q30_bottle_shop(int i)
+{
+    return (i >= 0 && i < 256) ? &g_bottle_shops[i] : NULL;
+}
+
+int q30_bottle_slot(int slot)
+{
+    if(!q30_active() || !game || slot < 0 || slot >= BOTTLE_SLOTS)
+        return 0;
+
+    bottles_ready();
+    return game->get_generic((byte)(BOTTLE_GEN_FIRST + slot));
+}
+
+void q30_set_bottle_slot(int slot, int type)
+{
+    if(!q30_active() || !game || slot < 0 || slot >= BOTTLE_SLOTS)
+        return;
+
+    bottles_ready();
+    game->set_generic((byte)type, (byte)(BOTTLE_GEN_FIRST + slot));
+}
+
+bool q30_has_bottle(int type)
+{
+    if(!q30_active() || !game)
+        return false;
+
+    bool owned[BOTTLE_SLOTS];
+    owned_bottle_slots(owned);
+
+    for(int s = 0; s < BOTTLE_SLOTS; ++s)
+        if(owned[s] && q30_bottle_slot(s) == type)
+            return true;
+
+    return false;
+}
+
+int q30_fill_bottle(int type)
+{
+    if(!q30_active() || !game)
+        return -1;
+
+    bool owned[BOTTLE_SLOTS];
+    owned_bottle_slots(owned);
+
+    for(int s = 0; s < BOTTLE_SLOTS; ++s)
+        if(owned[s] && q30_bottle_slot(s) == 0)
+        {
+            q30_set_bottle_slot(s, type);
+            return s;
+        }
+
+    return -1;
+}
+
+int q30_bottle_item_for_slot(int slot)
+{
+    int unowned = -1;
+
+    for(int i = 0; i < MAXITEMS; ++i)
+        if(q30_item_family(i) == ITYPE_BOTTLE && itemsbuf[i].misc1 == slot)
+        {
+            if(game && game->item[i])
+                return i;
+
+            if(unowned < 0)
+                unowned = i;
+        }
+
+    return unowned;
+}
+
+bool q30_is_bottle(int item)
+{
+    return q30_active() && item >= 0 && item < MAXITEMS && q30_item_family(item) == ITYPE_BOTTLE;
+}
+
+std::string q30_bottle_contents_name(int item)
+{
+    if(!q30_is_bottle(item))
+        return std::string();
+
+    int bind = q30_bottle_slot((int)itemsbuf[item].misc1);
+
+    if(bind <= 0 || bind > BOTTLE_TYPES)
+        return std::string("Empty");
+
+    return std::string(g_bottle_types[bind - 1].name);
+}
+
+int q30_bottle_tile_offset(int item, int frames)
+{
+    if(!q30_is_bottle(item))
+        return 0;
+
+    return (frames ? frames : 1) * q30_bottle_slot((int)itemsbuf[item].misc1);
+}
+
+// upstream's fairy-in-a-bottle: at 0 life, each slot holding a type that revives is drunk
+// in turn until Link has life again
+bool q30_bottle_revive()
+{
+    if(!q30_active() || !game)
+        return false;
+
+    for(int slot = 0; slot < BOTTLE_SLOTS; ++slot)
+    {
+        int bind = q30_bottle_slot(slot);
+
+        if(bind <= 0 || bind > BOTTLE_TYPES)
+            continue;
+
+        const Q30BottleType &bt = g_bottle_types[bind - 1];
+
+        if(!(bt.flags & BT_AUTOONDEATH))
+            continue;
+
+        word fill[3];
+        bottle_amounts(bt, fill);
+        bottle_cures(bt);
+
+        int itemid = q30_bottle_item_for_slot(slot);
+        drink(bt, fill, itemid >= 0 ? itemsbuf[itemid].usesound : 0, false);
+        q30_set_bottle_slot(slot, bt.next_type);
+
+        if(game->get_life() > 0)
+            return true;
+    }
+
+    return false;
+}
+
 int q30_startwpn(int itemid)
 {
     if(!q30_active())
         return -1;
+
+    if(q30_item_family(itemid) == ITYPE_BOTTLE)
+    {
+        use_bottle(itemid);
+        return 0;
+    }
 
     bool glove = q30_item_family(itemid) == Q30_ITYPE_LIFTGLOVE;
 
@@ -7310,24 +8881,17 @@ void q30_draw_lift(BITMAP *dest)
 
 static BITMAP *g_dark_mask = NULL;
 
-static void dark_shape(int cx, int cy, int shape, int rad)
+// Lights, the darkness pass and the quest's lighting defaults: q30_scripts_light.h, after upstream's
+// handle_lighting and draw_darkroom.
+void q30_add_light(BITMAP *mask, int shape, int cx, int cy, int rad, int dir);
+void q30_darkness_dither(BITMAP *mask, const mapscr *scr);
+void q30_darkness_draw(BITMAP *dest, BITMAP *mask, int yofs, const mapscr *scr);
+int q30_default_light_radius();
+
+static void dark_shape(int cx, int cy, int shape, int rad, int dir = up)
 {
-    if(rad <= 0)
-        return;
-
-    int outer = rad + rad / 5;
-
-    if(shape == 2)
-    {
-        rectfill(g_dark_mask, cx - outer, cy - outer, cx + outer, cy + outer, 2);
-        rectfill(g_dark_mask, cx - rad, cy - rad, cx + rad, cy + rad, 0);
-    }
-    else
-    {
-        // cones are drawn as circles here
-        circlefill(g_dark_mask, cx, cy, outer, 2);
-        circlefill(g_dark_mask, cx, cy, rad, 0);
-    }
+    if(rad > 0)
+        q30_add_light(g_dark_mask, shape, cx, cy, rad, dir);
 }
 
 static void dark_offset(int &cx, int &cy, int d, int offs)
@@ -7349,7 +8913,7 @@ static void torch_light(const Q30Combo *c, int cx, int cy)
     if(offs)
         dark_offset(cx, cy, d, offs);
 
-    dark_shape(cx, cy, a_int(c->attributes[9]), a_int(c->attributes[8]));
+    dark_shape(cx, cy, a_int(c->attributes[9]), a_int(c->attributes[8]), d);
 }
 
 void q30_draw_darkness(BITMAP *dest)
@@ -7366,6 +8930,7 @@ void q30_draw_darkness(BITMAP *dest)
     }
 
     clear_to_color(g_dark_mask, 1);
+    q30_darkness_dither(g_dark_mask, &tmpscr[0]);
 
     for(int lyr = 0; lyr <= 6; ++lyr)
     {
@@ -7399,7 +8964,7 @@ void q30_draw_darkness(BITMAP *dest)
     {
         int hx = int(Link.getX()) + 8, hy = int(Link.getY()) + 8;
         dark_offset(hx, hy, Link.getDir(), itemsbuf[lamp].misc3);
-        dark_shape(hx, hy, itemsbuf[lamp].misc1, itemsbuf[lamp].misc2);
+        dark_shape(hx, hy, itemsbuf[lamp].misc1, itemsbuf[lamp].misc2, Link.getDir());
     }
 
     for(int i = 0; i < Lwpns.Count(); ++i)
@@ -7407,22 +8972,13 @@ void q30_draw_darkness(BITMAP *dest)
         weapon *w = (weapon *)Lwpns.spr(i);
 
         if(w->isLit)
-            dark_shape(int(w->x) + 8, int(w->y) + 8, 0, 32);
+            dark_shape(int(w->x) + 8, int(w->y) + 8, 0, q30_default_light_radius());
     }
 
-    int yo = playing_field_offset;
-    int black = BLACK;
+    void q30_script_lights(BITMAP *mask);   // q30_scripts_light.h: lights scripts drew, sprite glow
+    q30_script_lights(g_dark_mask);
 
-    for(int y = 0; y < 176; ++y)
-    {
-        byte *line = g_dark_mask->line[y];
-
-        for(int x = 0; x < 256; ++x)
-        {
-            if(line[x] == 1 || (line[x] == 2 && ((x + y) & 1)))
-                putpixel(dest, x, y + yo, black);
-        }
-    }
+    q30_darkness_draw(dest, g_dark_mask, playing_field_offset, &tmpscr[0]);
 }
 
 // The lighting code still darkens the palette for an fDARK screen; new dark rooms
@@ -7560,13 +9116,231 @@ bool q30_unsafe_ground(int x, int y)
 }
 
 // ---- switch hook ---------------------------------------------------------------------
+// Upstream's switch (HeroClass::doSwitchHook and the switch part of HeroClass::animate,
+// the hook head in weapon::animate and onhit, enemy::defend's edSWITCH). When the tip
+// reaches a switchable combo or an enemy, Link is held for the switch's length and he
+// and the target change places half-way through. The hook head goes when the switch
+// starts (the head's code in weapons.cpp ends it then); its handle and chain follow on
+// the next frame. Hooked combos are not drawn flickering or rising, only Link is.
 
-static const long Q30_ITYPE_SWITCHHOOK = 274;
-static bool g_hook_reset_pending = false;
+static const int Q30_ITYPE_SWITCHHOOK = 274;
+enum { SWSTYLE_POOF, SWSTYLE_FLICKER, SWSTYLE_RISE };
+enum { Q30_SPR_FALL = 0, Q30_SPR_SWITCHPOOF = 3 };
+enum { MSFX_SWITCHED_SND = 1 };
+enum { FILE_edNORMAL = 0, FILE_edHALF = 1, FILE_edQUARTER = 2, FILE_ed1HKO = 14, FILE_ed2x = 16, FILE_ed3x = 17,
+       FILE_ed4x = 18, FILE_edSWITCH_DEF = 51 };
+enum { FILE_DEF_SLOTS = 41, FILE_DEF_SWITCHHOOK = 36 };
+
+static int g_misc_sprites[256];
+static std::map<int, int> g_item_usesound2;
+static int g_init_switch_style = 0;
+static std::map<int, std::vector<byte> > g_guy_defenses;
+static bool g_any_switch_defense = false;      // some enemy has "Switch w/ Player" for a weapon
+
+struct Q30Switch
+{
+    bool active;
+    int clk, maxtime, style;
+    int target;             // the combo position being switched, or -1
+    int layerbits;          // 1<<q: layer q switches; 1<<(q+8): its combo comes back
+    int item;               // the hook, or -1
+    int cost_item;          // paid at the swap ("Cost on Swap"), or -1
+    int64_t enemy_uid;      // the enemy being switched, or 0
+    int ex, ey;             // where that enemy is held
+    bool cleanup;           // the hook's handle and chain are still out
+};
+
+static Q30Switch g_sw;
+static int g_sw_pending_cost = -1;
+
+static void sw_clear()
+{
+    memset(&g_sw, 0, sizeof(g_sw));
+    g_sw.target = g_sw.item = g_sw.cost_item = -1;
+}
+
+// ZC_SW_DEBUG: logs each switch and each block it puts down
+static bool sw_debug()
+{
+    static int on = -1;
+
+    if(on < 0)
+        on = getenv("ZC_SW_DEBUG") ? 1 : 0;
+
+    return on != 0;
+}
+
+int q30_misc_sprite(int i)
+{
+    return (i >= 0 && i < 256) ? g_misc_sprites[i] : 0;
+}
+
+void q30_set_misc_sprite(int i, int spr)
+{
+    if(i >= 0 && i < 256)
+        g_misc_sprites[i] = spr;
+}
+
+void q30_set_item_usesound2(int item, int s)
+{
+    if(item < 0)
+        g_item_usesound2.clear();
+    else if(s)
+        g_item_usesound2[item] = s;
+    else
+        g_item_usesound2.erase(item);
+}
+
+static int item_usesound2(int item)
+{
+    std::map<int, int>::const_iterator it = g_item_usesound2.find(item);
+    return it == g_item_usesound2.end() ? 0 : it->second;
+}
+
+void q30_set_init_switch_style(int style)
+{
+    g_init_switch_style = style;
+}
+
+void q30_set_guy_defenses(int guy, const byte *defs)
+{
+    if(!defs)
+    {
+        if(guy < 0)
+        {
+            g_guy_defenses.clear();
+            g_any_switch_defense = false;
+        }
+        else
+            g_guy_defenses.erase(guy);
+
+        return;
+    }
+
+    bool any = false;
+
+    for(int q = 0; q < FILE_DEF_SLOTS; ++q)
+    {
+        any = any || defs[q] != 0;
+
+        if(defs[q] == FILE_edSWITCH_DEF && q != FILE_DEF_SWITCHHOOK)
+            g_any_switch_defense = true;
+    }
+
+    if(any)
+        g_guy_defenses[guy] = std::vector<byte>(defs, defs + FILE_DEF_SLOTS);
+    else
+        g_guy_defenses.erase(guy);
+}
+
+static int guy_defense(int guy, int slot)
+{
+    std::map<int, std::vector<byte> >::const_iterator it = g_guy_defenses.find(guy);
+    return (it == g_guy_defenses.end() || slot < 0 || slot >= FILE_DEF_SLOTS) ? 0 : it->second[slot];
+}
+
+// A wpnsbuf sprite played once at a spot: the switch poof (upstream's comboSprite), or a
+// push block dropping into a pit (hold_last: the last frame stays until the end).
+class q30_sprite_deco : public decoration
+{
+    int spr, dur;
+    bool hold;
+public:
+    q30_sprite_deco(int X, int Y, int sprite_id, int duration, bool hold_last, int yofs_set)
+        : decoration((fix)X, (fix)Y, 0, 0), spr(sprite_id), dur(duration), hold(hold_last)
+    {
+        yofs = yofs_set;
+    }
+    virtual bool animate(int)
+    {
+        return clk++ >= dur;
+    }
+    virtual void draw(BITMAP *dest)
+    {
+        if(spr < 0 || spr > 255)
+            return;
+
+        const wpndata &w = wpnsbuf[spr];
+        int fr = zc_max(1, (int)w.frames), spd = zc_max(1, (int)w.speed);
+        int c = zc_max(0, clk - 1);
+        tile = w.tile + (hold ? zc_min(c / spd, fr - 1) : (c / spd) % fr);
+        cs = w.csets & 15;
+        flip = 0;
+        decoration::draw(dest);
+    }
+};
+
+void q30_add_sprite_deco(int x, int y, int spr, int duration, bool hold_last)
+{
+    decorations.add(new q30_sprite_deco(x, y, spr, duration, hold_last, hold_last ? playing_field_offset : playing_field_offset - 2));
+}
+
+// Upstream's breakable: the switched combo shown where Link stood until the switch ends,
+// then broken (sprite or clippings, sound, item drop).
+class q30_breakable : public decoration
+{
+    int cid, ccs, timer, drop, sfx_id, sprtype, spr;
+public:
+    q30_breakable(int X, int Y, int combo, int cset, int it, int sound, int break_type, int break_spr, int time)
+        : decoration((fix)X, (fix)Y, 0, 0), cid(combo), ccs(cset), timer(time), drop(it), sfx_id(sound),
+          sprtype(break_type), spr(break_spr)
+    {
+        yofs = playing_field_offset;
+    }
+    virtual bool animate(int)
+    {
+        if(timer > 0 && --timer)
+            return false;
+
+        int bx = int(x), by = int(y);
+
+        switch(sprtype)
+        {
+        case -1: q30_add_sprite_deco(bx, by, spr, zc_max(1, (int)wpnsbuf[spr & 255].frames) * zc_max(1, (int)wpnsbuf[spr & 255].speed), false); break;
+        case 1: decorations.add(new dBushLeaves((fix)bx, (fix)by, dBUSHLEAVES, 0)); break;
+        case 2: decorations.add(new dFlowerClippings((fix)bx, (fix)by, dFLOWERCLIPPINGS, 0)); break;
+        case 3: decorations.add(new dGrassClippings((fix)bx, (fix)by, dGRASSCLIPPINGS, 0)); break;
+        }
+
+        if(sfx_id > 0 && sfx_id < WAV_COUNT)
+            sfx(sfx_id, pan(bx));
+
+        if(drop >= 0 && drop < MAXITEMS)
+            items.add(new item((fix)bx, (fix)by, (fix)0, drop, ipBIGRANGE | ipTIMER, 0));
+
+        return true;
+    }
+    virtual void draw(BITMAP *dest)
+    {
+        if(q30_switchhook_hide_link())
+            return;
+
+        overcombo(dest, real_x(x + xofs), real_y(y + yofs) - q30_switchhook_rise(), cid, ccs);
+    }
+};
 
 long q30_item_switch_family(int itemid)
 {
     return (q30_active() && q30_item_family(itemid) == Q30_ITYPE_SWITCHHOOK) ? (long)itype_hookshot : (long)itemsbuf[itemid].family;
+}
+
+bool q30_switchhook_defer_cost(int itemid)
+{
+    if(!q30_active() || itemid < 0 || q30_item_family(itemid) != Q30_ITYPE_SWITCHHOOK || !(itemsbuf[itemid].flags & 0x8000))
+        return false;
+
+    g_sw_pending_cost = itemid;     // item_flag8, "Cost on Swap"
+    return true;
+}
+
+bool q30_switchhook_hide_link()
+{
+    return g_sw.active && g_sw.style == SWSTYLE_FLICKER && !(abs(g_sw.clk - 33) & 8);
+}
+
+int q30_switchhook_rise()
+{
+    return (g_sw.active && g_sw.style == SWSTYLE_RISE) ? 8 - abs(g_sw.clk - 32) / 4 : 0;
 }
 
 static bool is_push_flag30(int f)
@@ -7588,116 +9362,462 @@ static bool hookable(const Q30Combo *c)
     return c && (c->type == Q30C_SWITCHHOOK || (c->genflags & 0x2));
 }
 
-// What the hook does to this layer; true if anything swapped.
-static bool swap_layer(int q, int target, int player, int glove_level, int tx, int ty)
+// upstream's getPushDir
+static int push_dir30(int f)
 {
-    H th(q, target), ph(q, player);
-    mapscr *tscr = h_scr(th), *pscr = h_scr(ph);
-
-    if(!tscr || !pscr)
-        return false;
-
-    const Q30Combo *c = h_combo(th);
-
-    if(!hookable(c))
-        return false;
-
-    bool two_way = true, breaks = false;
-
-    if(c->type == Q30C_SWITCHHOOK)
+    switch(f)
     {
-        if((c->usrflags & 0x1) && h_data(ph))
-            return false;
-
-        if(zc_max(1, glove_level) < a_int(c->attributes[8]))
-            return false;
-
-        if(c->usrflags & 0x4)
-        {
-            two_way = false;
-            breaks = true;
-        }
-    }
-    else if(is_cuttable(c->type))
-    {
-        two_way = false;
-        trigger_cuttable(th, c);
-        return true;
+    case mfPUSHUD: case mfPUSH4: case mfPUSHU: case mfPUSHUDNS: case mfPUSH4NS: case mfPUSHUNS:
+    case mfPUSHUDINS: case mfPUSH4INS: case mfPUSHUINS:
+        return up;
+    case mfPUSHD: case mfPUSHDNS: case mfPUSHDINS:
+        return down;
+    case mfPUSHLR: case mfPUSHL: case mfPUSHLRNS: case mfPUSHLNS: case mfPUSHLRINS: case mfPUSHLINS:
+        return left;
+    case mfPUSHR: case mfPUSHRNS: case mfPUSHRINS:
+        return right;
     }
 
-    if(breaks)
-    {
-        int it = -1;
-
-        if(c->usrflags & 0x8)
-        {
-            int id = a_int(c->attributes[11]);
-            it = (c->usrflags & 0x10) ? id : select_dropitem(id, tx, ty);
-        }
-
-        if(it >= 0 && it < MAXITEMS)
-            items.add(new item((fix)tx, (fix)ty, (fix)0, it, ipBIGRANGE | ipTIMER, 0));
-
-        if(a_int(c->attributes[10]))
-            sfx(a_int(c->attributes[10]), pan(tx));
-
-        if(c->usrflags & 0x20)
-            change_combo(th, h_data(th) + 1);
-        else
-        {
-            h_set_data(th, tscr->undercombo);
-            h_set_cset(th, tscr->undercset);
-        }
-
-        tscr->sflag[target] = 0;
-        return true;
-    }
-
-    if(two_way)
-    {
-        int f1 = tscr->sflag[target];
-        bool push = (c->usrflags & 0x40) != 0 || is_push_flag30(f1) || is_push_flag30(c->flag);
-
-        if(f1 == mfPUSHED)
-            return false;           // locked in place
-
-        if(c->type < cMAX && (c->type == cPUSH_WAIT || c->type == cPUSH_HW || c->type == cPUSH_HW2) && hasMainGuy())
-            return false;
-
-        int f2 = pscr->sflag[player];
-        const Q30Combo *c2 = h_combo(ph);
-        bool hole = f2 == mfBLOCKHOLE || f2 == mfBLOCKTRIGGER || (c2 && (c2->flag == mfBLOCKHOLE || c2->flag == mfBLOCKTRIGGER));
-        int d1 = h_data(th), s1 = h_cset(th);
-
-        if(push && hole)
-        {
-            // the block fills the hole or trigger under Link
-            h_set_data(ph, d1);
-            h_set_cset(ph, s1);
-            pscr->sflag[player] = 0;
-            h_set_data(th, tscr->undercombo);
-            h_set_cset(th, tscr->undercset);
-            tscr->sflag[target] = 0;
-            return true;
-        }
-
-        h_set_data(th, h_data(ph));
-        h_set_cset(th, h_cset(ph));
-        tscr->sflag[target] = (byte)f2;
-        h_set_data(ph, d1);
-        h_set_cset(ph, s1);
-        pscr->sflag[player] = (byte)f1;
-    }
-
-    return true;
+    return -1;
 }
 
-// The hook's tip reached something: Link and the combo change places at once. Returns
-// true if the head should end this frame.
+static int sw_maxlayer()
+{
+    return q30_quest_rule(Q30_QR_HOOKSHOTALLLAYER) ? 6 : (get_bit(quest_rules, qr_HOOKSHOTLAYERFIX) ? 2 : 0);
+}
+
+// The combo position under Link's centre, or -1.
+static int sw_link_pos()
+{
+    int lx = int(Link.getX()) + 8, ly = int(Link.getY()) + 8;
+
+    if(lx < 0 || ly < 0 || lx > 255 || ly > 175)
+        return -1;
+
+    return ((ly >> 4) << 4) + (lx >> 4);
+}
+
+// The Z1 bosses and segmented enemies can't be switched with.
+static bool sw_unswitchable(const enemy *e)
+{
+    switch(e->family)
+    {
+    case eeAQUA: case eeMOLD: case eeDONGO: case eeMANHAN: case eeGLEEOK:
+    case eeDIG: case eeGHOMA: case eeLANM: case eePATRA: case eeGANON:
+        return true;
+    }
+
+    return false;
+}
+
+// doSwitchHook: freeze Link and start the clock; the target is a combo position or an enemy.
+static void sw_start(int style, int item, int target, enemy *e)
+{
+    int cost = (item >= 0 && g_sw_pending_cost == item) ? item : -1;
+    sw_clear();
+    g_sw_pending_cost = -1;
+    g_sw.active = true;
+    g_sw.style = style;
+    g_sw.item = item;
+    g_sw.cost_item = cost;
+    g_sw.target = target;
+    g_sw.cleanup = true;
+
+    if(e)
+    {
+        g_sw.enemy_uid = e->getUID();
+        g_sw.ex = int(e->x);
+        g_sw.ey = int(e->y);
+    }
+
+    int player = sw_link_pos();
+
+    if(target >= 0 && player >= 0)
+    {
+        int level = item >= 0 ? itemsbuf[item].fam_type : 1;
+
+        for(int q = sw_maxlayer(); q >= 0; --q)
+        {
+            H th(q, target), ph(q, player);
+            mapscr *ts = h_scr(th), *ps = h_scr(ph);
+
+            if(!ts || !ps)
+                continue;
+
+            const Q30Combo *c = h_combo(th);
+
+            if(!hookable(c))
+                continue;
+
+            if(c->type == Q30C_SWITCHHOOK)
+            {
+                if((c->usrflags & 0x1) && ps->data[player])
+                    continue;           // only onto an empty square
+
+                if(zc_max(1, level) < a_int(c->attributes[8]))
+                    continue;           // the hook's level is too low
+
+                g_sw.layerbits |= 1 << q;
+
+                if(!(c->usrflags & 0x4))
+                    g_sw.layerbits |= 1 << (q + 8);
+            }
+            else if(is_cuttable(c->type))
+                g_sw.layerbits |= 1 << q;
+            else
+                g_sw.layerbits |= (1 << q) | (1 << (q + 8));
+
+            if(g_sw.layerbits & (1 << (q + 8)))
+            {
+                int t = c->type;
+
+                if(t < cMAX && (t == cPUSH_WAIT || t == cPUSH_HW || t == cPUSH_HW2) && hasMainGuy())
+                    g_sw.layerbits &= ~(0x101 << q);    // not while the enemies remain
+                else if(ts->sflag[target] == mfPUSHED)
+                    g_sw.layerbits &= ~(0x101 << q);    // locked in place
+            }
+        }
+    }
+
+    switch(style)
+    {
+    case SWSTYLE_FLICKER:
+    case SWSTYLE_RISE:
+        g_sw.maxtime = g_sw.clk = 64;
+        break;
+
+    default:
+    {
+        int spr = q30_misc_sprite(Q30_SPR_SWITCHPOOF);
+
+        if(spr < 0 || spr > 255)
+            spr = 0;
+
+        g_sw.maxtime = g_sw.clk = zc_max(1, (int)wpnsbuf[spr].frames) * zc_max(1, (int)wpnsbuf[spr].speed);
+        q30_add_sprite_deco(int(Link.getX()), int(Link.getY()), spr, g_sw.maxtime, false);
+
+        if(target >= 0)
+            q30_add_sprite_deco((target & 15) * 16, (target >> 4) * 16, spr, g_sw.maxtime, false);
+        else if(e)
+            q30_add_sprite_deco(int(e->x), int(e->y), spr, g_sw.maxtime, false);
+
+        break;
+    }
+    }
+
+    // Link stays frozen through link.cpp's hookshot hold (hookshot_frozen and hookshot_used)
+    hookshot_frozen = true;
+    hookshot_used = true;
+    pull_link = false;
+
+    if(sw_debug())
+        al_trace("swdbg start style %d time %d target %d layerbits %x enemy %d cost %d frame %d\n", style, g_sw.maxtime, target, g_sw.layerbits,
+                 (int)g_sw.enemy_uid, g_sw.cost_item, frame);
+}
+
+static void sw_end()
+{
+    sw_clear();
+    Link.reset_hookshot();
+}
+
+// One layer of a combo switch, at the half-way point.
+static void sw_swap_layer(int q, int target, int player, int lx, int ly)
+{
+    H th(q, target), ph(q, player);
+    mapscr *ts = h_scr(th), *ps = h_scr(ph);
+
+    if(!ts || !ps)
+        return;
+
+    int tcid = ts->data[target], tcs = ts->cset[target];
+    const Q30Combo *c = q30_combo(tcid);
+    int type = q30_combo_type(tcid);
+    dword uf = c ? c->usrflags : 0;
+    int srcfl = ts->sflag[target];
+    int cflag = combobuf[tcid].flag;
+    int pc = ps->data[player], pcs = ps->cset[player], pfl = ps->sflag[player];
+    int pcflag = combobuf[pc].flag;
+    int px = (player & 15) * 16, py = (player >> 4) * 16;
+    bool fake_push = type == Q30C_SWITCHHOOK && (uf & 0x40);
+    bool push = fake_push || is_push_flag30(srcfl) || is_push_flag30(cflag);
+
+    if(srcfl == mfPUSHED)
+        push = false;
+
+    if(type == Q30C_SWITCHHOOK)
+    {
+        if(uf & 0x4)
+        {
+            // breaks on the switch
+            int it = -1;
+
+            if(uf & 0x8)
+            {
+                int id = c ? (int)a_int(c->attributes[11]) : 0;
+                it = (uf & 0x10) ? id : select_dropitem(id, lx, ly);
+            }
+
+            int brspr = c ? (int)a_int(c->attributes[9]) : 0;
+            decorations.add(new q30_breakable(lx, ly, tcid, tcs, it, c ? (int)a_int(c->attributes[10]) : 0,
+                                              brspr ? -1 : 0, brspr, g_sw.clk));
+            g_sw.layerbits &= ~(0x101 << q);
+
+            if(uf & 0x20)
+                change_combo(th, tcid + 1);
+            else
+            {
+                ts->data[target] = ts->undercombo;
+                ts->cset[target] = ts->undercset;
+
+                if(uf & 0x2)
+                    ts->sflag[target] = 0;
+            }
+        }
+        else if(push)
+        {
+            // the block clicks into place where Link stood, as if pushed there
+            int d = push_dir30(srcfl);
+
+            if(d < 0)
+                d = push_dir30(cflag);
+
+            bool hole = false;
+            bool trig = q30_switch_block_land(px, py, tcid, tcs, q, srcfl, d, fake_push, &hole);
+
+            if(sw_debug())
+                al_trace("swdbg land layer %d at %d trig %d hole %d now cid %d sflag %d\n", q, player, trig ? 1 : 0, hole ? 1 : 0, ps->data[player], ps->sflag[player]);
+
+            if((hole || trig) && (pfl == mfBLOCKTRIGGER || pfl == mfBLOCKHOLE || pcflag == mfBLOCKTRIGGER || pcflag == mfBLOCKHOLE))
+            {
+                ts->data[target] = ts->undercombo;
+                ts->cset[target] = ts->undercset;
+                ts->sflag[target] = 0;
+            }
+            else
+            {
+                ts->data[target] = pc;
+                ts->cset[target] = pcs;
+                ts->sflag[target] = (uf & 0x2) ? pfl : 0;
+            }
+        }
+        else
+        {
+            ps->data[player] = tcid;
+            ps->cset[player] = tcs;
+
+            if(uf & 0x2)
+                ps->sflag[player] = srcfl;
+
+            ts->data[target] = pc;
+            ts->cset[target] = pcs;
+
+            if(uf & 0x2)
+                ts->sflag[target] = pfl;
+        }
+    }
+    else if(is_cuttable(type))
+    {
+        if(isCuttableNextType(type))
+            change_combo(th, tcid + 1);
+        else
+        {
+            ts->data[target] = ts->undercombo;
+            ts->cset[target] = ts->undercset;
+            ts->sflag[target] = 0;
+        }
+
+        int it = -1;
+
+        if(isCuttableItemType(type))
+        {
+            if(uf & 0x2)
+            {
+                int id = c ? (int)a_int(c->attributes[9]) : 0;
+                it = (uf & 0x400) ? id : select_dropitem(id, lx, ly);
+            }
+            else
+                it = select_dropitem(12, lx, ly);
+        }
+
+        int breaksfx = 0;
+        bool leafy = isBushType(type) || isFlowersType(type) || isGrassType(type);
+
+        if(get_bit(quest_rules, qr_MORESOUNDS))
+        {
+            if(uf & 0x4)
+                breaksfx = c ? (int)a_int(c->attributes[10]) : 0;
+            else if(leafy)
+                breaksfx = g_misc_sfx[0];       // sfxBUSHGRASS
+        }
+
+        int decotype = (uf & 0x1) ? ((uf & 0x200) ? (c ? (int)a_int(c->attributes[8]) : 0) : -1) : 0;
+
+        if(decotype > 3)
+            decotype = 0;
+
+        if(!decotype)
+            decotype = isBushType(type) ? 1 : isFlowersType(type) ? 2 : isGrassType(type) ? 3 : ((uf & 0x1) ? -1 : -2);
+
+        decorations.add(new q30_breakable(lx, ly, tcid, tcs, it, breaksfx, decotype, c ? (int)a_int(c->attributes[8]) : 0, g_sw.clk));
+        g_sw.layerbits &= ~(0x101 << q);
+    }
+    else if(push)
+    {
+        int d = push_dir30(srcfl);
+
+        if(d < 0)
+            d = push_dir30(cflag);
+
+        bool hole = false;
+        bool trig = q30_switch_block_land(px, py, tcid, tcs, q, srcfl, d, false, &hole);
+
+        if(sw_debug())
+            al_trace("swdbg land layer %d at %d trig %d hole %d now cid %d sflag %d\n", q, player, trig ? 1 : 0, hole ? 1 : 0, ps->data[player], ps->sflag[player]);
+
+        if(hole || trig)
+        {
+            ts->data[target] = ts->undercombo;
+            ts->cset[target] = ts->undercset;
+            ts->sflag[target] = 0;
+        }
+        else
+        {
+            ts->data[target] = pc;
+            ts->cset[target] = pcs;
+            ts->sflag[target] = 0;
+        }
+    }
+    else
+    {
+        ps->data[player] = tcid;
+        ps->cset[player] = tcs;
+        ts->data[target] = pc;
+        ts->cset[target] = pcs;
+    }
+}
+
+// The half-way point: Link and the target change places.
+static void sw_swap()
+{
+    if(g_sw.cost_item >= 0 && !checkmagiccost(g_sw.cost_item))
+    {
+        sw_end();
+        return;
+    }
+
+    if(g_sw.target >= 0)
+    {
+        int target = g_sw.target, player = sw_link_pos();
+
+        if(!g_sw.layerbits || player < 0)
+        {
+            sw_end();
+            return;
+        }
+
+        int lx = int(Link.getX()), ly = int(Link.getY());
+
+        for(int q = sw_maxlayer(); q >= 0; --q)
+            if(g_sw.layerbits & (1 << q))
+                sw_swap_layer(q, target, player, lx, ly);
+
+        if(g_sw.cost_item >= 0)
+            paymagiccost(g_sw.cost_item);
+
+        Link.setX((target & 15) * 16);
+        Link.setY((target >> 4) * 16);
+        Link.dir = oppositeDir[Link.dir & 7];
+        g_sw.target = player;
+    }
+    else if(g_sw.enemy_uid)
+    {
+        enemy *e = (enemy *)guys.getByUID(g_sw.enemy_uid);
+
+        if(!e)
+        {
+            sw_end();
+            return;
+        }
+
+        if(g_sw.cost_item >= 0)
+            paymagiccost(g_sw.cost_item);
+
+        int lx = int(Link.getX()), ly = int(Link.getY());
+        Link.setX(int(e->x));
+        Link.setY(int(e->y));
+        Link.dir = oppositeDir[Link.dir & 7];
+        e->x = lx;
+        e->y = ly;
+        g_sw.ex = lx;
+        g_sw.ey = ly;
+
+        if(e->dir >= 0 && e->dir < 8 && (e->dir == Link.dir || e->dir == oppositeDir[Link.dir]))
+            e->dir = oppositeDir[e->dir];
+    }
+
+    q30_drop_lift();
+}
+
+// Link.animate, each frame the hookshot holds him (link.cpp).
+void q30_switchhook_tick()
+{
+    if(!g_sw.active)
+        return;
+
+    if(g_sw.cleanup)
+    {
+        // the hook's handle and chain: removed here, outside the weapons' own loop
+        g_sw.cleanup = false;
+        int h = Lwpns.idFirst(wHSHandle);
+
+        if(h >= 0)
+            Lwpns.del(h);
+
+        h = Lwpns.idFirst(wHookshot);
+
+        if(h >= 0)
+            Lwpns.del(h);
+
+        chainlinks.clear();
+    }
+
+    if(g_sw.enemy_uid)
+    {
+        // the hooked enemy is held where it is
+        enemy *e = (enemy *)guys.getByUID(g_sw.enemy_uid);
+
+        if(e)
+        {
+            e->x = g_sw.ex;
+            e->y = g_sw.ey;
+        }
+    }
+
+    if(g_sw.clk)
+    {
+        --g_sw.clk;
+
+        if(g_sw.clk == g_sw.maxtime / 2)
+            sw_swap();
+    }
+    else
+        sw_end();
+}
+
+// The hook's tip, before it moves this frame: a switchable combo starts the switch. Returns
+// true if the head should end this frame (weapons.cpp then removes it).
 bool q30_switchhook_frame(weapon *w)
 {
     if(!q30_active() || w->parentitem < 0 || q30_item_family(w->parentitem) != Q30_ITYPE_SWITCHHOOK || w->misc != 0)
         return false;
+
+    if(g_sw.active)
+        return true;
+
+    // an enemy the head is already on (its first frame skips the check at the end of its animate)
+    if(switch_weapon_check(w))
+        return true;
 
     int wx = int(w->x), wy = int(w->y), tx, ty;
 
@@ -7713,10 +9833,9 @@ bool q30_switchhook_frame(weapon *w)
         return false;
 
     int target = ((ty >> 4) << 4) + (tx >> 4);
-    int maxlayer = q30_quest_rule(Q30_QR_HOOKSHOTALLLAYER) ? 6 : (get_bit(quest_rules, qr_HOOKSHOTLAYERFIX) ? 2 : 0);
     bool found = false;
 
-    for(int q = maxlayer; q >= 0 && !found; --q)
+    for(int q = sw_maxlayer(); q >= 0 && !found; --q)
     {
         H h(q, target);
         found = h_scr(h) && hookable(h_combo(h));
@@ -7725,44 +9844,162 @@ bool q30_switchhook_frame(weapon *w)
     if(!found)
         return false;
 
-    int lx = int(Link.getX()) + 8, ly = int(Link.getY()) + 8;
+    int player = sw_link_pos();
 
-    if(lx < 0 || ly < 0 || lx > 255 || ly > 175)
-        return true;
-
-    int player = ((ly >> 4) << 4) + (lx >> 4);
-
-    if(player == target)
-        return true;
-
-    int glove_level = itemsbuf[w->parentitem].fam_type;
-    int cx = (target & 15) * 16, cy = (target >> 4) * 16;
-    bool swapped = false;
-
-    for(int q = maxlayer; q >= 0; --q)
-        swapped = swap_layer(q, target, player, glove_level, cx, cy) || swapped;
-
-    if(swapped)
+    if(player < 0 || player == target)
     {
-        if(itemsbuf[w->parentitem].usesound)
-            sfx(itemsbuf[w->parentitem].usesound, pan(cx));
-
-        Link.setX(cx);
-        Link.setY(cy);
-        q30_drop_lift();
+        Link.reset_hookshot();
+        return true;
     }
 
-    g_hook_reset_pending = true;    // the head can't be removed from inside its own animate
+    int item = w->parentitem;
+    sw_start((int)itemsbuf[item].misc5, item, target, NULL);
+
+    if(item_usesound2(item))
+        sfx(item_usesound2(item), pan(wx));
+
+    stop_sfx(itemsbuf[item].usesound);
     return true;
+}
+
+// How each player weapon meets an enemy's defenses: upstream's weaponToDefence, as the
+// slots are stored in the quest. -1 for weapons left to the engine.
+static int sw_defense_slot(int id)
+{
+    switch(id)
+    {
+    case wBrang: return 0;
+    case wBomb: return 1;
+    case wSBomb: return 2;
+    case wArrow: return 3;
+    case wFire: return 4;
+    case wMagic: return 6;
+    case wBeam: return 10;
+    case wRefBeam: return 11;
+    case wRefMagic: return 12;
+    case wRefFireball: return 13;
+    case wRefRock: return 14;
+    case wStomp: return 15;
+    case wCByrna: return 16;
+    case wBait: return 31;
+    case wWind: return 32;
+    case wSSparkle: case wFSparkle: return 33;
+    case wWhistle: return 35;
+    case Q30W_THROWN: return 37;
+    }
+
+    if(id >= wScript1 && id <= wScript10)
+        return 20 + (id - wScript1);
+
+    return -1;
+}
+
+
+static bool in_lwpns(weapon *w)
+{
+    for(int i = 0; i < Lwpns.Count(); ++i)
+        if(Lwpns.spr(i) == w)
+            return true;
+
+    return false;
+}
+
+// Before the frame's collision check: the switch hook's head meeting an enemy it can switch
+// with, or any player weapon meeting an enemy whose defense for it is "Switch w/ Player".
+// Returns true if a switch started.
+static bool switch_weapon_check(weapon *w)
+{
+    if(g_sw.active || w->dead != -1 || screenscrolling)
+        return false;
+
+    bool head = w->id == wHookshot && w->misc == 0 && w->parentitem >= 0 && q30_item_family(w->parentitem) == Q30_ITYPE_SWITCHHOOK;
+    int slot = head ? FILE_DEF_SWITCHHOOK : sw_defense_slot(w->id);
+
+    if(slot < 0 || (!head && !g_any_switch_defense) || !in_lwpns(w))
+        return false;
+
+    for(int j = 0; j < guys.Count(); ++j)
+    {
+        enemy *e = (enemy *)guys.spr(j);
+
+        if(e->dying || e->clk < 0 || e->hclk > 0 || e->superman || !e->hit(w))
+            continue;
+
+        int d = guy_defense(e->id & 0xFFF, slot);
+
+        if(d == FILE_edSWITCH_DEF)
+        {
+            if(sw_unswitchable(e))
+                continue;
+
+            sw_start(g_init_switch_style, -1, -1, e);
+
+            if(g_misc_sfx[MSFX_SWITCHED_SND])
+                sfx(g_misc_sfx[MSFX_SWITCHED_SND], pan(int(e->x)));
+
+            if(head)
+            {
+                stop_sfx(itemsbuf[w->parentitem].usesound);
+                w->dead = 0;
+            }
+
+            return true;
+        }
+
+        if(!head)
+            continue;
+
+        // the hook's own defense: damage outcomes still switch (upstream's defend returns -1)
+        int power = w->power;
+
+        switch(d)
+        {
+        case FILE_edNORMAL: break;
+        case FILE_edHALF: power = zc_max(1, power / 2); break;
+        case FILE_edQUARTER: power = zc_max(1, zc_max(1, power / 2) / 2); break;
+        case FILE_ed2x: power *= 2; break;
+        case FILE_ed3x: power *= 3; break;
+        case FILE_ed4x: power *= 4; break;
+        case FILE_ed1HKO: power = e->hp; break;
+        default: return false;      // blocked, stunned or ignored: the engine's hookshot hit
+        }
+
+        if(sw_unswitchable(e))
+            return false;
+
+        if(w->power > 0 && power > 0)
+        {
+            e->hp -= power;
+            e->hclk = 33;
+
+            if(e->hitsfx)
+                sfx(e->hitsfx, pan(int(e->x)));
+        }
+
+        int item = w->parentitem;
+        sw_start((int)itemsbuf[item].misc5, item, -1, e);
+
+        if(item_usesound2(item))
+            sfx(item_usesound2(item), pan(int(w->x)));
+        else if(g_misc_sfx[MSFX_SWITCHED_SND])
+            sfx(g_misc_sfx[MSFX_SWITCHED_SND], pan(int(w->x)));
+
+        stop_sfx(itemsbuf[item].usesound);
+        w->dead = 0;
+        return true;
+    }
+
+    return false;
 }
 
 void q30_switchhook_update()
 {
-    if(g_hook_reset_pending)
-    {
-        g_hook_reset_pending = false;
-        Link.reset_hookshot();
-    }
+    // something else let go of Link (a hit, a warp, a script): the switch is over
+    if(g_sw.active && !hookshot_frozen)
+        sw_clear();
+
+    if(!g_sw.active && Lwpns.idFirst(wHookshot) < 0)
+        g_sw_pending_cost = -1;
 }
 
 bool q30_quest_rule(int id)
@@ -7785,6 +10022,7 @@ static dword compat_rule_since(int id)
     case Q30_QR_PUSHBLOCK_SPRITE_LAYER: return 51;
     case Q30_QR_BROKEN_PUSHBLOCK_TOP_HALF_SOLIDS: return 71;
     case Q30_QR_BROKEN_PUSHBLOCK_FLAG_CLONING: return 72;
+    case 570: return 103;       // qr_OLD_ITEM_HITBOXES
     default: return 0;
     }
 }
@@ -7792,4 +10030,25 @@ static dword compat_rule_since(int id)
 bool q30_compat_rule(int id)
 {
     return quest_header_zelda_version < 0x255 || q30_quest_rule(id) || q255_compat_rule_version < compat_rule_since(id);
+}
+
+extern int q255_header_build;
+extern int q255_combo_section_version;
+
+// Slashing a ->Next combo (upstream's check_slash_block). 2.55 build 50 stopped those
+// combos opening the 16-31 secret under them; quests from earlier builds keep the old way
+// through qr_OLD_SLASHNEXT_SECRETS (680). Combo sections 13 to 20 come from builds that
+// skipped every flag on them, so upstream turns on qr_BUGGY_BUGGY_SLASH_TRIGGERS (318).
+int q30_slash_next_skip(int type)
+{
+    if(!q30_active() || !isCuttableNextType(type))
+        return 0;
+
+    if(q255_header_build < 50 || q30_quest_rule(680))
+        return 0;
+
+    if(q30_quest_rule(318) || (q255_combo_section_version >= 13 && q255_combo_section_version < 21))
+        return 2;
+
+    return 1;
 }

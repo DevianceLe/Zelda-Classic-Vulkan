@@ -1,4 +1,4 @@
-# ZC Vulkan 2.53.444.3-PRE
+# ZC Vulkan 2.53.444.3
 
 [![Build](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml/badge.svg)](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml)
 
@@ -37,21 +37,23 @@ What that means in practice:
 - New Dear ImGui menus, dialogs and file browser in the player and the editor
 - ZQuest on SDL3 and Vulkan, with Large and Small layouts you can switch while it runs
 - 2.55 and 3.0 Nightly quest files, scripts of every type, music objects, and combo triggers in the player
+- On 2.55 and 3.0 Nightly quests: slopes, bottles and bottle shops, the switch hook, sprite rotation and scaling, script lighting and dark rooms, subscreen widgets and overlay subscreens. Each has been tried in one to four quests so far
+- Older quests (1.90 to 2.50.1) keep more of how their own version played, from a survey of the original source branches
 - The player on 64-bit Linux, tested on Debian 13 and Arch Linux with Mesa's software Vulkan driver
 - The player as Nintendo Switch homebrew, tested in the Eden emulator only
 
 **Written, but not yet confirmed in play on 2.55 and 3.0 Nightly quests**
 
-- Lifting and throwing, switch hook, new dark rooms, torches and lantern
+- Lifting and throwing, torches and lantern
 - Ice, push blocks, new mirrors, screen tints, light beams, bridges and pitfalls
+- Shadows under flying weapons and items
 - Script file, directory and stack commands
 
 **Still to do**
 
-- Slopes and z-heights
-- Subscreen widget script commands
-- Saving global script variables past 255
-- Script commands for bitmaps, palettes and lighting
+- Z-heights
+- Subscreens with more than one page (only the first page shows)
+- The Moon Pearl and bunny state, the magic mirror, and the bug net
 - The 2.55/3.0 Nightly editor. Until it exists, ZQuest refuses quests newer than 2.53.1 and closes. The player still plays them.
 - ZQuest on Linux
 
@@ -159,7 +161,7 @@ Every push to `main` builds Windows, Android, Linux and Nintendo Switch. To publ
 2. Update `packaging/RELEASE_NOTES.md`.
 3. Commit and push.
 
-GitHub builds it and publishes a release for that version. If a release with that number already exists, nothing is published.
+GitHub builds it and publishes a release for that version. If a release with that number already exists, nothing is published. A version ending in `-PRE` (for example `2.53.444.4-PRE`) is built on every push but never published, so work in progress can be pushed safely.
 
 ## Credits
 

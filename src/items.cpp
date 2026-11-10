@@ -30,6 +30,10 @@ char *item_string[ITEMCNT];
 
 extern zinitdata zinit;
 
+// 2.55+ bottles: the player's q30_triggers.cpp installs this (ZQuest never does). It gives
+// the tiles past a bottle's own that show what it holds, or -1 for an item that isn't one.
+int (*q30_bottle_tile_hook)(int item, int frames) = NULL;
+
 int fairy_cnt=0;
 
 item::~item()
@@ -112,7 +116,11 @@ bool item::animate(int)
         }
     }
     
-    if(anim)
+    // 2.55+ bottles show what their slot holds, so they always take this path (as upstream's)
+    const int q30_bottle_ofs = q30_bottle_tile_hook ? q30_bottle_tile_hook(id, frames) : -1;
+    const bool q30_bottle = q30_bottle_ofs >= 0;
+
+    if(anim || q30_bottle)
     {
         int spd = o_speed;
         
@@ -141,8 +149,24 @@ bool item::animate(int)
         }
         else
             tile = o_tile + aframe;
+
+        if(q30_bottle)
+        {
+            // upstream: frames (or 1) tiles on for each bottle type
+            int offset = q30_bottle_ofs;
+
+            if(extend > 2)
+            {
+                if(tile/TILES_PER_ROW==(tile+offset*txsz)/TILES_PER_ROW)
+                    offset *= txsz;
+                else
+                    offset = (offset*txsz) + ((tysz-1)*TILES_PER_ROW)*(((tile+offset*txsz)/TILES_PER_ROW)-(tile/TILES_PER_ROW));
+            }
+
+            tile += offset;
+        }
     }
-    
+
     if(itemsbuf[id].family ==itype_fairy && itemsbuf[id].misc3)
     {
         movefairy(x,y,misc);

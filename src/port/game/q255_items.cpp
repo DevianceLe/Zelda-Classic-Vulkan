@@ -1,7 +1,8 @@
 // ITEM section of a 2.55 / 3.0 quest, section versions 25 to 71.
 //
+// Kept beside itemsbuf (q30_triggers.cpp): usesound2 (v49+)
+//
 // Read and dropped, because 2.53's itemdata has no field for them:
-//   usesound2 (v49+)
 //   cost_amount[1] (v53), cost_counter[1] (v53), magiccosttimer[0..1] (v27+)
 //   weapon: imitate_weapon, default_defense (v26..62, then in the weapon block);
 //     weaprange, weapduration, weap_pattern[10] (v26+)
@@ -66,6 +67,8 @@ static byte item_id_byte(word v)
 }
 
 static word g_item_sprite_script, g_item_weapon_script;
+static dword g_item_override_flags;     // kept for scripts (itemdata->SizeFlags)
+static std::string g_item_display_name;
 static long g_item_sprite_initd[8], g_item_weapon_initd[8];
 
 static word item_script_id(word v)
@@ -161,6 +164,7 @@ static void skip_weapon_data(Q255Section &s)
 
 static dword g_item_raw_flags = 0;   // all 32 bits; itemdata keeps only the low 16
 static long g_true_family = 0;   // the family as stored, which itemdata may not hold
+static int g_item_usesound2 = 0; // the second use sound (the switch hook's switch sound)
 
 static void read_item(Q255Section &s, itemdata &it)
 {
@@ -259,14 +263,14 @@ it.family = (byte)family;
     if(s.version >= 66)
     {
         it.usesound = item_id_byte(s.igetw());
-        s.skip(2);              // usesound2
+        g_item_usesound2 = s.igetw();
     }
     else
     {
         it.usesound = s.getc();
 
         if(s.version >= 49)
-            s.skip(1);          // usesound2
+            g_item_usesound2 = s.getc();
     }
 
     if(s.version >= 26)
@@ -305,7 +309,10 @@ it.family = (byte)family;
     }
 
     if(s.version >= 28)
-        s.skip(3 * 4);          // override flags, tile width, tile height
+    {
+        g_item_override_flags = s.igetl();     // override flags
+        s.skip(2 * 4);          // tile width, tile height
+    }
     if(s.version >= 29 && s.version < 63)
         s.skip(3 * 4);          // the same for the weapon
     if(s.version >= 30)
@@ -351,7 +358,7 @@ it.family = (byte)family;
         s.skip(1);              // pickupflag
 
     if(s.version >= 57)
-        s.getcstr();            // display_name
+        g_item_display_name = s.getcstr();     // display_name, kept for scripts and subscreens
 
     if(s.version >= 58 && s.version < 63)
         s.skip(5 * (s.version >= 59 ? 2 : 1));  // burn sprites, light radii
@@ -383,7 +390,11 @@ it.family = (byte)family;
 int q255_read_items(Q255Section &s)
 {
     if(s.keep)
+    {
         q30_clear_item_families();
+        q30_clear_item_extras();
+        q30_set_item_usesound2(-1, 0);
+    }
 
     if(s.version < 25 || s.version > 71)
         return Q255_NOT_HANDLED;
@@ -446,6 +457,9 @@ int q255_read_items(Q255Section &s)
         itemdata tempitem;
         memset(&tempitem, 0, sizeof(itemdata));
         g_item_sprite_script = g_item_weapon_script = 0;
+        g_item_override_flags = 0;
+        g_item_usesound2 = 0;
+        g_item_display_name.clear();
         memset(g_item_sprite_initd, 0, sizeof(g_item_sprite_initd));
         memset(g_item_weapon_initd, 0, sizeof(g_item_weapon_initd));
         read_item(s, tempitem);
@@ -457,9 +471,12 @@ int q255_read_items(Q255Section &s)
         {
             memcpy(&itemsbuf[i], &tempitem, sizeof(itemdata));
             q30_set_item_family(i, g_true_family);
+            q30_set_item_usesound2(i, g_item_usesound2);
             q30_set_item_passive_script(i, (g_item_raw_flags & (1u << 23)) != 0);
 q30_set_item_sprite_script(i, g_item_sprite_script, g_item_sprite_initd);
             q30_set_item_weapon_script(i, g_item_weapon_script, g_item_weapon_initd);
+            q30_set_item_override_flags(i, (int)g_item_override_flags);
+            q30_set_item_display_name(i, g_item_display_name.c_str());
         }
     }
 

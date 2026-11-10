@@ -12,6 +12,7 @@ namespace
 std::map<int, Q30ScriptRef> g_combo_scripts;
 std::map<int, int> g_msg_wrap_extra;
 std::map<int, Q30ScriptRef> g_dmap_scripts[q30_dmap_kinds];
+std::map<int, std::pair<int, int> > g_dmap_subscreens;    // overlay, map
 
 void put(std::map<int, Q30ScriptRef> &table, int key, word script, const long *initd)
 {
@@ -61,6 +62,8 @@ void q30_clear_tables()
 
     for(int i = 0; i < q30_dmap_kinds; ++i)
         g_dmap_scripts[i].clear();
+
+    g_dmap_subscreens.clear();
 }
 
 void q30_set_combo_script(int combo, word script, const long *initd)
@@ -82,4 +85,24 @@ void q30_set_dmap_script(int dmap, int kind, word script, const long *initd)
 const Q30ScriptRef *q30_dmap_script(int dmap, int kind)
 {
     return (kind >= 0 && kind < q30_dmap_kinds) ? get(g_dmap_scripts[kind], dmap) : NULL;
+}
+
+void q30_set_dmap_subscreens(int dmap, int overlay, int map)
+{
+    g_dmap_subscreens[dmap] = std::make_pair(overlay, map);
+
+    if((overlay || map >= 0) && getenv("ZC_Q30_SUBLOG"))     // diagnostics only
+        al_trace("q30 dmapsub: dmap %d overlay %d map %d\n", dmap, overlay, map);
+}
+
+int q30_dmap_overlay_subscreen(int dmap)
+{
+    std::map<int, std::pair<int, int> >::const_iterator it = g_dmap_subscreens.find(dmap);
+    return it == g_dmap_subscreens.end() ? 0 : it->second.first;
+}
+
+int q30_dmap_map_subscreen(int dmap)
+{
+    std::map<int, std::pair<int, int> >::const_iterator it = g_dmap_subscreens.find(dmap);
+    return it == g_dmap_subscreens.end() ? -1 : it->second.second;
 }

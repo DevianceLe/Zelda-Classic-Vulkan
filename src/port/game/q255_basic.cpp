@@ -25,7 +25,8 @@
 //   misc v8+: shop str[3], the item info strings
 //   misc v9+: questmisc[32], and 4096 bytes of retired string labels
 //   misc v11+: zscript_last_compiled_version
-//   misc v12+: sprites[256], the misc sprites (16 bits each from v21)
+//   misc v12+: sprites[256], the misc sprites (16 bits each from v21): kept for
+//     q30_triggers.cpp (falling push blocks, the switch hook's poof)
 //   misc v13+: bottle_types[64]
 //   misc v13+: bottle_shop_types[256]
 //   misc v14+: miscsfx[256] (16 bits each from v19)
@@ -58,6 +59,8 @@
 
 #include "q255.h"
 #include "q30.h"
+#include "q30_triggers.h"
+#include "sfx.h"
 #include "zsys.h"
 
 #include <ctype.h>
@@ -921,6 +924,11 @@ static void note_built_with(const int *id, bool nightly, const std::string &text
     q255_quest_built_with[out] = 0;
 }
 
+// The header's build and version numbers (major, minor, patch; 0 before header v4), for
+// load fixes that depend on them.
+int q255_header_build = 0;
+int q255_header_version[3] = {0, 0, 0};
+
 int q255_read_header(Q255Section &s, byte *map_count, byte *midi_flags)
 {
     if(s.keep)
@@ -1000,6 +1008,12 @@ int q255_read_header(Q255Section &s, byte *map_count, byte *midi_flags)
 
         note_built_with(version_id, nightly, version_text);
 
+        q255_header_build = h.build;
+        q255_header_version[0] = version_id[0];
+        // 2.55 alpha 86 wrote 56 as its second number
+        q255_header_version[1] = (version_id[0] == 2 && version_id[1] == 56 && version_id[4] == 86) ? 55 : version_id[1];
+        q255_header_version[2] = version_id[2];
+
         if(map_count)
             *map_count = maps;
 
@@ -1073,7 +1087,11 @@ int q255_read_rules(Q255Section &s)
     {
         memcpy(quest_rules, rules, QUESTRULES_SIZE);
 
-        if(s.version > 16)
+        // From compat rule version 12 the bit means "show the intro" (upstream's qr_GANONINTRO);
+        // quests saved before that (Alpha 96-99 builds included) still store 2.53's meaning.
+        extern dword q255_compat_rule_version;
+
+        if(s.version > 16 && q255_compat_rule_version >= 12)
             set_bit(quest_rules, qr_NOGANONINTRO, get_bit(quest_rules, qr_NOGANONINTRO) ? 0 : 1);
 
         if(build < 42)
@@ -1322,21 +1340,74 @@ int q255_read_misc(Q255Section &s)
     if(s.version >= 11)
         s.skip(4);                          // last compiled zscript version
 
-    if(s.version >= 21)
-        s.skip(256 * 2);                    // misc sprites
-    else if(s.version >= 12)
-        s.skip(256);
+    // misc sprites (falling, drowning, switch poof...), kept for 2.55+ game code
+    for(int i = 0; i < 256; ++i)
+    {
+        int spr = s.version >= 21 ? (int)s.igetw() : s.version >= 12 ? (int)s.getc() : 0;
+
+        if(keep && !s.failed)
+            q30_set_misc_sprite(i, spr);
+    }
+
+    // bottle types and bottle shops, and the misc sounds bottles play: kept beside QMisc
+    // for 2.55+ quests (q30_triggers.cpp)
+    if(keep)
+        q30_bottles_clear();
 
     if(s.version >= 13)
     {
-        s.skip(64 * (32 + 3 * (1 + 2) + 1 + 1));        // bottle types
-        s.skip(256 * (32 + 3 * (1 + 2 + 1 + 2 + 2)));   // bottle shops
+        for(int i = 0; i < 64; ++i)
+        {
+            Q30BottleType bt;
+            memset(&bt, 0, sizeof(bt));
+            s.read(bt.name, 32);
+
+            for(int j = 0; j < 3; ++j)
+            {
+                bt.counter[j] = (signed char)s.getc();
+                bt.amount[j] = s.igetw();
+            }
+
+            bt.flags = s.getc();
+            bt.next_type = s.getc();
+
+            if(keep && !s.failed)
+                q30_set_bottle_type(i, bt);
+        }
+
+        for(int i = 0; i < 256; ++i)
+        {
+            Q30BottleShop bs;
+            memset(&bs, 0, sizeof(bs));
+            s.read(bs.name, 32);
+
+            for(int j = 0; j < 3; ++j)
+            {
+                bs.fill[j] = s.getc();
+                bs.comb[j] = s.igetw();
+                bs.cset[j] = s.getc();
+                bs.price[j] = s.igetw();
+                bs.str[j] = s.igetw();
+            }
+
+            if(keep && !s.failed)
+                q30_set_bottle_shop(i, bs);
+        }
     }
 
-    if(s.version >= 19)
-        s.skip(256 * 2);                    // misc sfx
-    else if(s.version >= 14)
-        s.skip(256);
+    if(s.version >= 14)
+    {
+        for(int i = 0; i < 256; ++i)
+        {
+            int msfx = s.version >= 19 ? (int)s.igetw() : (int)s.getc();
+
+            if(keep && !s.failed)
+                q30_set_misc_sfx(i, msfx);
+        }
+
+        if(keep && s.version < 15)
+            q30_set_misc_sfx(8, WAV_MSG);       // sfxREFILL's default before it was in the list
+    }
 
     if(s.version >= 17)
     {

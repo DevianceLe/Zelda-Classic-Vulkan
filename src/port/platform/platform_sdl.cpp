@@ -1225,8 +1225,65 @@ static void give_back_foreground()
 }
 #endif
 
+// zc.cfg's controller_hidapi in [zeldadx] (Settings > Controls > Extra Pad
+// Support, zc_sys.cpp): 0 or 1, or -1 when it isn't there. SDL starts here
+// before the game reads zc.cfg, so this one value is read from the file directly.
+static int cfg_hidapi_setting()
+{
+   FILE *f = fopen("zc.cfg", "r");
+   if (!f)
+      return -1;
+   static const char key[] = "controller_hidapi";
+   char line[512];
+   bool in_section = false;
+   int value = -1;
+   while (fgets(line, sizeof(line), f)) {
+      const char *s = line;
+      while (*s == ' ' || *s == '\t')
+         s++;
+      if (*s == '[') {
+         in_section = strncmp(s, "[zeldadx]", 9) == 0;
+         continue;
+      }
+      if (!in_section || strncmp(s, key, sizeof(key) - 1) != 0)
+         continue;
+      s += sizeof(key) - 1;
+      while (*s == ' ' || *s == '\t')
+         s++;
+      if (*s++ != '=')
+         continue;
+      while (*s == ' ' || *s == '\t')
+         s++;
+      if (*s >= '0' && *s <= '9')
+         value = (*s == '0') ? 0 : 1;
+   }
+   fclose(f);
+   return value;
+}
+
+// SDL's HIDAPI controller drivers. On Windows they have been seen writing a
+// device's HID data over the game's memory while SDL lists devices; that is
+// inside SDL, which this project doesn't change. So on Windows they stay off
+// unless the player turns them on: XInput, Windows.Gaming.Input, GameInput and
+// DirectInput still carry Xbox, PlayStation, Switch Pro, 8BitDo and most other
+// pads, and SDL's built-in layouts map their buttons. Turning them on is only
+// needed for pads that work through HIDAPI alone (a Switch Pro Controller on
+// USB, GameCube adapters, the Steam Controller). Elsewhere they stay on unless
+// turned off.
+static bool use_hidapi()
+{
+   const int setting = cfg_hidapi_setting();
+#ifdef _WIN32
+   return setting == 1;
+#else
+   return setting != 0;
+#endif
+}
+
 void platform_thread_main()
 {
+   if (!use_hidapi())
+      SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI, "0");
    SDL_SetHint(SDL_HINT_TIMER_RESOLUTION, "0");          // rest() like the reference
    SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
