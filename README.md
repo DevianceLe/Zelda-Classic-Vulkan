@@ -2,6 +2,9 @@
 
 [![Build](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml/badge.svg)](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml)
 
+> [!WARNING]
+> **Highly experimental.** This fork is a work in progress. Expect bugs and crashes, and back up your quests and save files before you use it. A quest saved as 2.55.17 or 3.0 Nightly can't be opened by older versions of Zelda Classic.
+
 Zelda Classic is a game engine and quest editor for making and playing custom adventures in the style of the original *The Legend of Zelda*. This repository is a community fork of Zelda Classic 2.53, rebuilt to run on SDL3 and Vulkan.
 
 | Program | What it is | Runs on |
