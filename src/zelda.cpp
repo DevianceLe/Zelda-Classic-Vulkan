@@ -1666,6 +1666,32 @@ int init_game()
                 break;  // one per DMap
             }
         }
+
+        void q30_test_list_features();
+        q30_test_list_features();
+
+        // screens whose item triggers secrets (flags8 0x80) or waits for them (0x40)
+        shown = 0;
+        for(int dm = 0; dm < MAXDMAPS && shown < 24; ++dm)
+        {
+            if(DMaps[dm].map >= map_count || (dm > 0 && DMaps[dm].map == DMaps[dm - 1].map && DMaps[dm].xoff == DMaps[dm - 1].xoff))
+                continue;
+            for(int s = 0; s < 0x80 && shown < 24; ++s)
+            {
+                const mapscr &m = TheMaps[DMaps[dm].map * MAPSCRS + s];
+                const int col = (s & 15) - DMaps[dm].xoff;
+                if(col < 0 || ((DMaps[dm].type & dmfTYPE) != dmOVERW && col > 7) || !(m.valid & mVALID) || !(m.flags8 & 0xC0) || !m.hasitem)
+                    continue;
+                long ipk;
+                int imode, ips, ipsf;
+                void q30_item_pickup_info(int item, long *pickup, int *mode, int *pstring, int *psflags);
+                q30_item_pickup_info(m.item, &ipk, &imode, &ips, &ipsf);
+                al_trace("test: item screen%s%s: ZC_TEST_START=%d,%d,%d,%d item %d (family %d, hearts %d, pickup 0x%lx mode %d) room %d flags %x\n", (m.flags8 & 0x80) ? " itemsecret" : "",
+                         (m.flags8 & 0x40) ? " secretitem" : "", dm, s - DMaps[dm].xoff, m.itemx, m.itemy + 16, m.item,
+                         itemsbuf[m.item].family, itemsbuf[m.item].pickup_hearts, (unsigned long)ipk, imode, m.room, m.flags);
+                ++shown;
+            }
+        }
     }
 
     // ZC_TEST_START=dmap[,screen[,x,y]]: test runs only, starts there (the screen within the
@@ -1674,7 +1700,7 @@ int init_game()
     {
         int dm = -1, sc = -1;
         const int got = sscanf(test_start, "%d,%d", &dm, &sc);
-        if(got == 1 && dm >= 0 && dm < MAXDMAPS)
+        if((got == 1 || (got >= 2 && sc == -1)) && dm >= 0 && dm < MAXDMAPS)     // screen -1: the continue screen
             sc = DMaps[dm].cont;
         if(got >= 1 && dm >= 0 && dm < MAXDMAPS && sc >= 0 && sc < 0x80)
         {
@@ -1814,6 +1840,12 @@ int init_game()
     Bwpn = Bweapon(bpos);
     q30_load_extra_buttons();
     directItemB = directItem;
+
+    if(usesaved)
+    {
+        void q30_restore_buttons();     // 2.55/3.0: items set on a later subscreen page
+        q30_restore_buttons();
+    }
     update_subscr_items();
     
     reset_subscr_items();
@@ -1887,7 +1919,8 @@ int init_game()
         if(id >= 0 && id < MAXITEMS)
         {
             items.add(new item(Link.getX() + dx, Link.getY() + dy, (fix)0, id, ipBIGRANGE + ipTIMER, 0));
-            al_trace("test: dropped item %d at %d,%d\n", id, int(Link.getX()) + dx, int(Link.getY()) + dy);
+            al_trace("test: dropped item %d at %d,%d (Link at %d,%d facing %d)\n", id, int(Link.getX()) + dx, int(Link.getY()) + dy,
+                     int(Link.getX()), int(Link.getY()), d);
         }
     }
 

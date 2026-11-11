@@ -163,8 +163,165 @@ static void skip_weapon_data(Q255Section &s)
 }
 
 static dword g_item_raw_flags = 0;   // all 32 bits; itemdata keeps only the low 16
+static long g_item_pickup = 0;       // the item's own pickup flags, how they apply (pickupflag),
+static int g_item_pickup_mode = 0;   // its pickup string and that string's flags, all kept for
+static int g_item_pstring = 0, g_item_psflags = 0;     // the player (q30_set_item_pickup)
+static int g_cost_counter[2] = { -1, -1 };  // upstream's two item costs (counter, amount),
+static int g_cost_amount[2] = { 0, 0 };     // kept for the player (q30_set_item_cost)
 static long g_true_family = 0;   // the family as stored, which itemdata may not hold
 static int g_item_usesound2 = 0; // the second use sound (the switch hook's switch sound)
+
+#ifdef ZC_PLAYER_BUILD
+// upstream's item flag bits past what 2.53 names (item_flag9.. are bits 16..)
+enum
+{
+    UF1 = 0x10, UF2 = 0x20, UF3 = 0x400, UF4 = 0x800, UF5 = 0x1000, UF6 = 0x2000, UF7 = 0x4000,
+    UF8 = 0x8000, UF9 = 0x10000, UF10 = 0x20000, UF11 = 0x40000
+};
+
+static void set_flag(dword &f, dword bit, bool on)
+{
+    if(on)
+        f |= bit;
+    else
+        f &= ~bit;
+}
+
+static bool rule(int id) { return q30_quest_rule(id); }
+
+extern word quest_header_zelda_version;
+
+// upstream's readitems (qst_items.cpp, "Port quest rules to items" and the s_version fixes
+// after it), the parts that set flags; rule numbers are upstream's, the same as 2.53's for these
+static void update_old_item_flags(int v, long family, int level, dword &f)
+{
+    enum { R_FIREPROOF = 33, R_NONBUBBLEMED = 52, R_NONBUBBLETRI = 54, R_Z3BRANG = 61, R_NOITEMMELEE = 62,
+           R_QUICKSWORD = 65, R_NODIVING = 90, R_TEMPCANDLE = 97, R_RINGDAMAGE = 94, R_BRANGPICKUP = 107,
+           R_SLASHFLIP = 112, R_SLOWCHARGE = 114, R_NOWANDMELEE = 115, R_SWORDMIRROR = 117,
+           R_LENSENEMIES = 119, R_ITEMBUBBLE = 132, R_MELEEMAGIC = 156, R_WHIRLMIRROR = 30,
+           R_RAFTLENS = 28, R_LENSHINTS = 22 };
+
+    if(v <= 37)
+    {
+        if(family == itype_flippers)
+            set_flag(f, UF1, rule(R_NODIVING));
+        else if(family == itype_sword || family == itype_wand)
+            set_flag(f, UF5, rule(R_QUICKSWORD));
+        else if(family == itype_book || family == itype_candle)
+            set_flag(f, UF3, rule(R_FIREPROOF));
+    }
+
+    if(v < 38)
+    {
+        if(family == itype_brang || family == itype_hookshot)
+        {
+            set_flag(f, UF4, rule(R_BRANGPICKUP));
+            set_flag(f, UF5 | UF6, rule(R_Z3BRANG));
+        }
+        else if(family == itype_arrow)
+        {
+            set_flag(f, UF4, rule(R_BRANGPICKUP));
+            set_flag(f, UF2, !rule(R_Z3BRANG));
+        }
+    }
+
+    if(v < 39)
+    {
+        if(family == itype_dinsfire || family == itype_book || family == itype_candle)
+            set_flag(f, UF5, rule(R_TEMPCANDLE));
+        else if(family == itype_potion)
+        {
+            if(rule(R_NONBUBBLEMED))
+                f &= ~(UF3 | UF4);
+            else
+            {
+                f |= UF3;
+                set_flag(f, UF4, rule(R_ITEMBUBBLE));
+            }
+        }
+        else if(family == itype_triforcepiece)
+        {
+            if(rule(R_NONBUBBLETRI))
+            {
+                f |= UF3;
+                set_flag(f, UF4, rule(R_ITEMBUBBLE));
+            }
+            else
+                f &= ~(UF3 | UF4);
+        }
+    }
+
+    if(v < 40)
+    {
+        if(family == itype_ring)
+            set_flag(f, UF1, rule(R_RINGDAMAGE));
+        else if(family == itype_candle || family == itype_sword || family == itype_wand || family == itype_cbyrna)
+            set_flag(f, UF8, rule(R_SLASHFLIP));
+
+        if(family == itype_sword || family == itype_wand || family == itype_hammer)
+            set_flag(f, UF7, rule(R_NOITEMMELEE));
+        else if(family == itype_cbyrna)
+            f |= UF7;
+    }
+
+    if(v < 41 && family == itype_sword)
+    {
+        set_flag(f, UF9, rule(R_SWORDMIRROR));
+        set_flag(f, UF10, rule(R_SLOWCHARGE));
+    }
+
+    if(v < 42)
+    {
+        if(family == itype_wand)
+        {
+            set_flag(f, UF3, rule(R_NOWANDMELEE));
+            f &= ~UF6;
+        }
+        else if(family == itype_hammer)
+            f &= ~UF3;
+        else if(family == itype_cbyrna)
+        {
+            f |= UF3;
+            f &= ~UF6;
+        }
+        else if(family == itype_sword)
+            set_flag(f, UF6, rule(R_MELEEMAGIC));
+    }
+
+    if(v < 43 && family == itype_whistle)
+        set_flag(f, UF3, rule(R_WHIRLMIRROR));
+
+    if(v < 35 && family == itype_lens)
+    {
+        if(rule(R_RAFTLENS)) f |= UF4;
+        if(rule(R_LENSHINTS)) f |= UF1;
+        if(rule(R_LENSENEMIES)) f |= UF5;
+    }
+
+    if(v < 52 && family == itype_shield)
+        f |= UF1;                       // 'Block Front'
+
+    if(v < 56)
+    {
+        if(family == itype_dinsfire)
+        {
+            set_flag(f, UF9, quest_header_zelda_version < 0x255);   // Strong Fire
+            set_flag(f, UF10, quest_header_zelda_version < 0x250);  // Magic Fire
+            f |= UF11;                                              // Divine Fire
+        }
+        else if(family == itype_candle)
+        {
+            set_flag(f, UF9, level > 1);
+            f &= ~(UF10 | UF11);
+        }
+        else if(family == itype_book)
+        {
+            f |= UF9 | UF10;
+            f &= ~UF11;
+        }
+    }
+}
+#endif
 
 static void read_item(Q255Section &s, itemdata &it)
 {
@@ -199,19 +356,20 @@ it.family = (byte)family;
         it.flags = (word)(g_item_raw_flags & 0xFFFF);
     }
     else
+    {
         it.flags = s.igetw();
+        g_item_raw_flags = it.flags;
+    }
 
 #ifdef ZC_PLAYER_BUILD
-    // upstream's update_old_item: before item version 39, whether a candle's, book's or Din's
-    // Fire's flames light the room only while they burn was qr_TEMPCANDLELIGHT; since then it is
-    // the item's flag 5, which the player now reads (weapons.cpp). ZQuest keeps the flags as
-    // stored, so its re-saves stay exact.
-    if(s.version < 39 && (family == itype_candle || family == itype_book || family == itype_dinsfire))
+    // upstream's readitems fixes for older section versions: behaviours that were quest rules
+    // became item flags, set from the rules for items saved before them. The player keeps all
+    // 32 bits (q30_item_flags); ZQuest keeps the flags as stored, so its re-saves stay exact.
     {
-        if(q30_quest_rule(qr_TEMPCANDLELIGHT))
-            it.flags |= ITEM_FLAG5;
-        else
-            it.flags &= ~ITEM_FLAG5;
+        dword f = g_item_raw_flags;
+        update_old_item_flags(s.version, family, it.fam_type, f);
+        g_item_raw_flags = f;
+        it.flags = (word)(f & 0xFFFF);
     }
 #endif
 
@@ -259,11 +417,15 @@ it.family = (byte)family;
 
     if(s.version >= 53)
     {
-        it.magic = (byte)item_bound(s.igetw_s(), 0, 255);
-        s.skip(2);              // cost_amount[1]
+        g_cost_amount[0] = s.igetw_s();
+        it.magic = (byte)item_bound(g_cost_amount[0], 0, 255);
+        g_cost_amount[1] = s.igetw_s();     // cost_amount[1], kept for the player
     }
     else
+    {
         it.magic = s.getc();
+        g_cost_amount[0] = it.magic;
+    }
 
     it.misc3 = s.igetl_s();
     it.misc4 = s.igetl_s();
@@ -330,20 +492,35 @@ it.family = (byte)family;
     if(s.version >= 29 && s.version < 63)
         s.skip(3 * 4);          // the same for the weapon
     if(s.version >= 30)
-        s.skip(4);              // pickup
+        g_item_pickup = s.igetl_s();            // pickup (the item's own pickup flags)
     if(s.version >= 32)
-        s.skip(2);              // pstring
+        g_item_pstring = s.igetw();             // pstring
     if(s.version >= 33)
-        s.skip(2);              // pickup_string_flags
+        g_item_psflags = s.igetw();             // pickup_string_flags
 
     if(s.version >= 34)
     {
         signed char counter = (signed char)s.getc();
+        g_cost_counter[0] = counter;
 
         if(s.version >= 53)
-            s.skip(1);          // cost_counter[1]
+            g_cost_counter[1] = (signed char)s.getc();      // cost_counter[1], kept for the player
 
         item_apply_cost_counter(it, counter);
+    }
+    else    // upstream's default counter for older items: rupees, magic, or none
+    {
+        g_cost_counter[0] = (it.flags & ITEM_RUPEE_MAGIC) ? 1 : q30_quest_rule(qr_ENABLEMAGIC) ? 4 : -1;
+
+        if(g_cost_counter[0] < 0)
+            g_cost_amount[0] = 0;
+    }
+
+    if(s.version < 53)      // upstream's second cost for older items: ammunition
+    {
+        const long fam = g_true_family;
+        g_cost_counter[1] = fam == itype_arrow ? 3 : fam == itype_bomb ? 2 : fam == itype_sbomb ? 6 : -1;
+        g_cost_amount[1] = g_cost_counter[1] >= 0 ? 1 : 0;
     }
 
     if(s.version >= 71)
@@ -369,7 +546,7 @@ it.family = (byte)family;
     }
 
     if(s.version >= 48)
-        s.skip(1);              // pickupflag
+        g_item_pickup_mode = s.getc();          // pickupflag: how the pickup flags apply
 
     if(s.version >= 57)
         g_item_display_name = s.getcstr();     // display_name, kept for scripts and subscreens
@@ -409,6 +586,9 @@ int q255_read_items(Q255Section &s)
         q30_clear_item_extras();
         q30_set_item_usesound2(-1, 0);
         q30_set_item_bunny(-1, false);
+        q30_set_item_pickup(-1, 0, 0, 0, 0);
+        q30_set_item_flags32(-1, 0);
+        q30_set_item_cost(-1, 0, 0, 0, 0);
     }
 
     if(s.version < 25 || s.version > 71)
@@ -474,6 +654,9 @@ int q255_read_items(Q255Section &s)
         g_item_sprite_script = g_item_weapon_script = 0;
         g_item_override_flags = 0;
         g_item_usesound2 = 0;
+        g_item_pickup = g_item_pickup_mode = g_item_pstring = g_item_psflags = 0;
+        g_cost_counter[0] = g_cost_counter[1] = -1;
+        g_cost_amount[0] = g_cost_amount[1] = 0;
         g_item_display_name.clear();
         memset(g_item_sprite_initd, 0, sizeof(g_item_sprite_initd));
         memset(g_item_weapon_initd, 0, sizeof(g_item_weapon_initd));
@@ -496,6 +679,9 @@ int q255_read_items(Q255Section &s)
             q30_set_item_usesound2(i, g_item_usesound2);
             q30_set_item_passive_script(i, (g_item_raw_flags & (1u << 23)) != 0);
             q30_set_item_bunny(i, (g_item_raw_flags & 0x04000000) != 0);   // ITEM_BUNNY_ENABLED
+            q30_set_item_pickup(i, g_item_pickup, g_item_pickup_mode, g_item_pstring, g_item_psflags);
+            q30_set_item_flags32(i, g_item_raw_flags);
+            q30_set_item_cost(i, g_cost_counter[0], g_cost_amount[0], g_cost_counter[1], g_cost_amount[1]);
 q30_set_item_sprite_script(i, g_item_sprite_script, g_item_sprite_initd);
             q30_set_item_weapon_script(i, g_item_weapon_script, g_item_weapon_initd);
             q30_set_item_override_flags(i, (int)g_item_override_flags);

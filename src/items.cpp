@@ -34,6 +34,11 @@ extern zinitdata zinit;
 // the tiles past a bottle's own that show what it holds, or -1 for an item that isn't one.
 int (*q30_bottle_tile_hook)(int item, int frames) = NULL;
 
+// 2.55+ item pickup flags: the player's q30_triggers.cpp installs this (ZQuest never does). It
+// gives an item sprite's pickup flags once the item's own have been applied (upstream's
+// pickupflag); for 2.53 quests it returns them unchanged.
+int (*q30_item_pickup_hook)(int item, int pickup) = NULL;
+
 int fairy_cnt=0;
 
 item::~item()
@@ -217,7 +222,10 @@ item::item(fix X,fix Y,fix Z,int i,int p,int c, bool isDummy) : sprite()
     
     if(id<0 || id>iMax) //>, not >= for dummy items such as the HC Piece display in the subscreen
         return;
-        
+
+    if(q30_item_pickup_hook && id < MAXITEMS)
+        pickup = q30_item_pickup_hook(id, pickup);
+
     o_tile = itemsbuf[id].tile;
     tile = itemsbuf[id].tile;
     cs = itemsbuf[id].csets&15;

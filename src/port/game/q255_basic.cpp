@@ -1387,8 +1387,19 @@ int q255_read_misc(Q255Section &s)
     s.read(temp.triforce, sizeof(temp.triforce));
     temp.endstring = s.igetw();
 
+    // shops' strings, one per item for sale: kept for the player (q30_set_shop_string)
+    if(keep)
+        q30_set_shop_string(-1, 0, 0);
+
     if(s.version >= 8)
-        s.skip((size_t)shops * 3 * 2);      // shop info strings
+        for(int i = 0; i < (int)shops; ++i)
+            for(int j = 0; j < 3; ++j)
+            {
+                const int str = s.igetw();
+
+                if(keep && !s.failed)
+                    q30_set_shop_string(i, j, str);
+            }
 
     if(s.version >= 9)
         s.skip(32 * 4 + 32 * 128);          // quest misc, retired string labels

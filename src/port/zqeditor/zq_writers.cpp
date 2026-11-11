@@ -12,6 +12,8 @@
 #include "qst.h"
 #include "zq_class.h"
 #include "zq_writers.h"
+#include "zq_q255.h"
+#include "zq_tile_refs.h"
 
 extern zinitdata zinit;
 extern bool zq_batch_load;
@@ -423,6 +425,16 @@ int zq_save_own_format_ex(const char *filename, bool encode, bool all_parts, std
     {
         why = "Parts of this quest's file were damaged when it was opened.";
         return 1;
+    }
+
+    // A 2.53 or older file holds 252 pages of tiles and most tile numbers in 16 bits, so a tile
+    // past 65,519 can't go into it (zq_tile_refs.h). The tile editor keeps these quests within
+    // that; this catches anything that got past it, rather than let a writer cut it short. It goes
+    // first: no other version of these files holds such a tile either, so none is offered.
+    if(!zq255_quest_is_newer() && !zq_tiles_fit_253(why))
+    {
+        why += ". This version's file holds tiles up to 65,519.";
+        return 8;
     }
 
     // A save stores the map and screen the editor shows, as 2.53's save does (its init data

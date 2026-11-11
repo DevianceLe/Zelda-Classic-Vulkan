@@ -35,6 +35,7 @@
 #include <vector>
 #include "port/zqeditor/zq_q255.h"
 #include "port/zqeditor/zq_writers.h"
+#include "port/zqeditor/zq_tile_refs.h"
 #include "port/game/quest_version.h"
 #endif
 
@@ -691,6 +692,22 @@ static std::string zq_made_in()
     return v.empty() ? std::string("its own version") : v;
 }
 
+// A file of 2.53 or older holds 252 pages of tiles, and ZQuest's 2.53 writers keep tile numbers
+// in 16 bits (zq_tile_refs.h). True when the quest fits such a file; otherwise says why, and
+// nothing is saved. what: "saved as 2.53.1", "exported".
+static bool zq_fits_253(const char *what)
+{
+    std::string why;
+
+    if(zq_tiles_fit_253(why))
+        return true;
+
+    std::string line1 = std::string("This quest can't be ") + what + ":";
+    why += ".";
+    jwin_alert("ZQuest", line1.c_str(), why.c_str(), "Files of 2.53 and older hold tiles up to 65,519. Nothing was saved.", "O&K", NULL, 'k', 0, lfont);
+    return false;
+}
+
 // 0: saved. 1: not saved, and the user was told why. 2: the user chose 2.53.1 instead.
 static int zq_save_own(const char *path)
 {
@@ -702,6 +719,14 @@ static int zq_save_own(const char *path)
 
     std::string v = zq_made_in();
     std::string line1 = "This quest can't be saved as " + v + " yet.";
+
+    // a tile past 65,519 (zq_tile_refs.h); 2.53.1 can't take it either
+    if(r == 8)
+    {
+        std::string what = "saved as " + v;
+        zq_fits_253(what.c_str());
+        return 1;
+    }
 
     if(r == 2 && !zq255_quest_is_newer())
     {
@@ -861,6 +886,9 @@ int onSave()
     }
     else if(zq255_quest_is_newer())
         return zq255_saving_not_ready();
+
+    if(!zq_fits_253("saved as 2.53.1"))
+        return D_O_K;
 #endif
     int ret = save_quest(filepath, false);
     char buf[80],name[13];
@@ -965,6 +993,8 @@ int onSaveAs()
                 return D_O_K;
         }
         // otherwise 2.53.1: ZQuest's own 2.53 save, below
+        if(!zq_fits_253("saved as 2.53.1"))
+            return D_O_K;
     }
 #endif
     int ret = save_quest(temppath, false);
@@ -1778,6 +1808,10 @@ int onExport_ZQT()
     char buf[80],buf2[80],name[13];
     extract_name(temppath,name,FILENAME8_3);
     
+#ifdef ZC_ZQEDITOR
+    if(!zq_fits_253("exported"))
+        return D_O_K;
+#endif
     int zqt_result = save_unencoded_quest(temppath, true);
 #ifdef ZC_PORT
     box_end(false);     // see save_quest()
@@ -1836,6 +1870,10 @@ int onExport_UnencodedQuest()
     char buf[80],buf2[80],name[13];
     extract_name(temppath,name,FILENAME8_3);
     
+#ifdef ZC_ZQEDITOR
+    if(!zq_fits_253("exported"))
+        return D_O_K;
+#endif
     int qsu_result = save_unencoded_quest(temppath, false);
 #ifdef ZC_PORT
     box_end(false);     // see save_quest()

@@ -347,6 +347,38 @@ void q30_bunny_reset();                     // a game starts or continues
 void q30_set_bunny_ltm(long ltm);           // readers
 void q30_set_item_bunny(int item, bool usable);     // readers; item -1 clears all
 bool q30_item_bunny(int item);
+// Item pickups (2.55/3.0): an item's own pickup flags (applied when an item sprite is made,
+// upstream's pickupflag), its pickup string and flags, which strings have been shown (saved),
+// and the screen flag that makes screen items trigger secrets. 2.53 quests get none of it.
+enum { Q30_IP_SECRETS = 4096 };             // upstream ipSECRETS
+void q30_set_item_pickup(int item, long pickup, int mode, int pstring, int psflags);  // readers; -1 clears
+// All 32 bits of an item's flags (upstream's item_flag9 and up are bits 16..); 2.53's 16 for
+// 2.53 quests. The low 16 always come from itemsbuf, which scripts may change.
+enum { Q30_ITEM_FLAG6 = 0x2000, Q30_ITEM_FLAG7 = 0x4000, Q30_ITEM_FLAG8 = 0x8000, Q30_ITEM_FLAG9 = 0x10000,
+       Q30_ITEM_FLAG10 = 0x20000, Q30_ITEM_FLAG11 = 0x40000 };     // past 2.53's ITEM_FLAG5
+void q30_set_item_flags32(int item, dword flags);   // readers; -1 clears
+dword q30_item_flags(int item);
+bool q30_item_flag(int item, dword bit);    // q30_item_flags(item) & bit, false for no item
+// upstream's two item costs (counter and amount each): readers store them, and the subscreen's
+// button counters read the counter of a cost that has an amount (-1 none)
+void q30_set_item_cost(int item, int ctr0, int amt0, int ctr1, int amt1);  // -1 clears
+int q30_item_cost_counter(int item, int which);
+// rules that became item flags in 2.55: the item's flag for 2.55/3.0 quests, the rule for 2.53
+bool q30_slash_flip(int itemid);            // qr_SLASHFLIPFIX
+bool q30_quick_sword(int itemid);           // qr_QUICKSWORD (the sword or wand in use)
+bool q30_no_diving();                       // qr_NODIVING (the flippers Link has)
+bool q30_slow_charging(int itemid);         // qr_SLOWCHARGINGWALK (the sword in use)
+bool q30_lens_does(int what);               // 0 qr_LENSHINTS, 1 qr_RAFTLENS, 2 qr_LENSSEESENEMIES
+void q30_item_pickup_info(int item, long *pickup, int *mode, int *pstring, int *psflags);
+// checkitems / the bug net: the pickup string of sprite_item (-1 none) for item, after a shop's
+// string if any; true if a string was shown
+bool q30_item_pickup_string(int sprite_item, int item, bool held, int shop_pstr = 0);
+void q30_set_shop_string(int shop, int slot, int str);     // readers; shop -1 clears
+int q30_shop_string(int shop, int slot);    // 0 for 2.53 quests
+void q30_item_pickup_secrets(int pickup);   // checkitems: ipSECRETS triggers the screen's secrets
+int q30_item_secret_flag();                 // Q30_IP_SECRETS for a screen item when the screen says so
+bool q30_item_returns();                    // the screen's item comes back though taken (fITEMRETURN)
+bool q30_below_returns(int tmp = 0);        // its special item does too (fBELOWRETURN), tmpscr[tmp]
 void q30_trig_push();                       // Link is pushing: fires push triggers
 bool q30_active();                          // true for 2.55+ quests
 // dosubscr, while the active subscreen is open (q30_scripts_subscr.h): L and R don't move the
@@ -396,6 +428,7 @@ void q30_lift_reset();
 void q30_drop_lift();
 void q30_lift_on_hit();
 void q30_do_liftglove(int liftid, bool passive);
+void q30_passive_buttons();                 // LinkClass::animate, before the item buttons
 int q30_startwpn(int itemid);               // -1: not handled, 2: the bug net, else startwpn's return
 void q30_thrown_frame(weapon *w);
 void q30_draw_lift(BITMAP *dest);

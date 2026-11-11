@@ -33,6 +33,11 @@
 #include "ffasm.h"
 #include "defdata.h"
 #include "zc_malloc.h"
+#ifdef ZC_ZQEDITOR
+#include "port/zqeditor/zq_q255.h"  // zq_tile_limit(): 252 pages for 2.53 and older quests
+#else
+static int zq_tile_limit() { return NEWMAXTILES; }
+#endif
 
 extern int ex;
 extern void reset_itembuf(itemdata *item, int id);
@@ -1507,7 +1512,7 @@ void edit_itemdata(int index)
         test.frames = zc_min(atoi(frm),255);
         test.speed  = zc_min(atoi(spd),255);
         test.delay  = zc_min(atoi(dly),255);
-        test.ltm    = zc_max(zc_min(atol(ltm),NEWMAXTILES-1),0-(NEWMAXTILES-1));
+        test.ltm    = zc_max(zc_min(atol(ltm),zq_tile_limit()-1),0-(zq_tile_limit()-1));
         test.wpn   = biw[itemdata_dlg[140].d1].i;
         test.wpn2  = biw[itemdata_dlg[142].d1].i;
         test.wpn3  = biw[itemdata_dlg[144].d1].i;

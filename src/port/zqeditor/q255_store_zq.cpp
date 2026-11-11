@@ -339,8 +339,21 @@ void q30_set_dmap_texts(int, const char *, long) {}     // the player's (titles 
 void q30_set_dmap_floor(int, int) {}                    // the player's (subscreen conditions)
 void q30_set_dmap_mirror(int, int) {}                   // the player's (the Magic Mirror)
 int q30_dmap_mirror(int) { return -1; }                 // (for the player's usage dump)
+void q30_item_pickup_info(int, long *pickup, int *mode, int *pstring, int *psflags)   // (the same)
+{
+    *pickup = 0;
+    *mode = *pstring = *psflags = 0;
+}
+int q30_shop_string(int, int) { return 0; }             // (the same)
 void q30_set_bunny_ltm(long) {}                         // the player's (the bunny form)
 void q30_set_item_bunny(int, bool) {}                   // the player's (the bunny form)
+void q30_set_item_pickup(int, long, int, int, int) {}  // the player's (item pickup flags and strings)
+void q30_set_shop_string(int, int, int) {}              // the player's (shop item strings)
+void q30_set_item_flags32(int, dword) {}                // the player's (item flags past 16 bits)
+void q30_set_item_cost(int, int, int, int, int) {}      // the player's (both item costs)
+void q30_sub_trans(int, int, const Q30SubTrans &) {}    // the player's (page change animations)
+dword q30_item_flags(int) { return 0; }                 // (for the player's usage dump)
+bool q30_quest_rule(int) { return false; }              // (the same)
 
 void q30_clear_generic_init() { zq255.generic_init.clear(); }
 

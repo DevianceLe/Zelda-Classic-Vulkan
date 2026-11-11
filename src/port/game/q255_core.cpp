@@ -17,6 +17,11 @@ extern guydata *guysbuf;
 int q30_combo_type(int id);
 long q30_item_family(int item);
 void q30_slope_audit();
+void q30_item_pickup_info(int item, long *pickup, int *mode, int *pstring, int *psflags);
+int q30_shop_string(int shop, int slot);
+dword q30_item_flags(int item);
+bool q30_quest_rule(int id);
+extern char *item_string[];
 extern MsgStr *MsgStrings;
 extern word msg_count;
 extern byte quest_rules[QUESTRULES_SIZE];
@@ -542,6 +547,124 @@ void dump_loaded_data()
                 al_trace("use dmapflag mirrorcontinue %d\n", i);
             if(q30_dmap_mirror(i) >= 0)
                 al_trace("use dmapmirror %d -> %d\n", i, q30_dmap_mirror(i));
+        }
+
+        // item pickups: screens whose item waits for the secrets (flags8 0x40), triggers them
+        // (0x80), permanently (flags9 0x01), comes back (0x02) or whose special item always
+        // returns (0x04); items with a pickup string, their own pickup flags, or ipSECRETS;
+        // shops with item strings
+        {
+            int f840 = 0, f880 = 0, f901 = 0, f902 = 0, f904 = 0;
+
+            for(size_t n = 0; n < TheMaps.size(); ++n)
+            {
+                const mapscr &m = TheMaps[n];
+
+                if(!(m.valid & mVALID))
+                    continue;
+
+                f840 += (m.flags8 & 0x40) != 0;
+                f880 += (m.flags8 & 0x80) != 0;
+                f901 += (m.flags9 & 0x01) != 0;
+                f902 += (m.flags9 & 0x02) != 0;
+                f904 += (m.flags9 & 0x04) != 0;
+            }
+
+            int pstr = 0, mode = 0, secrets = 0, shopstr = 0;
+
+            for(int i = 0; i < MAXITEMS; ++i)
+            {
+                long pickup;
+                int md, ps, psf;
+                q30_item_pickup_info(i, &pickup, &md, &ps, &psf);
+                pstr += ps > 0;
+                mode += md != 0 && pickup != 0;
+
+                if(ps > 0 || (md != 0 && pickup != 0))
+                    al_trace("use pickupitem %d family %ld string %d flags %d pickup 0x%lx mode %d\n", i, q30_item_family(i), ps, psf, (unsigned long)pickup, md);
+                secrets += md != 0 && md != 3 && (pickup & 4096) != 0;
+            }
+
+            for(int s = 0; s < 256; ++s)
+                for(int j = 0; j < 3; ++j)
+                    shopstr += q30_shop_string(s, j) > 0;
+
+            al_trace("use pickups: secretitem %d itemsecret %d itemsecretperm %d itemreturn %d belowreturn %d | items: pstring %d pickupflags %d secrets %d | shop strings %d\n",
+                     f840, f880, f901, f902, f904, pstr, mode, secrets, shopstr);
+        }
+
+        // behaviours that moved from a quest rule to an item flag (upstream's readitems): items
+        // whose flag disagrees with the rule this engine reads
+        {
+            struct FlagRule { const char *name; int fam[4]; dword bit; int rule; bool invert; };
+            static const FlagRule pairs[] =
+            {
+                { "nodiving",      { itype_flippers, -1, -1, -1 },                          0x10,    90, false },
+                { "quicksword",    { itype_sword, itype_wand, -1, -1 },                     0x1000,  65, false },
+                { "fireproof",     { itype_book, itype_candle, -1, -1 },                    0x400,   33, false },
+                { "brangpickup",   { itype_brang, itype_hookshot, itype_arrow, -1 },        0x800,  107, false },
+                { "z3brang",       { itype_brang, itype_hookshot, -1, -1 },                 0x1000,  61, false },
+                { "z3arrow",       { itype_arrow, -1, -1, -1 },                             0x20,    61, true },
+                { "potionbubble",  { itype_potion, -1, -1, -1 },                            0x400,   52, true },
+                { "itembubble",    { itype_potion, -1, -1, -1 },                            0x800,  132, false },
+                { "tribubble",     { itype_triforcepiece, -1, -1, -1 },                     0x400,   54, false },
+                { "slashflip",     { itype_candle, itype_sword, itype_wand, itype_cbyrna }, 0x8000, 112, false },
+                { "noitemmelee",   { itype_sword, itype_wand, itype_hammer, -1 },           0x4000,  62, false },
+                { "swordmirror",   { itype_sword, -1, -1, -1 },                             0x10000, 117, false },
+                { "slowcharge",    { itype_sword, -1, -1, -1 },                             0x20000, 114, false },
+                { "nowandmelee",   { itype_wand, -1, -1, -1 },                              0x400,  115, false },
+                { "whirlmirror",   { itype_whistle, -1, -1, -1 },                           0x400,   30, false },
+                { "raftlens",      { itype_lens, -1, -1, -1 },                              0x800,   28, false },
+                { "lenshints",     { itype_lens, -1, -1, -1 },                              0x10,    22, false },
+                { "lensenemies",   { itype_lens, -1, -1, -1 },                              0x1000, 119, false },
+            };
+            char line[1024];
+            line[0] = 0;
+
+            for(size_t p = 0; p < sizeof(pairs) / sizeof(pairs[0]); ++p)
+            {
+                int items_of = 0, differ = 0;
+
+                for(int i = 0; i < MAXITEMS; ++i)
+                {
+                    const long fam = q30_item_family(i);
+                    bool in = false;
+
+                    for(int k = 0; k < 4; ++k)
+                        in = in || (pairs[p].fam[k] >= 0 && fam == pairs[p].fam[k]);
+
+                    if(!in || !item_string[i][0])
+                        continue;
+
+                    ++items_of;
+                    const bool flag = (q30_item_flags(i) & pairs[p].bit) != 0;
+                    differ += flag != (q30_quest_rule(pairs[p].rule) != pairs[p].invert);
+                }
+
+                sprintf(line + strlen(line), " %s %d/%d", pairs[p].name, differ, items_of);
+            }
+
+            al_trace("use flagrules:%s\n", line);
+        }
+
+        {
+            // item classes 2.53 has no number for, and how many items of each the quest has
+            std::map<long, int> fams;
+
+            for(int i = 0; i < MAXITEMS; ++i)
+                if(q30_item_family(i) >= itype_max && item_string[i][0])
+                    ++fams[q30_item_family(i)];
+
+            std::string s;
+            char buf[32];
+
+            for(std::map<long, int>::iterator it = fams.begin(); it != fams.end(); ++it)
+            {
+                sprintf(buf, " %ld:%d", it->first, it->second);
+                s += buf;
+            }
+
+            al_trace("use newfamilies:%s\n", s.c_str());
         }
 
         for(int i = 0; i < MAXITEMS; ++i)   // the Moon Pearl, bug net and Magic Mirror items

@@ -361,26 +361,38 @@ static void make_combos_rect(int top, int left, int numRows, int numCols, int cs
 
 int d_combo_proc(int msg,DIALOG *d,int c);
 
+// Copies a tile into another buffer's slot. The slot keeps its memory when the size is the
+// same: go_tiles copies every tile, 214,500 of them in the port's ZQuest, each time the tile
+// picker opens, and freeing and allocating them all again each time only churned the heap.
+static void copy_tile_slot(tiledata *dst, int i, const tiledata *src, const char *what)
+{
+    int size = tilesize(src[i].format);
+
+    if(dst[i].data == NULL || tilesize(dst[i].format) != size)
+    {
+        if(dst[i].data != NULL)
+        {
+            zc_free(dst[i].data);
+        }
+
+        dst[i].data = (byte *)zc_malloc(size);
+
+        if(dst[i].data == NULL)
+        {
+            Z_error("Unable to initialize %s #%ld.\n", what, (long)i);
+            exit(1);
+        }
+    }
+
+    dst[i].format = src[i].format;
+    memcpy(dst[i].data, src[i].data, size);
+}
+
 void go_tiles()
 {
     for(dword i=0; i<NEWMAXTILES; ++i)
     {
-        newundotilebuf[i].format=newtilebuf[i].format;
-        
-        if(newundotilebuf[i].data!=NULL)
-        {
-            zc_free(newundotilebuf[i].data);
-        }
-        
-        newundotilebuf[i].data=(byte *)zc_malloc(tilesize(newundotilebuf[i].format));
-        
-        if(newundotilebuf[i].data==NULL)
-        {
-            Z_error("Unable to initialize undo tile #%ld.\n", i);
-            exit(1);
-        }
-        
-        memcpy(newundotilebuf[i].data,newtilebuf[i].data,tilesize(newundotilebuf[i].format));
+        copy_tile_slot(newundotilebuf, i, newtilebuf, "undo tile");
     }
     
     /*
@@ -422,22 +434,7 @@ void comeback_tiles()
 {
     for(dword i=0; i<NEWMAXTILES; ++i)
     {
-        newtilebuf[i].format=newundotilebuf[i].format;
-        
-        if(newtilebuf[i].data!=NULL)
-        {
-            zc_free(newtilebuf[i].data);
-        }
-        
-        newtilebuf[i].data=(byte *)zc_malloc(tilesize(newtilebuf[i].format));
-        
-        if(newtilebuf[i].data==NULL)
-        {
-            Z_error("Unable to initialize tile #%ld.\n", i);
-            exit(1);
-        }
-        
-        memcpy(newtilebuf[i].data,newundotilebuf[i].data,tilesize(newtilebuf[i].format));
+        copy_tile_slot(newtilebuf, i, newundotilebuf, "tile");
     }
     
     /*

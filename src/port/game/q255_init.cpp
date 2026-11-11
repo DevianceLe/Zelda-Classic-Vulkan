@@ -1274,14 +1274,33 @@ static int sub_item(long item)
 }
 
 // SubscrTransition::read
+static void read_sub_transition(Q255Section &s, Q30SubTrans *t)
+{
+    Q30SubTrans tr;
+    memset(&tr, 0, sizeof(tr));
+    tr.type = s.getc();
+    tr.sfx = s.version < 17 ? s.getc() : s.igetw();
+    tr.flags = s.igetw();
+    byte args = s.getc();
+
+    for(int q = 0; q < args && !s.failed; ++q)
+    {
+        if(q < 4)
+            tr.arg[q] = s.igetl_s();
+        else
+            walk_items(s, 1, 4);
+    }
+
+    if(t)
+        *t = tr;
+}
+
 static void skip_sub_transition(Q255Section &s)
 {
-    s.skip(1);                          // type
-    s.skip(s.version < 17 ? 1 : 2);     // sfx
-    s.skip(2);                          // flags
-    byte args = s.getc();
-    walk_items(s, args, 4);
+    read_sub_transition(s, NULL);
 }
+
+static Q30SubTrans g_sub_widget_trans;     // the widget being read's page button transition
 
 // SubscrSelectorInfo::read
 static void skip_selector_info(Q255Section &s)
@@ -1352,7 +1371,7 @@ static void read_widget_base(Q255Section &s, SubWidget255 &b)
         {
             b.pg_btns = s.getc();
             b.pg_targ = s.getc();
-            skip_sub_transition(s);
+            read_sub_transition(s, &g_sub_widget_trans);
         }
     }
 
@@ -1934,8 +1953,13 @@ static void read_sub_page(Q255Section &s, subscreen_group *dest, bool first)
 #endif
 
         if(s.keep && !s.failed)
+        {
             q30_sub_widget(g_sub_list, ty, g_sub_label.c_str(), obj, b.posflags, b.x, b.y, b.w, b.h,
                            b.pos, b.genflags, b.flags, b.pg_mode, b.pg_btns, b.pg_targ);
+
+            if(b.pg_mode)
+                q30_sub_trans(g_sub_list, 1, g_sub_widget_trans);
+        }
 
         if(s.keep && !s.failed && stored > before && q30_sub_cond_used(g_sub_cond))
             q30_sub_widget_cond(g_sub_list, before, stored, g_sub_cond);
@@ -1960,9 +1984,14 @@ static void read_sub_page(Q255Section &s, subscreen_group *dest, bool first)
         for(int i = 0; i < transitions && !s.failed; ++i)
         {
             byte btns = s.getc(), mode = s.getc(), targ = s.getc(), flags = s.getc();
+            Q30SubTrans tr;
+            read_sub_transition(s, &tr);
+
             if(s.keep && !s.failed)
+            {
                 q30_sub_page_trans(g_sub_list, btns, mode, targ, flags);
-            skip_sub_transition(s);
+                q30_sub_trans(g_sub_list, 0, tr);
+            }
         }
     }
 }
@@ -1981,6 +2010,8 @@ static void read_new_subscreen(Q255Section &s, int slot, byte ss_type)
     byte file_type = s.getc();
     dword flags = s.igetl();
     byte btn_left = 0, btn_right = 0;
+    Q30SubTrans trans_lr[2];
+    memset(trans_lr, 0, sizeof(trans_lr));
 
     if(file_type == 0 || file_type == 3)   // active and map subscreens
     {
@@ -1990,8 +2021,8 @@ static void read_new_subscreen(Q255Section &s, int slot, byte ss_type)
         s.skip(4 * 2);      // default buttons
         btn_left = s.getc();    // page buttons
         btn_right = s.getc();
-        skip_sub_transition(s);
-        skip_sub_transition(s);
+        read_sub_transition(s, &trans_lr[0]);
+        read_sub_transition(s, &trans_lr[1]);
 
         if(s.version >= 21)
             skip_script_config(s);
@@ -2010,6 +2041,8 @@ static void read_new_subscreen(Q255Section &s, int slot, byte ss_type)
     {
         q30_sub_begin(ss_type, (s.keep && slot >= 0 && slot < MAXCUSTOMSUBSCREENS) ? slot : -1, name.c_str());
         q30_sub_settings(ss_type, flags, btn_left, btn_right);
+        q30_sub_trans(ss_type, 2, trans_lr[0]);
+        q30_sub_trans(ss_type, 3, trans_lr[1]);
     }
 
     if(s.keep && slot >= 0 && slot < MAXCUSTOMSUBSCREENS && !s.failed)

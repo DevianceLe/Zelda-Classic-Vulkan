@@ -83,6 +83,18 @@ void q30_sub_settings(int list, dword flags, int btn_left, int btn_right);
 void q30_sub_page_trans(int list, int btns, int mode, int targ, int flags);
 void q30_sub_page_objects(int list, const subscreen_object *objs, int count);
 
+// The animation of a page change (upstream SubscrTransition): type 0 instant, 1 slide
+// (arg 0 direction, arg 1 speed in 1/10000 pixels), 2 pixellate (arg 0 bit 1 invert, arg 1
+// frames, args 2-3 pattern offsets); a sound for any type.
+struct Q30SubTrans
+{
+    int type, sfx, flags;
+    long arg[4];
+};
+// which: 0 the page transition just added, 1 the widget just added (its page button), 2 the
+// subscreen's left page button, 3 its right one
+void q30_sub_trans(int list, int which, const Q30SubTrans &t);
+
 // A widget's display conditions (upstream SubscrWidget req_*, 3.0's subscreen sections 14 and
 // up): it is drawn, and the cursor stops on it, only while they hold (SubscrWidget::check_conditions).
 struct Q30SubCond

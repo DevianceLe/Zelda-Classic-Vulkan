@@ -35,13 +35,15 @@ struct Z30SubWidget
     int posflags, x, y, w, h, pos;
     dword genflags, flags;
     int pg_mode, pg_btns, pg_targ;  // its page change while selected (upstream SubscrWidget pg_*)
+    Q30SubTrans pg_tr;              // and that change's animation
     std::string seltext;            // its selected text override
 };
 
-// A page's button transition (upstream SubscrPageTransition; the animation isn't kept).
+// A page's button transition (upstream SubscrPageTransition), with its animation.
 struct Z30PageTrans
 {
     int btns, mode, targ, flags;
+    Q30SubTrans tr;
 };
 
 struct Z30SubPage
@@ -66,6 +68,7 @@ struct Z30Subscreen
     std::string name;
     std::vector<Z30SubPage> pages;
     int btn_left, btn_right;    // page buttons (INT_BTN_* bits)
+    Q30SubTrans tr_left, tr_right;  // their animations
     dword flags;                // upstream's SUBFLAG_ (0x1: no page wrap)
     int curpage;                // the page in custom_subscreen[slot]
 };
@@ -126,9 +129,39 @@ void q30_sub_begin(int list, int slot, const char *name)
     s.slot = slot;
     s.name = name ? name : "";
     s.btn_left = s.btn_right = 0;
+    memset(&s.tr_left, 0, sizeof(s.tr_left));
+    memset(&s.tr_right, 0, sizeof(s.tr_right));
     s.flags = 0;
     s.curpage = 0;
     zasm30_subs[list].push_back(s);
+}
+
+void q30_sub_trans(int list, int which, const Q30SubTrans &t)
+{
+    if(list < 0 || list >= 4 || zasm30_subs[list].empty())
+        return;
+
+    Z30Subscreen &s = zasm30_subs[list].back();
+
+    switch(which)
+    {
+    case 0:
+        if(!s.pages.empty() && !s.pages.back().trans.empty())
+            s.pages.back().trans.back().tr = t;
+        break;
+
+    case 1:
+        if(!s.pages.empty() && !s.pages.back().widgets.empty())
+            s.pages.back().widgets.back().pg_tr = t;
+        break;
+
+    case 2: s.tr_left = t; break;
+    case 3: s.tr_right = t; break;
+    }
+
+    if((t.type || t.sfx) && getenv("ZC_Q30_SUBLOG"))   // diagnostics only
+        al_trace("q30 subscreen transition: list %d sub %d which %d type %d sfx %d args %ld %ld %ld %ld\n", list,
+                 (int)zasm30_subs[list].size() - 1, which, t.type, t.sfx, t.arg[0], t.arg[1], t.arg[2], t.arg[3]);
 }
 
 void q30_sub_settings(int list, dword flags, int btn_left, int btn_right)
@@ -218,6 +251,7 @@ void q30_sub_page_trans(int list, int btns, int mode, int targ, int flags)
     t.mode = mode;
     t.targ = targ;
     t.flags = flags;
+    memset(&t.tr, 0, sizeof(t.tr));
     zasm30_subs[list].back().pages.back().trans.push_back(t);
 
     if(getenv("ZC_Q30_SUBLOG"))     // diagnostics only
@@ -262,6 +296,7 @@ void q30_sub_widget(int list, int type, const char *label, int obj, int posflags
     wd.pg_mode = pg_mode;
     wd.pg_btns = pg_btns;
     wd.pg_targ = pg_targ;
+    memset(&wd.pg_tr, 0, sizeof(wd.pg_tr));
     zasm30_subs[list].back().pages.back().widgets.push_back(wd);
 
     if(pg_mode && getenv("ZC_Q30_SUBLOG"))     // diagnostics only
@@ -381,12 +416,24 @@ static bool z30_sub_has_text(int sso)
 bool q30_get_exstate(int mi, int bit);      // q30_triggers.cpp
 dword q30_level_switches(int level);
 
+extern int Awpn, Bwpn, Xwpn, Ywpn;          // link.cpp: the items on the buttons
+
 // upstream's get_ssc_ctr / get_ssc_ctrmax, for the counters 2.53 has (crNONE -1; the negative
-// ones are its sscBTNCTR*, key and max life/magic counters; a button's cost counter reads 0)
+// ones are its sscBTNCTR*, key and max life/magic counters)
 static double z30_cond_counter(int ctr, bool max)
 {
     enum { GENKEYMAGIC = -9, GENKEYNOMAGIC, LEVKEYMAGIC, LEVKEYNOMAGIC, ANYKEYMAGIC, ANYKEYNOMAGIC, MAXHP, MAXMP };
     enum { crMONEY = 1, crBOMBS = 2, crARROWS = 3, crSBOMBS = 6, COUNTERS = 32 };   // 2.53's counter numbers
+
+    // upstream's simplify_counter: sscBTNCTRA_1..Y_1 (-17..-14) and A_0..Y_0 (-13..-10) are
+    // the counter the item on A, B, X or Y spends (its second or first cost), if it costs any
+    if(ctr >= -17 && ctr <= -10)
+    {
+        const int btn = (ctr + 17) % 4;
+        const int wpn = (btn == 0 ? Awpn : btn == 1 ? Bwpn : btn == 2 ? Xwpn : Ywpn) & 0xFFF;
+        const int c = (game && game->get_item(wpn)) ? q30_item_cost_counter(wpn, ctr <= -14 ? 1 : 0) : -1;
+        return c < 0 ? 0 : z30_cond_counter(c, max);
+    }
 
     if(ctr == -1 || ctr <= -10 || ctr >= COUNTERS)
         return 0;
@@ -681,10 +728,124 @@ static Z30Subscreen *z30_shown_active()
     return NULL;
 }
 
-// mode: upstream's PGGOTO_NEXT 1, PREV 2, TRG 3 (CURRENT 4 changes nothing). The page shown goes
-// back to its kept copy (with its cursor), the new one into custom_subscreen[].
-static bool z30_page_change(Z30Subscreen &s, int mode, int targ, bool nowrap, int &pos)
+// ---- page change animations (upstream subscrpg_animate / SubscrTransition::draw) -------------
+// Both pages are drawn once, as the change happens, and the frames between them are made from
+// those two pictures: a slide, or a pixellation by upstream's static dither pattern.
+
+static struct Z30PageAnim
 {
+    bool on;
+    int clk;
+    Q30SubTrans tr;
+    BITMAP *from, *to, *work;
+} g_pg_anim = { false, 0, { 0, 0, 0, { 0, 0, 0, 0 } }, NULL, NULL, NULL };
+
+enum { Z30_SUB_W = 256, Z30_SUB_H = 176 };
+
+// as the open subscreen draws (dosubscr: put_active_subscr with sspDOWN; the cursor is Bpos)
+static void z30_sub_draw_page(BITMAP *dest)
+{
+    clear_bitmap(dest);
+    const bool showtime = game->get_timevalid() && !game->get_cheat() && get_bit(quest_rules, qr_TIME);
+    show_custom_subscreen(dest, &QMisc, current_subscreen_active, 0, 0, showtime, sspDOWN);
+}
+
+static bool z30_anim_dither(int x, int y, double perc)     // upstream dither_staticcheck
+{
+    const double s = sin((double)(x * double(x) + y * double(y)));
+    const double c = cos(double(x) * y);
+    return fabs(s - c) < perc * 2.0;
+}
+
+// While a page change animates, draws its frame in place of the active subscreen (put_active_subscr);
+// false once it's over, or when none is under way.
+bool q30_subscreen_anim_draw(BITMAP *dest, int dx, int dy)
+{
+    Z30PageAnim &a = g_pg_anim;
+
+    if(!a.on || !a.from || !a.to || !a.work)
+        return false;
+
+    clear_bitmap(a.work);
+    bool done = false;
+
+    if(a.tr.type == 1)     // slide: the old page goes out one way, the new one follows
+    {
+        static const int normal_dir[16] = { up, down, left, right, l_up, r_up, l_down, r_down,
+                                            up, r_up, right, r_down, down, l_down, left, l_up };
+        const int dir = (a.tr.arg[0] >= 0 && a.tr.arg[0] < 16) ? normal_dir[a.tr.arg[0]] : -1;
+        const int diff = int(a.clk * (a.tr.arg[1] / 10000.0));
+        int x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+
+        switch(dir)
+        {
+        case up:    done = diff >= Z30_SUB_H; y1 = -diff; y2 = Z30_SUB_H - diff; break;
+        case down:  done = diff >= Z30_SUB_H; y1 = diff; y2 = diff - Z30_SUB_H; break;
+        case left:  done = diff >= Z30_SUB_W; x1 = -diff; x2 = Z30_SUB_W - diff; break;
+        case right: done = diff >= Z30_SUB_W; x1 = diff; x2 = diff - Z30_SUB_W; break;
+        default:    done = true; break;
+        }
+
+        if(!done)
+        {
+            blit(a.from, a.work, 0, 0, x1, y1, Z30_SUB_W, Z30_SUB_H);
+            blit(a.to, a.work, 0, 0, x2, y2, Z30_SUB_W, Z30_SUB_H);
+        }
+    }
+    else if(a.tr.type == 2)    // pixellate from one page to the other
+    {
+        const int dur = a.tr.arg[1];
+        done = a.clk > dur;
+
+        if(!done)
+        {
+            double perc = a.clk / double(dur + 1), iperc = 1.0 - perc;
+            const bool inv = (a.tr.arg[0] & 1) != 0;
+            const int ox = a.tr.arg[2], oy = a.tr.arg[3];
+
+            if(inv)
+            {
+                const double t = perc;
+                perc = iperc;
+                iperc = t;
+            }
+
+            for(int y = 0; y < Z30_SUB_H; ++y)
+                for(int x = 0; x < Z30_SUB_W; ++x)
+                {
+                    if(!z30_anim_dither(x + ox, y + oy, iperc) != !inv)
+                        a.work->line[y][x] = a.from->line[y][x];
+                    if(!z30_anim_dither(x + ox, y + oy, perc) != !inv)
+                        a.work->line[y][x] = a.to->line[y][x];
+                }
+        }
+    }
+    else
+        done = true;
+
+    if(done)
+    {
+        a.on = false;
+        return false;
+    }
+
+    blit(a.work, dest, 0, 0, dx, dy, Z30_SUB_W, Z30_SUB_H);
+    ++a.clk;
+    return true;
+}
+
+bool q30_subscreen_animating()
+{
+    return g_pg_anim.on;
+}
+
+// mode: upstream's PGGOTO_NEXT 1, PREV 2, TRG 3 (CURRENT 4 changes nothing). The page shown goes
+// back to its kept copy (with its cursor), the new one into custom_subscreen[]. tr: the change's
+// animation and sound (none for a script's or the reopening's change).
+static bool z30_page_change(Z30Subscreen &s, int mode, int targ, bool nowrap, int &pos, const Q30SubTrans *tr = NULL)
+{
+    if(tr && g_pg_anim.on)
+        return false;       // upstream: no change while one animates
     const int n = (int)s.pages.size();
     int pg = s.curpage;
 
@@ -716,12 +877,46 @@ static bool z30_page_change(Z30Subscreen &s, int mode, int targ, bool nowrap, in
     if(pg == s.curpage || s.slot < 0 || !s.pages[pg].stored)
         return false;
 
+    const bool animate = tr && (tr->type == 1 || tr->type == 2) && &custom_subscreen[s.slot] == current_subscreen_active;
+
+    if(tr && tr->sfx)
+        sfx(tr->sfx);
+
+    if(animate)
+    {
+        if(!g_pg_anim.from)
+        {
+            g_pg_anim.from = create_bitmap_ex(8, Z30_SUB_W, Z30_SUB_H);
+            g_pg_anim.to = create_bitmap_ex(8, Z30_SUB_W, Z30_SUB_H);
+            g_pg_anim.work = create_bitmap_ex(8, Z30_SUB_W, Z30_SUB_H);
+        }
+
+        z30_sub_draw_page(g_pg_anim.from);
+    }
+
     subscreen_object *objs = custom_subscreen[s.slot].objects;
     s.pages[s.curpage].cursor_pos = pos;
     z30_store_objects(s.pages[s.curpage], objs, MAXSUBSCREENITEMS);
     z30_load_objects(s.pages[pg], objs);
     s.curpage = pg;
     pos = s.pages[pg].cursor_pos;
+
+    if(animate && g_pg_anim.from)
+    {
+        z30_sub_draw_page(g_pg_anim.to);    // (pos is Bpos itself here: the dosubscr loop's)
+        g_pg_anim.tr = *tr;
+        g_pg_anim.clk = 0;
+        g_pg_anim.on = true;
+
+        if(const char *dump = getenv("ZC_SUBANIM_DUMP"))    // test runs: the two pages' pictures
+        {
+            PALETTE pal;
+            get_palette(pal);
+            std::string base(dump);
+            save_bmp((base + "_from.bmp").c_str(), g_pg_anim.from, pal);
+            save_bmp((base + "_to.bmp").c_str(), g_pg_anim.to, pal);
+        }
+    }
 
     if(getenv("ZC_Q30_SUBLOG"))
         al_trace("q30 subscreen: page %d of %d, cursor %d\n", pg, n, pos);
@@ -754,7 +949,7 @@ void q30_subscreen_pages(int btns, int &pos)
 
         if(w.pos == pos && w.pg_mode && (btns & w.pg_btns))
         {
-            z30_page_change(*s, w.pg_mode, w.pg_targ, (w.genflags & 0x2) != 0, pos);   // SUBSCRFLAG_PGGOTO_NOWRAP
+            z30_page_change(*s, w.pg_mode, w.pg_targ, (w.genflags & 0x2) != 0, pos, &w.pg_tr);  // SUBSCRFLAG_PGGOTO_NOWRAP
             break;
         }
     }
@@ -769,7 +964,7 @@ void q30_subscreen_pages(int btns, int &pos)
         if(t.mode && (btns & t.btns))
         {
             btns &= ~t.btns;
-            z30_page_change(*s, t.mode, t.targ, (t.flags & 0x1) != 0, pos);         // SUBSCR_PAGE_TRANSITION_NOWRAP
+            z30_page_change(*s, t.mode, t.targ, (t.flags & 0x1) != 0, pos, &t.tr);  // SUBSCR_PAGE_TRANSITION_NOWRAP
         }
     }
 
@@ -777,9 +972,9 @@ void q30_subscreen_pages(int btns, int &pos)
         return;
 
     if(btns & s->btn_right)
-        z30_page_change(*s, 1, 0, (s->flags & 0x1) != 0, pos);                      // SUBFLAG_ACT_NOPAGEWRAP
+        z30_page_change(*s, 1, 0, (s->flags & 0x1) != 0, pos, &s->tr_right);       // SUBFLAG_ACT_NOPAGEWRAP
     else if(btns & s->btn_left)
-        z30_page_change(*s, 2, 0, (s->flags & 0x1) != 0, pos);
+        z30_page_change(*s, 2, 0, (s->flags & 0x1) != 0, pos, &s->tr_left);
 }
 
 // Upstream keeps each page's cursor while the subscreen is closed (and only goes back to the
@@ -788,6 +983,8 @@ void q30_subscreen_cursor(bool open, int &pos)
 {
     if(!q30_active())
         return;
+
+    g_pg_anim.on = false;   // a page change animating as the subscreen opens or closes is over
 
     Z30Subscreen *s = z30_shown_active();
 

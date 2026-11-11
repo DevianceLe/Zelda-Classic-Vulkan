@@ -20,6 +20,7 @@
 #include "colors.h"
 #include "zcport/pack_record.h"
 #include "zq_sections.h"
+#include "zq_tile_refs.h"
 
 extern void (*qst_section_hook)(PACKFILE *f, dword id, bool start);
 
@@ -535,6 +536,18 @@ int fingerprint(dword id, uint64_t *out)
         ok = zq_write_253_section(f, id);
 
     pack_fclose(f);
+
+    // The 2.53 writers keep 16 bits of most tile numbers, and a newer quest's go past 65,535:
+    // without these, a tile number changed by a multiple of 65,536 would look unchanged and the
+    // save would copy the old part over the edit. (Nothing is added for a 2.53 quest.)
+    if(id == ID_MISC && misc_holds_colors())
+    {
+        zq_hash_wide_tile_refs(ID_COLORS, &sink.h);
+        zq_hash_wide_tile_refs(ID_ICONS, &sink.h);
+    }
+    else if(id != ID_MISC)
+        zq_hash_wide_tile_refs(id, &sink.h);     // id 0, a pre-1.93 body: every section's
+
     *out = sink.h;
     return ok ? FP_OK : FP_FAILED;
 }
@@ -626,6 +639,7 @@ void zq_absent_changed(std::vector<std::string> &names)
 
 void zq_sections_note_loaded()
 {
+    zq_tile_refs_note_loaded();     // the tile numbers past 65,519 the file has (zq_tile_refs.h)
     zq_writers_note_loaded();
 
     for(size_t i = 0; i < zq_quest_file.parts.size(); ++i)

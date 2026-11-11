@@ -59,6 +59,7 @@ extern "C" void zqeditor_register_image_loaders(void); // src/port/zqeditor
 #ifdef ZC_ZQEDITOR
 #include "port/zqeditor/zq_q255.h"
 #include "port/zqeditor/zq_writers.h"
+#include "port/zqeditor/zq_tile_refs.h"
 #endif
 
 // the following are used by both zelda.cc and zquest.cc
@@ -23387,6 +23388,49 @@ int main(int argc,char **argv)
             exit(ret == 0 ? 0 : 3);
         }
 
+        // -qst-tile-check in.qst report.txt: the file's TILE section, read on its own, against
+        // ZQuest's tile buffer, the tiles past 65,519 above all (port/zqeditor/zq_tests.cpp)
+        int tilecheck_arg = used_switch(argc,argv,"-qst-tile-check");
+
+        if(tilecheck_arg && argc>tilecheck_arg+2)
+        {
+            extern bool skip_quest_password;
+            extern bool zq_batch_load;
+            extern int zq_tile_check(const char *report);
+            skip_quest_password = true;
+            zq_batch_load = true;
+            int ret = load_quest(argv[tilecheck_arg+1],true,true);
+
+            if(ret == qe_OK)
+                ret = zq_tile_check(argv[tilecheck_arg+2]);
+            else
+            {
+                FILE *out = fopen(argv[tilecheck_arg+2], "w");
+                if(out) { fprintf(out, "LOAD FAILED: %d\n", ret); fclose(out); }
+            }
+
+            exit(ret == 0 ? 0 : 3);
+        }
+
+        // -qst-tile-limit-test in.qst report.txt: tile numbers past 65,519 stop a 2.53-or-older
+        // save, and a newer quest's count as changes (port/zqeditor/zq_tests.cpp)
+        int tiletest_arg = used_switch(argc,argv,"-qst-tile-limit-test");
+
+        if(tiletest_arg && argc>tiletest_arg+2)
+        {
+            extern bool skip_quest_password;
+            extern bool zq_batch_load;
+            extern int zq_tile_limit_test(const char *filename, const char *report);
+            skip_quest_password = true;
+            zq_batch_load = true;
+            int ret = load_quest(argv[tiletest_arg+1],true,true);
+
+            if(ret == qe_OK)
+                ret = zq_tile_limit_test(argv[tiletest_arg+1],argv[tiletest_arg+2]);
+
+            exit(ret == 0 ? 0 : 3);
+        }
+
         // -qst-roundtrip-check in.qst report.txt: saves the quest in its own version with every
         // record encoded by the writers, reloads it, and compares the data (zq_writers.h)
         int roundtrip_arg = used_switch(argc,argv,"-qst-roundtrip-check");
@@ -24819,6 +24863,22 @@ void check_autosave()
                 comeback();
                 return;
             }
+
+#ifdef ZC_ZQEDITOR
+            // a timed save is a 2.53 file, which holds tiles up to 65,519 (zq_tile_refs.h)
+            {
+                std::string why;
+
+                if(!zq_tiles_fit_253(why))
+                {
+                    why += ".";
+                    jwin_alert("Auto Save","The timed save was skipped:",why.c_str(),"A 2.53 file holds tiles up to 65,519.","OK",NULL,13,27,lfont);
+                    time(&auto_save_time_start);
+                    comeback();
+                    return;
+                }
+            }
+#endif
             
             int ret = save_quest(last_timed_save, true);
             

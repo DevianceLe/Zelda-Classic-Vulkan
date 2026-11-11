@@ -1652,7 +1652,8 @@ bool weapon::animate(int)
             dead=0;
         }
         
-        if(get_bit(quest_rules,qr_SWORDMIRROR))
+        // 2.55/3.0: Link's sword beams reflect by their sword's flag 9 (enemy ones by the rule)
+        if((q30_active() && id!=ewSword && parentitem>-1) ? q30_item_flag(parentitem, Q30_ITEM_FLAG9) : get_bit(quest_rules,qr_SWORDMIRROR))
         {
             int checkx=0, checky=0;
             
@@ -1940,7 +1941,8 @@ bool weapon::animate(int)
         else if(get_bit(quest_rules,qr_MORESOUNDS))
             sfx(WAV_ZN1WHIRLWIND,pan(int(x)),true,false);
             
-        if(get_bit(quest_rules,qr_WHIRLWINDMIRROR))
+        // 2.55/3.0: by the whistle's flag 3 (the rule for wind with no item behind it)
+        if((q30_active() && parentitem>-1) ? q30_item_flag(parentitem, ITEM_FLAG3) : get_bit(quest_rules,qr_WHIRLWINDMIRROR))
             goto mirrors;
             
         break;

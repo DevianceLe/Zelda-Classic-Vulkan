@@ -46,6 +46,7 @@
 #ifdef ZC_ZQEDITOR
 #include "port/zqeditor/zq_q255.h"
 #include "port/zqeditor/zq_sections.h"
+#include "port/zqeditor/zq_tile_refs.h"
 #include "port/game/quest_version.h"
 #endif
 
@@ -5043,7 +5044,12 @@ bool load_tiles(const char *path, int starttile)
     
     if(section_id==ID_TILES)
     {
-        if(readtiles(f, newtilebuf, NULL, ZELDA_VERSION, VERSION_BUILD, starttile, NEWMAXTILES-starttile, false, true)==0)
+#ifdef ZC_ZQEDITOR
+        int limit = zq_tile_limit();    // a 2.53 or older quest keeps to its 252 pages
+#else
+        int limit = NEWMAXTILES;
+#endif
+        if(readtiles(f, newtilebuf, NULL, ZELDA_VERSION, VERSION_BUILD, starttile, limit-starttile, false, true)==0)
         {
             pack_fclose(f);
             return true;
@@ -10875,6 +10881,19 @@ int save_unencoded_quest(const char *filename, bool compressed)
     // quest as a 2.53 quest without everything 2.53 can't hold. Callers show why.
     if(zq255_quest_is_newer())
         return qe_invalid;
+
+    // 2.53 holds 252 pages of tiles, and these writers keep tile numbers in 16 bits: a tile
+    // past 65,519 would be cut short or lost (zq_tile_refs.h). The menu items check first and
+    // say why; this stops anything else (exports, -resave) from writing such a file.
+    {
+        std::string why;
+
+        if(!zq_tiles_fit_253(why))
+        {
+            al_trace("save_unencoded_quest: %s, and a 2.53 file holds tiles up to 65,519\n", why.c_str());
+            return qe_invalid;
+        }
+    }
 #endif
     reset_combo_animations();
     reset_combo_animations2();
@@ -11269,6 +11288,13 @@ int save_quest(const char *filename, bool timed_save)
     // Before the backups below rename the quest's file (see save_unencoded_quest).
     if(zq255_quest_is_newer())
         return qe_invalid;
+
+    {
+        std::string why;
+
+        if(!zq_tiles_fit_253(why))
+            return qe_invalid;
+    }
 #endif
     int retention=timed_save?AutoSaveRetention:AutoBackupRetention;
     bool compress=!(timed_save&&UncompressedAutoSaves);

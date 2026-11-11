@@ -2098,6 +2098,8 @@ bool has_item(int item_type, int it)                        //does Link possess 
 
 int q30_bunny_clock();              // q30_triggers.cpp: the 2.55/3.0 bunny form
 bool q30_bunny_allows(int itemid);
+bool q30_below_returns(int tmp = 0);    // q30_triggers.cpp: 2.55/3.0 fBELOWRETURN
+bool q30_lens_does(int what);           // q30_triggers.cpp: the lens's 2.55 flags, or the rules
 
 int current_item(int item_type, bool checkenabled)           //item currently being used
 {
@@ -2450,7 +2452,7 @@ int dmap_tile_mod()
 // Hints are drawn on a separate layer to combo reveals.
 void draw_lens_under(BITMAP *dest, bool layer)
 {
-    bool hints = (layer && get_bit(quest_rules,qr_LENSHINTS));
+    bool hints = (layer && q30_lens_does(0));   // (2.55/3.0: the lens's flags)
     
     int strike_hint_table[11]=
     {
@@ -3260,7 +3262,7 @@ void draw_lens_under(BITMAP *dest, bool layer)
                     
                 case mfARMOS_ITEM:
                 case mfDIVE_ITEM:
-                    if(!getmapflag())
+                    if(!getmapflag() || q30_below_returns())
                         //          putitem2(dest,x,y,tmpscr->catchall);
                         putitem2(dest,x,y,tmpscr->catchall, lens_hint_item[tmpscr->catchall][0], lens_hint_item[tmpscr->catchall][1], 0);
                         
@@ -3289,7 +3291,7 @@ void draw_lens_under(BITMAP *dest, bool layer)
                     break;
                     
                 default:
-                    if(layer && ((checkflag!=mfRAFT && checkflag!=mfRAFT_BRANCH&& checkflag!=mfRAFT_BOUNCE) || get_bit(quest_rules,qr_RAFTLENS)))
+                    if(layer && ((checkflag!=mfRAFT && checkflag!=mfRAFT_BRANCH&& checkflag!=mfRAFT_BOUNCE) || q30_lens_does(1)))
                     {
                         if((!(get_debug() && key[KEY_N]) && (lensclk&1)) || ((get_debug() && key[KEY_N]) && (frame&1)))
                         {

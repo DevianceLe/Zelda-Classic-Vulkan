@@ -1537,7 +1537,7 @@ void enemy::draw(BITMAP *dest)
     
     if((tmpscr->flags3&fINVISROOM) &&
             !(current_item(itype_amulet)) &&
-            !(get_bit(quest_rules,qr_LENSSEESENEMIES) &&
+            !(q30_lens_does(2) &&       // (2.55/3.0: the lens's flag 5)
               lensclk) && family!=eeGANON)
     {
         sprite::drawcloaked(dest);
@@ -4316,9 +4316,9 @@ void enemy::removearmos(int ax,int ay)
     
     if(f == mfARMOS_ITEM || f2 == mfARMOS_ITEM)
     {
-        if(!getmapflag())
+        if(!getmapflag() || q30_below_returns())
         {
-            additem(ax,ay,tmpscr->catchall, (ipONETIME2 + ipBIGRANGE) | ((tmpscr->flags3&fHOLDITEM) ? ipHOLDUP : 0));
+            additem(ax,ay,tmpscr->catchall, (ipONETIME2 + ipBIGRANGE) | ((tmpscr->flags3&fHOLDITEM) ? ipHOLDUP : 0) | q30_item_secret_flag());
             sfx(tmpscr->secretsfx);
         }
     }
@@ -8811,7 +8811,7 @@ eGanon::eGanon(fix X,fix Y,int Id,int Clk) : enemy(X,Y,Id,Clk)
     hzsz=16; //can't be jumped.
     clk2=70;
     misc=-1;
-    mainguy=!getmapflag();
+    mainguy=!getmapflag() || q30_below_returns();
 }
 
 bool eGanon::animate(int index)
@@ -12098,9 +12098,9 @@ void loadguys()
             addfires();
             
         if(currscr>=128)
-            if(getmapflag())
+            if(getmapflag() && !q30_below_returns())
                 Guy=0;
-                
+
         switch(tmpscr->room)
         {
         case rSP_ITEM:
@@ -12111,7 +12111,7 @@ void loadguys()
         case rMUPGRADE:
         case rLEARNSLASH:
         case rTAKEONE:
-            if(getmapflag())
+            if(getmapflag() && !q30_below_returns())
                 Guy=0;
 
             break;
@@ -12122,7 +12122,7 @@ void loadguys()
             // Before 2.11 these rooms only went away in caves (handled above); on other
             // screens Door Repair charged on every visit and the money or potion/heart
             // container guy came back.
-            if(getmapflag() && !(quest_header_zelda_version < 0x211 && currscr<128))
+            if(getmapflag() && !(quest_header_zelda_version < 0x211 && currscr<128) && !q30_below_returns())
                 Guy=0;
 
             break;
@@ -12182,10 +12182,12 @@ void loaditem()
     if(currscr<128)
     {
         Item=tmpscr->item;
-        
-        if(!getmapflag(mITEM) && (tmpscr->hasitem != 0))
+
+        if((!getmapflag(mITEM) || q30_item_returns()) && (tmpscr->hasitem != 0))
         {
-            if(tmpscr->flags&fITEM)
+            if(q30_active() && (tmpscr->flags8 & 0x40))     // 2.55/3.0 fSECRETITEM: appears with the secrets
+                hasitem=8;
+            else if(tmpscr->flags&fITEM)
                 hasitem=1;
             else if(tmpscr->enemyflags&efCARRYITEM)
                 hasitem=4; // Will be set to 2 by roaming_item
@@ -12194,12 +12196,12 @@ void loaditem()
                                    (tmpscr->flags7&fITEMFALLS && tmpscr->flags7&fSIDEVIEW) ? (fix)-170 : (fix)tmpscr->itemy+(get_bit(quest_rules, qr_NOITEMOFFSET)?0:1),
                                    (tmpscr->flags7&fITEMFALLS && !(tmpscr->flags7&fSIDEVIEW)) ? (fix)170 : (fix)0,
                                    Item,ipONETIME+ipBIGRANGE+((itemsbuf[Item].family==itype_triforcepiece ||
-                                           (tmpscr->flags3&fHOLDITEM)) ? ipHOLDUP : 0),0));
+                                           (tmpscr->flags3&fHOLDITEM)) ? ipHOLDUP : 0) | q30_item_secret_flag(),0));
         }
     }
     else if(!(DMaps[currdmap].flags&dmfCAVES))
     {
-        if(!getmapflag() && tmpscr[1].room==rSP_ITEM
+        if((!getmapflag() || q30_below_returns(1)) && tmpscr[1].room==rSP_ITEM
                 && (currscr==128 || !get_bit(quest_rules,qr_ITEMSINPASSAGEWAYS)))
         {
             Item=tmpscr[1].catchall;
@@ -12208,7 +12210,7 @@ void loaditem()
                 items.add(new item((fix)tmpscr->itemx,
                                    (tmpscr->flags7&fITEMFALLS && tmpscr->flags7&fSIDEVIEW) ? (fix)-170 : (fix)tmpscr->itemy+(get_bit(quest_rules, qr_NOITEMOFFSET)?0:1),
                                    (tmpscr->flags7&fITEMFALLS && !(tmpscr->flags7&fSIDEVIEW)) ? (fix)170 : (fix)0,
-                                   Item,ipONETIME2|ipBIGRANGE|ipHOLDUP,0));
+                                   Item,(ipONETIME2|ipBIGRANGE|ipHOLDUP) | q30_item_secret_flag(),0));
         }
     }
 }
@@ -13005,7 +13007,7 @@ placed_enemy:
                 }
             }
             
-            if(!foundCarrier && (hasitem)>1)
+            if(!foundCarrier && (hasitem&(4|2)))     // (2.55: a bit test, as hasitem 8 now exists)
             {
                 int index = guys.idFirst(tmpscr->enemy[i],0xFFF);
                 
@@ -13716,10 +13718,14 @@ bool atend(char *str)
     return str[i]=='\0';
 }
 
+// 2.55/3.0 (upstream's enqueued_str): a string to show after the current one ends, as an
+// item's pickup string after a shop's. Only 2.55+ quests ever set it.
+int q30_enqueued_str = 0;
+
 void putmsg()
 {
     if(!msgorig) msgorig=msgstr;
-    
+
     if(linkedmsgclk>0)
     {
         if(linkedmsgclk==1)
@@ -13727,7 +13733,13 @@ void putmsg()
             if(cAbtn()||cBbtn())
             {
                 msgstr=MsgStrings[msgstr].nextstring;
-                
+
+                if(!msgstr && q30_enqueued_str)
+                {
+                    msgstr = q30_enqueued_str;
+                    q30_enqueued_str = 0;
+                }
+
                 if(!msgstr)
                 {
                     msgfont=zfont;
@@ -13954,7 +13966,7 @@ breakout:
             ;
             
         // Go to next string, or make it disappear by going to string 0.
-        if(MsgStrings[msgstr].nextstring!=0 || get_bit(quest_rules,qr_MSGDISAPPEAR))
+        if(MsgStrings[msgstr].nextstring!=0 || get_bit(quest_rules,qr_MSGDISAPPEAR) || q30_enqueued_str)
         {
             linkedmsgclk=51;
         }
@@ -14007,6 +14019,18 @@ int message_more_y()
 }
 
 /***  Collision detection & handling  ***/
+
+// Whether a boomerang, hookshot or arrow takes any item it touches: qr_BRANGPICKUP for 2.53
+// quests (take < 0); for 2.55/3.0 its item's flag 4, a key with its flag 7, or an item marked
+// "can grab" (upstream's ipCANGRAB)
+static bool q30_take_any(int take, int pitem, item *it)
+{
+    if(take < 0)
+        return get_bit(quest_rules,qr_BRANGPICKUP) != 0;
+
+    const bool key = itemsbuf[it->id].family==itype_key || itemsbuf[it->id].family==itype_lkey;
+    return q30_item_flag(pitem, ITEM_FLAG4) || (it->pickup & 8192) != 0 || (key && q30_item_flag(pitem, Q30_ITEM_FLAG7));
+}
 
 void check_collisions()
 {
@@ -14072,7 +14096,24 @@ void check_collisions()
                 }
             }
             
-            if(get_bit(quest_rules,qr_Z3BRANG_HSHOT))
+            // 2.55/3.0 (upstream check_enemy_lweapon_collision): the weapon's item decides: a
+            // boomerang's or hookshot's flag 5 drags items, an arrow's flag 2 picks them up,
+            // flag 4 takes any item and flag 7 keys; items marked "can grab" always go
+            int q30_take = -1;      // -1 the rules; 0 picks up; 1 drags; 2 neither
+            int q30_pitem = -1;
+
+            if(q30_active() && (w->id == wBrang || w->id == wHookshot || w->id == wArrow))
+            {
+                q30_pitem = w->parentitem >= 0 ? w->parentitem
+                          : current_item_id(w->id==wBrang ? itype_brang : w->id==wArrow ? itype_arrow : itype_hookshot);
+
+                if(w->id == wArrow)
+                    q30_take = q30_item_flag(q30_pitem, ITEM_FLAG2) ? 0 : 2;
+                else
+                    q30_take = q30_item_flag(q30_pitem, ITEM_FLAG5) ? 1 : 0;
+            }
+
+            if(q30_take >= 0 ? q30_take == 1 : get_bit(quest_rules,qr_Z3BRANG_HSHOT) != 0)
             {
                 if(w->id == wBrang || w->id==wHookshot)
                 {
@@ -14081,9 +14122,9 @@ void check_collisions()
                         if(items.spr(j)->hit(w))
                         {
                             bool priced = ((item*)items.spr(j))->PriceIndex >-1;
-                            
+
                             if((((item*)items.spr(j))->pickup & ipTIMER && ((item*)items.spr(j))->clk2 >= 32)
-                                    || (get_bit(quest_rules,qr_BRANGPICKUP) && !priced && !(((item*)items.spr(j))->pickup & ipDUMMY)))
+                                    || (q30_take_any(q30_take, q30_pitem, (item*)items.spr(j)) && !priced && !(((item*)items.spr(j))->pickup & ipDUMMY)))
                             {
                                 if(w->id == wBrang)
                                 {
@@ -14106,7 +14147,7 @@ void check_collisions()
                     }
                 }
             }
-            else
+            else if(q30_take != 2)
             {
                 if(w->id == wBrang || w->id == wArrow || w->id==wHookshot)
                 {
@@ -14115,9 +14156,9 @@ void check_collisions()
                         if(items.spr(j)->hit(w))
                         {
                             bool priced = ((item*)items.spr(j))->PriceIndex >-1;
-                            
+
                             if((((item*)items.spr(j))->pickup & ipTIMER && ((item*)items.spr(j))->clk2 >= 32)
-                                    || (get_bit(quest_rules,qr_BRANGPICKUP) && !priced))
+                                    || (q30_take_any(q30_take, q30_pitem, (item*)items.spr(j)) && !priced))
                             {
                                 if(itemsbuf[items.spr(j)->id].collect_script)
                                 {
@@ -14139,13 +14180,15 @@ void check_collisions()
 
 void dragging_item()
 {
-    if(get_bit(quest_rules,qr_Z3BRANG_HSHOT))
+    if(q30_active() || get_bit(quest_rules,qr_Z3BRANG_HSHOT))
     {
         for(int i=0; i<Lwpns.Count(); i++)
         {
             weapon *w = (weapon*)Lwpns.spr(i);
-            
-            if(w->id == wBrang || w->id==wHookshot)
+
+            // (2.55/3.0: by the weapon's item, flag 5)
+            if((w->id == wBrang || w->id==wHookshot) &&
+               (!q30_active() || (w->parentitem >= 0 && q30_item_flag(w->parentitem, ITEM_FLAG5))))
             {
                 if(w->dragging>=0 && w->dragging<items.Count())
                 {
@@ -14183,7 +14226,7 @@ int more_carried_items()
 // messy code to do the enemy-carrying-the-item thing
 void roaming_item()
 {
-    if(hasitem<2 || !loaded_enemies)
+    if(!(hasitem&(4|2)) || !loaded_enemies)     // (2.55: a bit test, as hasitem 8 now exists)
         return;
     
     // All enemies already dead upon entering a room?
@@ -14227,8 +14270,8 @@ void roaming_item()
         int Item=tmpscr->item;
         
         hasitem &= ~4;
-        
-        if(!getmapflag(mITEM) && (tmpscr->hasitem != 0))
+
+        if((!getmapflag(mITEM) || q30_item_returns()) && (tmpscr->hasitem != 0))
         {
             additem(0,0,Item,ipENEMY+ipONETIME+ipBIGRANGE
                     + (((tmpscr->flags3&fHOLDITEM) || (itemsbuf[Item].family==itype_triforcepiece)) ? ipHOLDUP : 0)

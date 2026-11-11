@@ -32,10 +32,17 @@ extern int directItemB;
 
 //DIALOG *sso_properties_dlg;
 
+bool q30_subscreen_anim_draw(BITMAP *dest, int dx, int dy);    // q30_scripts_subscr.h
+
 void put_active_subscr(miscQdata *misc, int y, int pos)
 {
     //Don't call Sitems.animate() - that gets called somewhere else, somehow. -L
     animate_selectors();
+
+    // 2.55/3.0: a page change's animation, drawn in the subscreen's place while it lasts
+    if(q30_subscreen_anim_draw(framebuf, 0, 6-y))
+        return;
+
     bool showtime = game->get_timevalid() && !game->get_cheat() && get_bit(quest_rules,qr_TIME);
     show_custom_subscreen(framebuf, misc, current_subscreen_active, 0, 6-y, showtime, pos);
 }

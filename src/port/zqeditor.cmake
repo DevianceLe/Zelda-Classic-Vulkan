@@ -68,6 +68,7 @@ set(ZQEDITOR_SOURCES
 	${ZCPORT_DIR}/zqeditor/zq_sections.cpp
 	${ZCPORT_DIR}/zqeditor/zq_writers.cpp
 	${ZCPORT_DIR}/zqeditor/zq_tests.cpp
+	${ZCPORT_DIR}/zqeditor/zq_tile_refs.cpp
 )
 # Image import: the Windows Imaging Component on Windows, SDL elsewhere (PNG, BMP).
 if(WIN32)

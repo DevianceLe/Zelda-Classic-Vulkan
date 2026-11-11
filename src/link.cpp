@@ -1077,7 +1077,7 @@ void LinkClass::positionSword(weapon *w, int itemid)
         case right:
             --t;
             
-            if(spins>0 || get_bit(quest_rules, qr_SLASHFLIPFIX))
+            if(spins>0 || q30_slash_flip(itemid))     // (2.55/3.0: the item's flag 8)
             {
                 wx=1;
                 wy=13;
@@ -1097,7 +1097,7 @@ void LinkClass::positionSword(weapon *w, int itemid)
                 t = wpnsbuf[wpn2].tile;
                 cs2 = wpnsbuf[wpn2].csets&15;
                 
-                if(spins>0 || get_bit(quest_rules, qr_SLASHFLIPFIX))
+                if(spins>0 || q30_slash_flip(itemid))     // (2.55/3.0: the item's flag 8)
                 {
                     wx-=1;
                     wy-=2;
@@ -2079,13 +2079,28 @@ void LinkClass::checkstab()
     
     wx+=w->hxofs;
     wy+=w->hyofs;
-    
+
+    // 2.55/3.0 (upstream checkstab): the melee item's own flags replace qr_NOWANDMELEE and
+    // qr_NOITEMMELEE: flag 3 of a wand, hammer or Cane of Byrna means no contact damage, flag 7
+    // of the item means it doesn't collect items
+    int q30_mid = -1;
+
+    if(q30_active())
+    {
+        const int t = attack==wWand ? itype_wand : attack==wSword ? itype_sword : attack==wCByrna ? itype_cbyrna : itype_hammer;
+        q30_mid = (directWpn>-1 && itemsbuf[directWpn].family==t) ? directWpn : current_item_id(t);
+    }
+
+    const bool q30_nomelee = q30_mid > -1 && q30_item_flag(q30_mid, ITEM_FLAG3);
+    const bool wand_nomelee = q30_active() ? q30_nomelee : get_bit(quest_rules,qr_NOWANDMELEE) != 0;
+    const bool q30_byrna = q30_active() && attack==wCByrna;
+
     for(int i=0; i<guys.Count(); i++)
     {
         // So that Link can actually hit peahats while jumping, his weapons' hzsz becomes 16 in midair.
-        if((guys.spr(i)->hit(wx,wy,wz,wxsz,wysz,wz>0?16:8) && (attack!=wWand || !get_bit(quest_rules,qr_NOWANDMELEE)))
-                || (attack==wWand && guys.spr(i)->hit(wx,wy-8,z,16,24,z>8) && !get_bit(quest_rules,qr_NOWANDMELEE))
-                || (attack==wHammer && guys.spr(i)->hit(wx,wy-8,z,16,24,z>0?16:8)))
+        if((guys.spr(i)->hit(wx,wy,wz,wxsz,wysz,wz>0?16:8) && ((attack!=wWand && !q30_byrna && !(q30_active() && attack==wHammer)) || !wand_nomelee))
+                || ((attack==wWand || q30_byrna) && guys.spr(i)->hit(wx,wy-8,z,16,24,z>8) && !wand_nomelee)
+                || (attack==wHammer && guys.spr(i)->hit(wx,wy-8,z,16,24,z>0?16:8) && !(q30_active() && q30_nomelee)))
         {
             // Checking the whimsical ring for every collision check causes
             // an odd bug. It's much more likely to activate on a 0-damage
@@ -2127,7 +2142,8 @@ void LinkClass::checkstab()
         }
     }
     
-    if(!get_bit(quest_rules,qr_NOITEMMELEE))
+    if(q30_active() ? (q30_mid > -1 ? !q30_item_flag(q30_mid, Q30_ITEM_FLAG7) : !get_bit(quest_rules,qr_NOITEMMELEE))
+                    : !get_bit(quest_rules,qr_NOITEMMELEE))
     {
         for(int j=0; j<items.Count(); j++)
         {
@@ -2520,9 +2536,9 @@ void LinkClass::check_slash_block(int bx, int by)
         if(quest_header_zelda_version == 0x210 ? plain_cut
            : (!isTouchyType(type) && !emulation_patches[emuSWORDTRIGARECONTINUOUS])) set_bit(screengrid,i,1);
         
-        if((flag==mfARMOS_ITEM||flag2==mfARMOS_ITEM) && !getmapflag())
+        if((flag==mfARMOS_ITEM||flag2==mfARMOS_ITEM) && (!getmapflag() || q30_below_returns()))
         {
-            items.add(new item((fix)bx, (fix)by,(fix)0, tmpscr->catchall, ipONETIME2 + ipBIGRANGE + ipHOLDUP, 0));
+            items.add(new item((fix)bx, (fix)by,(fix)0, tmpscr->catchall, (ipONETIME2 + ipBIGRANGE + ipHOLDUP) | q30_item_secret_flag(), 0));
             sfx(tmpscr->secretsfx);
         }
         else if(isCuttableItemType(type))
@@ -2777,9 +2793,9 @@ void LinkClass::check_pound_block(int bx, int by)
             
         set_bit(screengrid,i,1);
         
-        if((flag==mfARMOS_ITEM||flag2==mfARMOS_ITEM) && !getmapflag())
+        if((flag==mfARMOS_ITEM||flag2==mfARMOS_ITEM) && (!getmapflag() || q30_below_returns()))
         {
-            items.add(new item((fix)bx, (fix)by, (fix)0, tmpscr->catchall, ipONETIME2 + ipBIGRANGE + ipHOLDUP, 0));
+            items.add(new item((fix)bx, (fix)by, (fix)0, tmpscr->catchall, (ipONETIME2 + ipBIGRANGE + ipHOLDUP) | q30_item_secret_flag(), 0));
             sfx(tmpscr->secretsfx);
         }
         
@@ -3151,7 +3167,17 @@ void LinkClass::checkhit()
     {
         sprite *s = Lwpns.spr(i);
         
-        if(!get_bit(quest_rules,qr_FIREPROOFLINK) && (scriptcoldet&1) && (!superman || !get_bit(quest_rules,qr_FIREPROOFLINK2)))
+        // 2.55/3.0 (upstream try_lwpn_hit): the rule only covers fire with no item behind it;
+        // a candle's or book's own fire spares Link by the item's flag 3
+        const int q30_fire_item = ((weapon*)(Lwpns.spr(i)))->parentitem;
+        const bool fireproof = q30_active()
+            ? ((q30_fire_item < 0 && get_bit(quest_rules,qr_FIREPROOFLINK)) ||
+               (q30_fire_item >= 0 && q30_fire_item < MAXITEMS &&
+                (itemsbuf[q30_fire_item].family==itype_candle || itemsbuf[q30_fire_item].family==itype_book) &&
+                q30_item_flag(q30_fire_item, ITEM_FLAG3)))
+            : get_bit(quest_rules,qr_FIREPROOFLINK) != 0;
+
+        if(!fireproof && (scriptcoldet&1) && (!superman || !get_bit(quest_rules,qr_FIREPROOFLINK2)))
         {
             int itemid = ((weapon*)(Lwpns.spr(i)))->parentitem;
             
@@ -3190,7 +3216,8 @@ void LinkClass::checkhit()
 
         //   check enemy weapons true, 1, -1
         //
-        if(get_bit(quest_rules,qr_Z3BRANG_HSHOT))
+        // (2.55/3.0: the boomerang's or hookshot's flag 6 says whether it blocks enemy weapons)
+        if((q30_active() && q30_fire_item >= 0) ? q30_item_flag(q30_fire_item, Q30_ITEM_FLAG6) : get_bit(quest_rules,qr_Z3BRANG_HSHOT))
         {
             if(s->id==wBrang || s->id==wHookshot)
             {
@@ -4276,7 +4303,9 @@ bool LinkClass::animate(int)
     
     if(hopclk)
         action = hopping;
-        
+
+    q30_passive_buttons();      // 2.55/3.0: the lift glove's own button, before items take it
+
     // get user input or do other animation
     freeze_guys=false;                                        // reset this flag, set it again if holding
     
@@ -5288,7 +5317,7 @@ bool LinkClass::startwpn(int itemid)
         paymagiccost(itemid);
         sfx(itemsbuf[itemid].usesound,pan(wx));
         
-        if(tmpscr->room==rGRUMBLE && !getmapflag())
+        if(tmpscr->room==rGRUMBLE && (!getmapflag() || q30_below_returns()))
         {
             items.add(new item((fix)wx,(fix)wy,(fix)0,iBait,ipDUMMY+ipFADE,0));
             fadeclk=66;
@@ -5929,7 +5958,7 @@ void LinkClass::do_hopping()
             --diveclk;
         else if(DrunkrAbtn())
         {
-            bool global_diving=(get_bit(quest_rules,qr_NODIVING) != 0);
+            bool global_diving=q30_no_diving();     // (2.55/3.0: the flippers' flag 1)
             bool screen_diving=(tmpscr->flags5&fTOGGLEDIVING) != 0;
             
             if(global_diving==screen_diving)
@@ -6405,7 +6434,7 @@ void LinkClass::movelink()
     }
     else if(action==swimming)
     {
-        bool global_diving=(get_bit(quest_rules,qr_NODIVING) != 0);
+        bool global_diving=q30_no_diving();     // (2.55/3.0: the flippers' flag 1)
         bool screen_diving=(tmpscr->flags5&fTOGGLEDIVING) != 0;
         
         if(DrunkrAbtn()&&(global_diving==screen_diving))
@@ -6431,7 +6460,10 @@ void LinkClass::movelink()
     
     //&0xFFF removes the "bow & arrows" bitmask
     //The Quick Sword is allowed to interrupt attacks.
-    if((!attackclk && action!=attacking) || ((attack==wSword || attack==wWand) && get_bit(quest_rules,qr_QUICKSWORD)))
+    // (2.55/3.0: the Quick Sword is the swinging sword's or wand's flag 5)
+    if((!attackclk && action!=attacking) || ((attack==wSword || attack==wWand) &&
+        q30_quick_sword((directWpn>-1 && (itemsbuf[directWpn].family==itype_sword || itemsbuf[directWpn].family==itype_wand))
+                        ? directWpn : current_item_id(attack==wSword ? itype_sword : itype_wand))))
     {
         if(DrunkrBbtn())
         {
@@ -8275,7 +8307,8 @@ void LinkClass::q30_free_walk(int push)
     double step = 1.5;
     bool slowcombo = (combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement && (z == 0 || (tmpscr->flags2 & fAIRCOMBOS))) ||
                      (isSideview() && ON_SIDEPLATFORM && combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement);
-    bool slowcharging = get_bit(quest_rules, qr_SLOWCHARGINGWALK) && charging > 0;
+    bool slowcharging = charging > 0 &&     // (2.55/3.0: the sword's flag 10)
+        q30_slow_charging((directWpn>-1 && itemsbuf[directWpn].family==itype_sword) ? directWpn : current_item_id(itype_sword));
 
     if(slowcombo && slowcharging)
         step /= 2;
@@ -8788,9 +8821,9 @@ void LinkClass::q30_slash_layer(int bx, int by, int layer)
         s->sflag[i] = 0;
     }
 
-    if((flag == mfARMOS_ITEM || flag2 == mfARMOS_ITEM) && !getmapflag())
+    if((flag == mfARMOS_ITEM || flag2 == mfARMOS_ITEM) && (!getmapflag() || q30_below_returns()))
     {
-        items.add(new item((fix)bx, (fix)by, (fix)0, tmpscr->catchall, ipONETIME2 + ipBIGRANGE + ipHOLDUP, 0));
+        items.add(new item((fix)bx, (fix)by, (fix)0, tmpscr->catchall, (ipONETIME2 + ipBIGRANGE + ipHOLDUP) | q30_item_secret_flag(), 0));
         sfx(tmpscr->secretsfx);
     }
     else if(isCuttableItemType(type))
@@ -8855,7 +8888,8 @@ void LinkClass::move(int d2)
     int z3diagskip=0;
     bool slowcombo = (combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement && (z==0 || tmpscr->flags2&fAIRCOMBOS)) ||
                      (isSideview() && ON_SIDEPLATFORM && combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement);
-    bool slowcharging = get_bit(quest_rules,qr_SLOWCHARGINGWALK) && charging>0;
+    bool slowcharging = charging>0 &&       // (2.55/3.0: the sword's flag 10)
+        q30_slow_charging((directWpn>-1 && itemsbuf[directWpn].family==itype_sword) ? directWpn : current_item_id(itype_sword));
     bool is_swimming = (action == swimming);
     
     //slow walk combo, or charging, moves at 2/3 speed
@@ -10154,9 +10188,9 @@ void LinkClass::checkchest(int type)
         }
     }
     
-    if(itemflag && !getmapflag())
+    if(itemflag && (!getmapflag() || q30_below_returns()))
     {
-        items.add(new item(x, y,(fix)0, tmpscr->catchall, ipONETIME2 + ipBIGRANGE + ipHOLDUP, 0));
+        items.add(new item(x, y,(fix)0, tmpscr->catchall, (ipONETIME2 + ipBIGRANGE + ipHOLDUP) | q30_item_secret_flag(), 0));
     }
 }
 
@@ -11010,14 +11044,14 @@ void LinkClass::checkspecial()
                     setmapflag(mTMPNORET);
         }
         
-        // item
-        if(hasitem)
+        // item (not one that waits for the secrets: 2.55/3.0's hasitem 8)
+        if(hasitem&(4|2|1))
         {
             int Item=tmpscr->item;
-            
+
             //if(getmapflag())
             //  Item=0;
-            if(!getmapflag(mITEM) && (tmpscr->hasitem != 0))
+            if((!getmapflag(mITEM) || q30_item_returns()) && (tmpscr->hasitem != 0))
             {
                 if(hasitem==1)
                     sfx(WAV_CLEARED);
@@ -11026,10 +11060,10 @@ void LinkClass::checkspecial()
                                    (tmpscr->flags7&fITEMFALLS && isSideview()) ? (fix)-170 : (fix)tmpscr->itemy+1,
                                    (tmpscr->flags7&fITEMFALLS && !isSideview()) ? (fix)170 : (fix)0,
                                    Item,ipONETIME+ipBIGRANGE+((itemsbuf[Item].family==itype_triforcepiece ||
-                                           (tmpscr->flags3&fHOLDITEM)) ? ipHOLDUP : 0),0));
+                                           (tmpscr->flags3&fHOLDITEM)) ? ipHOLDUP : 0) | q30_item_secret_flag(),0));
             }
-            
-            hasitem=0;
+
+            hasitem &= ~(4|2|1);
         }
         
         // clear enemies and open secret
@@ -11084,6 +11118,26 @@ void LinkClass::checkspecial()
     if(getmapflag(mBOSSCHEST))              // if special stuff done before
     {
         remove_bosschests((currscr>=128)?1:0);
+    }
+
+    // 2.55/3.0 (fSECRETITEM): the screen's item appears once its secrets have been triggered
+    if((hasitem&8) && q30_secrets_triggered())
+    {
+        int Item=tmpscr->item;
+
+        if((!getmapflag(mITEM) || q30_item_returns()) && (tmpscr->hasitem != 0))
+        {
+            if(getenv("ZC_EVENTLOG"))
+                al_trace("q30 pickup: the screen's item %d appears with the secrets\n", Item);
+
+            items.add(new item((fix)tmpscr->itemx,
+                               (tmpscr->flags7&fITEMFALLS && isSideview()) ? (fix)-170 : (fix)tmpscr->itemy+1,
+                               (tmpscr->flags7&fITEMFALLS && !isSideview()) ? (fix)170 : (fix)0,
+                               Item,ipONETIME+ipBIGRANGE+((itemsbuf[Item].family==itype_triforcepiece ||
+                                       (tmpscr->flags3&fHOLDITEM)) ? ipHOLDUP : 0) | q30_item_secret_flag(),0));
+        }
+
+        hasitem &= ~8;
     }
 }
 
@@ -11728,10 +11782,10 @@ void LinkClass::checkspecial2(int *ls)
         switch(flag)
         {
         case mfDIVE_ITEM:
-            if(diveclk>30 && !getmapflag())
+            if(diveclk>30 && (!getmapflag() || q30_below_returns()))
             {
                 additem(x, y, tmpscr->catchall,
-                        ipONETIME2 + ipBIGRANGE + ipHOLDUP + ipNODRAW);
+                        (ipONETIME2 + ipBIGRANGE + ipHOLDUP + ipNODRAW) | q30_item_secret_flag());
                 sfx(tmpscr->secretsfx);
             }
             
@@ -11763,10 +11817,10 @@ void LinkClass::checkspecial2(int *ls)
         switch(flag2)
         {
         case mfDIVE_ITEM:
-            if(diveclk>30 && !getmapflag())
+            if(diveclk>30 && (!getmapflag() || q30_below_returns()))
             {
                 additem(x, y, tmpscr->catchall,
-                        ipONETIME2 + ipBIGRANGE + ipHOLDUP + ipNODRAW);
+                        (ipONETIME2 + ipBIGRANGE + ipHOLDUP + ipNODRAW) | q30_item_secret_flag());
                 sfx(tmpscr->secretsfx);
             }
             
@@ -11798,10 +11852,10 @@ void LinkClass::checkspecial2(int *ls)
         switch(flag3)
         {
         case mfDIVE_ITEM:
-            if(diveclk>30 && !getmapflag())
+            if(diveclk>30 && (!getmapflag() || q30_below_returns()))
             {
                 additem(x, y, tmpscr->catchall,
-                        ipONETIME2 + ipBIGRANGE + ipHOLDUP + ipNODRAW);
+                        (ipONETIME2 + ipBIGRANGE + ipHOLDUP + ipNODRAW) | q30_item_secret_flag());
                 sfx(tmpscr->secretsfx);
             }
             
@@ -16232,6 +16286,7 @@ void LinkClass::checkitems(int index)
     int pickup = ((item*)items.spr(index))->pickup;
     int PriceIndex = ((item*)items.spr(index))->PriceIndex;
     int id2 = ((item*)items.spr(index))->id;
+    int q30_pstr_item = id2;    // 2.55/3.0: whose pickup string shows (-1: none)
     int q30_shop = -1;
     const bool q30_bottle_buy = (pickup&ipCHECK) && PriceIndex > -1 && q30_bottle_shop_here(&q30_shop);
 
@@ -16358,6 +16413,7 @@ void LinkClass::checkitems(int index)
         }
 
         pickup |= ipHOLDUP;
+        q30_pstr_item = -1;     // upstream: no pickup string for a bottle bought
     }
 
     if(pickup&ipONETIME)    // set mITEM for one-time-only items
@@ -16380,12 +16436,14 @@ void LinkClass::checkitems(int index)
     }
     else if(pickup&ipONETIME2)                                // set mBELOW flag for other one-time-only items
         setmapflag();
-        
+
+    q30_item_pickup_secrets(pickup);    // 2.55/3.0: an item that triggers secrets when picked up
+
     if(itemsbuf[id2].collect_script)
     {
         ZScriptVersion::RunScript(SCRIPT_ITEM, itemsbuf[id2].collect_script, id2 & 0xFFF);
     }
-    
+
     q30_item_collected(items.spr(index)->getUID());
     getitem(id2);
 
@@ -16441,6 +16499,19 @@ void LinkClass::checkitems(int index)
                 
             holditem=((item*)items.spr(index))->id; // NES consistency: when combining blue potions, hold up the blue potion.
             freeze_guys=true;
+
+            // 2.55/3.0: the shop's string for what was bought, then the item's pickup string
+            int q30_shop_str = 0;
+
+            if(PriceIndex > -1 && PriceIndex < 3)
+            {
+                if(tmpscr[tmp].room == rSHOP)
+                    q30_shop_str = q30_shop_string(tmpscr[tmp].catchall, PriceIndex);
+                else if(q30_bottle_buy && q30_bottle_shop(q30_shop))
+                    q30_shop_str = q30_bottle_shop(q30_shop)->str[PriceIndex];
+            }
+
+            q30_item_pickup_string(q30_pstr_item, id2, true, q30_shop_str);
         }
         
         if(itemsbuf[id2].family!=itype_triforcepiece || !(itemsbuf[id2].flags & ITEM_GAMEDATA))
@@ -16522,11 +16593,15 @@ void LinkClass::checkitems(int index)
         {
             dismissmsg();
         }
-        
+
+        // 2.55/3.0: a shop's string for what was bought, then the item's pickup string
+        q30_item_pickup_string(q30_pstr_item, id2, false,
+                               (tmpscr[tmp].room == rSHOP && PriceIndex >= 0 && PriceIndex < 3) ? q30_shop_string(tmpscr[tmp].catchall, PriceIndex) : 0);
+
         clear_bitmap(pricesdisplaybuf);
         set_clip_state(pricesdisplaybuf, 1);
     }
-    
+
     if(itemsbuf[id2].family==itype_triforcepiece)
     {
         if(itemsbuf[id2].misc2==1)
@@ -17368,7 +17443,7 @@ void LinkClass::ganon_intro()
     action=none;
     dir=up;
     
-    if(!getmapflag() && (tunes[MAXMIDIS-1].data))
+    if((!getmapflag() || q30_below_returns()) && (tunes[MAXMIDIS-1].data))
         jukebox(MAXMIDIS-1);
     else
         playLevelMusic();

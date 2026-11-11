@@ -1506,6 +1506,13 @@ void states_setup()
 // create it. Layout: magic, id, then (kind, key, value) triples for what isn't zero.
 // Countdown timers aren't stored: upstream zeroes them when a game is loaded.
 const long Q30_STATE_MAGIC = 0x51333053;
+// which items' pickup strings have been shown (upstream's item_messages_played), kind 6:
+// key = word index, value = 32 items' bits
+static dword g_item_msg_played[(MAXITEMS + 31) / 32];
+// the items on B and A (Bwpn, directItemB, Awpn, directItemA, each + 1; 0 none kept), kind 7.
+// Upstream's save keeps the subscreen page each was set on (game->bwpn's low byte); 2.53's
+// save has a byte for the cursor only, so an item set on a later page is kept here instead.
+static int g_saved_btn[4];
 bool g_states_dirty = false;
 long g_state_id = 0;
 long g_state_serial = 0;
@@ -1591,6 +1598,22 @@ void states_flush()
         }
     }
 
+    for(int i = 0; i < (MAXITEMS + 31) / 32; ++i)
+        if(g_item_msg_played[i])
+        {
+            out.push_back(6);
+            out.push_back(i);
+            out.push_back((long)g_item_msg_played[i]);
+        }
+
+    for(int i = 0; i < 4; ++i)
+        if(g_saved_btn[i])
+        {
+            out.push_back(7);
+            out.push_back(i);
+            out.push_back(g_saved_btn[i]);
+        }
+
     ZScriptArray *a = state_array();
 
     if(!a)
@@ -1627,6 +1650,8 @@ void states_sync()
     g_posstates.clear();
     memset(g_lvlswitches, 0, sizeof(g_lvlswitches));
     memset(g_gswitch_timers, 0, sizeof(g_gswitch_timers));
+    memset(g_item_msg_played, 0, sizeof(g_item_msg_played));
+    memset(g_saved_btn, 0, sizeof(g_saved_btn));
     g_portal = Q30_NO_PORTAL;
     g_state_id = id;
     g_states_dirty = false;
@@ -1681,6 +1706,14 @@ void states_sync()
 
             break;
         }
+
+        case 6:
+            if(key >= 0 && key < (MAXITEMS + 31) / 32) g_item_msg_played[key] = (dword)val;
+            break;
+
+        case 7:
+            if(key >= 0 && key < 4) g_saved_btn[key] = (int)val;
+            break;
         }
     }
 }
@@ -3269,6 +3302,7 @@ void do_generic_effect(const H &h, const Q30Combo *c, int cid, weapon *w)
     {
         items.add(new item((fix)x, (fix)y, (fix)0, m->catchall, ipONETIME2 | ipBIGRANGE
                            | ((itemsbuf[m->catchall].family == itype_triforcepiece || (m->flags3 & fHOLDITEM)) ? ipHOLDUP : 0)
+                           | ((m->flags8 & 0x80) ? Q30_IP_SECRETS : 0)      // fITEMSECRET
                           , 0));
     }
 
@@ -4019,9 +4053,9 @@ void trigger_cuttable(const H &h, const Q30Combo *c)
         }
     }
 
-    if((flag == mfARMOS_ITEM || flag2 == mfARMOS_ITEM) && (!getmapflag(mBELOW) ))
+    if((flag == mfARMOS_ITEM || flag2 == mfARMOS_ITEM) && (!getmapflag(mBELOW) || q30_below_returns()))
     {
-        items.add(new item((fix)x, (fix)y, (fix)0, tmpscr[0].catchall, ipONETIME2 + ipBIGRANGE + ipHOLDUP
+        items.add(new item((fix)x, (fix)y, (fix)0, tmpscr[0].catchall, (ipONETIME2 + ipBIGRANGE + ipHOLDUP) | q30_item_secret_flag()
                           , 0));
         sfx(tmpscr[0].secretsfx);
     }
@@ -5227,10 +5261,50 @@ static void trig_group_visit(const H &h, void *)
 
 static void new_darkroom_palette();
 
+extern int Bwpn, Awpn, directItemB, directItemA;     // link.cpp
+
+// init_game, once the saved buttons are resolved: the items kept in the state array (kind 7)
+// take B and A back, if Link still has them
+void q30_restore_buttons()
+{
+    if(!q30_active() || !game)
+        return;
+
+    states_sync();
+
+    for(int k = 0; k < 4; k += 2)
+    {
+        if(!g_saved_btn[k])
+            continue;
+
+        const int wpn = g_saved_btn[k] - 1, direct = g_saved_btn[k + 1] - 1, id = wpn & 0xFFF;
+
+        if(id < 0 || id >= MAXITEMS || !game->get_item(id) || item_disabled(id))
+            continue;
+
+        if(getenv("ZC_EVENTLOG"))
+            al_trace("q30 buttons: %s takes back item %d\n", k ? "A" : "B", id);
+
+        (k ? Awpn : Bwpn) = wpn;
+        (k ? directItemA : directItemB) = direct;
+    }
+}
+
 void q30_trig_update()
 {
     if(!q30_active() || tmpscr[0].data.empty())
         return;
+
+    // the button items, kept for the save (q30_restore_buttons)
+    {
+        const int now[4] = { Bwpn + 1, directItemB + 1, Awpn + 1, directItemA + 1 };
+
+        if(memcmp(now, g_saved_btn, sizeof(now)))
+        {
+            memcpy(g_saved_btn, now, sizeof(now));
+            states_mark();
+        }
+    }
 
     q30_slopes_update();    // upstream's update_slopes(): where each slope starts the frame
 
@@ -8135,6 +8209,13 @@ void q30_do_liftglove(int liftid, bool passive)
 
     byte intbtn = (byte)(itemsbuf[liftid].misc1 & 0xFF);
 
+    static int logged_glove = -1;
+    if(getenv("ZC_EVENTLOG") && logged_glove != liftid)
+    {
+        logged_glove = liftid;
+        al_trace("q30 lift: glove item %d lifts with button mask 0x%x (level %d)\n", liftid, intbtn, (int)itemsbuf[liftid].fam_type);
+    }
+
     if(passive && (!intbtn || !btn_peek(intbtn)))
         return;
 
@@ -8185,6 +8266,9 @@ void q30_do_liftglove(int liftid, bool passive)
                 lifted = true;
         }
     }
+
+    if(getenv("ZC_EVENTLOG"))
+        al_trace("q30 lift: glove %d facing %d at %d,%d: %s\n", liftid, (int)Link.getDir(), bx, by, lifted ? "lifted" : "nothing to lift");
 
     if(!lifted)
     {
@@ -8739,6 +8823,13 @@ static void lift_frame()
         else
             handle_lift(true);
     }
+}
+
+// upstream's handle_passive_buttons, early in Link's frame (before his items read the buttons)
+void q30_passive_buttons()
+{
+    if(!q30_active())
+        return;
 
     if(Link.getAction() == none || Link.getAction() == walking || Link.getAction() == swimming)
         q30_do_liftglove(-1, true);
@@ -9453,6 +9544,340 @@ void q30_draw_mirror_portal(BITMAP *dest)
     overtile16(dest, g_portal_tile + g_portal_aframe, g_portal.x, g_portal.y + playing_field_offset, g_portal_cs, 0);
 }
 
+// Test runs (ZC_LIGHTSCAN): screens with liftable combos, torches and switch-hook targets, as
+// ZC_TEST_START takes them (Link 16 pixels below the combo)
+void q30_test_list_features()
+{
+    if(!q30_active())
+        return;
+
+    const char *names[3] = { "lift", "torch", "switchhook" };
+    int shown[3] = { 0, 0, 0 };
+
+    for(int i = 0; i < MAXITEMS; ++i)
+        if(q30_item_family(i) == Q30_ITYPE_SWITCHHOOK || q30_item_family(i) == Q30_ITYPE_LIFTGLOVE)
+            al_trace("test: feature item %d family %ld level %d flags 0x%lx\n", i, q30_item_family(i), (int)itemsbuf[i].fam_type,
+                     (unsigned long)q30_item_flags(i));
+
+    for(int dm = 0; dm < MAXDMAPS; ++dm)
+    {
+        if(DMaps[dm].map >= map_count || (dm > 0 && DMaps[dm].map == DMaps[dm - 1].map && DMaps[dm].xoff == DMaps[dm - 1].xoff))
+            continue;
+
+        for(int s = 0; s < 0x80; ++s)
+        {
+            const mapscr &m = TheMaps[DMaps[dm].map * MAPSCRS + s];
+            const int col = (s & 15) - DMaps[dm].xoff;
+
+            if(col < 0 || ((DMaps[dm].type & dmfTYPE) != dmOVERW && col > 7) || !(m.valid & mVALID))
+                continue;
+
+            int found[3] = { -1, -1, -1 };
+
+            for(int layer = 0; layer < 3; ++layer)     // the screen and its layers 1 and 2
+            {
+                const mapscr *lm = &m;
+
+                if(layer > 0)
+                {
+                    if(m.layermap[layer - 1] <= 0 || m.layermap[layer - 1] > map_count)
+                        continue;
+
+                    lm = &TheMaps[(m.layermap[layer - 1] - 1) * MAPSCRS + m.layerscreen[layer - 1]];
+                }
+
+                for(int p = 0; p < 176; ++p)
+                {
+                    const Q30Combo *c = q30_combo(lm->data[p]);
+
+                    if(!c)
+                        continue;
+
+                    if(found[0] < 0 && (c->liftflags & 1)) found[0] = p;
+                    if(found[1] < 0 && c->type == Q30C_TORCH) found[1] = p;
+                    if(found[2] < 0 && c->type == Q30C_SWITCHHOOK) found[2] = p;
+                }
+            }
+
+            for(int k = 0; k < 3; ++k)
+                if(found[k] >= 0 && shown[k] < 6)
+                {
+                    ++shown[k];
+                    al_trace("test: feature %s: ZC_TEST_START=%d,%d,%d,%d (combo at %d,%d)\n", names[k], dm, s - DMaps[dm].xoff,
+                             (found[k] % 16) * 16, (found[k] / 16) * 16 + 16, (found[k] % 16) * 16, (found[k] / 16) * 16);
+                }
+        }
+    }
+}
+
+// ---- item pickups (upstream item::item's pickupflag, HeroClass::checkitems' strings) -----------
+// An item's own pickup flags change an item sprite's as it's made (mode 1 replace, 2 add,
+// 3 remove, 4 keep only these). Its pickup string shows once per save game unless its flags
+// say always (1) or don't mark (4); flag 2 means only when Link holds the item up. ipSECRETS
+// triggers the screen's secrets on pickup; screen items get it from the screen's flags8 0x80.
+
+struct Q30ItemPickup
+{
+    long pickup;
+    byte mode;
+    word pstring, psflags;
+};
+
+static std::vector<Q30ItemPickup> g_item_pickup(MAXITEMS);
+static std::vector<dword> g_item_flags32(MAXITEMS, 0);
+
+void q30_set_item_flags32(int item, dword flags)
+{
+    if(item < 0)
+        g_item_flags32.assign(MAXITEMS, 0);
+    else if(item < MAXITEMS)
+        g_item_flags32[item] = flags;
+}
+
+dword q30_item_flags(int item)
+{
+    if(item < 0 || item >= MAXITEMS)
+        return 0;
+
+    return q30_active() ? ((g_item_flags32[item] & ~0xFFFFu) | itemsbuf[item].flags) : itemsbuf[item].flags;
+}
+
+bool q30_item_flag(int item, dword bit)
+{
+    return (q30_item_flags(item) & bit) != 0;
+}
+
+// upstream's cost_counter[2] / cost_amount[2]; 2.53's itemdata keeps only a magic cost
+static std::vector<int> g_item_cost(MAXITEMS * 4, 0);
+
+void q30_set_item_cost(int item, int ctr0, int amt0, int ctr1, int amt1)
+{
+    if(item < 0)
+    {
+        g_item_cost.assign(MAXITEMS * 4, 0);
+        return;
+    }
+
+    if(item >= MAXITEMS)
+        return;
+
+    g_item_cost[item * 4] = ctr0;
+    g_item_cost[item * 4 + 1] = amt0;
+    g_item_cost[item * 4 + 2] = ctr1;
+    g_item_cost[item * 4 + 3] = amt1;
+}
+
+int q30_item_cost_counter(int item, int which)
+{
+    if(item < 0 || item >= MAXITEMS || which < 0 || which > 1 || !g_item_cost[item * 4 + which * 2 + 1])
+        return -1;      // crNONE: no such cost
+
+    return g_item_cost[item * 4 + which * 2];
+}
+
+// Rules that became item flags in 2.55 (upstream reads the item; 2.53 quests the rule)
+bool q30_slash_flip(int itemid)     // qr_SLASHFLIPFIX: sword/wand/candle/byrna flag 8
+{
+    return q30_active() ? q30_item_flag(itemid, Q30_ITEM_FLAG8) : get_bit(quest_rules, qr_SLASHFLIPFIX) != 0;
+}
+
+bool q30_quick_sword(int itemid)    // qr_QUICKSWORD: sword/wand flag 5
+{
+    return q30_active() ? (itemid >= 0 && q30_item_flag(itemid, ITEM_FLAG5)) : get_bit(quest_rules, qr_QUICKSWORD) != 0;
+}
+
+bool q30_no_diving()                // qr_NODIVING: the flippers' flag 1
+{
+    return q30_active() ? q30_item_flag(current_item_id(itype_flippers), ITEM_FLAG1) : get_bit(quest_rules, qr_NODIVING) != 0;
+}
+
+bool q30_slow_charging(int itemid)  // qr_SLOWCHARGINGWALK: the sword's flag 10
+{
+    return q30_active() ? (itemid >= 0 && q30_item_flag(itemid, Q30_ITEM_FLAG10)) : get_bit(quest_rules, qr_SLOWCHARGINGWALK) != 0;
+}
+
+// The lens Link last used: flag 1 shows hints unless flag 2 (no reveals) is set, flag 4 shows
+// raft paths, flag 5 invisible enemies (upstream's replacements for qr_LENSHINTS, qr_RAFTLENS
+// and qr_LENSSEESENEMIES)
+bool q30_lens_does(int what)
+{
+    if(!q30_active())
+        return get_bit(quest_rules, what == 0 ? qr_LENSHINTS : what == 1 ? qr_RAFTLENS : qr_LENSSEESENEMIES) != 0;
+
+    const int lens = Link.getLastLensID();
+
+    switch(what)
+    {
+    case 0: return !q30_item_flag(lens, ITEM_FLAG2) && q30_item_flag(lens, ITEM_FLAG1);
+    case 1: return q30_item_flag(lens, ITEM_FLAG4);
+    default: return q30_item_flag(lens, ITEM_FLAG5);
+    }
+}
+enum { Q30_PSTR_ALWAYS = 1, Q30_PSTR_HOLDUP = 2, Q30_PSTR_NOMARK = 4 };
+enum { Q30_QR_ITEMCOMBINE_NEW_PSTR = 259 };
+
+void q30_set_item_pickup(int item, long pickup, int mode, int pstring, int psflags)
+{
+    if(item < 0)
+    {
+        const Q30ItemPickup none = { 0, 0, 0, 0 };
+        g_item_pickup.assign(MAXITEMS, none);
+        return;
+    }
+
+    if(item >= MAXITEMS)
+        return;
+
+    Q30ItemPickup &p = g_item_pickup[item];
+    p.pickup = pickup;
+    p.mode = (byte)mode;
+    p.pstring = (word)pstring;
+    p.psflags = (word)psflags;
+}
+
+void q30_item_pickup_info(int item, long *pickup, int *mode, int *pstring, int *psflags)
+{
+    const Q30ItemPickup none = { 0, 0, 0, 0 };
+    const Q30ItemPickup &p = (item >= 0 && item < MAXITEMS) ? g_item_pickup[item] : none;
+    *pickup = p.pickup;
+    *mode = p.mode;
+    *pstring = p.pstring;
+    *psflags = p.psflags;
+}
+
+extern int (*q30_item_pickup_hook)(int item, int pickup);  // items.cpp
+static int item_pickup(int item, int pickup)
+{
+    if(!q30_active() || item < 0 || item >= MAXITEMS)
+        return pickup;
+
+    const Q30ItemPickup &p = g_item_pickup[item];
+
+    switch(p.mode)
+    {
+    case 1: return (int)p.pickup;
+    case 2: return pickup | (int)p.pickup;
+    case 3: return pickup & ~(int)p.pickup;
+    case 4: return pickup & (int)p.pickup;
+    }
+
+    return pickup;
+}
+
+namespace
+{
+struct InstallPickupHook
+{
+    InstallPickupHook() { q30_item_pickup_hook = item_pickup; }
+} install_pickup_hook;
+}
+
+static bool item_msg_played(int item)
+{
+    return item >= 0 && item < MAXITEMS && (g_item_msg_played[item / 32] & (1u << (item % 32)));
+}
+
+extern int q30_enqueued_str;   // guys.cpp
+
+bool q30_item_pickup_string(int sprite_item, int item, bool held, int shop_pstr)
+{
+    if(!q30_active() || item < 0 || item >= MAXITEMS)
+        return false;
+
+    // the string of the item as it lay (none for -1); an upgraded item's own with
+    // qr_ITEMCOMBINE_NEW_PSTR
+    int pstr = 0, flags = 0;
+
+    if(sprite_item >= 0 && sprite_item < MAXITEMS)
+    {
+        const Q30ItemPickup &p = g_item_pickup[(item != sprite_item && rule(Q30_QR_ITEMCOMBINE_NEW_PSTR)) ? item : sprite_item];
+        pstr = p.pstring;
+        flags = p.psflags;
+    }
+
+    const bool pstr_ok = pstr > 0 && pstr < msg_count;
+    const bool shop_ok = shop_pstr > 0 && shop_pstr < msg_count;
+
+    if(!pstr_ok && !shop_ok)
+        return false;
+
+    // flag 2: only when held up
+    if(pstr_ok && (held || !(flags & Q30_PSTR_HOLDUP))
+       && ((flags & (Q30_PSTR_ALWAYS | Q30_PSTR_NOMARK)) || !item_msg_played(item)))
+    {
+        if(!(flags & Q30_PSTR_NOMARK))
+        {
+            g_item_msg_played[item / 32] |= 1u << (item % 32);
+            states_mark();
+        }
+    }
+    else
+        pstr = 0;
+
+    if(getenv("ZC_EVENTLOG"))
+        al_trace("q30 pickup string: item %d string %d shop string %d (%s)\n", item, pstr, shop_ok ? shop_pstr : 0, held ? "held up" : "picked up");
+
+    if(shop_ok)
+    {
+        donewmsg(shop_pstr);
+        q30_enqueued_str = pstr;    // the item's own after the shop's
+        return true;
+    }
+
+    if(pstr)
+    {
+        donewmsg(pstr);
+        return true;
+    }
+
+    return false;
+}
+
+// shops' strings, one per item for sale (MISC v8+), kept for 2.55+ quests
+static word g_shop_str[256][3];
+
+void q30_set_shop_string(int shop, int slot, int str)
+{
+    if(shop < 0)
+        memset(g_shop_str, 0, sizeof(g_shop_str));
+    else if(shop < 256 && slot >= 0 && slot < 3)
+        g_shop_str[shop][slot] = (word)str;
+}
+
+int q30_shop_string(int shop, int slot)
+{
+    return (q30_active() && shop >= 0 && shop < 256 && slot >= 0 && slot < 3) ? g_shop_str[shop][slot] : 0;
+}
+
+void q30_item_pickup_secrets(int pickup)
+{
+    if(!q30_active() || !(pickup & Q30_IP_SECRETS))
+        return;
+
+    if(tmpscr[0].flags9 & 0x01)     // fITEMSECRETPERM
+        setmapflag(mSECRET);
+
+    if(getenv("ZC_EVENTLOG"))
+        al_trace("q30 pickup: the item triggers the screen's secrets%s\n", (tmpscr[0].flags9 & 0x01) ? " (for good)" : "");
+
+    hidden_entrance(0, true, false, -5);    // (-5: "by Items->Secret", as 2.55's log says)
+}
+
+int q30_item_secret_flag()
+{
+    return (q30_active() && (tmpscr[0].flags8 & 0x80)) ? Q30_IP_SECRETS : 0;     // fITEMSECRET
+}
+
+bool q30_item_returns()
+{
+    return q30_active() && (tmpscr[0].flags9 & 0x02) != 0;     // fITEMRETURN
+}
+
+bool q30_below_returns(int tmp)
+{
+    return q30_active() && tmp >= 0 && tmp < 2 && (tmpscr[tmp].flags9 & 0x04) != 0;     // fBELOWRETURN
+}
+
 // ---- the bug net (upstream wBugNet: HeroClass::positionNet and the melee item check) ---------
 // A swing of 24 frames (link.cpp runs it as Link's attack Q30W_BUGNET) that sweeps the net
 // through 8 places around Link, drawing the item's weapon sprite (one tile per place) and
@@ -9554,6 +9979,8 @@ static void net_catch()
         else if(pickup & ipONETIME2)
             setmapflag();
 
+        q30_item_pickup_secrets(pickup);
+
         if(fairy)
             q30_fill_bottle(itemsbuf[caught].misc4);
         else
@@ -9579,6 +10006,9 @@ static void net_catch()
             else if(w2->dragging > j)
                 w2->dragging -= 1;
         }
+
+        if(q30_item_pickup_string(caught, caught, false))
+            break;      // upstream stops at a shown string
 
         --j;
     }
@@ -10026,6 +10456,9 @@ static void sw_end()
 {
     sw_clear();
     Link.reset_hookshot();
+
+    if(getenv("ZC_EVENTLOG"))
+        al_trace("q30 switch hook: done, Link at %d,%d\n", int(Link.getX()), int(Link.getY()));
 }
 
 // One layer of a combo switch, at the half-way point.
@@ -10236,6 +10669,10 @@ static void sw_swap()
         Link.setY((target >> 4) * 16);
         Link.dir = oppositeDir[Link.dir & 7];
         g_sw.target = player;
+
+        if(getenv("ZC_EVENTLOG"))
+            al_trace("q30 switch hook: swapped combo %d with Link at %d,%d; Link now %d,%d\n", target, lx, ly,
+                     int(Link.getX()), int(Link.getY()));
     }
     else if(g_sw.enemy_uid)
     {
