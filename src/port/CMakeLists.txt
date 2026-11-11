@@ -87,6 +87,12 @@ if(ZC_PORT_SDL)
     set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
     set(SDL_VULKAN ON CACHE BOOL "" FORCE)
     add_subdirectory(${ZC_THIRD_PARTY}/SDL3 ${CMAKE_BINARY_DIR}/third_party/SDL3 EXCLUDE_FROM_ALL)
+    if(MSVC AND CMAKE_C_COMPILER_ARCHITECTURE_ID MATCHES "ARM64")
+        # The top-level directory builds Release with /fp:fast; SDL's NEON audio converters
+        # (ARM64 only) use #pragma fenv_access, which MSVC allows only with /fp:precise
+        # (error C3198). x86 and x64 keep their flags.
+        target_compile_options(SDL3-static PRIVATE "$<$<CONFIG:Release>:/fp:precise>")
+    endif()
 
     # Vulkan presentation
     # Dear ImGui (zplayer's menus and dialogs, src/port/ui): core + SDL3 input +

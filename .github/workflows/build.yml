@@ -157,7 +157,8 @@ jobs:
 
   macos:
     # One universal program (arm64 and x86_64) for Apple Silicon and Intel Macs, on Apple Silicon.
-    runs-on: macos-14
+    # (macos-14 has been retired.)
+    runs-on: macos-latest
     timeout-minutes: 90
     continue-on-error: true
     steps:
@@ -257,7 +258,10 @@ jobs:
 
   release:
     needs: [windows, android, linux, macos, switch]
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    # Runs even when a build failed: GitHub skips a job whose needs include a failed or cancelled
+    # job, continue-on-error or not. The publish step itself checks that every required download
+    # is there; an experimental build that failed is simply left out.
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -282,5 +286,12 @@ jobs:
             echo "$tag is already released; nothing to publish."
             exit 0
           fi
+          missing=0
+          for f in "ZCZQ-$version-Vulkan-Windows-x86.zip" "ZCZQ-$version-Vulkan-Windows-x64.zip" \
+                   "ZC-$version-Vulkan-Android.apk" "ZC-$version-Vulkan-Linux-x86_64.tar.gz" "ZC-$version-Vulkan-Switch.zip"; do
+            [ -f "dist/$f" ] || { echo "missing required download: $f"; missing=1; }
+          done
+          [ "$missing" = 0 ] || { echo "not publishing $tag"; exit 1; }
+          echo "publishing: $(ls dist | tr '\n' ' ')"
           git archive --format=zip --prefix="ZC-$version-Vulkan-Source/" -o "dist/ZC-$version-Vulkan-Source.zip" HEAD
           gh release create "$tag" dist/* --title "Zelda Classic $version Vulkan" --notes-file packaging/RELEASE_NOTES.md --target "$GITHUB_SHA"
