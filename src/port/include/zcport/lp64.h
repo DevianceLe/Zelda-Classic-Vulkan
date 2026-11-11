@@ -152,6 +152,14 @@ extern "C" void zcport_msvc_srand(unsigned int seed);
 #undef RAND_MAX
 #define RAND_MAX 0x7fff
 
+/* ---- Bison's parser (ZQuest's ZScript compiler) ------------------------- */
+/* Bison writes its size types as __PTRDIFF_TYPE__ / __SIZE_TYPE__, which the
+ * compiler spells "long int" / "long unsigned int": "int int" after the macro
+ * below. The typedefs, declared before it, keep their real width. */
+#define YYPTRDIFF_T ptrdiff_t
+#define YYPTRDIFF_MAXIMUM PTRDIFF_MAX
+#define YYSIZE_T size_t
+
 /* ---- 32-bit 'long' for the game code ------------------------------------ */
 #undef LONG_MAX
 #undef LONG_MIN

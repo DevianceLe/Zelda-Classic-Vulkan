@@ -10,7 +10,7 @@ Zelda Classic is a game engine and quest editor for making and playing custom ad
 | Program | What it is | Runs on |
 |---|---|---|
 | `zplayer` | The game. Plays 2.53, 2.55 and 3.0 Nightly quests. | Windows 10/11 (32-bit, 64-bit, ARM64\*), Linux (64-bit x86_64, ARM64\*), macOS 11+ (Apple Silicon and Intel\*), Nintendo Switch (homebrew), Android 8.0+ (in progress) |
-| `zqeditor` | ZQuest, the quest editor. Edits quests up to 2.53.1. | Windows 10/11 (32-bit, 64-bit, ARM64\*) |
+| `zqeditor` | ZQuest, the quest editor. Opens quests of every version, saves each in its own version, and saves older quests as 2.55.17 or 3.0 Nightly. | Windows 10/11 (32-bit, 64-bit, ARM64\*), Linux (64-bit x86_64, ARM64\*), macOS 11+ (Apple Silicon and Intel\*) |
 
 \* New and untested on real hardware: Windows on ARM, Linux on ARM and macOS are only built, on GitHub's build machines.
 

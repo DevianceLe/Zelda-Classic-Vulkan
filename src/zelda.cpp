@@ -693,10 +693,30 @@ void dismissmsg()
     set_clip_state(msgdisplaybuf, 1);
 }
 
+bool q30_compat_rule(int id);
+bool q30_quest_rule(int id);
+long q30_dmap_intro_string(int dmap);
+
 void dointro()
 {
+    if(getenv("ZC_Q30_SUBLOG"))     // diagnostics only
+        al_trace("q30 dointro: dmap %d visited %d old intros %d intro string %ld\n", (int)currdmap, (int)game->visited[currdmap],
+                 q30_compat_rule(561) ? 1 : 0, q30_dmap_intro_string(currdmap));
+
     if(game->visited[currdmap]!=1 || (DMaps[currdmap].flags&dmfALWAYSMSG)!=0 || emulation_patches[emu250DMAPINTOREPEAT])
     {
+        if(!q30_compat_rule(561))
+        {
+            // 2.55/3.0 without qr_OLD_DMAP_INTRO_STRINGS: the dmap's intro is a string, shown
+            // as any message (upstream's dointro); the old 72-character intro isn't used
+            introclk=intropos=72;
+            const long str = q30_dmap_intro_string(currdmap);
+            if(str > 0 && str < msg_count)
+                donewmsg((int)str);
+            game->visited[currdmap]=1;
+            return;
+        }
+
         dmapmsgclk=0;
         game->visited[currdmap]=1;
         introclk=intropos=0;
@@ -1592,7 +1612,8 @@ int init_game()
     COOLSCROLL = (get_bit(quest_rules,qr_COOLSCROLL)!=0 ? 1 : 0) |
                  (get_bit(quest_rules,qr_OVALWIPE)!=0 ? 2 : 0) |
                  (get_bit(quest_rules,qr_TRIANGLEWIPE)!=0 ? 4 : 0) |
-                 (get_bit(quest_rules,qr_SMASWIPE)!=0 ? 8 : 0);
+                 (get_bit(quest_rules,qr_SMASWIPE)!=0 ? 8 : 0) |
+                 (q30_quest_rule(187) ? 16 : 0);    // 2.55/3.0's qr_FADEBLACKWIPE (bosFADEBLACK)
     identifyCFEnemies();
                  
     //  NEWSUBSCR = get_bit(quest_rules,qr_NEWSUBSCR);
@@ -1973,6 +1994,12 @@ void restart_level()
 
 void putintro()
 {
+    if(!q30_compat_rule(561))   // the newer intros are strings (dointro)
+    {
+        introclk=intropos=72;
+        return;
+    }
+
     if(!stricmp("                                                                        ", DMaps[currdmap].intro))
     {
         introclk=intropos=72;

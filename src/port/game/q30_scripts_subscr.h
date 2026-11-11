@@ -30,16 +30,34 @@ enum
 
 struct Z30SubWidget
 {
-    int type, obj;          // obj: index in the subscreen's 2.53 objects, -1 if it has none
+    int type, obj;          // obj: index in its page's 2.53 objects, -1 if it has none
     std::string label;
     int posflags, x, y, w, h, pos;
     dword genflags, flags;
+    int pg_mode, pg_btns, pg_targ;  // its page change while selected (upstream SubscrWidget pg_*)
+    std::string seltext;            // its selected text override
+};
+
+// A page's button transition (upstream SubscrPageTransition; the animation isn't kept).
+struct Z30PageTrans
+{
+    int btns, mode, targ, flags;
 };
 
 struct Z30SubPage
 {
     std::vector<Z30SubWidget> widgets;
     int cursor_pos;
+    std::vector<Z30PageTrans> trans;
+    // Its 2.53 objects, kept so it can be swapped in; while it is the page shown they live in
+    // custom_subscreen[slot] (what the engine draws) and these are out of date. Texts are kept
+    // apart (a text object's dp1 is NULL here).
+    bool stored;
+    std::vector<subscreen_object> objs;
+    std::vector<std::string> texts;
+    // display conditions: obj_cond[object] is an index into conds, -1 (or past the end) for none
+    std::vector<Q30SubCond> conds;
+    std::vector<int> obj_cond;
 };
 
 struct Z30Subscreen
@@ -47,10 +65,14 @@ struct Z30Subscreen
     int slot;               // custom_subscreen[] index, -1 if not kept
     std::string name;
     std::vector<Z30SubPage> pages;
+    int btn_left, btn_right;    // page buttons (INT_BTN_* bits)
+    dword flags;                // upstream's SUBFLAG_ (0x1: no page wrap)
+    int curpage;                // the page in custom_subscreen[slot]
 };
 
 // active, passive, overlay, map: upstream's sstACTIVE..sstMAP
 static std::vector<Z30Subscreen> zasm30_subs[4];
+static bool z30_sub_any_cond = false;   // some widget has display conditions
 
 // ---- filled by the reader ----------------------------------------------------------------------
 
@@ -58,6 +80,41 @@ void q30_sub_clear()
 {
     for(int i = 0; i < 4; ++i)
         zasm30_subs[i].clear();
+
+    z30_sub_any_cond = false;
+}
+
+void q30_sub_widget_seltext(int list, const char *text)
+{
+    if(list < 0 || list >= 4 || zasm30_subs[list].empty() || zasm30_subs[list].back().pages.empty() ||
+       zasm30_subs[list].back().pages.back().widgets.empty())
+        return;
+
+    zasm30_subs[list].back().pages.back().widgets.back().seltext = text ? text : "";
+}
+
+void q30_sub_widget_cond(int list, int first, int end, const Q30SubCond &c)
+{
+    if(list < 0 || list >= 4 || zasm30_subs[list].empty() || zasm30_subs[list].back().pages.empty() || first < 0 || end <= first)
+        return;
+
+    Z30SubPage &p = zasm30_subs[list].back().pages.back();
+    p.conds.push_back(c);
+
+    if((int)p.obj_cond.size() < end)
+        p.obj_cond.resize(end, -1);
+
+    for(int i = first; i < end; ++i)
+        p.obj_cond[i] = (int)p.conds.size() - 1;
+
+    z30_sub_any_cond = true;
+
+    if(getenv("ZC_Q30_SUBLOG"))     // diagnostics only
+        al_trace("q30 subscreen cond: list %d sub %d page %d objects %d-%d: items %d/%d counter %d %d %d litems 0x%x floors %d levels %d dmaps %d maps %d screens %d scrstate %x/%x lvlstate %x genflags 0x%lx\n",
+                 list, (int)zasm30_subs[list].size() - 1, (int)zasm30_subs[list].back().pages.size() - 1, first, end - 1,
+                 (int)c.owned.size(), (int)c.unowned.size(), c.counter, c.counter_cond, c.counter_val, c.litems, (int)c.floors.size(),
+                 (int)c.levels.size(), (int)c.dmaps.size(), (int)c.maps.size(), (int)c.screens.size(), (unsigned)c.scrstate, (unsigned)c.exstate,
+                 (unsigned)c.lvlstate, (unsigned long)c.genflags);
 }
 
 void q30_sub_begin(int list, int slot, const char *name)
@@ -68,7 +125,104 @@ void q30_sub_begin(int list, int slot, const char *name)
     Z30Subscreen s;
     s.slot = slot;
     s.name = name ? name : "";
+    s.btn_left = s.btn_right = 0;
+    s.flags = 0;
+    s.curpage = 0;
     zasm30_subs[list].push_back(s);
+}
+
+void q30_sub_settings(int list, dword flags, int btn_left, int btn_right)
+{
+    if(list < 0 || list >= 4 || zasm30_subs[list].empty())
+        return;
+
+    Z30Subscreen &s = zasm30_subs[list].back();
+    s.flags = flags;
+    s.btn_left = btn_left;
+    s.btn_right = btn_right;
+
+    if(getenv("ZC_Q30_SUBLOG"))     // diagnostics only
+        al_trace("q30 subscreen: list %d sub %d (slot %d) page buttons left 0x%02x right 0x%02x flags 0x%x\n", list,
+                 (int)zasm30_subs[list].size() - 1, s.slot, btn_left, btn_right, (unsigned)flags);
+}
+
+static bool z30_sub_has_text(int sso);
+
+// Copies a page's objects out of an object array (text kept as strings).
+static void z30_store_objects(Z30SubPage &p, const subscreen_object *objs, int count)
+{
+    p.objs.clear();
+    p.texts.clear();
+
+    for(int i = 0; i < count && i < MAXSUBSCREENITEMS && objs[i].type != ssoNULL; ++i)
+    {
+        subscreen_object o = objs[i];
+        std::string t;
+
+        if(z30_sub_has_text(o.type))
+        {
+            if(o.dp1)
+                t = (const char *)o.dp1;
+            o.dp1 = NULL;
+        }
+
+        p.objs.push_back(o);
+        p.texts.push_back(t);
+    }
+
+    p.stored = true;
+}
+
+// Puts a kept page's objects into an object array, freeing the texts of what was there.
+static void z30_load_objects(const Z30SubPage &p, subscreen_object *objs)
+{
+    for(int i = 0; i < MAXSUBSCREENITEMS; ++i)
+    {
+        if(z30_sub_has_text(objs[i].type) && objs[i].dp1)
+            delete [] (char *)objs[i].dp1;
+        memset(&objs[i], 0, sizeof(subscreen_object));
+    }
+
+    for(size_t i = 0; i < p.objs.size() && i < MAXSUBSCREENITEMS; ++i)
+    {
+        objs[i] = p.objs[i];
+
+        if(z30_sub_has_text(objs[i].type))
+        {
+            char *c = new char[p.texts[i].size() + 1];
+            memcpy(c, p.texts[i].c_str(), p.texts[i].size() + 1);
+            objs[i].dp1 = c;
+        }
+    }
+
+    // an empty slot ends 2.53's search through the subscreens (q255_init.cpp put_sub_placeholder)
+    if(objs[0].type == ssoNULL)
+        objs[0].type = ssoNONE;
+}
+
+void q30_sub_page_objects(int list, const subscreen_object *objs, int count)
+{
+    if(list < 0 || list >= 4 || zasm30_subs[list].empty() || zasm30_subs[list].back().pages.empty())
+        return;
+
+    z30_store_objects(zasm30_subs[list].back().pages.back(), objs, count);
+}
+
+void q30_sub_page_trans(int list, int btns, int mode, int targ, int flags)
+{
+    if(list < 0 || list >= 4 || zasm30_subs[list].empty() || zasm30_subs[list].back().pages.empty())
+        return;
+
+    Z30PageTrans t;
+    t.btns = btns;
+    t.mode = mode;
+    t.targ = targ;
+    t.flags = flags;
+    zasm30_subs[list].back().pages.back().trans.push_back(t);
+
+    if(getenv("ZC_Q30_SUBLOG"))     // diagnostics only
+        al_trace("q30 subscreen: list %d sub %d page %d transition: buttons 0x%02x mode %d target %d flags 0x%x\n", list,
+                 (int)zasm30_subs[list].size() - 1, (int)zasm30_subs[list].back().pages.size() - 1, btns, mode, targ, flags);
 }
 
 void q30_sub_page(int list, int cursor_pos)
@@ -78,6 +232,7 @@ void q30_sub_page(int list, int cursor_pos)
 
     Z30SubPage p;
     p.cursor_pos = cursor_pos;
+    p.stored = false;
     zasm30_subs[list].back().pages.push_back(p);
 
     // ZC_Q30_SUBLOG: each subscreen page the quest has (diagnostics only)
@@ -87,7 +242,7 @@ void q30_sub_page(int list, int cursor_pos)
 }
 
 void q30_sub_widget(int list, int type, const char *label, int obj, int posflags, int x, int y, int w, int h,
-                    int pos, dword genflags, dword flags)
+                    int pos, dword genflags, dword flags, int pg_mode, int pg_btns, int pg_targ)
 {
     if(list < 0 || list >= 4 || zasm30_subs[list].empty() || zasm30_subs[list].back().pages.empty())
         return;
@@ -104,7 +259,15 @@ void q30_sub_widget(int list, int type, const char *label, int obj, int posflags
     wd.pos = pos;
     wd.genflags = genflags;
     wd.flags = flags;
+    wd.pg_mode = pg_mode;
+    wd.pg_btns = pg_btns;
+    wd.pg_targ = pg_targ;
     zasm30_subs[list].back().pages.back().widgets.push_back(wd);
+
+    if(pg_mode && getenv("ZC_Q30_SUBLOG"))     // diagnostics only
+        al_trace("q30 subscreen: list %d sub %d page %d widget %d (pos %d): page buttons 0x%02x mode %d target %d\n", list,
+                 (int)zasm30_subs[list].size() - 1, (int)zasm30_subs[list].back().pages.size() - 1,
+                 (int)zasm30_subs[list].back().pages.back().widgets.size() - 1, pos, pg_btns, pg_mode, pg_targ);
 }
 
 // ---- references ------------------------------------------------------------------------------
@@ -189,7 +352,13 @@ static Z30SubWidget *z30_subwidg(long ref, subscreen_object **obj = NULL)
     Z30SubWidget *w = &p->widgets[ind];
 
     if(obj && w->obj >= 0 && s->slot >= 0 && s->slot < MAXCUSTOMSUBSCREENS && w->obj < MAXSUBSCREENITEMS)
-        *obj = &custom_subscreen[s->slot].objects[w->obj];
+    {
+        // the page shown is in custom_subscreen[]; another page's objects are kept apart
+        if(pg == s->curpage)
+            *obj = &custom_subscreen[s->slot].objects[w->obj];
+        else if(p->stored && w->obj < (int)p->objs.size())
+            *obj = &p->objs[w->obj];
+    }
 
     // ZC_Q30_SUBLOG: which widget each reference reaches, once each (diagnostics only)
     static const bool log = getenv("ZC_Q30_SUBLOG") != NULL;
@@ -205,6 +374,435 @@ static Z30SubWidget *z30_subwidg(long ref, subscreen_object **obj = NULL)
 static bool z30_sub_has_text(int sso)
 {
     return sso == ssoTEXT || sso == ssoTEXTBOX || sso == ssoCURRENTITEMTEXT || sso == ssoCURRENTITEMCLASSTEXT;
+}
+
+// ---- display conditions (upstream SubscrWidget::check_conditions) -----------------------------
+
+bool q30_get_exstate(int mi, int bit);      // q30_triggers.cpp
+dword q30_level_switches(int level);
+
+// upstream's get_ssc_ctr / get_ssc_ctrmax, for the counters 2.53 has (crNONE -1; the negative
+// ones are its sscBTNCTR*, key and max life/magic counters; a button's cost counter reads 0)
+static double z30_cond_counter(int ctr, bool max)
+{
+    enum { GENKEYMAGIC = -9, GENKEYNOMAGIC, LEVKEYMAGIC, LEVKEYNOMAGIC, ANYKEYMAGIC, ANYKEYNOMAGIC, MAXHP, MAXMP };
+    enum { crMONEY = 1, crBOMBS = 2, crARROWS = 3, crSBOMBS = 6, COUNTERS = 32 };   // 2.53's counter numbers
+
+    if(ctr == -1 || ctr <= -10 || ctr >= COUNTERS)
+        return 0;
+
+    if(ctr == crARROWS && !get_bit(quest_rules, qr_TRUEARROWS) && max)
+        ctr = crMONEY;
+
+    if(ctr == MAXHP)
+        return game->get_maxlife();
+
+    if(ctr == MAXMP)
+        return game->get_maxmagic();
+
+    if(max)
+        return ctr >= 0 ? game->get_maxcounter(ctr) : 65535;
+
+    bool inf = false;
+    long ret = 0;
+
+    switch(ctr)
+    {
+    case crMONEY:
+        inf = current_item_power(itype_wallet) != 0;
+        break;
+
+    case crBOMBS:
+        inf = current_item_power(itype_bombbag) != 0;
+        break;
+
+    case crSBOMBS:
+    {
+        const int id = current_item_id(itype_bombbag);
+        inf = id >= 0 && itemsbuf[id].power > 0 && (itemsbuf[id].flags & ITEM_FLAG1);
+        break;
+    }
+
+    case crARROWS:
+        inf = current_item_power(itype_quiver) != 0;
+        if(!get_bit(quest_rules, qr_TRUEARROWS))
+        {
+            inf = inf || current_item_power(itype_wallet) != 0;
+            ctr = crMONEY;
+        }
+        break;
+
+    case GENKEYMAGIC: case LEVKEYMAGIC: case ANYKEYMAGIC:
+    case GENKEYNOMAGIC: case LEVKEYNOMAGIC: case ANYKEYNOMAGIC:
+    {
+        if(ctr == GENKEYMAGIC || ctr == LEVKEYMAGIC || ctr == ANYKEYMAGIC)
+        {
+            const int id = current_item_id(itype_magickey);
+            if(id >= 0)
+                inf = (itemsbuf[id].flags & ITEM_FLAG1) ? itemsbuf[id].power >= get_dlevel() : itemsbuf[id].power == get_dlevel();
+        }
+
+        if(ctr == GENKEYNOMAGIC || ctr == ANYKEYNOMAGIC || ctr == GENKEYMAGIC || ctr == ANYKEYMAGIC)
+            ret += game->get_keys();
+
+        if(ctr == LEVKEYNOMAGIC || ctr == ANYKEYNOMAGIC || ctr == LEVKEYMAGIC || ctr == ANYKEYMAGIC)
+            ret += game->get_lkeys();
+
+        break;
+    }
+    }
+
+    if(ctr >= 0)
+        return inf ? game->get_maxcounter(ctr) : game->get_counter(ctr);
+
+    return inf ? 65535 : zc_min(65535L, ret);
+}
+
+static bool z30_in(const std::vector<int> &set, int v)
+{
+    return set.empty() || std::find(set.begin(), set.end(), v) != set.end();
+}
+
+static bool z30_cond_ok(const Q30SubCond &c)
+{
+    enum
+    {
+        REQ_COUNTER_MAX = 0x8, REQ_COUNTER_PERC = 0x10, REQ_INVERT_LITEM = 0x20, REQ_INVERT_SCRSTATE = 0x80,
+        REQ_ANY_ITEM = 0x100, REQ_ANY_LITEM = 0x200, REQ_ANY_SCRSTATE = 0x400, REQ_INVERT_LSTATE = 0x800, REQ_ANY_LSTATE = 0x1000
+    };
+    const dword gf = c.genflags;
+
+    // items (upstream also checks the bunny form, which this engine doesn't have)
+    bool pass = !(gf & REQ_ANY_ITEM);
+    for(size_t i = 0; i < c.owned.size(); ++i)
+    {
+        const int id = c.owned[i];
+        const bool have = id >= 0 && id < MAXITEMS && game->get_item(id) && !item_disabled(id);
+        if(gf & REQ_ANY_ITEM)
+        {
+            if(have)
+            {
+                pass = true;
+                break;
+            }
+        }
+        else if(!have)
+            return false;
+    }
+    if(!pass)
+        return false;
+
+    for(size_t i = 0; i < c.unowned.size(); ++i)
+    {
+        const int id = c.unowned[i];
+        if(id >= 0 && id < MAXITEMS && game->get_item(id) && !item_disabled(id))
+            return false;
+    }
+
+    const int dm = get_currdmap();
+    const int target_screen = currscr >= 0x80 ? homescr : currscr;
+
+    if(!z30_in(c.floors, q30_dmap_floor(dm)) || !z30_in(c.levels, DMaps[dm].level) || !z30_in(c.dmaps, dm) ||
+       !z30_in(c.maps, currmap + 1) || !z30_in(c.screens, target_screen))
+        return false;
+
+    if(c.counter != -1 && c.counter_cond > 0)
+    {
+        double val = z30_cond_counter(c.counter, (gf & REQ_COUNTER_MAX) != 0);
+        if(gf & REQ_COUNTER_PERC)
+        {
+            const double mx = z30_cond_counter(c.counter, true);
+            val = mx ? (val / mx) * 100.0 : 0;
+        }
+        const double t = c.counter_val;
+        bool ok = true;
+        switch(c.counter_cond)
+        {
+        case 1: ok = val == t; break;   // CONDTY_EQ
+        case 2: ok = val != t; break;   // NEQ
+        case 3: ok = val > t; break;    // GREATER
+        case 4: ok = val >= t; break;   // GREATEREQ
+        case 5: ok = val < t; break;    // LESS
+        case 6: ok = val <= t; break;   // LESSEQ
+        }
+        if(!ok)
+            return false;
+    }
+
+    if(c.litems)
+    {
+        const int lvl = c.litem_level < 0 ? get_dlevel() : c.litem_level;
+        if(lvl >= 0 && lvl < MAXLEVELS)
+        {
+            const bool inv = (gf & REQ_INVERT_LITEM) != 0;
+            const int have = game->lvlitems[lvl] & c.litems;
+            if(gf & REQ_ANY_LITEM)
+            {
+                if(inv ? have == c.litems : have == 0)
+                    return false;
+            }
+            else if(inv ? have != 0 : have != c.litems)
+                return false;
+        }
+    }
+
+    if((c.scrstate_map || c.scrstate_scr < 0) && (c.scrstate || c.exstate))
+    {
+        const int m = c.scrstate_scr < 0 ? currmap : c.scrstate_map - 1;
+        const int sc = c.scrstate_scr < 0 ? target_screen : c.scrstate_scr;
+        if(m >= 0 && m < map_count && sc >= 0 && sc < MAPSCRSNORMAL)
+        {
+            const int mi = m * MAPSCRSNORMAL + sc;
+            const dword sstate = game->maps[mi] & c.scrstate;
+            dword ex = 0;
+            for(int b = 0; b < 32; ++b)
+                if((c.exstate >> b) & 1)
+                    ex |= q30_get_exstate(mi, b) ? (1u << b) : 0;
+            const bool inv = (gf & REQ_INVERT_SCRSTATE) != 0;
+            if(gf & REQ_ANY_SCRSTATE)
+            {
+                if(inv ? (sstate == c.scrstate && ex == c.exstate) : !(sstate || ex))
+                    return false;
+            }
+            else if(inv ? (sstate || ex) : (sstate != c.scrstate || ex != c.exstate))
+                return false;
+        }
+    }
+
+    if(c.lvlstate)
+    {
+        const int lvl = c.lstate_level < 0 ? dlevel : c.lstate_level;
+        if(lvl >= 0 && lvl < MAXLEVELS)
+        {
+            const bool inv = (gf & REQ_INVERT_LSTATE) != 0;
+            const dword have = q30_level_switches(lvl) & c.lvlstate;
+            if(gf & REQ_ANY_LSTATE)
+            {
+                if(inv ? have == c.lvlstate : have == 0)
+                    return false;
+            }
+            else if(inv ? have != 0 : have != c.lvlstate)
+                return false;
+        }
+    }
+
+    return true;
+}
+
+// The 2.53 drawing and the subscreen cursor (subscr.cpp, link.cpp): whether object i of a
+// subscreen is shown, by its widget's display conditions. Always true for older quests.
+bool q30_sub_object_shown(const subscreen_group *g, int i)
+{
+    if(!z30_sub_any_cond || !g || i < 0 || !q30_active())
+        return true;
+
+    for(int l = 0; l < 4; ++l)
+    {
+        for(size_t k = 0; k < zasm30_subs[l].size(); ++k)
+        {
+            const Z30Subscreen &s = zasm30_subs[l][k];
+
+            if(s.slot < 0 || s.slot >= MAXCUSTOMSUBSCREENS || &custom_subscreen[s.slot] != g)
+                continue;
+
+            if(s.curpage < 0 || s.curpage >= (int)s.pages.size())
+                return true;
+
+            const Z30SubPage &p = s.pages[s.curpage];
+
+            if(i >= (int)p.obj_cond.size() || p.obj_cond[i] < 0 || p.obj_cond[i] >= (int)p.conds.size())
+                return true;
+
+            return z30_cond_ok(p.conds[p.obj_cond[i]]);
+        }
+    }
+
+    return true;
+}
+
+// The selected text widget (subscr.cpp): the text the selected widget at pos gives in place of
+// an item's name (upstream SW_SelectedText), NULL for none.
+const char *q30_sub_selected_text(const subscreen_group *g, int pos)
+{
+    if(!g || !q30_active())
+        return NULL;
+
+    for(int l = 0; l < 4; ++l)
+    {
+        for(size_t k = 0; k < zasm30_subs[l].size(); ++k)
+        {
+            const Z30Subscreen &s = zasm30_subs[l][k];
+
+            if(s.slot < 0 || s.slot >= MAXCUSTOMSUBSCREENS || &custom_subscreen[s.slot] != g)
+                continue;
+
+            if(s.curpage < 0 || s.curpage >= (int)s.pages.size())
+                return NULL;
+
+            const Z30SubPage &p = s.pages[s.curpage];
+
+            for(size_t i = 0; i < p.widgets.size(); ++i)
+                if((p.widgets[i].genflags & 1) && p.widgets[i].pos == pos)     // SUBSCRFLAG_SELECTABLE
+                    return p.widgets[i].seltext.empty() ? NULL : p.widgets[i].seltext.c_str();
+
+            return NULL;
+        }
+    }
+
+    return NULL;
+}
+
+// ---- page changes (upstream ZCSubscreen::check_btns, page_change, wrap_pg) ---------------------
+// Instant: the page transitions' animations aren't drawn.
+
+bool q30_passive_on_top();      // q255_basic.cpp: a 2.55/3.0 quest with the newer subscreens
+
+bool q30_subscreen_lr_are_buttons()
+{
+    return q30_active() && q30_passive_on_top();
+}
+
+// The active (or map) subscreen being shown, if it is a 2.55/3.0 one.
+static Z30Subscreen *z30_shown_active()
+{
+    static const int lists[2] = { 0, 3 };
+
+    for(int l = 0; l < 2; ++l)
+    {
+        for(size_t i = 0; i < zasm30_subs[lists[l]].size(); ++i)
+        {
+            Z30Subscreen &s = zasm30_subs[lists[l]][i];
+
+            if(s.slot >= 0 && s.slot < MAXCUSTOMSUBSCREENS && &custom_subscreen[s.slot] == current_subscreen_active)
+                return &s;
+        }
+    }
+
+    return NULL;
+}
+
+// mode: upstream's PGGOTO_NEXT 1, PREV 2, TRG 3 (CURRENT 4 changes nothing). The page shown goes
+// back to its kept copy (with its cursor), the new one into custom_subscreen[].
+static bool z30_page_change(Z30Subscreen &s, int mode, int targ, bool nowrap, int &pos)
+{
+    const int n = (int)s.pages.size();
+    int pg = s.curpage;
+
+    switch(mode)
+    {
+    case 1: ++pg; break;
+    case 2: --pg; break;
+    case 3:
+        if(targ >= 0 && targ < n)
+            pg = targ;
+        break;
+    default:
+        return false;
+    }
+
+    if(pg < 0)
+    {
+        if(nowrap)
+            return false;
+        pg = n - 1;
+    }
+    else if(pg >= n)
+    {
+        if(nowrap)
+            return false;
+        pg = 0;
+    }
+
+    if(pg == s.curpage || s.slot < 0 || !s.pages[pg].stored)
+        return false;
+
+    subscreen_object *objs = custom_subscreen[s.slot].objects;
+    s.pages[s.curpage].cursor_pos = pos;
+    z30_store_objects(s.pages[s.curpage], objs, MAXSUBSCREENITEMS);
+    z30_load_objects(s.pages[pg], objs);
+    s.curpage = pg;
+    pos = s.pages[pg].cursor_pos;
+
+    if(getenv("ZC_Q30_SUBLOG"))
+        al_trace("q30 subscreen: page %d of %d, cursor %d\n", pg, n, pos);
+
+    return true;
+}
+
+// As upstream's subscreen loop: the selected widget's page buttons, then the page's transitions
+// (each taking its buttons), then the subscreen's left and right page buttons.
+void q30_subscreen_pages(int btns, int &pos)
+{
+    if(!btns || !q30_active())
+        return;
+
+    Z30Subscreen *s = z30_shown_active();
+
+    if(getenv("ZC_Q30_SUBLOG"))     // diagnostics only
+        al_trace("q30 subscreen buttons 0x%02x: shown %s, %d pages, page %d, cursor %d\n", btns, s ? s->name.c_str() : "(not a 2.55/3.0 one)",
+                 s ? (int)s->pages.size() : 0, s ? s->curpage : -1, pos);
+
+    if(!s || s->pages.size() < 2 || s->curpage < 0 || s->curpage >= (int)s->pages.size())
+        return;
+
+    const int start = s->curpage;
+    const Z30SubPage &cur = s->pages[start];
+
+    for(size_t i = 0; i < cur.widgets.size(); ++i)
+    {
+        const Z30SubWidget &w = cur.widgets[i];
+
+        if(w.pos == pos && w.pg_mode && (btns & w.pg_btns))
+        {
+            z30_page_change(*s, w.pg_mode, w.pg_targ, (w.genflags & 0x2) != 0, pos);   // SUBSCRFLAG_PGGOTO_NOWRAP
+            break;
+        }
+    }
+
+    if(s->curpage != start)
+        return;
+
+    for(size_t i = 0; i < s->pages[start].trans.size() && s->curpage == start; ++i)
+    {
+        const Z30PageTrans t = s->pages[start].trans[i];
+
+        if(t.mode && (btns & t.btns))
+        {
+            btns &= ~t.btns;
+            z30_page_change(*s, t.mode, t.targ, (t.flags & 0x1) != 0, pos);         // SUBSCR_PAGE_TRANSITION_NOWRAP
+        }
+    }
+
+    if(s->curpage != start)
+        return;
+
+    if(btns & s->btn_right)
+        z30_page_change(*s, 1, 0, (s->flags & 0x1) != 0, pos);                      // SUBFLAG_ACT_NOPAGEWRAP
+    else if(btns & s->btn_left)
+        z30_page_change(*s, 2, 0, (s->flags & 0x1) != 0, pos);
+}
+
+// Upstream keeps each page's cursor while the subscreen is closed (and only goes back to the
+// first page with qr_OLD_SUBSCR); the first page keeps 2.53's cursor from the equipped item.
+void q30_subscreen_cursor(bool open, int &pos)
+{
+    if(!q30_active())
+        return;
+
+    Z30Subscreen *s = z30_shown_active();
+
+    if(!s || s->curpage < 0 || s->curpage >= (int)s->pages.size())
+        return;
+
+    if(!open)
+        s->pages[s->curpage].cursor_pos = pos;
+    else if(s->curpage != 0 && !q30_subscreen_lr_are_buttons())
+    {
+        int keep = pos;     // qr_OLD_SUBSCR: back to the first page, cursor as 2.53 set it
+        z30_page_change(*s, 3, 0, true, keep);
+    }
+    else if(s->curpage != 0)
+        pos = s->pages[s->curpage].cursor_pos;
 }
 
 // ---- overlay and map subscreens ---------------------------------------------------------------
@@ -589,8 +1187,12 @@ static bool zasm30_sub_get(const long arg, long &ret)
             ret = z30_subref(sub, ty, Z30_INDEX, 0);
         return true;
     }
-    // Only the first page is ever shown here, and pages never change by themselves.
-    case Z30R_SUBDATACURPG: ret = 0; return true;
+    case Z30R_SUBDATACURPG:
+    {
+        Z30Subscreen *s = z30_subdata(Z30_REF(SUBSCREENDATA));
+        ret = s ? s->curpage * 10000 : 0;
+        return true;
+    }
     case Z30R_SUBDATATRANSCLK: ret = -10000; return true;
     case Z30R_SUBDATATRANSFROMPG:
     case Z30R_SUBDATATRANSTOPG:
@@ -602,7 +1204,7 @@ static bool zasm30_sub_get(const long arg, long &ret)
         Z30Subscreen *s = z30_subdata(Z30_REF(SUBSCREENDATA));
         ret = 0;
         if(s && !s->pages.empty())
-            ret = (s->slot >= 0 && &custom_subscreen[s->slot] == current_subscreen_active ? Bpos : s->pages[0].cursor_pos) * 10000;
+            ret = (s->slot >= 0 && &custom_subscreen[s->slot] == current_subscreen_active ? Bpos : s->pages[s->curpage].cursor_pos) * 10000;
         return true;
     }
 
@@ -808,9 +1410,18 @@ static bool zasm30_sub_set(const long arg, const long value)
     switch(arg)
     {
     case Z30R_SUBDATACURPG:
-        if(value / 10000 != 0)
-            z30_sub_unported(arg, true);    // only the first page is ever drawn here
+    {
+        // Upstream: active and map subscreens only, bound to the pages there are.
+        int sub, ty, pg, ind;
+        Z30Subscreen *s = z30_subdata(Z30_REF(SUBSCREENDATA));
+        if(!s || s->pages.empty() || !z30_from_subref(Z30_REF(SUBSCREENDATA), sub, ty, pg, ind) || (ty != 0 && ty != 3))
+            return true;
+        const bool shown = s->slot >= 0 && &custom_subscreen[s->slot] == current_subscreen_active;
+        int pos = shown ? Bpos : s->pages[s->curpage].cursor_pos;
+        if(z30_page_change(*s, 3, vbound(value / 10000, 0, (int)s->pages.size() - 1), true, pos) && shown)
+            Bpos = pos;
         return true;
+    }
     case Z30R_SUBDATATRANSCLK:
     case Z30R_SUBDATATRANSFROMPG:
     case Z30R_SUBDATATRANSTOPG:
@@ -822,13 +1433,15 @@ static bool zasm30_sub_set(const long arg, const long value)
         const bool page = arg == Z30R_SUBPGCURSORPOS;
         int sub, ty, pg = 0, ind;
         Z30Subscreen *s = z30_subdata(page ? Z30_REF(SUBSCREENPAGE) : Z30_REF(SUBSCREENDATA));
-        Z30SubPage *p = page ? z30_subpage(Z30_REF(SUBSCREENPAGE)) : (s && !s->pages.empty() ? &s->pages[0] : NULL);
+        Z30SubPage *p = page ? z30_subpage(Z30_REF(SUBSCREENPAGE)) : (s && !s->pages.empty() ? &s->pages[s->curpage] : NULL);
         if(page)
             z30_from_subref(Z30_REF(SUBSCREENPAGE), sub, ty, pg, ind);
+        else if(s)
+            pg = s->curpage;
         if(!p)
             return true;
         p->cursor_pos = vbound(value / 10000, 0, 255);
-        if(pg == 0 && s->slot >= 0 && &custom_subscreen[s->slot] == current_subscreen_active)
+        if(pg == s->curpage && s->slot >= 0 && &custom_subscreen[s->slot] == current_subscreen_active)
             Bpos = p->cursor_pos;
         return true;
     }

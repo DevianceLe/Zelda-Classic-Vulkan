@@ -1,11 +1,14 @@
 ZC Vulkan 2.53.444.6-PRE
 Linux, 64-bit
 
-The Zelda Classic player, ported to SDL3 and Vulkan, with no Allegro. It plays
-2.53 quests and quests made in 2.55 and the 3.0 Nightly builds. ZQuest, the
-quest editor, is Windows only for now.
+The Zelda Classic player and the ZQuest quest editor, ported to SDL3 and
+Vulkan, with no Allegro. The player plays 2.53 quests and quests made in 2.55
+and the 3.0 Nightly builds. ZQuest opens quests of every version, saves each in
+the version it was made in, and can save older quests as 2.55.17 or 3.0
+Nightly. ZQuest on Linux is new: keep backups of your quests.
 
   zplayer    the game
+  zqeditor   ZQuest, the quest editor
 
 What you need
   A 64-bit Linux with glibc 2.30 or newer, which covers nearly every current
@@ -16,10 +19,12 @@ What you need
     Arch:            sudo pacman -S vulkan-icd-loader, plus your card's driver
 
 Running it
-  Unpack this folder somewhere you can write to, then run ./zplayer from inside
-  it. To play a quest directly:
+  Unpack this folder somewhere you can write to, then run ./zplayer (or
+  ./zqeditor to edit quests) from inside it. To play a quest directly:
 
     ./zplayer -windowed -standalone "My Quest.qst"
+
+  JPEG images can't be imported into ZQuest on Linux yet (PNG and BMP can).
 
   Put a quest's music next to the .qst file or in a Music folder beside it.
 

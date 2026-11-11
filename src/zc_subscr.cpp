@@ -17,6 +17,7 @@
 #include <string.h>
 
 #include "zelda.h"
+#include "zc_sys.h"
 #include "subscr.h"
 #include "zc_subscr.h"
 #include "link.h"
@@ -163,7 +164,9 @@ void dosubscr(miscQdata *misc)
     }
     else
         Bpos = zc_max(game->bwpn,0);
-        
+
+    q30_subscreen_cursor(true, Bpos);   // 2.55/3.0: a page other than the first keeps its cursor
+
     for(int y=176-2; y>=6; y-=3)
     {
         do_dcounters();
@@ -190,24 +193,41 @@ void dosubscr(miscQdata *misc)
     }
     
     bool done=false;
-    
+    int q30_held = 0xFF;    // buttons held as the subscreen opens don't count as pressed
+
     do
     {
         load_control_state();
         int pos = Bpos;
-        
-        if(rUp())         Bpos = selectWpn_new(SEL_UP, pos);
-        else if(rDown())  Bpos = selectWpn_new(SEL_DOWN, pos);
-        else if(rLeft())  Bpos = selectWpn_new(SEL_LEFT, pos);
-        else if(rRight()) Bpos = selectWpn_new(SEL_RIGHT, pos);
-        else if(rLbtn())  Bpos = selectWpn_new(SEL_LEFT, pos);
-        else if(rRbtn())  Bpos = selectWpn_new(SEL_RIGHT, pos);
-        
+
+        // 2.55 and 3.0 quests: the buttons pressed this frame (not held from before), for page
+        // changes, seen before anything below takes them (upstream's getIntBtnInput); and with
+        // the newer subscreens L and R are page buttons, not selector moves (upstream moves with
+        // them only with qr_OLD_SUBSCR).
+        const bool q30_lr = q30_subscreen_lr_are_buttons();
+        const int q30_now = !q30_active() ? 0 :
+            (cAbtn() ? 0x01 : 0) | (cBbtn() ? 0x02 : 0) | (cLbtn() ? 0x04 : 0) | (cRbtn() ? 0x08 : 0) |
+            (cEx1btn() ? 0x10 : 0) | (cEx2btn() ? 0x20 : 0) | (cEx3btn() ? 0x40 : 0) | (cEx4btn() ? 0x80 : 0);
+        const int q30_btns = q30_now & ~q30_held;
+        q30_held = q30_now;
+
+        // (2.55/3.0 with qr_FREEFORM_SUBSCREEN_CURSOR: the cursor stops on any selectable widget)
+        const bool q30_free = q30_active() && q30_quest_rule(416);
+        if(rUp())         Bpos = selectWpn_new(SEL_UP, pos, -1, q30_free);
+        else if(rDown())  Bpos = selectWpn_new(SEL_DOWN, pos, -1, q30_free);
+        else if(rLeft())  Bpos = selectWpn_new(SEL_LEFT, pos, -1, q30_free);
+        else if(rRight()) Bpos = selectWpn_new(SEL_RIGHT, pos, -1, q30_free);
+        else if(!q30_lr && rLbtn())  Bpos = selectWpn_new(SEL_LEFT, pos);
+        else if(!q30_lr && rRbtn())  Bpos = selectWpn_new(SEL_RIGHT, pos);
+
         const bool q30_x = q30_use_x_button(), q30_y = q30_use_y_button();
+
+        // 2.55/3.0, as upstream: a press where the cursor has no item (a page arrow) equips nothing
+        const bool q30_no_item = q30_active() && !Bweapon(Bpos);
 
         if(get_bit(quest_rules,qr_SELECTAWPN) || q30_x || q30_y)
         {
-            if(rBbtn())
+            if(rBbtn() && !q30_no_item)
             {
                 q30_trade_extra_buttons(Bweapon(Bpos), Bwpn, game->bwpn, directItemB);
 
@@ -232,7 +252,7 @@ void dosubscr(miscQdata *misc)
             {
                 q30_equip_extra_button(false);
             }
-            else if(get_bit(quest_rules,qr_SELECTAWPN) && rAbtn())
+            else if(get_bit(quest_rules,qr_SELECTAWPN) && rAbtn() && !q30_no_item)
             {
                 q30_trade_extra_buttons(Bweapon(Bpos), Awpn, game->awpn, directItemA);
 
@@ -249,8 +269,10 @@ void dosubscr(miscQdata *misc)
                 directItemA = directItem;
             }
         }
-        else
+        else if(!q30_no_item)
         {
+            // (2.55/3.0, as upstream: only an item under the cursor is equipped, so a page
+            // without one, like a map page, leaves B as it was)
             Bwpn = Bweapon(Bpos);
             game->bwpn = Bpos;
             directItemB = directItem;
@@ -258,10 +280,13 @@ void dosubscr(miscQdata *misc)
         
         if(pos!=Bpos)
             sfx(WAV_CHIME);
-            
+
+        if(q30_btns)
+            q30_subscreen_pages(q30_btns, Bpos);
+
         do_dcounters();
         Link.refill();
-        
+
         //put_passive_subscr(framebuf,misc,0,174-miny,showtime,true);
         //blit(scrollbuf,framebuf,0,6,0,6-miny,256,168);
         //put_active_subscr(misc,miny,true);
@@ -296,7 +321,9 @@ void dosubscr(miscQdata *misc)
             done=true;
     }
     while(!done);
-    
+
+    q30_subscreen_cursor(false, Bpos);
+
     for(int y=6; y<=174; y+=3)
     {
         do_dcounters();

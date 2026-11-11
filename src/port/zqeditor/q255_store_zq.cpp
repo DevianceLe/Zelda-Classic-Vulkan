@@ -335,6 +335,9 @@ void q30_set_dmap_subscreens(int dmap, int overlay, int map)
     zq255.dmap_subscreens[dmap] = std::make_pair(overlay, map);
 }
 
+void q30_set_dmap_texts(int, const char *, long) {}     // the player's (titles and intros as drawn)
+void q30_set_dmap_floor(int, int) {}                    // the player's (subscreen conditions)
+
 void q30_clear_generic_init() { zq255.generic_init.clear(); }
 
 void q30_set_generic_init(int slot, bool run, word exit_state, word reload_state, dword event_state,
@@ -387,8 +390,15 @@ void q30_sub_page(int list, int cursor_pos)
     (void)list;
 }
 
+// Page changes are the player's: ZQuest's writers keep a subscreen's own bytes.
+void q30_sub_settings(int, dword, int, int) {}
+void q30_sub_page_trans(int, int, int, int, int) {}
+void q30_sub_page_objects(int, const subscreen_object *, int) {}
+void q30_sub_widget_cond(int, int, int, const Q30SubCond &) {}     // the player's
+void q30_sub_widget_seltext(int, const char *) {}                   // the player's
+
 void q30_sub_widget(int list, int type, const char *label, int obj, int posflags, int x, int y, int w, int h,
-                    int pos, dword genflags, dword flags)
+                    int pos, dword genflags, dword flags, int, int, int)
 {
     if(zq255.subscreens.empty())
         return;

@@ -17,6 +17,7 @@
 // encoded again.
 
 #include "precompiled.h" //always first
+#include <stdint.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -124,7 +125,7 @@ int put_part(PACKFILE *f, dword id, const std::vector<byte> &orig, const Out &bo
     if(orig.size() < 8)
         return ERR_READ;
 
-    long long size = (long long)le32(orig, 4) + (long long)body.b.size() - (long long)(orig.size() - 8);
+    int64_t size = (int64_t)le32(orig, 4) + (int64_t)body.b.size() - (int64_t)(orig.size() - 8);
     Out head;
     head.pn(&orig[0], 4);
     head.p32((dword)size);
@@ -138,9 +139,9 @@ int put_part(PACKFILE *f, dword id, const std::vector<byte> &orig, const Out &bo
     return ZQW_OK;
 }
 
-unsigned long long fnv(const std::vector<byte> &b)
+uint64_t fnv(const std::vector<byte> &b)
 {
-    unsigned long long h = 14695981039346656037ULL;
+    uint64_t h = 14695981039346656037ULL;
 
     for(size_t i = 0; i < b.size(); ++i)
     {
@@ -272,6 +273,8 @@ int mf_ungetc(int c, void *u)
     ((MemFile *)u)->ungot = c;
     return c;
 }
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long mf_fread(void *p, long n, void *u)
 {
     byte *out = (byte *)p;
@@ -289,8 +292,12 @@ long mf_fread(void *p, long n, void *u)
 
     return done;
 }
+#pragma pop_macro("long")
 int mf_putc(int, void *) { return EOF; }
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long mf_fwrite(const void *, long, void *) { return 0; }
+#pragma pop_macro("long")
 int mf_fseek(void *u, int offset)
 {
     MemFile *m = (MemFile *)u;
@@ -1160,14 +1167,14 @@ void screen_bytes_253(Out &o, const mapscr &m)
     write_screen_old(o, 0x250, 31, 18, m);
 }
 
-unsigned long long screen_hash(const mapscr &m)
+uint64_t screen_hash(const mapscr &m)
 {
     Out o;
     screen_bytes_253(o, m);
     return fnv(o.b);
 }
 
-std::vector<unsigned long long> g_screens_loaded;   // each screen's hash in 2.53's form
+std::vector<uint64_t> g_screens_loaded;   // each screen's hash in 2.53's form
 
 void note_maps()
 {

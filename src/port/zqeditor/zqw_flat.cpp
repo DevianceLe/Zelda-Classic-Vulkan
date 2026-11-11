@@ -22,6 +22,7 @@
 // pack). Other builds are left to nobody (ZQW_UNSUPPORTED), since their branches are untested.
 
 #include "precompiled.h" //always first
+#include <stdint.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -180,7 +181,7 @@ struct Raw
 // FNV-1a over what a writer writes, to notice changes cheaply
 struct HashSink
 {
-    unsigned long long h;
+    uint64_t h;
 };
 
 void hs_add(HashSink *s, unsigned char b)
@@ -192,8 +193,13 @@ void hs_add(HashSink *s, unsigned char b)
 int hs_fclose(void *) { return 0; }
 int hs_getc(void *) { return EOF; }
 int hs_ungetc(int, void *) { return EOF; }
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long hs_fread(void *, long, void *) { return 0; }
+#pragma pop_macro("long")
 int hs_putc(int c, void *u) { hs_add((HashSink *)u, (unsigned char)c); return c & 0xFF; }
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long hs_fwrite(const void *p, long n, void *u)
 {
     for(long i = 0; i < n; ++i)
@@ -201,12 +207,13 @@ long hs_fwrite(const void *p, long n, void *u)
 
     return n;
 }
+#pragma pop_macro("long")
 int hs_fseek(void *, int) { return -1; }
 int hs_feof(void *) { return 1; }
 int hs_ferror(void *) { return 0; }
 const PACKFILE_VTABLE g_hash_vtable = { hs_fclose, hs_getc, hs_ungetc, hs_fread, hs_putc, hs_fwrite, hs_fseek, hs_feof, hs_ferror };
 
-unsigned long long hash_bytes(const void *p, size_t n, unsigned long long h = 14695981039346656037ULL)
+uint64_t hash_bytes(const void *p, size_t n, uint64_t h = 14695981039346656037ULL)
 {
     for(size_t i = 0; i < n; ++i)
     {
@@ -227,6 +234,8 @@ struct MemIn
 int mi_fclose(void *) { return 0; }
 int mi_getc(void *u) { MemIn *m = (MemIn *)u; return m->at < m->n ? m->p[m->at++] : EOF; }
 int mi_ungetc(int c, void *u) { MemIn *m = (MemIn *)u; if(m->at > 0) { --m->at; return c & 0xFF; } return EOF; }
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long mi_fread(void *buf, long n, void *u)
 {
     MemIn *m = (MemIn *)u;
@@ -240,8 +249,12 @@ long mi_fread(void *buf, long n, void *u)
 
     return k > 0 ? k : 0;
 }
+#pragma pop_macro("long")
 int mi_putc(int, void *) { return EOF; }
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long mi_fwrite(const void *, long, void *) { return 0; }
+#pragma pop_macro("long")
 int mi_fseek(void *u, int off)
 {
     MemIn *m = (MemIn *)u;
@@ -348,28 +361,28 @@ struct Snap
     std::vector<newcombo> combos;
     std::vector<byte> colors;
     std::vector<char> palnames;
-    std::vector<unsigned long long> tiles;
-    std::vector<unsigned long long> tunes;
+    std::vector<uint64_t> tiles;
+    std::vector<uint64_t> tunes;
     ZCHEATS cheats;
     zinitdata init;
-    unsigned long long others;
+    uint64_t others;
 
     Snap() : valid(false) {}
 };
 
 Snap g_snap;
 
-unsigned long long tile_hash(int t)
+uint64_t tile_hash(int t)
 {
     const tiledata &td = newtilebuf[t];
-    unsigned long long h = hash_bytes(&td.format, 1);
+    uint64_t h = hash_bytes(&td.format, 1);
     return td.data ? hash_bytes(td.data, tilesize(td.format), h) : h;
 }
 
-unsigned long long tune_hash(int i)
+uint64_t tune_hash(int i)
 {
     const zctune &t = customtunes[i];
-    unsigned long long h = hash_bytes(t.title, sizeof(t.title));
+    uint64_t h = hash_bytes(t.title, sizeof(t.title));
     h = hash_bytes(&t.start, sizeof(t.start), h);
     h = hash_bytes(&t.loop_start, sizeof(t.loop_start), h);
     h = hash_bytes(&t.loop_end, sizeof(t.loop_end), h);
@@ -398,7 +411,7 @@ unsigned long long tune_hash(int i)
 }
 
 // What ZQuest's 2.53 writers write for data a pre-1.93 quest has nowhere to put.
-unsigned long long others_hash()
+uint64_t others_hash()
 {
     HashSink sink;
     sink.h = 14695981039346656037ULL;
@@ -473,7 +486,9 @@ void flat_note_loaded()
                                          ID_CHEATS, ID_INITDATA, ID_COLORS, ID_ICONS };
 
             for(size_t i = 0; i < sizeof(ids) / sizeof(ids[0]); ++i)
+            {
                 zq_write_253_section(f, ids[i]);
+            }
 
             pack_fclose(f);
         }

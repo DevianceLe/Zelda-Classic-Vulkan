@@ -137,7 +137,7 @@ jobs:
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DZC_ZPLAYER_ONLY=ON -DZC_PORT_SDL=ON
 
       - name: Build
-        run: cmake --build build --target zplayer
+        run: cmake --build build --target zplayer zqeditor
 
       - name: Package
         run: |
@@ -147,6 +147,7 @@ jobs:
           cp packaging/linux/README.txt packaging/android/soundfont.sf2 "$folder/"
           sed -i 's/^Linux, 64-bit$/${{ matrix.label }}/' "$folder/README.txt"
           install -m 755 build/zplayer "$folder/zplayer"
+          install -m 755 build/zqeditor "$folder/zqeditor"
           tar -czf "ZC-$VERSION-Vulkan-Linux-${{ matrix.arch }}.tar.gz" "$folder"
 
       - uses: actions/upload-artifact@v4
@@ -188,13 +189,18 @@ jobs:
           echo "MVK_LICENSE=$PWD/$license" >> "$GITHUB_ENV"
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DZC_ZPLAYER_ONLY=ON -DZC_PORT_SDL=ON "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+        # ZQuest's ZScript parser needs a current bison (macOS ships 2.3, from 2006).
+        run: |
+          brew install bison
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DZC_ZPLAYER_ONLY=ON -DZC_PORT_SDL=ON "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 "-DBISON_EXECUTABLE=$(brew --prefix bison)/bin/bison"
 
       - name: Build
         run: |
-          cmake --build build --target zplayer --parallel 4
-          echo "zplayer: $(lipo -archs build/zplayer)"
-          lipo -archs build/zplayer | grep -q arm64 && lipo -archs build/zplayer | grep -q x86_64
+          cmake --build build --target zplayer zqeditor --parallel 4
+          for p in zplayer zqeditor; do
+            echo "$p: $(lipo -archs build/$p)"
+            lipo -archs build/$p | grep -q arm64 && lipo -archs build/$p | grep -q x86_64
+          done
 
       - name: Package
         run: |
@@ -203,6 +209,7 @@ jobs:
           cp -R packaging/windows/. "$folder/"
           cp packaging/macos/README.txt packaging/android/soundfont.sf2 "$folder/"
           install -m 755 build/zplayer "$folder/zplayer"
+          install -m 755 build/zqeditor "$folder/zqeditor"
           cp "$MVK_DYLIB" "$folder/libMoltenVK.dylib"
           [ -f "$MVK_LICENSE" ] && cp "$MVK_LICENSE" "$folder/licenses/MoltenVK.txt"
           tar -czf "ZC-$VERSION-Vulkan-macOS.tar.gz" "$folder"

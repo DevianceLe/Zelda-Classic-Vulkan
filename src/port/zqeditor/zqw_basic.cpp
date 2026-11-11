@@ -531,6 +531,8 @@ int mi_ungetc(int c, void *u)
     return c;
 }
 
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long mi_fread(void *p, long n, void *u)
 {
     byte *out = (byte *)p;
@@ -548,9 +550,13 @@ long mi_fread(void *p, long n, void *u)
 
     return done;
 }
+#pragma pop_macro("long")
 
 int mi_putc(int, void *) { return EOF; }
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long mi_fwrite(const void *, long, void *) { return 0; }
+#pragma pop_macro("long")
 
 int mi_fseek(void *u, int offset)
 {

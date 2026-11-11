@@ -4941,6 +4941,11 @@ bool q30_get_exstate(int mi, int bit)
     return (g_xstates[mi] & (1u << bit)) != 0;
 }
 
+dword q30_level_switches(int level)
+{
+    return (level >= 0 && level < MAXLEVELS) ? g_lvlswitches[level] : 0;
+}
+
 void q30_set_exstate(int mi, int bit, bool on)
 {
     states_setup();
@@ -9907,6 +9912,7 @@ static dword compat_rule_since(int id)
     case Q30_QR_PUSHBLOCK_SPRITE_LAYER: return 51;
     case Q30_QR_BROKEN_PUSHBLOCK_TOP_HALF_SOLIDS: return 71;
     case Q30_QR_BROKEN_PUSHBLOCK_FLAG_CLONING: return 72;
+    case 561: return 58;        // qr_OLD_DMAP_INTRO_STRINGS
     case 570: return 103;       // qr_OLD_ITEM_HITBOXES
     default: return 0;
     }

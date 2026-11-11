@@ -1688,6 +1688,8 @@ int vs_fseek(void *, int) { return -1; }
 #undef long
 long vs_fread(void *, long, void *) { return 0; }
 
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long vs_fwrite(const void *p, long n, void *user)
 {
     const byte *b = (const byte *)p;
@@ -1695,6 +1697,7 @@ long vs_fwrite(const void *p, long n, void *user)
     o.insert(o.end(), b, b + n);
     return n;
 }
+#pragma pop_macro("long")
 #pragma pop_macro("long")
 
 int vs_putc(int c, void *user)

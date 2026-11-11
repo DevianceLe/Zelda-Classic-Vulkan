@@ -6,9 +6,12 @@
 //     saved copy shows exactly which parts and screens a save changed.
 
 #include "precompiled.h" //always first
+#include <stdint.h>
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <string>
 #include <vector>
 
 #include "zdefs.h"
@@ -18,36 +21,48 @@
 
 extern zquestheader header;
 extern word map_count;
+extern word msg_count;
+extern MsgStr *MsgStrings;
 int writemapscreen(PACKFILE *f, int i, int j);
+int writestrings(PACKFILE *f, word version, word build, word start_msgstr, word max_msgstrs);
 
 namespace
 {
 
 struct Hash
 {
-    unsigned long long h;
+    uint64_t h;
+    FILE *bytes;        // also the bytes themselves, when set (ZQ_DUMP_BYTES)
 };
 
 void add(Hash *s, unsigned char b)
 {
     s->h ^= b;
     s->h *= 1099511628211ULL;
+    if(s->bytes)
+        fputc(b, s->bytes);
 }
 
 int h_fclose(void *) { return 0; }
 int h_getc(void *) { return EOF; }
 int h_ungetc(int, void *) { return EOF; }
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long h_fread(void *, long, void *) { return 0; }
+#pragma pop_macro("long")
 int h_feof(void *) { return 1; }
 int h_ferror(void *) { return 0; }
 int h_fseek(void *, int) { return -1; }
 int h_putc(int c, void *u) { add((Hash *)u, (unsigned char)c); return c & 0xFF; }
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long h_fwrite(const void *p, long n, void *u)
 {
     for(long i = 0; i < n; ++i)
         add((Hash *)u, ((const unsigned char *)p)[i]);
     return n;
 }
+#pragma pop_macro("long")
 
 const PACKFILE_VTABLE g_vt = { h_fclose, h_getc, h_ungetc, h_fread, h_putc, h_fwrite, h_fseek, h_feof, h_ferror };
 
@@ -73,12 +88,36 @@ int zq_dump_hashes(const char *report)
             fprintf(out, "part %-16s %016llx%s\n", zq_part_name(p).c_str(), p.fingerprint, p.fingerprint_failed ? " (writer failed)" : "");
     }
 
+    if(getenv("ZQ_DUMP_BYTES"))
+    {
+        Hash h;
+        h.h = 0;
+        std::string name = std::string(report) + ".strings.bin";
+        h.bytes = fopen(name.c_str(), "wb");
+        PACKFILE *f = zq_open_sink(&g_vt, &h);
+        if(f)
+        {
+            writestrings(f, ZELDA_VERSION, VERSION_BUILD, 0, MAXMSGS);
+            pack_fclose(f);
+        }
+        if(h.bytes)
+            fclose(h.bytes);
+        fprintf(out, "strings: msg_count %d\n", msg_count);
+    }
+
     for(int m = 0; m < map_count; ++m)
     {
         for(int s = 0; s < MAPSCRS; ++s)
         {
             Hash h;
             h.h = 14695981039346656037ULL;
+            h.bytes = NULL;
+            if(getenv("ZQ_DUMP_BYTES") && m == 0 && s < 4)
+            {
+                // ZQ_DUMP_BYTES: the first screens' 2.53 bytes, to compare two builds field by field
+                std::string name = std::string(report) + ".screen" + std::to_string(s) + ".bin";
+                h.bytes = fopen(name.c_str(), "wb");
+            }
             PACKFILE *f = zq_open_sink(&g_vt, &h);
 
             if(!f)
@@ -86,6 +125,8 @@ int zq_dump_hashes(const char *report)
 
             writemapscreen(f, m, s);
             pack_fclose(f);
+            if(h.bytes)
+                fclose(h.bytes);
             fprintf(out, "screen %3d %3d %016llx\n", m, s, h.h);
         }
     }
@@ -108,7 +149,7 @@ struct KeptPart
 {
     dword id;
     word version, cversion;
-    long long at, length;
+    int64_t at, length;
     bool matched;
 };
 
@@ -157,7 +198,7 @@ int zq_compare_quests(const char *a, const char *b, const char *report)
     fprintf(out, "a: %s  version 0x%x build %d, %d parts\n", a, zq_quest_file.zelda_version, zq_quest_file.build, (int)zq_quest_file.parts.size());
     std::vector<KeptPart> pa;
     FILE *fa = fopen(ta, "wb");
-    long long pos = 0;
+    int64_t pos = 0;
     std::vector<byte> chunk(1 << 20);
 
     for(size_t i = 0; fa && i < zq_quest_file.parts.size(); ++i)
@@ -170,9 +211,9 @@ int zq_compare_quests(const char *a, const char *b, const char *report)
         k.length = p.length;
         k.matched = false;
 
-        for(long long at = 0; at < p.length; at += (long long)chunk.size())
+        for(int64_t at = 0; at < p.length; at += (int64_t)chunk.size())
         {
-            size_t n = (size_t)(p.length - at < (long long)chunk.size() ? p.length - at : (long long)chunk.size());
+            size_t n = (size_t)(p.length - at < (int64_t)chunk.size() ? p.length - at : (int64_t)chunk.size());
             zq_part_read(p, at, &chunk[0], n);
             fwrite(&chunk[0], 1, n, fa);
         }
@@ -218,19 +259,19 @@ int zq_compare_quests(const char *a, const char *b, const char *report)
         }
 
         k->matched = true;
-        long long diff = -1;
-        long long n = k->length < p.length ? k->length : p.length;
+        int64_t diff = -1;
+        int64_t n = k->length < p.length ? k->length : p.length;
 
-        for(long long at = 0; at < n && diff < 0 && fa; at += (long long)chunk.size())
+        for(int64_t at = 0; at < n && diff < 0 && fa; at += (int64_t)chunk.size())
         {
-            size_t m = (size_t)(n - at < (long long)chunk.size() ? n - at : (long long)chunk.size());
+            size_t m = (size_t)(n - at < (int64_t)chunk.size() ? n - at : (int64_t)chunk.size());
             _fseeki64(fa, k->at + at, SEEK_SET);
             fread(&chunk[0], 1, m, fa);
             zq_part_read(p, at, &cb[0], m);
 
             for(size_t q = 0; q < m && diff < 0; ++q)
                 if(chunk[q] != cb[q])
-                    diff = at + (long long)q;
+                    diff = at + (int64_t)q;
         }
 
         if(diff < 0 && k->length != p.length)

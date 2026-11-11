@@ -32,7 +32,14 @@ inline void zqw_ig_refuse(const char *fmt, ...)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
 #include <process.h>
+#else
+#include <unistd.h>
+#ifndef _getpid
+#define _getpid getpid
+#endif
+#endif
 #include <map>
 #include <string>
 #include <vector>
@@ -119,7 +126,11 @@ inline void note(const char *fmt, ...)
 
     if(!named)
     {
+#ifdef _WIN32
         fprintf(f, "%d == %s\n", pid, __argc > 2 ? __argv[2] : "?");
+#else
+        fprintf(f, "%d == ?\n", pid);
+#endif
         named = true;
     }
 

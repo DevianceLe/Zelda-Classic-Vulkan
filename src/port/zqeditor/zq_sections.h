@@ -7,16 +7,25 @@
 #define ZQ_SECTIONS_H
 
 #include <string>
+#include <stdint.h>
+#include <stdio.h>
 #include <vector>
+
+#ifndef _WIN32
+// The store is a temporary file past 2 GB at times; off_t is 64-bit on 64-bit Linux and macOS.
+#include <sys/types.h>
+#define _fseeki64 fseeko
+#define _ftelli64 ftello
+#endif
 
 #include "zdefs.h"
 
 struct ZqQuestPart
 {
     dword id;                   // ID_HEADER, a section id, 0 for a pre-1.93 body, or the tail
-    long long offset, length;   // its bytes in the store: everything read after the id
+    int64_t offset, length;   // its bytes in the store: everything read after the id
     bool has_fingerprint;       // false: ZQuest has no 2.53 writer for it, so it can't change it
-    unsigned long long fingerprint;     // ZQuest's data for it through its 2.53 writers, at load
+    uint64_t fingerprint;     // ZQuest's data for it through its 2.53 writers, at load
     bool fingerprint_failed;    // a writer failed at load: the part always counts as changed
 
     ZqQuestPart() : id(0), offset(0), length(0), has_fingerprint(false), fingerprint(0), fingerprint_failed(false) {}
@@ -48,7 +57,7 @@ void zq_sections_end_load(bool loaded);
 
 // n bytes of a part's original data from 'at' (0 = its start). The bytes are kept in a
 // temporary file, not in memory. False when that range isn't there.
-bool zq_part_read(const ZqQuestPart &p, long long at, void *buf, size_t n);
+bool zq_part_read(const ZqQuestPart &p, int64_t at, void *buf, size_t n);
 
 // After a successful load: notes what each part's data looks like through ZQuest's 2.53
 // writers, so a save in the quest's own format can tell which parts were changed since.

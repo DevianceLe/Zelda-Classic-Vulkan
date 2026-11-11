@@ -129,7 +129,7 @@ bool DrunkrPbtn();
 
 int after_time();
 
-enum {bosCIRCLE=0, bosOVAL, bosTRIANGLE, bosSMAS, bosMAX};
+enum {bosCIRCLE=0, bosOVAL, bosTRIANGLE, bosSMAS, bosFADEBLACK, bosMAX};   // bosFADEBLACK: 2.55/3.0's qr_FADEBLACKWIPE
 
 void go();
 void comeback();

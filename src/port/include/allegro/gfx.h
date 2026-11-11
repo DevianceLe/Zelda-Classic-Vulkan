@@ -55,6 +55,7 @@ struct RGB;
 /* Linux / Mac driver ids, named by game code on those platforms. */
 #define GFX_XWINDOWS             AL_ID('X','W','I','N')
 #define GFX_XWINDOWS_FULLSCREEN  AL_ID('X','W','F','S')
+#define GFX_XDGA                 AL_ID('X','D','G','A')
 #define GFX_XDGA2                AL_ID('D','G','A','2')
 #define GFX_XDGA2_SOFT           AL_ID('D','G','A','S')
 #define GFX_FBCON                AL_ID('F','B',' ',' ')

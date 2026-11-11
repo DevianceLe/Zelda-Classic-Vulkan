@@ -863,10 +863,43 @@ static void store_dmap_script(int dmap, int kind, word script, const long *initd
     g_dmap_scripts.push_back(r);
 }
 
+// The same for each DMap's overlay and map subscreens, title and intro string.
+struct DMapExtraRef
+{
+    int dmap, overlay, map, floor;
+    std::string title;
+    long intro;
+};
+
+static std::vector<DMapExtraRef> g_dmap_extras;
+
+static void store_dmap_extras(int dmap, int overlay, int map, int floor, const std::string &title, long intro)
+{
+    DMapExtraRef r;
+    r.dmap = dmap;
+    r.overlay = overlay;
+    r.map = map;
+    r.floor = floor;
+    r.title = title;
+    r.intro = intro;
+    g_dmap_extras.push_back(r);
+    q30_set_dmap_subscreens(dmap, overlay, map);
+    q30_set_dmap_texts(dmap, title.c_str(), intro);
+    q30_set_dmap_floor(dmap, floor);
+}
+
 static void restore_dmap_scripts()
 {
     for(size_t i = 0; i < g_dmap_scripts.size(); ++i)
         q30_set_dmap_script(g_dmap_scripts[i].dmap, g_dmap_scripts[i].kind, g_dmap_scripts[i].script, g_dmap_scripts[i].initd);
+
+    for(size_t i = 0; i < g_dmap_extras.size(); ++i)
+    {
+        const DMapExtraRef &r = g_dmap_extras[i];
+        q30_set_dmap_subscreens(r.dmap, r.overlay, r.map);
+        q30_set_dmap_texts(r.dmap, r.title.c_str(), r.intro);
+        q30_set_dmap_floor(r.dmap, r.floor);
+    }
 }
 
 int q255_read_maps(Q255Section &s)
@@ -1051,15 +1084,21 @@ static short old_midi_to_object(byte midi)
     return (short)(midi - 3);
 }
 
-static void read_dmap_title(Q255Section &s, dmap &d)
+// full: the whole title, as upstream keeps it (its std::string; 2.53's title holds 20 characters)
+static void read_dmap_title(Q255Section &s, dmap &d, std::string &full)
 {
     if(s.version < 20)
     {
         s.read(d.title, 21);
+        char t[22];
+        memcpy(t, d.title, 21);
+        t[21] = 0;
+        full = t;
         return;
     }
 
     const std::string title = s.getwstr();
+    full = title.c_str();
 
     for(size_t i = 0; i < title.size() && i < 20 && title[i]; ++i)
         d.title[i] = title[i];
@@ -1086,7 +1125,8 @@ static void read_dmap(Q255Section &s, dmap &d, int index)
 
     s.read(d.grid, 8);
     s.read(d.name, 21);
-    read_dmap_title(s, d);
+    std::string full_title;
+    read_dmap_title(s, d, full_title);
     s.read(d.intro, 73);
     d.minimap_1_tile = read_dmap_tile(s);
     d.minimap_1_cset = s.getc();
@@ -1198,8 +1238,10 @@ static void read_dmap(Q255Section &s, dmap &d, int index)
     if(s.version >= 19)
         overlay_sub = s.getc();     // overlay_subscreen
 
+    long intro_string = 0;
+
     if(s.version >= 20)
-        s.skip(4);      // intro_string_id
+        intro_string = s.igetl_s();     // intro_string_id
 
     if(s.version == 21)
         s.skip(REGION_IDS_SIZE);
@@ -1210,14 +1252,16 @@ static void read_dmap(Q255Section &s, dmap &d, int index)
     if(s.version >= 28 && (d.flags & DMF_CUSTOM_VIEWPORT_FOLLOW))
         s.skip(4 + 4 + 4 + 2);  // viewport_follow
 
+    int floor = 0;
+
     if(s.version > 23)
     {
         map_sub = (short)s.igetw();     // map_subscreen
-        s.skip(1);      // floor
+        floor = s.getc();
     }
 
     if(keep && !s.failed)
-        q30_set_dmap_subscreens(index, overlay_sub, map_sub);
+        store_dmap_extras(index, overlay_sub, map_sub, floor, full_title, intro_string);
 
     if(s.version >= 25)
     {
@@ -1262,6 +1306,7 @@ int q255_read_dmaps(Q255Section &s)
     {
         q30_audio_clear_dmaps();
         g_dmap_scripts.clear();
+        g_dmap_extras.clear();
 
         for(int i = 0; i < MAXDMAPS; ++i)
         {

@@ -1,6 +1,7 @@
 // See zq_writers.h.
 
 #include "precompiled.h" //always first
+#include <stdint.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,9 +43,15 @@ std::vector<Entry> &registry()
 int dc_fclose(void *) { return 0; }
 int dc_getc(void *) { return EOF; }
 int dc_ungetc(int, void *) { return EOF; }
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long dc_fread(void *, long, void *) { return 0; }
+#pragma pop_macro("long")
 int dc_putc(int c, void *) { return c & 0xFF; }
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long dc_fwrite(const void *, long n, void *) { return n; }
+#pragma pop_macro("long")
 int dc_fseek(void *, int) { return -1; }
 int dc_feof(void *) { return 1; }
 int dc_ferror(void *) { return 0; }
@@ -300,9 +307,9 @@ bool copy_part(PACKFILE *f, const ZqQuestPart &p)
 
     std::vector<byte> chunk(1 << 20);
 
-    for(long long at = 0; at < p.length; at += (long long)chunk.size())
+    for(int64_t at = 0; at < p.length; at += (int64_t)chunk.size())
     {
-        size_t n = (size_t)(p.length - at < (long long)chunk.size() ? p.length - at : (long long)chunk.size());
+        size_t n = (size_t)(p.length - at < (int64_t)chunk.size() ? p.length - at : (int64_t)chunk.size());
 
         if(!zq_part_read(p, at, &chunk[0], n) || pack_fwrite(&chunk[0], (long)n, f) != (long)n)
             return false;
@@ -534,25 +541,25 @@ namespace
 struct CompareSink
 {
     const ZqQuestPart *part;
-    long long pos;              // bytes written so far
-    long long diff;             // first difference, -1 for none yet
+    int64_t pos;              // bytes written so far
+    int64_t diff;             // first difference, -1 for none yet
     std::vector<byte> buf;      // the original bytes from buf_at
-    long long buf_at;
+    int64_t buf_at;
 };
 
-int expected_byte(CompareSink *s, long long at)
+int expected_byte(CompareSink *s, int64_t at)
 {
-    long long idlen = zq_part_is_raw(s->part->id) ? 0 : 4;
+    int64_t idlen = zq_part_is_raw(s->part->id) ? 0 : 4;
 
     if(at < idlen)
         return (int)((s->part->id >> (24 - 8 * at)) & 0xFF);
 
-    long long off = at - idlen;
+    int64_t off = at - idlen;
 
     if(off >= s->part->length)
         return -1;
 
-    if(off < s->buf_at || off >= s->buf_at + (long long)s->buf.size())
+    if(off < s->buf_at || off >= s->buf_at + (int64_t)s->buf.size())
     {
         size_t n = (size_t)(s->part->length - off < 65536 ? s->part->length - off : 65536);
         s->buf.resize(n);
@@ -577,7 +584,10 @@ void cs_add(CompareSink *s, byte b)
 int cs_fclose(void *) { return 0; }
 int cs_getc(void *) { return EOF; }
 int cs_ungetc(int, void *) { return EOF; }
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long cs_fread(void *, long, void *) { return 0; }
+#pragma pop_macro("long")
 int cs_feof(void *) { return 1; }
 int cs_ferror(void *) { return 0; }
 int cs_fseek(void *, int) { return -1; }
@@ -588,6 +598,8 @@ int cs_putc(int c, void *user)
     return c & 0xFF;
 }
 
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long cs_fwrite(const void *p, long n, void *user)
 {
     const byte *b = (const byte *)p;
@@ -597,6 +609,7 @@ long cs_fwrite(const void *p, long n, void *user)
 
     return n;
 }
+#pragma pop_macro("long")
 
 const PACKFILE_VTABLE g_compare_vtable = { cs_fclose, cs_getc, cs_ungetc, cs_fread, cs_putc, cs_fwrite, cs_fseek, cs_feof, cs_ferror };
 
@@ -636,7 +649,7 @@ int zq_rewrite_check(const char *filename, const char *report)
         if(f)
             pack_fclose(f);
 
-        long long expect = (zq_part_is_raw(p.id) ? 0 : 4) + p.length;
+        int64_t expect = (zq_part_is_raw(p.id) ? 0 : 4) + p.length;
         bool same = rc == ZQW_OK && sink.diff < 0 && sink.pos == expect;
         ++written;
 
@@ -668,7 +681,7 @@ int zq_roundtrip_check(const char *filename, const char *report)
 
     // what each part holds now, and which parts the writers will encode
     std::vector<dword> ids;
-    std::vector<unsigned long long> before;
+    std::vector<uint64_t> before;
     std::vector<int> state;     // 0 compared, 1 its fingerprint failed, 2 nothing to compare
     std::vector<std::string> written;
 
@@ -858,7 +871,7 @@ const NewerEntry *newer_writer(dword id, int target)
 struct RefSection
 {
     dword id;
-    long long at, length;   // in the copy: the whole section, id first (the header with its id string)
+    int64_t at, length;   // in the copy: the whole section, id first (the header with its id string)
 };
 
 struct RefFile
@@ -909,7 +922,7 @@ bool read_reference(const char *path, const char *copy_name, RefFile &ref)
     }
 
     std::vector<byte> buf(1 << 16);
-    long long pos = 0;
+    int64_t pos = 0;
     bool ok = true;
     bool first = true;
 
@@ -952,14 +965,14 @@ bool read_reference(const char *path, const char *copy_name, RefFile &ref)
         }
 
         const byte *z = head + lead + 8 + extra;
-        long long size = (long long)z[0] | ((long long)z[1] << 8) | ((long long)z[2] << 16) | ((long long)z[3] << 24);
+        int64_t size = (int64_t)z[0] | ((int64_t)z[1] << 8) | ((int64_t)z[2] << 16) | ((int64_t)z[3] << 24);
         r.at = pos;
-        r.length = (long long)headlen + size;
+        r.length = (int64_t)headlen + size;
         fwrite(head, 1, headlen, ref.copy);
 
-        for(long long left = size; left > 0 && ok;)
+        for(int64_t left = size; left > 0 && ok;)
         {
-            long n = (long)(left < (long long)buf.size() ? left : (long long)buf.size());
+            long n = (long)(left < (int64_t)buf.size() ? left : (int64_t)buf.size());
 
             if(pack_fread(&buf[0], n, f) != n)
                 ok = false;
@@ -983,14 +996,14 @@ bool copy_reference_section(PACKFILE *f, const RefFile &ref, const RefSection &r
     std::vector<byte> buf(1 << 16);
     _fseeki64(ref.copy, r.at, SEEK_SET);
 
-    for(long long left = r.length; left > 0;)
+    for(int64_t left = r.length; left > 0;)
     {
-        size_t n = (size_t)(left < (long long)buf.size() ? left : (long long)buf.size());
+        size_t n = (size_t)(left < (int64_t)buf.size() ? left : (int64_t)buf.size());
 
         if(fread(&buf[0], 1, n, ref.copy) != n || pack_fwrite(&buf[0], (long)n, f) != (long)n)
             return false;
 
-        left -= (long long)n;
+        left -= (int64_t)n;
     }
 
     return true;

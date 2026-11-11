@@ -17,6 +17,7 @@
 // type and flag numbers past 2.53's survive.
 
 #include "precompiled.h" //always first
+#include <stdint.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -130,7 +131,7 @@ int put_part(PACKFILE *f, dword id, const std::vector<byte> &orig, const Out &bo
     if(orig.size() < 8)
         return ERR_READ;
 
-    long long size = (long long)le32(orig, 4) + (long long)body.b.size() - (long long)(orig.size() - 8);
+    int64_t size = (int64_t)le32(orig, 4) + (int64_t)body.b.size() - (int64_t)(orig.size() - 8);
     Out head;
     head.pn(&orig[0], 4);
     head.p32((dword)size);

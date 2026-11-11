@@ -1,4 +1,8 @@
-#ifndef _MSC_VER
+#if !defined(_WIN32)
+/* Linux, macOS: src/parser is on the include path, so this file would hide the
+ * system's <unistd.h>. Hand over to it. (The MinGW stand-in below is for Windows.) */
+#include_next <unistd.h>
+#elif !defined(_MSC_VER)
 /*
  * This file is part of the Mingw32 package.
  *

@@ -37,6 +37,13 @@ const Q30ScriptRef *q30_dmap_script(int dmap, int kind);
 void q30_set_dmap_subscreens(int dmap, int overlay, int map);
 int q30_dmap_overlay_subscreen(int dmap);
 int q30_dmap_map_subscreen(int dmap);
+// Each dmap's whole title (2.53 keeps 20 characters) and intro string (upstream's intro_string_id,
+// 0 for none), for quests with the newer DMap titles and intros (no qr_OLD_DMAP_INTRO_STRINGS).
+void q30_set_dmap_texts(int dmap, const char *title, long intro_string);
+void q30_set_dmap_floor(int dmap, int floor);     // upstream's dmap floor (0 when not given)
+int q30_dmap_floor(int dmap);
+const char *q30_dmap_title(int dmap);   // NULL when the quest gave none
+long q30_dmap_intro_string(int dmap);
 
 // q30_audio.cpp
 int q30_read_advmusic(Q255Section &s);

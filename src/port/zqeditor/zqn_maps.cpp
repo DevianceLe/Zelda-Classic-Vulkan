@@ -33,6 +33,7 @@
 // zqn_music_entries() gives the list itself, worked out the same way.
 
 #include "precompiled.h" //always first
+#include <stdint.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -157,9 +158,9 @@ int part_index(dword id)
     return -1;
 }
 
-unsigned long long fnv(const std::vector<byte> &b)
+uint64_t fnv(const std::vector<byte> &b)
 {
-    unsigned long long h = 14695981039346656037ULL;
+    uint64_t h = 14695981039346656037ULL;
 
     for(size_t i = 0; i < b.size(); ++i)
     {
@@ -1126,7 +1127,7 @@ struct Snapshot
     word maps;                              // map_count
     std::vector<byte> screens;              // every screen in 2.53's form, one after another
     std::vector<size_t> screen_at;          // where each starts (and one more: the end)
-    std::vector<unsigned long long> screen_hash;
+    std::vector<uint64_t> screen_hash;
     std::vector<dmap> dmaps;
 
     Snapshot() : valid(false), maps(0) {}
@@ -1490,7 +1491,10 @@ bool dmaps_edited()
 int vs_fclose(void *) { return 0; }
 int vs_getc(void *) { return EOF; }
 int vs_ungetc(int, void *) { return EOF; }
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long vs_fread(void *, long, void *) { return 0; }
+#pragma pop_macro("long")
 int vs_feof(void *) { return 1; }
 int vs_ferror(void *) { return 0; }
 int vs_fseek(void *, int) { return -1; }
@@ -1501,12 +1505,15 @@ int vs_putc(int c, void *user)
     return c & 0xFF;
 }
 
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long vs_fwrite(const void *p, long n, void *user)
 {
     const byte *b = (const byte *)p;
     ((std::vector<byte> *)user)->insert(((std::vector<byte> *)user)->end(), b, b + n);
     return n;
 }
+#pragma pop_macro("long")
 
 const PACKFILE_VTABLE g_vec_vtable = { vs_fclose, vs_getc, vs_ungetc, vs_fread, vs_putc, vs_fwrite, vs_fseek, vs_feof, vs_ferror };
 

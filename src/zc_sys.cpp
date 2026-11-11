@@ -1674,14 +1674,28 @@ qword triangles[4][16][8]= //[direction][value][line]
 int black_opening_count=0;
 int black_opening_x,black_opening_y;
 int black_opening_shape;
+static PALETTE tempblackpal;    // bosFADEBLACK: the palette it fades from and puts back
+
+// bosFADEBLACK (upstream black_fade): every colour but the engine's last ones, fadeamnt darker
+static void black_fade(int fadeamnt)
+{
+    for(int i=0; i<0xEF; i++)
+    {
+        RAMpal[i].r = vbound(tempblackpal[i].r-fadeamnt,0,63);
+        RAMpal[i].g = vbound(tempblackpal[i].g-fadeamnt,0,63);
+        RAMpal[i].b = vbound(tempblackpal[i].b-fadeamnt,0,63);
+    }
+
+    refreshpal = true;
+}
 
 int choose_opening_shape()
 {
-    // First, count how many bits are set
+    // First, count how many bits are set (bit 4, bosFADEBLACK, only comes from a newer quest)
     int numBits=0;
     int bitCounter;
-    
-    for(int i=0; i<4; i++)
+
+    for(int i=0; i<bosMAX; i++)
     {
         if(COOLSCROLL&(1<<i))
             numBits++;
@@ -1694,15 +1708,15 @@ int choose_opening_shape()
     // Pick a bit
     bitCounter=rand()%numBits+1;
     
-    for(int i=0; i<4; i++)
+    for(int i=0; i<bosMAX; i++)
     {
         // If this bit is set, decrement the bit counter
         if(COOLSCROLL&(1<<i))
             bitCounter--;
-            
+
         // When the counter hits 0, return a value based on
         // which bit it stopped on.
-        // Reminder: enum {bosCIRCLE=0, bosOVAL, bosTRIANGLE, bosSMAS, bosMAX};
+        // Reminder: enum {bosCIRCLE=0, bosOVAL, bosTRIANGLE, bosSMAS, bosFADEBLACK, bosMAX};
         if(bitCounter==0)
             return i;
     }
@@ -1732,7 +1746,10 @@ void close_black_opening(int x, int y, bool wait)
     black_opening_y = y;
     lensclk = 0;
     //black_opening_shape=(black_opening_shape+1)%bosMAX;
-    
+
+    if(black_opening_shape == bosFADEBLACK)
+        memcpy(tempblackpal, RAMpal, sizeof(PALETTE));
+
     if(wait)
     {
         for(int i=0; i<66; i++)
@@ -1770,7 +1787,10 @@ void open_black_opening(int x, int y, bool wait)
     black_opening_x = x;
     black_opening_y = y;
     lensclk = 0;
-    
+
+    if(black_opening_shape == bosFADEBLACK)
+        memcpy(tempblackpal, RAMpal, sizeof(PALETTE));
+
     if(wait)
     {
         for(int i=0; i<66; i++)
@@ -1790,9 +1810,21 @@ void open_black_opening(int x, int y, bool wait)
 
 void black_opening(BITMAP *dest,int x,int y,int a,int max_a)
 {
+    if(black_opening_shape == bosFADEBLACK)
+    {
+        // the palette fades instead; nothing is drawn over the screen
+        if(black_opening_count<0)
+            black_fade(zc_min(-black_opening_count,63));
+        else if(black_opening_count>0)
+            black_fade(63-zc_max(black_opening_count-3,0));
+        else
+            black_fade(0);
+        return;
+    }
+
     clear_to_color(tmp_scr,BLACK);
     int w=256, h=224;
-    
+
     switch(black_opening_shape)
     {
     case bosOVAL:
@@ -3466,13 +3498,21 @@ void updatescr(bool allowwavy)
     else if(black_opening_count>0) //shape is closing
     {
         black_opening(framebuf,black_opening_x,black_opening_y,black_opening_count,66);
-        
+
         if(Advance||(!Paused))
         {
             --black_opening_count;
         }
     }
-    
+
+    if(black_opening_count==0&&black_opening_shape==bosFADEBLACK)
+    {
+        // the fade is over: the palette it started from comes back
+        black_opening_shape = bosCIRCLE;
+        memcpy(RAMpal, tempblackpal, PAL_SIZE*sizeof(RGB));
+        refreshpal=true;
+    }
+
     if(refreshpal)
     {
         refreshpal=false;

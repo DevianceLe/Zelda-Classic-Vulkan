@@ -109,6 +109,21 @@ static void walk_items(Q255Section &s, size_t count, size_t each)
     s.skip(count * each);
 }
 
+// The same, keeping them (each: 1 a byte, 2 a word).
+static void read_items(Q255Section &s, size_t count, size_t each, std::vector<int> &out)
+{
+    out.clear();
+
+    if(each && count > s.left() / each)
+    {
+        s.failed = true;
+        return;
+    }
+
+    for(size_t i = 0; i < count && !s.failed; ++i)
+        out.push_back(each == 1 ? (int)s.getc() : (int)s.igetw());
+}
+
 // p_getbvec / p_getbmap with a word size and keys and values of a fixed size.
 static void skip_bounded_w(Q255Section &s, size_t value_size)
 {
@@ -1094,6 +1109,7 @@ struct SubWidget255
     dword genflags, flags;
     int pos, pos_up, pos_down, pos_left, pos_right;
     bool disabled;
+    byte pg_mode, pg_btns, pg_targ;     // its page change while selected
 };
 
 static void get_sub_color(Q255Section &s, SubColor255 &c)
@@ -1275,6 +1291,8 @@ static void skip_selector_info(Q255Section &s)
 static SubWidget255 g_sub_last;
 static std::string g_sub_label;
 static int g_sub_list = -1;
+static Q30SubCond g_sub_cond;       // the last widget's display conditions
+static std::string g_sub_seltext;   // and its selected text override
 
 // SubscrWidget::read, everything after the widget type
 static void read_widget_base(Q255Section &s, SubWidget255 &b)
@@ -1305,7 +1323,7 @@ static void read_widget_base(Q255Section &s, SubWidget255 &b)
         b.pos_down = (int)s.igetl_s();
         b.pos_left = (int)s.igetl_s();
         b.pos_right = (int)s.igetl_s();
-        s.getwstr();    // selected text override
+        g_sub_seltext = s.getwstr();    // selected text override
 
         if(b.genflags & WIDG_SELOVERRIDE)
             skip_selector_info(s);
@@ -1325,38 +1343,56 @@ static void read_widget_base(Q255Section &s, SubWidget255 &b)
             }
         }
 
-        byte pg_mode = s.getc();
-        if(pg_mode)
+        b.pg_mode = s.getc();
+        if(b.pg_mode)
         {
-            s.skip(2);  // page buttons and target
+            b.pg_btns = s.getc();
+            b.pg_targ = s.getc();
             skip_sub_transition(s);
         }
     }
 
+    if(!(b.genflags & WIDG_SELECTABLE))
+        g_sub_seltext.clear();
+
+    Q30SubCond &c = g_sub_cond;
+    c = Q30SubCond();
+    c.genflags = b.genflags;
+    c.counter = -1;
+    c.litem_level = -1;
+    c.lstate_level = -1;
+
     if(v >= 14)
     {
         word count = s.igetw();
-        walk_items(s, count, v < 18 ? 1 : 2);   // required items
+        read_items(s, count, v < 18 ? 1 : 2, c.owned);      // required items
         count = s.igetw();
-        walk_items(s, count, v < 18 ? 1 : 2);   // forbidden items
-        s.skip(2 + 2 + 1);                      // required counter
-        s.skip(v >= 15 ? 2 : 1);                // required level items
-        s.skip(2);                              // level item level
+        read_items(s, count, v < 18 ? 1 : 2, c.unowned);    // forbidden items
+        c.counter = (short)s.igetw();
+        c.counter_val = s.igetw();
+        c.counter_cond = s.getc();
+        c.litems = v >= 15 ? s.igetw() : s.getc();
+        c.litem_level = (short)s.igetw();
         b.disabled = s.getc() != 0;
 
         if(v >= 16)
         {
             byte floors = s.getc();
-            walk_items(s, floors, 1);
+            read_items(s, floors, 1, c.floors);
             word levels = s.igetw();
-            walk_items(s, levels, 2);
+            read_items(s, levels, 2, c.levels);
             word dmaps = s.igetw();
-            walk_items(s, dmaps, 2);
+            read_items(s, dmaps, 2, c.dmaps);
             word maps = s.igetw();
-            walk_items(s, maps, 2);
+            read_items(s, maps, 2, c.maps);
             byte screens = s.getc();
-            walk_items(s, screens, 1);
-            s.skip(2 + 2 + 4 + 4 + 4 + 2);      // screen and level state conditions
+            read_items(s, screens, 1, c.screens);
+            c.scrstate_map = s.igetw();
+            c.scrstate_scr = (short)s.igetw();
+            c.scrstate = s.igetl();
+            c.exstate = s.igetl();
+            c.lvlstate = s.igetl();
+            c.lstate_level = (short)s.igetw();
         }
     }
 
@@ -1588,8 +1624,17 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
         get_sub_colors(s, c, 3);
         put_sub_colors(t, c);
         t.d4 = f1;          // needs the map
+#ifdef ZC_PLAYER_BUILD
+        // upstream's own drawing (subscr.cpp): d5 marks a newer quest's title, d6 its one line
+        // (2) and word wrap (1) flags, d7 the tab size. Player only: ZQuest's subscreen writer
+        // turns these objects back into widgets and holds no such values.
+        t.d5 = 1;
+        t.d6 = (f2 ? 2 : 0) | (f4 ? 1 : 0);
+        t.d7 = s.version >= 10 ? s.getc() : 4;
+#else
         if(s.version >= 10)
             s.skip(1);      // tab size
+#endif
         break;
 
     case WIDG_MMAP:
@@ -1809,12 +1854,26 @@ static void store_sub_object(subscreen_group &g, int &count, subscreen_object t,
     g.objects[count++] = t;
 }
 
-// SubscrPage::read; dest is NULL for a page that isn't kept.
-static void read_sub_page(Q255Section &s, subscreen_group *dest)
+// A later page's objects while it is read, before they are kept (q30_sub_page_objects).
+static subscreen_group g_sub_page_temp;
+
+// SubscrPage::read; dest is NULL for a subscreen that isn't kept. The first page goes straight
+// into the subscreen; later pages are converted the same way and kept apart, for page changes
+// (q30_scripts_subscr.h), as is a copy of the first.
+static void read_sub_page(Q255Section &s, subscreen_group *dest, bool first)
 {
     const long cursor_pos = s.igetl_s();
     if(s.keep)
         q30_sub_page(g_sub_list, (int)cursor_pos);
+
+    subscreen_group *into = dest;
+
+    if(dest && !first)
+    {
+        for(int j = 0; j < MAXSUBSCREENITEMS; ++j)
+            clear_sub_object(g_sub_page_temp.objects[j]);
+        into = &g_sub_page_temp;
+    }
 
     word widgets = s.igetw();
     int stored = 0;
@@ -1828,15 +1887,66 @@ static void read_sub_page(Q255Section &s, subscreen_group *dest)
         const int before = stored;
         memset(&g_sub_last, 0, sizeof(g_sub_last));
 
-        if(read_widget(s, ty, t, text) && dest)
-            store_sub_object(*dest, stored, t, text);
+        if(read_widget(s, ty, t, text) && into)
+            store_sub_object(*into, stored, t, text);
+
+        const int obj = stored > before ? before : -1;
+        const SubWidget255 &b = g_sub_last;
+
+        static const bool sublog = getenv("ZC_Q30_SUBLOG") != NULL;     // diagnostics only
+        if(sublog && s.keep && (b.genflags & WIDG_SELECTABLE) && (g_sub_list == 0 || g_sub_list == 3))
+            al_trace("q30 subscreen: list %d widget type %d at %d,%d: pos %d up %d down %d left %d right %d\n", g_sub_list, ty, b.x, b.y,
+                     b.pos, b.pos_up, b.pos_down, b.pos_left, b.pos_right);
+        if(sublog && s.keep && (g_sub_list == 1 || g_sub_list == 2))
+            al_trace("q30 subscreen: list %d widget type %d at %d,%d size %dx%d posflags 0x%x flags 0x%lx genflags 0x%lx obj %d\n", g_sub_list, ty,
+                     b.x, b.y, b.w, b.h, b.posflags, (unsigned long)b.flags, (unsigned long)b.genflags, obj);
+
+#ifdef ZC_PLAYER_BUILD
+        // A selectable widget that isn't an item slot (a page arrow, say) is a cursor stop too:
+        // with qr_FREEFORM_SUBSCREEN_CURSOR upstream's cursor stops on it. It becomes an item
+        // slot with no item family, never drawn (2.53's cursor and selector only know item slots;
+        // Bweapon finds no item there, so nothing is equipped from it). Player only: ZQuest keeps
+        // the subscreen's own widgets.
+        if(into && !s.failed && ty != WIDG_ITEMSLOT && (b.genflags & WIDG_SELECTABLE) && !b.disabled &&
+           (g_sub_list == 0 || g_sub_list == 3))
+        {
+            subscreen_object stop;
+            memset(&stop, 0, sizeof(stop));
+            stop.type = ssoCURRENTITEM;
+            stop.pos = b.posflags & (sspUP | sspDOWN | sspSCROLLING);
+            stop.x = (word)b.x;
+            stop.y = (word)b.y;
+            stop.w = b.w;
+            stop.h = b.h;
+            stop.d1 = -1;       // no item family
+            stop.d2 = 0;        // not drawn
+            stop.d3 = b.pos;
+            stop.d4 = b.pos_up;
+            stop.d5 = b.pos_down;
+            stop.d6 = b.pos_left;
+            stop.d7 = b.pos_right;
+            store_sub_object(*into, stored, stop, std::string());
+        }
+#endif
 
         if(s.keep && !s.failed)
-        {
-            const SubWidget255 &b = g_sub_last;
-            q30_sub_widget(g_sub_list, ty, g_sub_label.c_str(), stored > before ? before : -1, b.posflags, b.x, b.y, b.w, b.h,
-                           b.pos, b.genflags, b.flags);
-        }
+            q30_sub_widget(g_sub_list, ty, g_sub_label.c_str(), obj, b.posflags, b.x, b.y, b.w, b.h,
+                           b.pos, b.genflags, b.flags, b.pg_mode, b.pg_btns, b.pg_targ);
+
+        if(s.keep && !s.failed && stored > before && q30_sub_cond_used(g_sub_cond))
+            q30_sub_widget_cond(g_sub_list, before, stored, g_sub_cond);
+
+        if(s.keep && !s.failed && (b.genflags & WIDG_SELECTABLE) && !g_sub_seltext.empty())
+            q30_sub_widget_seltext(g_sub_list, g_sub_seltext.c_str());
+    }
+
+    if(into && s.keep && !s.failed)
+        q30_sub_page_objects(g_sub_list, into->objects, stored);
+
+    if(into == &g_sub_page_temp)
+    {
+        for(int j = 0; j < MAXSUBSCREENITEMS; ++j)
+            clear_sub_object(g_sub_page_temp.objects[j]);   // kept as copies
     }
 
     if(s.version >= 16)
@@ -1845,7 +1955,9 @@ static void read_sub_page(Q255Section &s, subscreen_group *dest)
 
         for(int i = 0; i < transitions && !s.failed; ++i)
         {
-            s.skip(4);      // page buttons, mode, target, flags
+            byte btns = s.getc(), mode = s.getc(), targ = s.getc(), flags = s.getc();
+            if(s.keep && !s.failed)
+                q30_sub_page_trans(g_sub_list, btns, mode, targ, flags);
             skip_sub_transition(s);
         }
     }
@@ -1864,6 +1976,7 @@ static void read_new_subscreen(Q255Section &s, int slot, byte ss_type)
     std::string name = s.getcstr();
     byte file_type = s.getc();
     dword flags = s.igetl();
+    byte btn_left = 0, btn_right = 0;
 
     if(file_type == 0 || file_type == 3)   // active and map subscreens
     {
@@ -1871,7 +1984,8 @@ static void read_new_subscreen(Q255Section &s, int slot, byte ss_type)
             skip_selector_info(s);
 
         s.skip(4 * 2);      // default buttons
-        s.skip(1 + 1);      // page buttons
+        btn_left = s.getc();    // page buttons
+        btn_right = s.getc();
         skip_sub_transition(s);
         skip_sub_transition(s);
 
@@ -1889,7 +2003,10 @@ static void read_new_subscreen(Q255Section &s, int slot, byte ss_type)
 
     g_sub_list = ss_type;
     if(s.keep && !s.failed)
+    {
         q30_sub_begin(ss_type, (s.keep && slot >= 0 && slot < MAXCUSTOMSUBSCREENS) ? slot : -1, name.c_str());
+        q30_sub_settings(ss_type, flags, btn_left, btn_right);
+    }
 
     if(s.keep && slot >= 0 && slot < MAXCUSTOMSUBSCREENS && !s.failed)
     {
@@ -1902,7 +2019,7 @@ static void read_new_subscreen(Q255Section &s, int slot, byte ss_type)
     byte pages = s.getc();
 
     for(int q = 0; q < pages && !s.failed; ++q)
-        read_sub_page(s, q == 0 ? g : NULL);
+        read_sub_page(s, g, q == 0);
 
     if(g)
         put_sub_placeholder(*g);

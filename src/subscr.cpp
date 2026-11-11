@@ -23,6 +23,7 @@
 #include "gc.h"
 
 #include <string>
+#include <vector>
 bool q30_active();
 bool q30_item_has_display_name(int item);
 std::string q30_item_shown_name(int item);
@@ -3174,6 +3175,51 @@ void subscreenitem(BITMAP *dest, int x, int y, int itemtype)
 }
 
 #ifdef ZC_PLAYER_BUILD
+// A 2.55/3.0 quest's minimap title (the reader sets d5; d6: 2 one line, 1 word wrap; d7 tab
+// size), drawn as upstream's SW_MMapTitle does. Returns false to leave it to minimaptitle.
+bool q30_compat_rule(int id);
+const char *q30_dmap_title(int dmap);
+bool q30_sub_object_shown(const subscreen_group *g, int i);    // q30_scripts_subscr.h
+const char *q30_sub_selected_text(const subscreen_group *g, int pos);
+
+static bool q30_minimap_title(BITMAP *dest, int x, int y, const subscreen_object &o, FONT *tempfont, int color, int shadowcolor, int bgcolor)
+{
+    if(!q30_active())           // a 2.53 quest's d5..d7 are its own (whatever the file holds)
+        return false;
+
+    const char *full = q30_dmap_title(get_currdmap());
+
+    if(!q30_compat_rule(561))   // qr_OLD_DMAP_INTRO_STRINGS off: the whole title, in the widget's box
+    {
+        std::string text = full ? full : "";
+        std::vector<char> buf(text.begin(), text.end());
+        buf.push_back(0);
+        draw_textbox(dest, x, y, o.w, o.h, tempfont, &buf[0], (o.d6 & 1) != 0, o.d7, o.d2, o.d3, color, shadowcolor, bgcolor);
+        return true;
+    }
+
+    if(!(o.d6 & 2))
+        return false;           // two lines: as 2.53 draws it
+
+    // one line: both halves of the 20 characters, joined by a space where either had one there
+    char src[2][11], line[2][11];
+    sprintf(src[0], "%-10.10s", DMaps[get_currdmap()].title);
+    sprintf(src[1], "%-10.10s", DMaps[get_currdmap()].title + 10);
+    const bool l1 = stripspaces(src[0], line[0], 10) > 0;
+    const bool l2 = stripspaces(src[1], line[1], 10) > 0;
+    char out[24] = "";
+
+    if(l1 && l2)
+        sprintf(out, "%s%s%s", line[0], (src[0][9] == ' ' || src[1][0] == ' ') ? " " : "", line[1]);
+    else if(l1 || l2)
+        strcpy(out, line[l1 ? 0 : 1]);
+
+    if(out[0])
+        textprintf_styled_aligned_ex(dest, tempfont, x, y, o.d3, o.d2, color, shadowcolor, bgcolor, "%s", out);
+
+    return true;
+}
+
 // subscreenitem's item override, for an item q30_subscreen_item chose: drawn whenever it's chosen
 // (the 2.53 ownership test goes by family, which these items don't have here).
 bool q30_subscreen_item(const subscreen_object &o, int *id);
@@ -3513,6 +3559,10 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
         
     for(int i=0; i<MAXSUBSCREENITEMS&&css->objects[i].type>ssoNULL; ++i)
     {
+#ifdef ZC_PLAYER_BUILD
+        if(!q30_sub_object_shown(css, i))   // a 3.0 widget's display conditions don't hold
+            continue;
+#endif
         if((css->objects[i].pos & pos2) != 0)
         {
             FONT *tempfont=zfont;
@@ -3649,6 +3699,12 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
             {
                 if(!css->objects[i].d4 || has_item(itype_map, get_dlevel()))
                 {
+#ifdef ZC_PLAYER_BUILD
+                    if(css->objects[i].d5 && q30_minimap_title(dest, x, y, css->objects[i], tempfont, subscreen_color(misc, css->objects[i].colortype1, css->objects[i].color1),
+                                                               subscreen_color(misc, css->objects[i].colortype2, css->objects[i].color2),
+                                                               subscreen_color(misc, css->objects[i].colortype3, css->objects[i].color3)))
+                        break;
+#endif
                     minimaptitle(dest, x, y, tempfont, subscreen_color(misc, css->objects[i].colortype1, css->objects[i].color1),subscreen_color(misc, css->objects[i].colortype2, css->objects[i].color2),subscreen_color(misc, css->objects[i].colortype3, css->objects[i].color3), css->objects[i].d2, css->objects[i].d3);
                 }
             }
@@ -3705,8 +3761,17 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
             
             case ssoSELECTEDITEMNAME:
             {
+#ifdef ZC_PLAYER_BUILD
+                // a 2.55/3.0 widget's own text for while it's selected (a page arrow's, say)
+                if(const char *q30_text = q30_sub_selected_text(css, Bpos))
+                {
+                    std::vector<char> q30_buf(q30_text, q30_text + strlen(q30_text) + 1);
+                    draw_textbox(dest, x, y, css->objects[i].w, css->objects[i].h, tempfont, &q30_buf[0], css->objects[i].d4!=0, css->objects[i].d5, css->objects[i].d2, css->objects[i].d3, subscreen_color(misc, css->objects[i].colortype1, css->objects[i].color1), subscreen_color(misc, css->objects[i].colortype2, css->objects[i].color2), subscreen_color(misc, css->objects[i].colortype3, css->objects[i].color3));
+                    break;
+                }
+#endif
                 int itemid=Bweapon(Bpos);
-                
+
                 // If it's a combined bow and arrow, the item ID will have 0xF000 added.
                 if(itemid>=0xF000)
                     itemid-=0xF000;

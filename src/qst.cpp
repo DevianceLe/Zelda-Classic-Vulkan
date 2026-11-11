@@ -1698,14 +1698,22 @@ int operator ==(DoorComboSet a, DoorComboSet b)
             }
         }
         
-        if(a.walkthroughcombo[i]!=b.walkthroughcombo[i])
+        // walkthroughcombo and walkthroughcset have 4 entries, but this loop runs to 9: past
+        // them it read whatever followed. MSVC builds read it as plain memory; GCC treats it as
+        // undefined and the comparison never matched, so loading a pre-1.92-b154 quest made a
+        // new door set for every screen (MakeDoors) and ran past the door sets into the
+        // strings. Every real field is compared either way.
+        if(i<4)
         {
-            return false;
-        }
-        
-        if(a.walkthroughcset[i]!=b.walkthroughcset[i])
-        {
-            return false;
+            if(a.walkthroughcombo[i]!=b.walkthroughcombo[i])
+            {
+                return false;
+            }
+
+            if(a.walkthroughcset[i]!=b.walkthroughcset[i])
+            {
+                return false;
+            }
         }
     }
     
@@ -11324,13 +11332,13 @@ int readmaps(PACKFILE *f, zquestheader *Header, bool keepdata)
             scr=i*MAPSCRS+j;
             clear_screen(&temp_mapscr);
             readmapscreen(f, Header, &temp_mapscr, &temp_map, version);
-            
+
             if(keepdata==true)
             {
-            
+
 //		delete_theMaps_data( scr );
                 TheMaps[scr] = temp_mapscr;
-                
+
             }
         }
         

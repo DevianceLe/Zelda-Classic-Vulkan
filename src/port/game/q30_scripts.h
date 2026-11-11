@@ -74,7 +74,39 @@ void q30_sub_clear();
 void q30_sub_begin(int list, int slot, const char *name);
 void q30_sub_page(int list, int cursor_pos);
 void q30_sub_widget(int list, int type, const char *label, int obj, int posflags, int x, int y, int w, int h,
-                    int pos, dword genflags, dword flags);
+                    int pos, dword genflags, dword flags, int pg_mode, int pg_btns, int pg_targ);
+struct subscreen_object;
+// Page changes (upstream's ZCSubscreen page buttons, SubscrPageTransition, widget pg_*): the
+// subscreen's left/right page buttons and flags, a page's button transitions, and each page's
+// 2.53 objects (count of them in objs), kept so a page can be swapped in.
+void q30_sub_settings(int list, dword flags, int btn_left, int btn_right);
+void q30_sub_page_trans(int list, int btns, int mode, int targ, int flags);
+void q30_sub_page_objects(int list, const subscreen_object *objs, int count);
+
+// A widget's display conditions (upstream SubscrWidget req_*, 3.0's subscreen sections 14 and
+// up): it is drawn, and the cursor stops on it, only while they hold (SubscrWidget::check_conditions).
+struct Q30SubCond
+{
+    dword genflags;                                 // the widget's, for its SUBSCRFLAG_REQ_* bits
+    std::vector<int> owned, unowned;                // items
+    int counter, counter_val, counter_cond;         // counter (crNONE -1), value, CONDTY_*
+    int litems, litem_level;                        // level items, their level (-1: current)
+    std::vector<int> floors, levels, dmaps, maps, screens;
+    int scrstate_map, scrstate_scr;                 // map + 1 (0: current), screen (-1: current)
+    dword scrstate, exstate, lvlstate;
+    int lstate_level;                               // -1: current
+};
+inline bool q30_sub_cond_used(const Q30SubCond &c)  // false when nothing is asked
+{
+    return !c.owned.empty() || !c.unowned.empty() || (c.counter != -1 && c.counter_cond != 0) || c.litems ||
+           !c.floors.empty() || !c.levels.empty() || !c.dmaps.empty() || !c.maps.empty() || !c.screens.empty() ||
+           ((c.scrstate_map || c.scrstate_scr < 0) && (c.scrstate || c.exstate)) || c.lvlstate;
+}
+// The objects [first, end) of the page being read come from a widget with these conditions.
+void q30_sub_widget_cond(int list, int first, int end, const Q30SubCond &c);
+// The last widget's selected text override (upstream override_text: what a selected text widget
+// shows while the cursor is on it, in place of an item's name).
+void q30_sub_widget_seltext(int list, const char *text);
 
 // The screen script data (Screen->Data[]) a new game starts with, from the init data reader
 // (q30_scripts_save.h). key -1 only sets the size.

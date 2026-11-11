@@ -306,9 +306,15 @@ int (*const g_sprite_sets[9])[3] = { walkspr, stabspr, slashspr, floatspr, swims
 int dc_fclose(void *) { return 0; }
 int dc_getc(void *) { return EOF; }
 int dc_ungetc(int, void *) { return EOF; }
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long dc_fread(void *, long, void *) { return 0; }
+#pragma pop_macro("long")
 int dc_putc(int c, void *) { return c & 0xFF; }
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long dc_fwrite(const void *, long n, void *) { return n; }
+#pragma pop_macro("long")
 int dc_fseek(void *, int) { return -1; }
 int dc_feof(void *) { return 1; }
 int dc_ferror(void *) { return 0; }

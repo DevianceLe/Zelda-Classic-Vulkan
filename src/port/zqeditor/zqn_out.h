@@ -7,6 +7,7 @@
 #define ZQN_OUT_H
 
 #include <string.h>
+#include <stdint.h>
 #include <vector>
 
 #include "zdefs.h"
@@ -25,7 +26,7 @@ void wg_edit_test_once();
 struct Out
 {
     PACKFILE *f;
-    unsigned long long n;       // bytes so far
+    uint64_t n;       // bytes so far
     bool failed;
     std::vector<byte> pending;
 
@@ -111,7 +112,7 @@ int write_section(PACKFILE *f, dword id, word version, word cversion, long extra
         out.w(extra);
 
     out.l((long)count.n);
-    unsigned long long start = out.n;
+    uint64_t start = out.n;
 
     if(!body(out))
         return 1;
@@ -132,25 +133,25 @@ int write_section(PACKFILE *f, dword id, word version, word cversion, long extra
 struct PartReader
 {
     const ZqQuestPart *part;
-    long long pos;
+    int64_t pos;
     bool bad;
     std::vector<byte> win;
-    long long win_at;
+    int64_t win_at;
 
     explicit PartReader(const ZqQuestPart *p) : part(p), pos(0), bad(false), win_at(-1) {}
 
-    bool fill(long long at, size_t k)
+    bool fill(int64_t at, size_t k)
     {
-        if(win_at >= 0 && at >= win_at && at + (long long)k <= win_at + (long long)win.size())
+        if(win_at >= 0 && at >= win_at && at + (int64_t)k <= win_at + (int64_t)win.size())
             return true;
 
         size_t want = k > (1u << 20) ? k : (1u << 20);
-        long long left = part->length - at;
+        int64_t left = part->length - at;
 
-        if(at < 0 || left < (long long)k)
+        if(at < 0 || left < (int64_t)k)
             return false;
 
-        if((long long)want > left)
+        if((int64_t)want > left)
             want = (size_t)left;
 
         win.resize(want);
@@ -180,7 +181,7 @@ struct PartReader
         }
 
         memcpy(buf, &win[(size_t)(pos - win_at)], k);
-        pos += (long long)k;
+        pos += (int64_t)k;
         return true;
     }
 
@@ -192,7 +193,7 @@ struct PartReader
         read(b, 4);
         return (long)((dword)b[0] | ((dword)b[1] << 8) | ((dword)b[2] << 16) | ((dword)b[3] << 24));
     }
-    void skip(long long k)
+    void skip(int64_t k)
     {
         if(k < 0 || pos + k > part->length)
             bad = true;

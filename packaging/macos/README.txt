@@ -5,11 +5,14 @@ HIGHLY EXPERIMENTAL. This macOS build is new and has only been built on
 GitHub's build machines, never run on a real Mac. Expect problems, and keep
 backups of your quests and saved games.
 
-The Zelda Classic player, ported to SDL3 and Vulkan, with no Allegro. It plays
-2.53 quests and quests made in 2.55 and the 3.0 Nightly builds. ZQuest, the
-quest editor, is Windows only for now.
+The Zelda Classic player and the ZQuest quest editor, ported to SDL3 and
+Vulkan, with no Allegro. The player plays 2.53 quests and quests made in 2.55
+and the 3.0 Nightly builds. ZQuest opens quests of every version, saves each in
+the version it was made in, and can save older quests as 2.55.17 or 3.0
+Nightly.
 
   zplayer              the game
+  zqeditor             ZQuest, the quest editor
   libMoltenVK.dylib    Vulkan for macOS (MoltenVK, runs on Apple's Metal)
 
 What you need
@@ -25,10 +28,12 @@ The first time
 
 Running it
   Keep this folder somewhere you can write to, such as your Documents folder,
-  not Applications. Double-click zplayer, or run it from Terminal inside the
-  folder:
+  not Applications. Double-click zplayer (or zqeditor to edit quests), or run
+  it from Terminal inside the folder:
 
     ./zplayer -windowed -standalone "My Quest.qst"
+
+  JPEG images can't be imported into ZQuest on macOS yet (PNG and BMP can).
 
   Put a quest's music next to the .qst file or in a Music folder beside it.
 

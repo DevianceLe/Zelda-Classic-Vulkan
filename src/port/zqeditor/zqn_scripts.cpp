@@ -19,6 +19,7 @@
 // file's part is read a window at a time.
 
 #include "precompiled.h" //always first
+#include <stdint.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -89,9 +90,9 @@ void zquest_script(const ffscript *code, Zasm &z)
 }
 
 // What a script looks like, to tell whether it changed since the load without keeping a copy.
-unsigned long long script_hash(const ffscript *code)
+uint64_t script_hash(const ffscript *code)
 {
-    unsigned long long h = 14695981039346656037ULL;
+    uint64_t h = 14695981039346656037ULL;
 
     for(long j = 0; code; ++j)
     {
@@ -125,7 +126,7 @@ Bindings zquest_bindings(const std::map<int, std::pair<std::string, std::string>
 
 struct Snapshot
 {
-    std::vector<unsigned long long> tables[T_COUNT];
+    std::vector<uint64_t> tables[T_COUNT];
     std::string source;
     Bindings ffc, global, item;
     bool taken;
@@ -243,7 +244,7 @@ bool read_bindings(PartReader &r, Bindings &b)
 struct Scan
 {
     int version;
-    std::vector<long long> at[T_COUNT];
+    std::vector<int64_t> at[T_COUNT];
     bool has_names;     // version > 2: the source and the slot names
     std::string source;
     Bindings ffc, global, item;
@@ -304,7 +305,7 @@ bool scan_part(const ZqQuestPart &part, Scan &sc)
 struct Source
 {
     enum { S_NONE, S_FILE, S_ZQUEST } kind;
-    long long at;
+    int64_t at;
     const ffscript *code;
 
     Source() : kind(S_NONE), at(0), code(NULL) {}

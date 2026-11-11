@@ -15507,7 +15507,9 @@ void q30_select_next_button_item(bool x, int type)
     q30_set_button_slot(x, Bweapon(ret), ret, directItem);
 }
 
-int selectWpn_new(int type, int startpos, int forbiddenpos)
+bool q30_sub_object_shown(const subscreen_group *g, int i);    // q30_scripts_subscr.h
+
+int selectWpn_new(int type, int startpos, int forbiddenpos, bool any_stop)
 {
     //what will be returned when all else fails.
     //don't return the forbiddenpos... no matter what -DD
@@ -15638,7 +15640,8 @@ int selectWpn_new(int type, int startpos, int forbiddenpos)
         oldPositions.insert(curpos);
         
         //see if this weapon is acceptable
-        if(Bweapon(curpos) != 0 && curpos != forbiddenpos)
+        //(a 3.0 widget whose display conditions don't hold isn't a stop: q30_sub_object_shown)
+        if((Bweapon(curpos) != 0 || any_stop) && curpos != forbiddenpos && q30_sub_object_shown(current_subscreen_active, p))
             return curpos;
             
         //keep going otherwise

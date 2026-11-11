@@ -3,11 +3,17 @@
 // (zcport/pack_record.h).
 
 #include "precompiled.h" //always first
+#include <stdint.h>
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
 #include <process.h>
+#else
+#include <unistd.h>
+#define _getpid getpid
+#endif
 
 #include "zdefs.h"
 #include "qst.h"
@@ -70,7 +76,7 @@ bool is_raw(dword id)                   // parts written without an id in front
 
 FILE *g_store = NULL;
 std::string g_store_path;
-long long g_store_size = 0;         // bytes recorded, those still in g_pending included
+int64_t g_store_size = 0;         // bytes recorded, those still in g_pending included
 std::vector<byte> g_pending;        // not written yet; the last byte stays here for pack_ungetc
 bool g_store_cleanup_set = false;
 
@@ -223,9 +229,9 @@ void zq_sections_end_load(bool loaded)
     }
 }
 
-bool zq_part_read(const ZqQuestPart &p, long long at, void *buf, size_t n)
+bool zq_part_read(const ZqQuestPart &p, int64_t at, void *buf, size_t n)
 {
-    if(!g_store || at < 0 || at + (long long)n > p.length)
+    if(!g_store || at < 0 || at + (int64_t)n > p.length)
         return false;
 
     store_flush(0);
@@ -239,17 +245,22 @@ namespace
 // Appends to the store what a writer writes, after the first 'skip' bytes (the part's id).
 struct StoreSink
 {
-    long long skip;
+    int64_t skip;
 };
 
 int ss_fclose(void *) { return 0; }
 int ss_getc(void *) { return EOF; }
 int ss_ungetc(int, void *) { return EOF; }
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long ss_fread(void *, long, void *) { return 0; }
+#pragma pop_macro("long")
 int ss_feof(void *) { return 1; }
 int ss_ferror(void *) { return 0; }
 int ss_fseek(void *, int) { return -1; }
 
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long ss_fwrite(const void *p, long n, void *user)
 {
     StoreSink *s = (StoreSink *)user;
@@ -271,6 +282,7 @@ long ss_fwrite(const void *p, long n, void *user)
 
     return n;
 }
+#pragma pop_macro("long")
 
 int ss_putc(int c, void *user)
 {
@@ -291,7 +303,7 @@ bool zq_part_replace(ZqQuestPart &p, int (*writer)(PACKFILE *f, const ZqQuestPar
         return false;
 
     store_flush(0);
-    long long start = g_store_size;
+    int64_t start = g_store_size;
     StoreSink sink;
     sink.skip = is_raw(p.id) ? 0 : 4;
     PACKFILE *f = zq_open_sink(&g_store_vtable, &sink);
@@ -326,13 +338,16 @@ namespace
 // A write-only file that keeps a 64-bit FNV-1a hash of what is written to it.
 struct HashSink
 {
-    unsigned long long h;
+    uint64_t h;
 };
 
 int hs_fclose(void *) { return 0; }
 int hs_getc(void *) { return EOF; }
 int hs_ungetc(int, void *) { return EOF; }
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long hs_fread(void *, long, void *) { return 0; }
+#pragma pop_macro("long")
 int hs_feof(void *) { return 1; }
 int hs_ferror(void *) { return 0; }
 int hs_fseek(void *, int) { return -1; }
@@ -349,6 +364,8 @@ int hs_putc(int c, void *user)
     return c & 0xFF;
 }
 
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
 long hs_fwrite(const void *p, long n, void *user)
 {
     const unsigned char *b = (const unsigned char *)p;
@@ -358,6 +375,7 @@ long hs_fwrite(const void *p, long n, void *user)
 
     return n;
 }
+#pragma pop_macro("long")
 
 const PACKFILE_VTABLE g_hash_vtable = { hs_fclose, hs_getc, hs_ungetc, hs_fread, hs_putc, hs_fwrite, hs_fseek, hs_feof, hs_ferror };
 
@@ -458,7 +476,7 @@ bool misc_holds_colors()
 
 // FP_NONE: ZQuest has no 2.53 writer for this part, so nothing here can change it.
 // FP_FAILED: a writer failed, so its output says nothing about whether the part changed.
-int fingerprint(dword id, unsigned long long *out)
+int fingerprint(dword id, uint64_t *out)
 {
     bool has_writer = false;
 
@@ -532,7 +550,7 @@ struct Absent
 {
     dword id;
     int fp_state;
-    unsigned long long fp;
+    uint64_t fp;
 };
 
 std::vector<Absent> g_absent;
@@ -598,7 +616,7 @@ void zq_absent_changed(std::vector<std::string> &names)
 {
     for(size_t i = 0; i < g_absent.size(); ++i)
     {
-        unsigned long long now = 0;
+        uint64_t now = 0;
         int r = fingerprint(g_absent[i].id, &now);
 
         if(r != g_absent[i].fp_state || now != g_absent[i].fp)
@@ -629,7 +647,7 @@ bool zq_part_changed(const ZqQuestPart &p)
     if(p.fingerprint_failed)        // can't tell: treat it as changed, never copy old bytes over edits
         return true;
 
-    unsigned long long now = 0;
+    uint64_t now = 0;
     return fingerprint(p.id, &now) != FP_OK || now != p.fingerprint;
 }
 
@@ -638,7 +656,7 @@ namespace
 
 // Compares the next n bytes of the decoded file with data. pos counts the file's bytes,
 // diff is set at the first difference (or where the file ran out).
-void compare_next(PACKFILE *f, const byte *data, size_t n, long long &pos, long long &diff)
+void compare_next(PACKFILE *f, const byte *data, size_t n, int64_t &pos, int64_t &diff)
 {
     byte buf[65536];
 
@@ -672,7 +690,7 @@ int zq_sections_check(const char *filename, const char *report)
     char deletefilename[1024];
     deletefilename[0] = 0;
     PACKFILE *f = open_quest_file(&open_error, filename, deletefilename, true, true, false);
-    long long pos = 0, diff = -1, parts_total = 0;
+    int64_t pos = 0, diff = -1, parts_total = 0;
     bool read_ok = true;
 
     if(f)
@@ -690,9 +708,9 @@ int zq_sections_check(const char *filename, const char *report)
                 parts_total += 4;
             }
 
-            for(long long at = 0; at < p.length; at += (long long)chunk.size())
+            for(int64_t at = 0; at < p.length; at += (int64_t)chunk.size())
             {
-                size_t n = (size_t)(p.length - at < (long long)chunk.size() ? p.length - at : (long long)chunk.size());
+                size_t n = (size_t)(p.length - at < (int64_t)chunk.size() ? p.length - at : (int64_t)chunk.size());
 
                 if(!zq_part_read(p, at, &chunk[0], n))
                 {
@@ -754,7 +772,7 @@ int zq_sections_check(const char *filename, const char *report)
 
         fprintf(out, "parts that look changed right after the load: %d%s\n", unstable, which.c_str());
 
-        long long at = 0;
+        int64_t at = 0;
 
         for(size_t i = 0; i < zq_quest_file.parts.size(); ++i)
         {
@@ -779,11 +797,11 @@ int zq_sections_check(const char *filename, const char *report)
             bool has_version = !is_raw(p.id) && zq_part_read(p, 0, vb, 4);
 
             if(has_version)
-                fprintf(out, "%s at %10lld  %10lld bytes  v %d cv %d\n", name, at, (long long)idlen + p.length,
+                fprintf(out, "%s at %10lld  %10lld bytes  v %d cv %d\n", name, at, (int64_t)idlen + p.length,
                         vb[0] | (vb[1] << 8), vb[2] | (vb[3] << 8));
             else
-                fprintf(out, "%s at %10lld  %10lld bytes\n", name, at, (long long)idlen + p.length);
-            at += (long long)idlen + p.length;
+                fprintf(out, "%s at %10lld  %10lld bytes\n", name, at, (int64_t)idlen + p.length);
+            at += (int64_t)idlen + p.length;
         }
 
         fclose(out);

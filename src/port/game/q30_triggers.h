@@ -330,6 +330,15 @@ void q30_force_ice_velocity(bool setx, long vx, bool sety, long vy);
 void q30_draw_prompt(BITMAP *dest);         // button prompt combo near Link, if any
 void q30_trig_push();                       // Link is pushing: fires push triggers
 bool q30_active();                          // true for 2.55+ quests
+// dosubscr, while the active subscreen is open (q30_scripts_subscr.h): L and R don't move the
+// selector in a 2.55/3.0 quest with the newer subscreens (upstream: only with qr_OLD_SUBSCR);
+// q30_subscreen_pages runs the page buttons (btns: A 1, B 2, L 4, R 8, Ex1-4 16-128, pressed
+// this frame) and moves pos to the new page's cursor when the page changes; q30_subscreen_cursor
+// keeps the cursor of the page shown as the subscreen closes (open false) and, as it opens again
+// on a page other than the first, puts pos back there (open true).
+bool q30_subscreen_lr_are_buttons();
+void q30_subscreen_pages(int btns, int &pos);
+void q30_subscreen_cursor(bool open, int &pos);
 bool q30_has_bridge_at(int x, int y, int layer);
 bool q30_has_bridge_above(int x, int y, int target_layer);
 int q30_link_mapcombo(int x, int y);        // MAPCOMBO, but 0 where a bridge covers the screen combo

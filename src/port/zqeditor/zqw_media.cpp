@@ -22,6 +22,7 @@
 // is still saved by save_quest as always (zq_files.cpp), so this changes nothing there.
 
 #include "precompiled.h" //always first
+#include <stdint.h>
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -150,14 +151,14 @@ class Src
 public:
     explicit Src(const ZqQuestPart &p) : pos(0), failed(false), part_(p), win_at_(0) {}
 
-    long long size() const { return part_.length; }
-    long long left() const { return pos <= part_.length ? part_.length - pos : 0; }
-    bool has(long long n) const { return !failed && n >= 0 && n <= left(); }
+    int64_t size() const { return part_.length; }
+    int64_t left() const { return pos <= part_.length ? part_.length - pos : 0; }
+    bool has(int64_t n) const { return !failed && n >= 0 && n <= left(); }
 
     // n bytes from 'at', without moving
-    bool peek(long long at, void *dst, size_t n)
+    bool peek(int64_t at, void *dst, size_t n)
     {
-        if(at < 0 || at + (long long)n > part_.length)
+        if(at < 0 || at + (int64_t)n > part_.length)
             return false;
 
         if(!n)
@@ -166,10 +167,10 @@ public:
         if(n > WINDOW)
             return zq_part_read(part_, at, dst, n);
 
-        if(win_.empty() || at < win_at_ || at + (long long)n > win_at_ + (long long)win_.size())
+        if(win_.empty() || at < win_at_ || at + (int64_t)n > win_at_ + (int64_t)win_.size())
         {
-            long long rest = part_.length - at;
-            size_t len = rest < (long long)WINDOW ? (size_t)rest : WINDOW;
+            int64_t rest = part_.length - at;
+            size_t len = rest < (int64_t)WINDOW ? (size_t)rest : WINDOW;
             win_.resize(len);
 
             if(!zq_part_read(part_, at, &win_[0], len))
@@ -187,17 +188,17 @@ public:
 
     void read(void *dst, size_t n)
     {
-        if(!has((long long)n) || !peek(pos, dst, n))
+        if(!has((int64_t)n) || !peek(pos, dst, n))
         {
             failed = true;
             memset(dst, 0, n);
             return;
         }
 
-        pos += (long long)n;
+        pos += (int64_t)n;
     }
 
-    void skip(long long n)
+    void skip(int64_t n)
     {
         if(!has(n))
             failed = true;
@@ -245,7 +246,7 @@ public:
     {
         std::string out;
 
-        if(!has((long long)n))
+        if(!has((int64_t)n))
         {
             failed = true;
             return out;
@@ -261,7 +262,7 @@ public:
     }
 
     // n bytes at 'at' compared with data
-    bool equals(long long at, const void *data, size_t n)
+    bool equals(int64_t at, const void *data, size_t n)
     {
         const byte *d = (const byte *)data;
         byte buf[4096];
@@ -273,7 +274,7 @@ public:
             if(!peek(at, buf, k) || memcmp(buf, d, k) != 0)
                 return false;
 
-            at += (long long)k;
+            at += (int64_t)k;
             d += k;
             n -= k;
         }
@@ -281,13 +282,13 @@ public:
         return true;
     }
 
-    long long pos;
+    int64_t pos;
     bool failed;
 
 private:
     const ZqQuestPart &part_;
     std::vector<byte> win_;
-    long long win_at_;
+    int64_t win_at_;
 };
 
 // ---- what a writer writes: to the file, or (with no file) only counted --------------------
@@ -299,7 +300,7 @@ public:
 
     void put(const void *p, size_t len)
     {
-        n += (long long)len;
+        n += (int64_t)len;
 
         if(!f_ || !ok || !len)
             return;
@@ -350,7 +351,7 @@ public:
     }
 
     // n bytes of the part as it was loaded, from 'at'
-    void copy(Src &s, long long at, long long len)
+    void copy(Src &s, int64_t at, int64_t len)
     {
         if(!f_)
         {
@@ -362,7 +363,7 @@ public:
 
         while(len > 0)
         {
-            size_t k = len < (long long)sizeof(buf) ? (size_t)len : sizeof(buf);
+            size_t k = len < (int64_t)sizeof(buf) ? (size_t)len : sizeof(buf);
 
             if(!s.peek(at, buf, k))
             {
@@ -372,8 +373,8 @@ public:
             }
 
             put(buf, k);
-            at += (long long)k;
-            len -= (long long)k;
+            at += (int64_t)k;
+            len -= (int64_t)k;
         }
     }
 
@@ -391,7 +392,7 @@ public:
 
     bool counting() const { return f_ == NULL; }
 
-    long long n;
+    int64_t n;
     bool ok;
 
 private:
@@ -987,10 +988,10 @@ int TileWriter::body(Out &o, Src &s)
     {
         if(i < orig_count)
         {
-            long long at = s.pos;
+            int64_t at = s.pos;
             byte format = has_format ? s.getc() : (byte)tf4Bit;
             size_t len = (blank_opt && format == tfInvalid) ? 0 : (size_t)tilesize(format);
-            s.skip((long long)len);
+            s.skip((int64_t)len);
 
             if(s.failed)
                 return bad_part(name());
@@ -1107,12 +1108,12 @@ int WeaponsWriter::body_old(Out &o, Src &s)
         return bad_part(name());
 
     bool names_in_file = v > 2;
-    long long names_at = s.pos;
+    int64_t names_at = s.pos;
 
     if(names_in_file)
         s.skip(64LL * count);
 
-    long long recs_at = s.pos;
+    int64_t recs_at = s.pos;
     s.skip(7LL * count);
 
     if(s.failed)
@@ -1277,14 +1278,14 @@ int WeaponsWriter::body_255(Out &o, Src &s)
     if(s.failed || count > MAX_SPRITES_255)
         return bad_part(name());
 
-    long long names_at = s.pos;
+    int64_t names_at = s.pos;
 
     if(v < 9)
         s.skip(64LL * count);
 
     // each record as it is in the file, and what the reader made of it
-    std::vector<long long> rec_at(count), rec_len(count);
-    std::vector<long long> name_at(count, -1);
+    std::vector<int64_t> rec_at(count), rec_len(count);
+    std::vector<int64_t> name_at(count, -1);
     std::vector<Sprite> want(count);
     std::vector<word> old_tile(count, 0);
     std::vector<dword> long_tile(count, 0);
@@ -1526,7 +1527,7 @@ bool skip_sample(Src &s, word v)
     if(s.failed)
         return false;
 
-    long long bytes = (long long)(bits == 8 ? 1 : 2) * (v < 3 || stereo == 0 ? 1 : 2) * (long long)len;
+    int64_t bytes = (int64_t)(bits == 8 ? 1 : 2) * (v < 3 || stereo == 0 ? 1 : 2) * (int64_t)len;
     s.skip(v < 2 ? bytes : (bytes / 2) * 2);
     return !s.failed;
 }
@@ -1564,7 +1565,7 @@ int SfxWriter::body_old(Out &o, Src &s)
     byte oflags[WAV_COUNT>>3];
     memset(oflags, 0, sizeof(oflags));
     s.read(oflags, flag_bytes);
-    std::vector<long long> name_at(WAV_COUNT, -1);
+    std::vector<int64_t> name_at(WAV_COUNT, -1);
 
     for(int i = 1; v > 4 && i < wavcount; ++i)
         if(sfx_flag(oflags, i))
@@ -1617,7 +1618,7 @@ int SfxWriter::body_255(Out &o, Src &s)
     // sound back (with its flag set) in the first slots and stays empty in the others.
     byte oflags[WAV_COUNT>>3];
     s.read(oflags, sizeof(oflags));
-    std::vector<long long> name_at(WAV_COUNT, -1), smp_at(WAV_COUNT, -1), smp_len(WAV_COUNT, 0);
+    std::vector<int64_t> name_at(WAV_COUNT, -1), smp_at(WAV_COUNT, -1), smp_len(WAV_COUNT, 0);
 
     for(int i = 1; i < WAV_COUNT; ++i)
         if(sfx_flag(oflags, i))
@@ -1759,13 +1760,13 @@ int a5_depth_bytes(byte depth)
 
 struct SfxEntry
 {
-    long long at, len;          // the whole entry
-    long long payload_at;       // after the name
+    int64_t at, len;          // the whole entry
+    int64_t payload_at;       // after the name
     byte type;
     std::string name;
     byte depth, conf;
     dword freq, slen;           // WAV: frequency and length in frames; OGG: as the file has them
-    long long data_at;
+    int64_t data_at;
     dword data_len;             // OGG: the buffer's size
 };
 
@@ -1793,7 +1794,7 @@ bool a5_matches(Src &s, const SfxEntry &e, const SAMPLE &m)
         dword frames = e.slen - first < chunk ? e.slen - first : chunk;
         in.resize((size_t)frames * frame);
 
-        if(!s.peek(e.data_at + (long long)first * frame, &in[0], in.size()))
+        if(!s.peek(e.data_at + (int64_t)first * frame, &in[0], in.size()))
             return false;
 
         for(dword i = 0; i < frames; ++i)
@@ -1917,9 +1918,9 @@ int SfxWriter::body_v9(Out &o, Src &s)
             e.freq = s.igetl();
             e.slen = s.igetl();
             int channels = (e.conf >> 4) + (e.conf & 0xF);
-            long long frame = (long long)channels * a5_depth_bytes(e.depth);
+            int64_t frame = (int64_t)channels * a5_depth_bytes(e.depth);
 
-            if(s.failed || !frame || (long long)e.slen > s.left() / frame)
+            if(s.failed || !frame || (int64_t)e.slen > s.left() / frame)
                 return bad_part(name());
 
             e.data_at = s.pos;
@@ -2117,7 +2118,7 @@ bool skip_midi(Src &s)
     return !s.failed;
 }
 
-bool midi_matches(Src &s, long long at, const MIDI *m)
+bool midi_matches(Src &s, int64_t at, const MIDI *m)
 {
     if(!m)
         return false;
@@ -2175,11 +2176,11 @@ public:
 private:
     int body_old(Out &o, Src &s);
     int body_v5(Out &o, Src &s);
-    bool old_matches(Src &s, long long at, const zctune &t);
+    bool old_matches(Src &s, int64_t at, const zctune &t);
 };
 
 // Whether an old-format tune record still reads as tune t (readtunes).
-bool MidiWriter::old_matches(Src &s, long long at, const zctune &t)
+bool MidiWriter::old_matches(Src &s, int64_t at, const zctune &t)
 {
     int title_len = v < 4 ? 20 : 36;
     char raw[37];
@@ -2233,7 +2234,7 @@ int MidiWriter::body_old(Out &o, Src &s)
     byte oflags[MIDIFLAGS_SIZE];
     s.read(oflags, MIDIFLAGS_SIZE);
     int title_len = v < 4 ? 20 : 36;
-    std::vector<long long> at(MAXCUSTOMTUNES, -1), len(MAXCUSTOMTUNES, 0);
+    std::vector<int64_t> at(MAXCUSTOMTUNES, -1), len(MAXCUSTOMTUNES, 0);
 
     for(int i = 0; i < MAXCUSTOMTUNES; ++i)
     {
@@ -2329,7 +2330,7 @@ int MidiWriter::body_v5(Out &o, Src &s)
 {
     // a bit string of which tunes are there, their count, then each one there: its title
     // (16-bit length), start, loop start and end, loop, volume, flags, format, MIDI
-    long long bits_at = s.pos;
+    int64_t bits_at = s.pos;
     std::vector<byte> obits;
     word size = s.igetw();
     obits.assign(size, 0);
@@ -2351,13 +2352,13 @@ int MidiWriter::body_v5(Out &o, Src &s)
         }
     }
 
-    long long bits_len = s.pos - bits_at;
+    int64_t bits_len = s.pos - bits_at;
     word count = s.igetw();
 
     if(s.failed || count > MAX_TUNES_255)
         return bad_part(name());
 
-    std::vector<long long> at(count, -1), len(count, 0), body_at(count, 0);
+    std::vector<int64_t> at(count, -1), len(count, 0), body_at(count, 0);
     std::vector<std::string> titles(count);
 
     for(int i = 0; i < count; ++i)
@@ -2504,7 +2505,7 @@ int zqw_midis(PACKFILE *f, const ZqPartContext &ctx)
 
 struct Hash
 {
-    unsigned long long h;
+    uint64_t h;
 
     Hash() : h(14695981039346656037ULL) {}
 

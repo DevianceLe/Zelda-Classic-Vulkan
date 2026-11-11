@@ -818,7 +818,7 @@ const char *diff_255(const Read255 &got, int i, int count)
     if(i >= count)
         return NULL;
 
-    if(get_or(got.family, i, -1L) != family_255(i, itemsbuf[i]))
+    if(get_or(got.family, i, long(-1)) != family_255(i, itemsbuf[i]))
         return "family as stored";
 
     if(get_or(got.usesound2, i, 0) != get_or(zq255.item_usesound2, i, 0))

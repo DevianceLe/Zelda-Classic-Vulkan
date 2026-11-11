@@ -13657,16 +13657,23 @@ switched:
     return false;
 }
 
+bool q30_active();
+
 // Wraps the message string... probably.
 void wrapmsgstr(char *s3)
 {
     int j=0;
-    
+
     if(MsgStrings[msgstr].stringflags & STRINGFLAG_WRAP)
     {
         if(msgspace)
         {
-            if(MsgStrings[msgstr].s[msgptr] >= 32 && MsgStrings[msgstr].s[msgptr] <= 126)
+            // 2.55/3.0 (upstream's fix): another space after a space is not a word, so the
+            // word after a run of spaces is still measured whole. 2.53 takes the space as an
+            // empty word, and after an even run of spaces measures the next word a letter at a
+            // time; 2.53 quests keep that, as their strings and replays were made with it.
+            if(MsgStrings[msgstr].s[msgptr] >= 32 && MsgStrings[msgstr].s[msgptr] <= 126 &&
+               !(MsgStrings[msgstr].s[msgptr] == ' ' && q30_active()))
             {
                 for(int k=0; MsgStrings[msgstr].s[msgptr+k] && MsgStrings[msgstr].s[msgptr+k] != ' '; k++)
                 {
@@ -13871,9 +13878,10 @@ breakout:
         if(!parsemsgcode())
         {
             wrapmsgstr(s3);
-            
+
             tlength = text_length(msgfont, s3) + ((int)strlen(s3)*MsgStrings[msgstr].hspace);
-            
+
+
             if(cursor_x+tlength > msg_w+q30_msg_wrap_extra(msgstr) && ((cursor_x > msg_w+q30_msg_wrap_extra(msgstr) || !(MsgStrings[msgstr].stringflags & STRINGFLAG_WRAP)) ? true : strcmp(s3," ")!=0))
             {
                 cursor_y += text_height(msgfont) + MsgStrings[msgstr].vspace;
@@ -13907,6 +13915,11 @@ breakout:
         if((MsgStrings[msgstr].s[msgptr]==' ') && (MsgStrings[msgstr].s[msgptr+1]==' '))
             while(MsgStrings[msgstr].s[msgptr]==' ')
             {
+                // 2.55/3.0 (upstream): the word after a run of spaces is measured whole, so it
+                // goes to the next line together rather than a letter at a time
+                if(q30_active())
+                    msgspace = true;
+
                 tlength = msgfont->vtable->char_length(msgfont, MsgStrings[msgstr].s[msgptr]) + MsgStrings[msgstr].hspace;
                 
                 if(cursor_x+tlength > msg_w+q30_msg_wrap_extra(msgstr) && ((cursor_x > msg_w+q30_msg_wrap_extra(msgstr) || !(MsgStrings[msgstr].stringflags & STRINGFLAG_WRAP)) ? true : strcmp(s3," ")!=0))

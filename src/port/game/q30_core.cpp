@@ -3,6 +3,7 @@
 #include "precompiled.h" //always first
 
 #include <string.h>
+#include <string>
 
 #include "q30.h"
 
@@ -13,6 +14,8 @@ std::map<int, Q30ScriptRef> g_combo_scripts;
 std::map<int, int> g_msg_wrap_extra;
 std::map<int, Q30ScriptRef> g_dmap_scripts[q30_dmap_kinds];
 std::map<int, std::pair<int, int> > g_dmap_subscreens;    // overlay, map
+std::map<int, std::pair<std::string, long> > g_dmap_texts;  // title, intro string
+std::map<int, int> g_dmap_floors;
 
 void put(std::map<int, Q30ScriptRef> &table, int key, word script, const long *initd)
 {
@@ -64,6 +67,22 @@ void q30_clear_tables()
         g_dmap_scripts[i].clear();
 
     g_dmap_subscreens.clear();
+    g_dmap_texts.clear();
+    g_dmap_floors.clear();
+}
+
+void q30_set_dmap_floor(int dmap, int floor)
+{
+    if(floor)
+        g_dmap_floors[dmap] = floor;
+    else
+        g_dmap_floors.erase(dmap);
+}
+
+int q30_dmap_floor(int dmap)
+{
+    std::map<int, int>::const_iterator it = g_dmap_floors.find(dmap);
+    return it == g_dmap_floors.end() ? 0 : it->second;
 }
 
 void q30_set_combo_script(int combo, word script, const long *initd)
@@ -105,4 +124,24 @@ int q30_dmap_map_subscreen(int dmap)
 {
     std::map<int, std::pair<int, int> >::const_iterator it = g_dmap_subscreens.find(dmap);
     return it == g_dmap_subscreens.end() ? -1 : it->second.second;
+}
+
+void q30_set_dmap_texts(int dmap, const char *title, long intro_string)
+{
+    g_dmap_texts[dmap] = std::make_pair(std::string(title ? title : ""), intro_string);
+
+    if(intro_string && getenv("ZC_Q30_SUBLOG"))     // diagnostics only
+        al_trace("q30 dmap %d: intro string %ld, title '%s'\n", dmap, intro_string, title ? title : "");
+}
+
+const char *q30_dmap_title(int dmap)
+{
+    std::map<int, std::pair<std::string, long> >::const_iterator it = g_dmap_texts.find(dmap);
+    return it == g_dmap_texts.end() ? NULL : it->second.first.c_str();
+}
+
+long q30_dmap_intro_string(int dmap)
+{
+    std::map<int, std::pair<std::string, long> >::const_iterator it = g_dmap_texts.find(dmap);
+    return it == g_dmap_texts.end() ? 0 : it->second.second;
 }
