@@ -1,4 +1,8 @@
-## What's new
+## 2.53.444.5.1
+
+- **Adds the macOS download** that 2.53.444.5 was missing. Its build stopped on one file, a test helper that needs C++11, which macOS didn't use for it. Nothing else changed: the other downloads are built from the same code as 2.53.444.5.
+
+## What's new in 2.53.444.5
 
 **New builds: 64-bit Windows, ARM and Mac (highly experimental)**
 

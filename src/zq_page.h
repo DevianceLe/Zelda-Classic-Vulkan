@@ -26,7 +26,7 @@ struct ZqPageScope
 
 // The program name in the window title.
 #ifdef ZC_PORT
-#define ZQ_WINDOW_NAME "ZQuest Vulkan 2.53.444.5"
+#define ZQ_WINDOW_NAME "ZQuest Vulkan 2.53.444.5.1"
 #else
 #define ZQ_WINDOW_NAME "ZQuest"
 #endif

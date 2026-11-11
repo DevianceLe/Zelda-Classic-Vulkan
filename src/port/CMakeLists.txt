@@ -305,6 +305,9 @@ if(NOT MSVC)
     # zplayer's ImGui UI (src/port/game/ui_*.cpp) needs C++11 as well.
     file(GLOB _zc_ui_game_sources ${ZCPORT_DIR}/game/ui_*.cpp)
     set_property(SOURCE ${_zc_ui_game_sources} APPEND PROPERTY COMPILE_OPTIONS -std=gnu++11)
+    # So does the test driver zplayer links (std::thread with arguments): macOS builds the
+    # player's own sources as C++98, where libc++'s std::thread has no such constructor.
+    set_property(SOURCE ${ZCPORT_DIR}/zqeditor/autotest.cpp APPEND PROPERTY COMPILE_OPTIONS -std=gnu++11)
 endif()
 if(MSVC)
     # Same warning level as the zelda target (the default), keep the noise of
