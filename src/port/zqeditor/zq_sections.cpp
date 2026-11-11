@@ -38,6 +38,7 @@ int writetiles(PACKFILE *f, word version, word build, int start_tile, int max_ti
 int writemidis(PACKFILE *f);
 int writecheats(PACKFILE *f, zquestheader *Header);
 int writeinitdata(PACKFILE *f, zquestheader *Header);
+extern zinitdata zinit;
 int writeguys(PACKFILE *f, zquestheader *Header);
 int writelinksprites(PACKFILE *f, zquestheader *Header);
 int writesubscreens(PACKFILE *f, zquestheader *Header);
@@ -385,7 +386,19 @@ bool zq_write_253_section(PACKFILE *f, dword id)
     case ID_TILES:        return writetiles(f, ZELDA_VERSION, VERSION_BUILD, 0, NEWMAXTILES) == 0;
     case ID_MIDIS:        return writemidis(f) == 0;
     case ID_CHEATS:       return writecheats(f, &header) == 0;
-    case ID_INITDATA:     return writeinitdata(f, &header) == 0;
+    case ID_INITDATA:
+    {
+        // 2.53's init data writer also stores the editor's current map and screen in zinit, which
+        // is how a 2.53 save remembers the view. Writing the section here isn't that save: the
+        // fingerprints and the writers' snapshots run it after every load, and moving the view
+        // there made File > Open go to the editor's previous view instead of the quest's. A save
+        // in the quest's own version sets the view itself (zq_save_own_format_ex).
+        byte view_map = zinit.last_map, view_screen = zinit.last_screen;
+        bool ok = writeinitdata(f, &header) == 0;
+        zinit.last_map = view_map;
+        zinit.last_screen = view_screen;
+        return ok;
+    }
     case ID_GUYS:         return writeguys(f, &header) == 0;
     case ID_LINKSPRITES:  return writelinksprites(f, &header) == 0;
     case ID_SUBSCREEN:    return writesubscreens(f, &header) == 0;

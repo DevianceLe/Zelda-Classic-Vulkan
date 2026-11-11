@@ -5,6 +5,7 @@
 //
 // Commands, one per line (coordinates are window pixels):
 //   move X Y | click X Y [HOLD_MS] | rclick X Y | dclick X Y | wait MS | key NAME [MS] | type TEXT
+//   down NAME | up NAME     (a key held across other commands, for shortcuts)
 // The number of commands handled is written to <file>.pos after each one.
 //
 // Written from scratch for zcport.
@@ -110,6 +111,12 @@ SDL_Scancode scancode_of(const std::string &name)
     if(name == "PGUP") return SDL_SCANCODE_PAGEUP;
     if(name == "PGDN") return SDL_SCANCODE_PAGEDOWN;
     if(name == "BKSP") return SDL_SCANCODE_BACKSPACE;
+    if(name == "DEL") return SDL_SCANCODE_DELETE;
+    if(name == "HOME") return SDL_SCANCODE_HOME;
+    if(name == "END") return SDL_SCANCODE_END;
+    if(name == "CTRL") return SDL_SCANCODE_LCTRL;
+    if(name == "SHIFT") return SDL_SCANCODE_LSHIFT;
+    if(name == "ALT") return SDL_SCANCODE_LALT;
     if(name.size() == 1 && name[0] >= 'A' && name[0] <= 'Z')
         return (SDL_Scancode)(SDL_SCANCODE_A + (name[0] - 'A'));
     if(name.size() == 1 && name[0] >= '1' && name[0] <= '9')
@@ -119,6 +126,29 @@ SDL_Scancode scancode_of(const std::string &name)
     return SDL_SCANCODE_UNKNOWN;
 }
 
+void key_event(SDL_Scancode sc, bool down)
+{
+    SDL_Event e;
+    SDL_zero(e);
+    e.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+    e.key.windowID = window_id();
+    e.key.scancode = sc;
+    e.key.key = SDL_GetKeyFromScancode(sc, SDL_KMOD_NONE, false);
+    e.key.down = down;
+    SDL_PushEvent(&e);
+}
+
+// "down NAME" / "up NAME": a key held across other commands, for shortcuts (down CTRL,
+// down SHIFT, key S, up SHIFT, up CTRL).
+void key_hold(const std::string &name, bool down)
+{
+    SDL_Scancode sc = scancode_of(name);
+    if(sc == SDL_SCANCODE_UNKNOWN)
+        return;
+    key_event(sc, down);
+    pause_ms(60);
+}
+
 void key(const std::string &name, int ms)
 {
     SDL_Scancode sc = scancode_of(name);
@@ -126,14 +156,7 @@ void key(const std::string &name, int ms)
         return;
     for(int down = 1; down >= 0; --down)
     {
-        SDL_Event e;
-        SDL_zero(e);
-        e.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
-        e.key.windowID = window_id();
-        e.key.scancode = sc;
-        e.key.key = SDL_GetKeyFromScancode(sc, SDL_KMOD_NONE, false);
-        e.key.down = down != 0;
-        SDL_PushEvent(&e);
+        key_event(sc, down != 0);
         // as the system does: a letter is also typed text, if text input is on
         SDL_WindowID id = window_id();
         SDL_Window *win = SDL_GetWindowFromID(id);
@@ -210,6 +233,11 @@ void run(const std::string &path)
                         int ms = 80;
                         sscanf(line.c_str(), "%31s %31s %d", word, name, &ms);
                         key(name, ms);
+                    }
+                    else if(!strcmp(word, "down") || !strcmp(word, "up"))
+                    {
+                        sscanf(line.c_str(), "%31s %31s", word, name);
+                        key_hold(name, word[0] == 'd');
                     }
                 }
                 ++handled;

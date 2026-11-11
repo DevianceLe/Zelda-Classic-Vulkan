@@ -55,7 +55,7 @@ set(ZQEDITOR_SOURCES
 )
 # Section writers for saving quests in the version they were made in (see zq_writers.h):
 # one file per area, picked up as they're added.
-file(GLOB ZQEDITOR_SECTION_WRITERS CONFIGURE_DEPENDS ${ZCPORT_DIR}/zqeditor/zqw_*.cpp)
+file(GLOB ZQEDITOR_SECTION_WRITERS CONFIGURE_DEPENDS ${ZCPORT_DIR}/zqeditor/zqw_*.cpp ${ZCPORT_DIR}/zqeditor/zqn_*.cpp)
 list(APPEND ZQEDITOR_SOURCES ${ZQEDITOR_SECTION_WRITERS})
 foreach(src ${ZQEDITOR_RELATIVE_SOURCES})
 	if(IS_ABSOLUTE ${src})
@@ -83,7 +83,7 @@ target_include_directories(zqeditor PRIVATE
 # The game's main() becomes zcport_game_main(); see src/port/entry/zplayer_main.cpp.
 # (On the target: a source file's properties would reach zplayer's copy too.)
 target_compile_definitions(zqeditor PRIVATE ZCPORT_MAGIC_MAIN ZC_ZQEDITOR
-	"ZPLAYER_WINDOW_TITLE=\"ZQuest Vulkan 2.53.444.4-PRE\"")
+	"ZPLAYER_WINDOW_TITLE=\"ZQuest Vulkan 2.53.444.4\"")
 target_link_libraries(zqeditor PRIVATE zcport_sdl zcport zc_stb_vorbis zc_minimp3 zc_gme zc_dumb windowscodecs ole32)
 set_target_properties(zqeditor PROPERTIES
 	OUTPUT_NAME zqeditor

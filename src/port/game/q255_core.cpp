@@ -245,6 +245,13 @@ int read_sections(PACKFILE *f, zquestheader *header, miscQdata *misc, zctune *tu
 
     while(p_mgetl(&id, f, true))
     {
+        // A packed file can't always tell it has ended until a read goes past the end, so the
+        // id read after the last section may be that failed read. Upstream's loader stops on
+        // the end of the file after reading an id, the same as here; without this, a valid
+        // file whose unpacked length falls that way failed to open.
+        if(pack_feof(f))
+            break;
+
         word version = 0, cversion = 0;
         dword size = 0;
 

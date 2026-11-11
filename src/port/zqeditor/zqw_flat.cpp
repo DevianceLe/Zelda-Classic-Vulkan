@@ -3369,7 +3369,11 @@ int write_flat_body(PACKFILE *f, const ZqPartContext &ctx)
         return rc;
 
     // The header in the file must say what this body needs (it holds the counts and rules).
-    std::vector<byte> h, inhdr;
+    // A save always writes the two together, the header first (flat_pair_changed in
+    // zq_writers.cpp), and the header writer writes this same compute_header() result, so they
+    // match in the file. The kept header isn't compared here: the dry run before a save still
+    // has the old one, and that used to refuse every edit that changes a rule in the header.
+    std::vector<byte> h;
     const ZqQuestPart *hp = find_part(ID_HEADER);
 
     if(!compute_header(c, h))
@@ -3378,9 +3382,9 @@ int write_flat_body(PACKFILE *f, const ZqPartContext &ctx)
         return 2;
     }
 
-    if(!hp || !read_part(*hp, inhdr) || inhdr != h)
+    if(!hp)
     {
-        flat_refuse("can't write the quest data: the header has to be written with it (it holds the rules and counts)");
+        flat_refuse("can't write the quest data: the file's header is missing");
         return 4;
     }
 

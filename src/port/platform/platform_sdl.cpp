@@ -264,6 +264,12 @@ struct State
    std::atomic<bool> mode_active;
 
    // frames
+   // Held while a frame is copied out of the game's display bitmap into 'work', and while
+   // the display closes. Event pumps also run on other threads (ZQuest's double-click
+   // timer polls the mouse): without it they copied a bitmap that close_mode was freeing
+   // (an AddressSanitizer build saw it as ZQuest exited) and resized 'work' alongside
+   // the game thread's own present.
+   std::mutex handover_mutex;
    std::mutex frame_mutex;          // pending, display
    Frame pending;
    bool pending_new;
@@ -1428,7 +1434,8 @@ void deliver_switch_callbacks()
    }
 }
 
-void hand_over_frame(BITMAP *display, const RGB *palette, bool with_pointer)
+// The caller holds g->handover_mutex.
+void hand_over_frame_locked(BITMAP *display, const RGB *palette, bool with_pointer)
 {
    if (!g || !g->running || !display)
       return;
@@ -1455,6 +1462,14 @@ void hand_over_frame(BITMAP *display, const RGB *palette, bool with_pointer)
    }
    g->last_handover_us = now_us();
    wake_platform();
+}
+
+void hand_over_frame(BITMAP *display, const RGB *palette, bool with_pointer)
+{
+   if (!g || !g->running || !display)
+      return;
+   std::lock_guard<std::mutex> guard(g->handover_mutex);
+   hand_over_frame_locked(display, palette, with_pointer);
 }
 
 void hook_pump_events(void)
@@ -1486,7 +1501,16 @@ void hook_pump_events(void)
    uint64_t now = now_us();
    if (now - g->last_handover_us.load() + 1500 < period)
       return;
-   hand_over_frame(zcport_display, _current_palette, true);
+   // Busy: a present is handing a frame over or the display is closing. Either way this
+   // pump has nothing to add, and waiting could deadlock a pump on the platform thread
+   // against a close waiting for that thread.
+   std::unique_lock<std::mutex> lock(g->handover_mutex, std::try_to_lock);
+   if (!lock.owns_lock())
+      return;
+   // checked again now that a close can't run alongside
+   if (!g->mode_active || !zcport_display)
+      return;
+   hand_over_frame_locked(zcport_display, _current_palette, true);
 }
 
 void hook_message(const char *msg)
@@ -1561,6 +1585,9 @@ void hook_gfx_close(void)
 {
    if (!g || !g->running)
       return;
+   // No frame is being copied from the display once this returns, and none starts until
+   // the next mode opens (mode_active), so close_mode can free the bitmap.
+   std::lock_guard<std::mutex> guard(g->handover_mutex);
    run_on_platform([] { do_gfx_close(); }, true);
 }
 

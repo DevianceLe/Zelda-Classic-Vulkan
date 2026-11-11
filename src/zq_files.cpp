@@ -32,6 +32,7 @@
 #include "zc_malloc.h"
 #ifdef ZC_ZQEDITOR
 #include <string>
+#include <vector>
 #include "port/zqeditor/zq_q255.h"
 #include "port/zqeditor/zq_writers.h"
 #include "port/game/quest_version.h"
@@ -714,6 +715,104 @@ static int zq_save_own(const char *path)
     return 1;
 }
 
+// The versions Save As offers: the quest's own, or newer ones (never an older one).
+enum { ZQV_CANCEL, ZQV_OWN, ZQV_253, ZQV_255, ZQV_30 };
+
+static int zq_choose_version()
+{
+    std::string made = zc_quest_built_with(header.zelda_version, header.build);
+    bool is253 = header.zelda_version == ZELDA_VERSION && header.build == VERSION_BUILD;
+    bool newer = zq255_quest_is_newer();
+    bool is30 = newer && made.compare(0, 2, "3.") == 0;
+    bool is25517 = newer && made == "2.55.17";
+    std::vector<int> up;    // the newer versions on offer, oldest first
+
+    if(!newer && !is253)
+        up.push_back(ZQV_253);
+    if(!is30 && !is25517)
+        up.push_back(ZQV_255);
+    if(!is30)
+        up.push_back(ZQV_30);
+
+    if(up.empty())
+        return ZQV_OWN;
+
+    std::string own = "As " + (made.empty() ? std::string("its own version") : made);
+    std::string line = "It was made in " + (made.empty() ? std::string("an unknown version") : made) + ".";
+    int c = jwin_alert3("Save Quest As", "Which version of ZC should this file be for?", line.c_str(), NULL,
+                        own.c_str(), "As a newer version", "Cancel", 0, 0, 0, lfont);
+
+    if(c == 1)
+        return ZQV_OWN;
+    if(c != 2)
+        return ZQV_CANCEL;
+
+    int pick = up[0];
+
+    if(up.size() > 1)
+    {
+        const char *label[4] = { "", "", "As 2.53.1", "As 2.55.17" };
+        const char *b[3] = { NULL, NULL, NULL };
+
+        for(size_t i = 0; i < up.size(); ++i)
+            b[i] = up[i] == ZQV_30 ? "As 3.0 Nightly" : label[up[i] == ZQV_253 ? 2 : 3];
+
+        int d = up.size() == 3 ? jwin_alert3("Save Quest As", "Which newer version?", NULL, NULL, b[0], b[1], b[2], 0, 0, 0, lfont)
+                               : jwin_alert3("Save Quest As", "Which newer version?", NULL, NULL, b[0], b[1], "Cancel", 0, 0, 0, lfont);
+
+        if(d < 1 || d > (int)up.size())
+            return ZQV_CANCEL;
+
+        pick = up[d - 1];
+    }
+
+    if(pick == ZQV_255 || pick == ZQV_30)
+    {
+        const char *t = pick == ZQV_255 ? "2.55.17" : "3.0 Nightly";
+        std::string q = std::string("Older versions of ZC can't open a ") + t + " quest file.";
+        std::string a = std::string("Save this quest as ") + t + "?";
+
+        if(jwin_alert("Save Quest As", q.c_str(), a.c_str(), NULL, "&Yes", "&No", 'y', 'n', lfont) != 1)
+            return ZQV_CANCEL;
+    }
+
+    return pick;
+}
+
+// After saving as a newer version: opens that file as File > Open would, so what is edited from
+// now on is exactly the quest as saved.
+static void zq_reopen(const char *path)
+{
+    char p[2048];
+    strncpy(p, path, sizeof(p) - 1);
+    p[sizeof(p) - 1] = 0;
+    int ret = load_quest(p, true, true);
+
+    if(ret == qe_OK)
+    {
+        saved = true;
+        strcpy(filepath, p);
+        first_save = true;
+    }
+    else
+    {
+        jwin_alert("Error", "The quest was saved, but couldn't be opened again:", qst_error[ret], NULL, "O&K", NULL, 'k', 0, lfont);
+        filepath[0] = 0;
+    }
+
+    setup_combo_animations();
+    setup_combo_animations2();
+    Map.setCurrMap(zinit.last_map);
+    Map.setCurrScr(zinit.last_screen);
+    Map.setCanPaste(false);
+    Map.setCanUndo(false);
+    rebuild_trans_table();
+    rebuild_string_list();
+    onDrawingModeNormal();
+    refresh(rALL);
+    last_timed_save[0] = 0;
+}
+
 static void zq_saved_message(const char *path, const char *as)
 {
     char buf[200], name[13];
@@ -820,26 +919,33 @@ int onSaveAs()
     }
     
 #ifdef ZC_ZQEDITOR
-    // The version it was made in, or a newer one (only 2.53.1 so far); never an older one.
-    if(zq_saves_own_format())
+    // The version it was made in, or a newer one; never an older one.
     {
-        bool own = true;
+        int v = zq_choose_version();
 
-        if(!zq255_quest_is_newer())
+        if(v == ZQV_CANCEL)
+            return D_O_K;
+
+        if(v == ZQV_255 || v == ZQV_30)
         {
-            std::string v = zq_made_in();
-            std::string b1 = "As " + v;
-            std::string line = "It was made in " + v + ".";
-            int c = jwin_alert3("Save Quest As", "Which version of ZC should this file be for?", line.c_str(), NULL,
-                                b1.c_str(), "As 2.53.1", "Cancel", 0, 0, 0, lfont);
+            int target = v == ZQV_255 ? ZQ_NEWER_255 : ZQ_NEWER_30;
+            std::string why;
+            int r = zq_save_newer(temppath, target, why);
 
-            if(c == 3 || c == 0)
+            if(r != 0)
+            {
+                std::string line1 = std::string("This quest can't be saved as ") + zq_newer_target_name(target) + " yet.";
+                jwin_alert("ZQuest", line1.c_str(), why.c_str(), "Nothing was saved.", "O&K", NULL, 'k', 0, lfont);
                 return D_O_K;
+            }
 
-            own = c == 1;
+            // from now on the quest is that file, in that version
+            zq_reopen(temppath);
+            zq_saved_message(temppath, zq_newer_target_name(target));
+            return D_O_K;
         }
 
-        if(own)
+        if(v == ZQV_OWN && zq_saves_own_format())
         {
             int r = zq_save_own(temppath);
 
@@ -858,6 +964,7 @@ int onSaveAs()
             if(r != 2)
                 return D_O_K;
         }
+        // otherwise 2.53.1: ZQuest's own 2.53 save, below
     }
 #endif
     int ret = save_quest(temppath, false);

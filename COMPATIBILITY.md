@@ -48,7 +48,8 @@ The final run was stopped before its last 11 quests. Their results are from the 
 - `Game->IncrementQuest`, which a 2.53.1 script uses to go straight on to the next numbered quest.
 - A script-moved viewport, and saving global script variables past 255. No quest in this collection needs the second one.
 - Quests made in ZC 1.00 and 1.50 can't be opened. None are in this collection.
-- The 2.55 and 3.0 Nightly editor. ZQuest refuses those quests until it exists, and on Linux there's no ZQuest yet at all.
+- Editing the features only 2.55 and 3.0 Nightly have, and a 2.55 script compiler. ZQuest opens these quests and saves them in their own version, but its menus edit only what 2.53 has. On Linux there's no ZQuest yet at all.
+- Saving a 2.55 quest as 3.0 Nightly. Quests made in 2.53.1 or older can be saved as 2.55.17 or 3.0 Nightly (see [ZQuest](#zquest)).
 
 **Built, but tried in only a few quests**
 
@@ -76,6 +77,21 @@ The final run was stopped before its last 11 quests. Their results are from the 
 - Linux has been tested on Debian 13 and Arch Linux, in virtual machines with Mesa's software Vulkan driver. Real graphics cards and controllers are untested. EndeavourOS froze while booting in the test virtual machine, before the game could run, so it hasn't been tested.
 - Android starts, but 2.55 and 3.0 Nightly quests haven't been tested on it.
 - The Nintendo Switch homebrew build has only been tested in the Eden emulator, not on a real Switch. ZQuest isn't part of it.
+
+## ZQuest
+
+ZQuest (Windows only) opens quests made in every version from 1.90 to 3.0 Nightly and saves each one in the version it was made in. File > Save As can also save it as a newer version: 2.53.1, 2.55.17 or 3.0 Nightly. It never saves a quest as an older version. A change the chosen version can't hold stops the save with the reason, and the file is left as it was.
+
+| Check, on ZC Vulkan 2.53.444.4 | Quests | Result |
+|---|---|---|
+| Opened and saved in their own version, every part rewritten, then reloaded | 836 | Every part reloads with the same data |
+| 2.53.1 and older, saved as 2.55.17, compared with the real ZC 2.55.17's conversion | 743 | Identical apart from the header's build details, and one weapon-sprite field 2.55.17 fills with leftover memory (ZQuest writes 0, as 3.0 does) |
+| 2.53.1 and older, saved as 3.0 Nightly, compared with the real ZC 3.0's conversion | 743 | Identical apart from the header's build details |
+| Those saved files opened in the real 2.55.17 or 3.0 player, and in this one | 1,486 | All open |
+| Those saved files opened and saved again in the real 2.55.17 or 3.0 ZQuest | 213 (sample) | All saved |
+| A combo placed through ZQuest's window, saved through Save As as 2.55.17 and as 3.0 (one quest each from 1.90, 1.92, 2.10, 2.11, 2.50, 2.53.0, 2.53.1) | 7 | Only that screen differs from the real ZC's conversion; each reopens unchanged, opens in the real ZC's ZQuest and player, and every screen plays here |
+
+A rule a newer version always resets (rule 157 in 2.50 quests) can't be changed in a save as that version; ZQuest says so and saves nothing.
 
 ## Played by hand
 

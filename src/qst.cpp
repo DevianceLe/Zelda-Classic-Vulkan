@@ -7189,18 +7189,27 @@ int read_one_subscreen(PACKFILE *f, zquestheader *, bool keepdata, int i, word s
             {
                 unsigned int char_length = temp_size+1;
                 temp_sub->dp1 = new char[char_length]; //memory not freed
-                
+                // An empty text has no bytes in the file, so the buffer kept whatever memory it
+                // was given, and the strcpy below copied that as a string into a 1-byte buffer:
+                // heap corruption, now and then (an AddressSanitizer build showed it on every
+                // load of pack quest q475).
+                ((char*)temp_sub->dp1)[0] = 0;
+
                 //deletets = true; //obsolete
             }
-            
+
             if(temp_size)
             {
                 if(!pfread(temp_sub->dp1,temp_size+1,f,keepdata))
                 {
                     return qe_invalid;
                 }
+
+                // the stored terminator, made sure of: the copy below relies on it
+                if(keepdata)
+                    ((char*)temp_sub->dp1)[temp_size] = 0;
             }
-            
+
             break;
             
         case ssoLIFEMETER:
@@ -8443,8 +8452,12 @@ int readsfx(PACKFILE *f, zquestheader *Header, bool keepdata)
             if((get_bit(tempflag, i-1) == 0) || i>=wavcount)
                 continue;
                 
-            char tempname[36];
-            
+            // A name can fill all 36 bytes with no terminator (q714 "Ruins of Myths", sound 87).
+            // The extra byte ends it here, and the name buffers hold 37 (zelda.cpp, zquest.cpp);
+            // before, strcpy ran past both and overwrote another sound's name.
+            char tempname[37];
+            tempname[36] = 0;
+
             if(!pfread(tempname, 36, f, keepdata))
             {
                 return qe_invalid;

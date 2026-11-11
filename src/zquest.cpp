@@ -58,6 +58,7 @@ extern "C" void zqeditor_register_image_loaders(void); // src/port/zqeditor
 #include "ffasm.h"
 #ifdef ZC_ZQEDITOR
 #include "port/zqeditor/zq_q255.h"
+#include "port/zqeditor/zq_writers.h"
 #endif
 
 // the following are used by both zelda.cc and zquest.cc
@@ -20423,7 +20424,7 @@ int onEditSFX(int index)
     sprintf(sfxnumstr,"SFX %d: %s", index, sfx_string[index]);
     sfx_edit_dlg[0].dp = sfxnumstr;
     
-    char name[36];
+    char name[37];                  // a loaded name can be 36 characters (readsfx in qst.cpp)
     strcpy(name,sfx_string[index]);
     sfx_edit_dlg[7].dp = name;
     
@@ -23138,8 +23139,8 @@ int main(int argc,char **argv)
     for(int i=0; i<WAV_COUNT; i++)
     {
         customsfxdata[i].data=NULL;
-        sfx_string[i] = new char[36];
-        memset(sfx_string[i], 0, 36);
+        sfx_string[i] = new char[37];   // 36 characters and the terminator (readsfx in qst.cpp)
+        memset(sfx_string[i], 0, 37);
     }
     
     for(int i=0; i<WPNCNT; i++)
@@ -23338,6 +23339,49 @@ int main(int argc,char **argv)
             {
                 FILE *out = fopen(argv[dump_arg+2], "w");
                 if(out) { fprintf(out, "LOAD FAILED: %d\n", ret); fclose(out); }
+            }
+
+            exit(ret == 0 ? 0 : 3);
+        }
+
+        // -qst-compare a.qst b.qst report.txt: both quests part by part (port/zqeditor/zq_tests.cpp)
+        int compare_arg = used_switch(argc,argv,"-qst-compare");
+
+        if(compare_arg && argc>compare_arg+3)
+        {
+            extern bool skip_quest_password;
+            extern bool zq_batch_load;
+            extern int zq_compare_quests(const char *a, const char *b, const char *report);
+            skip_quest_password = true;
+            zq_batch_load = true;
+            exit(zq_compare_quests(argv[compare_arg+1],argv[compare_arg+2],argv[compare_arg+3]) == 0 ? 0 : 3);
+        }
+
+        // -qst-save-newer in.qst out.qst 255|30 report.txt: Save As a newer version, without the
+        // dialogs (zq_writers.h); the report says what was saved or why not
+        int newer_arg = used_switch(argc,argv,"-qst-save-newer");
+
+        if(newer_arg && argc>newer_arg+4)
+        {
+            extern bool skip_quest_password;
+            extern bool zq_batch_load;
+            skip_quest_password = true;
+            zq_batch_load = true;
+            int ret = load_quest(argv[newer_arg+1],true,true);
+            std::string why;
+            int target = atoi(argv[newer_arg+3]) == 30 ? ZQ_NEWER_30 : ZQ_NEWER_255;
+
+            if(ret == qe_OK)
+                ret = zq_save_newer(argv[newer_arg+2], target, why);
+            else
+                why = "the quest didn't load";
+
+            FILE *out = fopen(argv[newer_arg+4], "w");
+
+            if(out)
+            {
+                fprintf(out, "%s as %s: %s\n%s\n", argv[newer_arg+1], zq_newer_target_name(target), ret == 0 ? "SAVED" : "NOT SAVED", why.c_str());
+                fclose(out);
             }
 
             exit(ret == 0 ? 0 : 3);

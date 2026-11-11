@@ -83,6 +83,52 @@ void zq_own_format_blockers(std::vector<std::string> &names);
 // A short name for a part, for messages: "combos (CMBO v7)".
 std::string zq_part_name(const ZqQuestPart &p);
 
+// ---- saving as a newer version than the quest was made in --------------------------------
+//
+// A quest can be saved in its own version or a newer one, never an older one. Newer than 2.53.1
+// means a 2.55 or 3.0 Nightly file: every section in that version's newest format, with the
+// conversions upstream's loader makes when it opens an older quest already applied, so the
+// quest plays there as it did in its own version. Upstream's own ZQuest, opening the quest and
+// saving it, is the reference these writers are checked against.
+
+enum ZqNewerTarget
+{
+    ZQ_NEWER_255 = 1,       // ZC 2.55.17, the last 2.55 release
+    ZQ_NEWER_30 = 2         // ZC 3.0 Nightly (upstream main at ef321f8)
+};
+
+const char *zq_newer_target_name(int target);      // "2.55.17", "3.0 Nightly"
+
+// What a newer-version writer knows about the quest it converts. Upstream's loader converts an
+// old quest's data as it reads it, by the quest's header version and by each section's own
+// version; a writer that does the same conversion needs both.
+struct ZqNewerContext
+{
+    int target;                         // ZQ_NEWER_255 or ZQ_NEWER_30
+    word src_zelda_version;             // the opened quest's header (zq_quest_file)
+    byte src_build;
+    const ZqQuestPart *src_part;        // this section's part in the opened file, NULL if none
+    word src_version, src_cversion;     // that part's section version and cversion (0 if none)
+};
+
+// Writes one whole section (its id first; the header writes what upstream's writeheader writes)
+// in the target's newest format from ZQuest's data. ZQW_UNSUPPORTED when that section isn't
+// done yet for the target; another non-zero value is a refusal, with the reason in
+// zqw_last_error.
+typedef int (*ZqNewerWriter)(PACKFILE *f, const ZqNewerContext &ctx);
+
+// The opened quest's first part with this id, or NULL.
+const ZqQuestPart *zq_find_part(dword id);
+
+struct ZqNewerRegistration
+{
+    ZqNewerRegistration(dword id, ZqNewerWriter writer, const char *name);
+};
+
+// Saves the open quest as the target version. 0: saved. 2: some sections can't be written in
+// that version yet (why lists them). Anything else: failed (why says what).
+int zq_save_newer(const char *filename, int target, std::string &why);
+
 // all_parts: every part that has a writer goes through it, changed or not (for the checks).
 int zq_save_own_format_ex(const char *filename, bool encode, bool all_parts, std::string &why);
 

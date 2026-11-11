@@ -330,9 +330,9 @@ void take_snapshot()
 {
     load_255_favorites();
 
-    // ZQuest's 2.53 init data writer sets the last map and screen to where the editor is, and
-    // the custom sound flag, every time it runs, so the fingerprints after this see those. The
-    // snapshot has to see the same, or every quest would look changed there.
+    // ZQuest's 2.53 init data writer sets the custom sound flag every time it runs, so the
+    // fingerprints after this see it; the snapshot has to see the same, or every quest would
+    // look changed there. (zq_write_253_section keeps the quest's saved view as it was.)
     PACKFILE *f = zq_open_sink(&g_discard, NULL);
 
     if(f)
@@ -1756,6 +1756,24 @@ int write_initdata(PACKFILE *f, const ZqPartContext &ctx)
     // Version 1 is only read this way with a header from 2.10 up to 2.11 build 14.
     if(!q255 && v == 1 && (ctx.zelda_version > 0x211 || (ctx.zelda_version == 0x211 && ctx.build >= 15)))
         return ZQW_UNSUPPORTED;
+
+    // When the quest file has the old "continue with full hearts" rule, every loader (2.53's,
+    // this ZQuest's, upstream's) turns it into init data as it opens the quest: continue at
+    // 100%, start with all heart containers. The rules part keeps the rule, so changed hearts
+    // or continue settings would be undone the next time the quest is opened. Refuse, as the
+    // pre-1.93 writer does, so the user can save in a newer version instead of losing the edit.
+    if(!q255)
+    {
+        const ZqQuestPart *rules = zq_find_part(ID_RULES);
+        byte b = 0;
+
+        if(rules && zq_part_read(*rules, 8 + (qr_CONTFULL_DEP >> 3), &b, 1) && ((b >> (qr_CONTFULL_DEP & 7)) & 1) &&
+           !(get_bit(zinit.misc, idM_CONTPERCENT) && zinit.cont_heart == 100 && zinit.start_heart == zinit.hc))
+        {
+            set_why("the init data: continue hearts are set by a rule in this version");
+            return CANT_HOLD;
+        }
+    }
 
     Src s;
     Head h;

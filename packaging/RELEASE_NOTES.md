@@ -1,52 +1,37 @@
 ## What's new
 
-**Older quests**
+**ZQuest edits quests of every version**
 
-- **Script drawing shows up again in 2.53 and older quests.** The 2.53 code this port started from pointed script drawing at a hidden image, so HUDs, script-drawn enemies and cutscenes in 2.50 and 2.53 quests were invisible. That was fixed in 2.53.1, and now here too
-- Quests now play more like they did in the version they were made in. Each fix applies only to quests from that version:
-  - 1.90 and early 1.92: "no warp" squares no longer act as wave warps, which broke maze walls and stairs in Puzzle Quest, Unification, The Revival and Eckland. Hearts stop at 16 unless the quest allows 24
-  - 1.9x and 2.10: quests no longer start with 999 rupees when they only meant to allow carrying 999. Warp arrivals protect only the exact arrival spot. Each Moldorm, Lanmola and Manhandla segment can drop an item. Wizzrobes teleport anywhere. Door repair and money rooms renew. Sword swings check for secrets every frame (2.10)
-  - 2.50.0 and 2.50.1: enemy weapons use the quest's own hitbox setting, script `Jump` values and a few early script commands give the old results, the global script runs after a screen scroll, Fire Octorok death shots home in, and Bombchu blasts use the enemy's weapon damage
-- The A button no longer keeps an item from the last quest you played
-- Crash guards for scripts that write outside the map or jump to a bad address, and a memory leak fixed when mirrors reflect weapons
+- **ZQuest opens quests from every version**, 1.90 through 2.55 and 3.0 Nightly, and **saves each one in the version it was made in.** Parts you didn't change are kept exactly as they were in the file, and the parts you changed are written in that version's own format. A 2.10 quest stays a 2.10 quest, and a 3.0 Nightly quest stays a 3.0 Nightly quest
+- **Save As can save an older quest as a newer version**: 2.53.1, 2.55.17 or 3.0 Nightly. Choose **File > Save As**, then **As a newer version**, then the version. A file saved as 2.55.17 or 3.0 Nightly can't be opened by older versions of ZC any more, so ZQuest asks before it saves. It never saves a quest as a version older than the one it was made in
+- A change the version can't hold stops the save, and ZQuest says what it was. Examples are a combo type 2.10 doesn't have, a string longer than an old version stores, or a rule that version always resets. The file is left as it was
+- A save writes to a temporary file first and only replaces the quest once the whole save has worked
+- ZQuest holds as many tiles as the player, 214,500, for 2.55 and 3.0 Nightly quests. 2.53 and older quests stay within the 65,520 tiles their files can store
+- The window title shows the version the quest was built with, as the player's does
+- Fixed a crash that could happen as ZQuest closed. ZQuest's double-click timer could copy the screen while it was being freed
 
-**2.55 and 3.0 Nightly quests**
+**Both programs**
 
-- **Slopes**, top-down and sideview: Link walks along and up them, drops through the ones that allow it, and enemies stand on them in sideview
-- **Bottles**: buying in bottle shops, filling, drinking, and the fairy that revives you
-- **Switch hook** works the way ZC 3.0 does: Link freezes, swaps halfway through, turns around, and swapped push blocks land properly, so they fill holes and open secrets. Swapping with enemies works too
-- Push blocks fall into pits, and block triggers only look at the layers push blocks use
-- **Sprite rotation, scaling and quarter-turn flips** from scripts, and shadows for weapons and items in the air
-- **Subscreen widgets** that scripts can change, and **overlay subscreens**
-- **Script lighting** and glowing sprites. Dark rooms use the quest's own dark colour, translucent edges and light shapes, including the lantern's cone
-- Screen script data is kept in the save
-- Many more script commands, and fixes for string formatting with variable arguments (used by 13 quests in the PureZC collection), `Game->LoadMapData` and others
-- In quests using the newer movement rules, Link no longer sticks when walking along a wall or a floor
-- Item pickups in 3.0 Nightly quests use the larger pickup box, as ZC 3.0 does
-- Cut combos that change into the next combo no longer open secrets early
+- Fixed memory corruption while loading quests with empty text on a custom subscreen. It came from the 2.53 code this port started from, and it made ZQuest or the player crash now and then while loading
+- Fixed a crash when a quest has a sound name exactly 36 characters long
+- Some 2.55 and 3.0 Nightly files that the real ZC opens failed to open here. They open now
+- A quest that fails to load shows its error at once instead of waiting for a key
 
-**Everything**
+## How far it's been tested
 
-- On Windows, controllers no longer go through SDL's HIDAPI drivers, which were seen corrupting the game's memory. Xbox, PlayStation, Switch Pro, 8BitDo and most other pads use Windows' own controller drivers instead, with SDL's built-in button layouts. A pad that only works through HIDAPI (a Switch Pro Controller on USB, GameCube adapters, the Steam Controller) needs the new **Settings > Controls > Extra Pad Support** turned on. Linux and Android are unchanged
-- A script that runs 30 million commands without waiting for a frame is now paused until the next frame instead of freezing the game, with a note in `allegro.log`
-- Animated combos with tiles above 65,535 keep their tiles
-- Crash reports are now written even when the player crashes while closing
-
-## How far quests have been tested
-
-Every quest in the PureZC collection was run through a test that visits every screen it uses. 818 of the 843 quest files reached every screen with no crash or hang, and 17 ran into the test's five-minute limit first. The rest are 6 files that aren't quest files, 1 damaged download and 1 quest with no screens. Six quests that used to run out of time now reach every screen, Mitches Fault II among them. The final run was stopped before its last 11 quests, so their results are from the build just before the final fixes.
-
-2.53 quests are unchanged: the 1st, 2nd and 5th Quests and Dream's Realm re-save byte for byte, and a recorded 1st Quest replay matches all 2,478 frames.
+- **Saving in the quest's own version:** all 836 quests in the PureZC collection that load were opened and re-saved with every part rewritten. Every part reloads with the same data.
+- **Saving as a newer version:** all 743 quests in the collection made in 2.53.1 or older were saved as 2.55.17 and as 3.0 Nightly. Each file was compared, section by section, with the real ZC 2.55.17's or 3.0 Nightly's own conversion of the same quest. Every section is identical apart from the header's build details. For 2.55.17 the weapon-sprite data also differs in one field, because 2.55.17 fills that field with leftover memory when it converts an older quest. ZQuest writes 0 there, as 3.0 does. Every saved file opens in the real 2.55.17 or 3.0 player and in this one. A sample of 213 was also opened and saved again by the real 2.55.17 or 3.0 ZQuest.
+- **Through ZQuest's own window:** a quest from each version (1.90, 1.92, 2.10, 2.11, 2.50, 2.53.0 and 2.53.1) had a combo placed on a screen and was saved through File > Save As as 2.55.17 and as 3.0 Nightly. Each saved file matched the real ZC's conversion apart from that screen. It reopened unchanged, the real ZC's ZQuest and player opened it, and this player visited every screen.
+- 2.53 quests are unchanged: the 1st, 2nd and 5th Quests and Dream's Realm re-save byte for byte, and a recorded 1st Quest replay matches all 2,478 frames.
 
 ## Still not working
 
-- The Moon Pearl and bunny state, the magic mirror, the bug net, z-heights, and subscreens with more than one page (only the first page shows)
-- Slopes, bottles, the switch hook, lighting and the new subscreen features have each been tried in only a few quests, and most of the older-quest fixes were checked through logs rather than seen in play
-- The new Windows controller handling hasn't been tried with a real controller yet
-- Lifting and some new combo types have not been confirmed in play
-- Linux has been tested on Debian 13 and Arch Linux, in virtual machines with a software Vulkan driver, so real graphics cards and controllers are untested
-- The Android app starts, but 2.55 and 3.0 Nightly quests have not been tested on Android yet
-- The Switch build has only been tested in the Eden emulator, not on a real Switch
+- Saving a 2.55 quest as 3.0 Nightly
+- Editing the features only 2.55 and 3.0 Nightly have, and compiling 2.55 scripts. ZQuest keeps the compiled scripts a 2.55 or 3.0 quest came with
+- A rule a newer version always resets (rule 157 in 2.50 quests) can't be changed in a save as that version. ZQuest says so and saves nothing
+- ZQuest is only built for Windows. Linux and the Switch get the player only
+- The player's open items are unchanged since 2.53.444.3: the Moon Pearl and bunny state, the magic mirror, the bug net, z-heights, and subscreens with more than one page
+- Linux was tested only in virtual machines, Android hasn't been tried with 2.55 or 3.0 Nightly quests, and the Switch build only in the Eden emulator
 
 The full list is on the [compatibility page](https://github.com/DevianceLe/Zelda-Classic-Vulkan/blob/main/COMPATIBILITY.md#what-still-doesnt-work).
 

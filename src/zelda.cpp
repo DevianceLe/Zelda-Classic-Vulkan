@@ -3669,7 +3669,7 @@ int main(int argc, char* argv[])
     for(int i=0; i<WAV_COUNT; i++)
     {
         customsfxdata[i].data=NULL;
-        sfx_string[i] = new char[36];
+        sfx_string[i] = new char[37];   // 36 characters and the terminator (readsfx in qst.cpp)
     }
     
     for(int i=0; i<WAV_COUNT>>3; i++)

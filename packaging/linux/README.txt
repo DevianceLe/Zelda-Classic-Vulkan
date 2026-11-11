@@ -1,4 +1,4 @@
-ZC Vulkan 2.53.444.4-PRE
+ZC Vulkan 2.53.444.4
 Linux, 64-bit
 
 The Zelda Classic player, ported to SDL3 and Vulkan, with no Allegro. It plays
@@ -41,7 +41,7 @@ Linux.
 Credits and licenses
 Zelda Classic is by Armageddon Games and its contributors, and is licensed under
 GPLv3 (licenses/ZeldaClassic-GPL3.txt). This port is by Deviance. The complete
-source code is in the matching ZC-2.53.444.4-PRE-Vulkan-Source.zip.
+source code is in the matching ZC-2.53.444.4-Vulkan-Source.zip.
 
 The ZC 3.0 Nightly intro uses the ZQuest Classic logo by Eduardc and the music
 "ZC Forever" by Beatscribe. Their terms are in assets/zc/LICENSE.txt and are

@@ -9,7 +9,11 @@
 #include "zdefs.h"
 #include "zsys.h"
 #include "qst.h"
+#include "zq_class.h"
 #include "zq_writers.h"
+
+extern zinitdata zinit;
+extern bool zq_batch_load;
 
 #ifndef INTERNAL_VERSION
 #define INTERNAL_VERSION 0xA721     // zquest.h; what ZQuest's own save mixes into the key
@@ -414,6 +418,15 @@ int zq_save_own_format_ex(const char *filename, bool encode, bool all_parts, std
         return 1;
     }
 
+    // A save stores the map and screen the editor shows, as 2.53's save does (its init data
+    // writer sets them), so the quest opens there next time. A batch run has no editor view and
+    // keeps the quest's own, as opening the quest and saving it straight away would.
+    if(!zq_batch_load)
+    {
+        zinit.last_map = (byte)Map.getCurrMap();
+        zinit.last_screen = (byte)Map.getCurrScr();
+    }
+
     std::vector<std::string> blockers;
 
     if(!all_parts)
@@ -728,4 +741,385 @@ int zq_roundtrip_check(const char *filename, const char *report)
     fclose(out);
     delete_file(rt.c_str());
     return different ? 1 : 0;
+}
+
+// ---- saving as a newer version than the quest was made in ---------------------------------
+
+namespace
+{
+
+struct NewerEntry
+{
+    dword id;
+    ZqNewerWriter writer;
+    const char *name;
+};
+
+std::vector<NewerEntry> &newer_registry()
+{
+    static std::vector<NewerEntry> r;   // built on first use, whatever order files start in
+    return r;
+}
+
+dword tag_id(char a, char b, char c, char d)
+{
+    return ((dword)(byte)a << 24) | ((dword)(byte)b << 16) | ((dword)(byte)c << 8) | (dword)(byte)d;
+}
+
+// The sections of a newer file, in the order upstream writes them (zq_class.cpp,
+// _save_unencoded_quest_int, the same in 2.55.17 and 3.0): header, editor names (ZINF), rules,
+// strings, door sets, DMaps, misc, misc colours, icons, items, weapons, maps, combos, aliases,
+// palettes, tiles, tunes, cheats, init data, enemies, Link's sprites, subscreens, scripts,
+// sounds, drop sets, favorites, and in 3.0 only, music objects (AMUS).
+std::vector<dword> newer_order(int target)
+{
+    std::vector<dword> o;
+    o.push_back(ID_HEADER);
+    o.push_back(tag_id('Z', 'I', 'N', 'F'));
+    o.push_back(ID_RULES); o.push_back(ID_STRINGS); o.push_back(ID_DOORS); o.push_back(ID_DMAPS);
+    o.push_back(ID_MISC); o.push_back(ID_COLORS); o.push_back(ID_ICONS); o.push_back(ID_ITEMS);
+    o.push_back(ID_WEAPONS); o.push_back(ID_MAPS); o.push_back(ID_COMBOS); o.push_back(ID_COMBOALIASES);
+    o.push_back(ID_CSETS); o.push_back(ID_TILES); o.push_back(ID_MIDIS); o.push_back(ID_CHEATS);
+    o.push_back(ID_INITDATA); o.push_back(ID_GUYS); o.push_back(ID_LINKSPRITES); o.push_back(ID_SUBSCREEN);
+    o.push_back(ID_FFSCRIPT); o.push_back(ID_SFX); o.push_back(ID_ITEMDROPSETS); o.push_back(ID_FAVORITES);
+
+    if(target == ZQ_NEWER_30)
+        o.push_back(tag_id('A', 'M', 'U', 'S'));
+
+    return o;
+}
+
+std::string id_name(dword id)
+{
+    if(id == ID_HEADER)
+        return "the header";
+
+    char t[5];
+
+    for(int k = 0; k < 4; ++k)
+    {
+        char c = (char)(id >> (24 - 8 * k));
+        t[k] = (c >= 0x20 && c < 0x7F) ? c : '?';
+    }
+
+    t[4] = 0;
+    std::string s = t;
+
+    while(!s.empty() && s[s.size() - 1] == ' ')
+        s.erase(s.size() - 1);
+
+    return s;
+}
+
+ZqNewerContext newer_context(dword id, int target)
+{
+    ZqNewerContext c;
+    c.target = target;
+    c.src_zelda_version = zq_quest_file.zelda_version;
+    c.src_build = zq_quest_file.build;
+    c.src_part = zq_find_part(id);
+    c.src_version = c.src_cversion = 0;
+
+    if(c.src_part)
+        zq_part_versions(*c.src_part, &c.src_version, &c.src_cversion);
+
+    return c;
+}
+
+const NewerEntry *newer_writer(dword id, int target)
+{
+    std::vector<NewerEntry> &r = newer_registry();
+    ZqNewerContext c = newer_context(id, target);
+
+    for(size_t i = 0; i < r.size(); ++i)
+    {
+        if(r[i].id != id)
+            continue;
+
+        PACKFILE *f = zq_open_sink(&g_discard_vtable, NULL);
+
+        if(!f)
+            return NULL;
+
+        int rc = r[i].writer(f, c);
+        pack_fclose(f);
+
+        if(rc != ZQW_UNSUPPORTED)
+            return &r[i];
+    }
+
+    return NULL;
+}
+
+// ZQ_NEWER_PARTIAL=<upstream's own conversion of the same quest>, for testing some sections'
+// newer writers before every section has one: a section with no writer is copied from that
+// file, so the saved file is whole and only the sections that have writers are ours. ZQuest
+// never sets it; the test scripts do.
+struct RefSection
+{
+    dword id;
+    long long at, length;   // in the copy: the whole section, id first (the header with its id string)
+};
+
+struct RefFile
+{
+    FILE *copy;
+    std::string copy_name;
+    std::vector<RefSection> sections;
+
+    RefFile() : copy(NULL) {}
+    ~RefFile()
+    {
+        if(copy)
+            fclose(copy);
+
+        if(!copy_name.empty())
+            remove(copy_name.c_str());
+    }
+
+    const RefSection *find(dword id) const
+    {
+        for(size_t i = 0; i < sections.size(); ++i)
+            if(sections[i].id == id)
+                return &sections[i];
+
+        return NULL;
+    }
+};
+
+// Reads a 2.55/3.0 quest file (packed, no password: what upstream saves) into a temporary
+// copy, section by section: the 31-byte id string and the header section first, then each
+// section as id, version, cversion, size and that many bytes. Two sections carry one more field
+// before their size: the rules their compat-rule version (4 bytes), the scripts their ZASM
+// metadata version (2 bytes).
+bool read_reference(const char *path, const char *copy_name, RefFile &ref)
+{
+    PACKFILE *f = pack_fopen_password(path, F_READ_PACKED, "");
+
+    if(!f)
+        return false;
+
+    ref.copy_name = copy_name;
+    ref.copy = fopen(copy_name, "w+b");
+
+    if(!ref.copy)
+    {
+        pack_fclose(f);
+        return false;
+    }
+
+    std::vector<byte> buf(1 << 16);
+    long long pos = 0;
+    bool ok = true;
+    bool first = true;
+
+    while(ok)
+    {
+        byte head[31 + 16];
+        size_t lead = first ? 31 : 0;
+        long got = pack_fread(head, (long)(lead + 8), f);
+
+        if(got == 0 && !first)
+            break;
+
+        if(got != (long)(lead + 8))
+        {
+            ok = false;
+            break;
+        }
+
+        const byte *h = head + lead;
+        RefSection r;
+        r.id = ((dword)h[0] << 24) | ((dword)h[1] << 16) | ((dword)h[2] << 8) | (dword)h[3];
+
+        for(int k = 0; k < 4; ++k)
+            if(h[k] < 0x20 || h[k] >= 0x7F)
+                ok = false;
+
+        if(!ok || (first && r.id != ID_HEADER))
+        {
+            ok = false;
+            break;
+        }
+
+        size_t extra = r.id == ID_RULES ? 4 : r.id == ID_FFSCRIPT ? 2 : 0;
+        size_t headlen = lead + 8 + extra + 4;
+
+        if(pack_fread(head + lead + 8, (long)(extra + 4), f) != (long)(extra + 4))
+        {
+            ok = false;
+            break;
+        }
+
+        const byte *z = head + lead + 8 + extra;
+        long long size = (long long)z[0] | ((long long)z[1] << 8) | ((long long)z[2] << 16) | ((long long)z[3] << 24);
+        r.at = pos;
+        r.length = (long long)headlen + size;
+        fwrite(head, 1, headlen, ref.copy);
+
+        for(long long left = size; left > 0 && ok;)
+        {
+            long n = (long)(left < (long long)buf.size() ? left : (long long)buf.size());
+
+            if(pack_fread(&buf[0], n, f) != n)
+                ok = false;
+            else
+                fwrite(&buf[0], 1, (size_t)n, ref.copy);
+
+            left -= n;
+        }
+
+        pos += r.length;
+        ref.sections.push_back(r);
+        first = false;
+    }
+
+    pack_fclose(f);
+    return ok && !ref.sections.empty();
+}
+
+bool copy_reference_section(PACKFILE *f, const RefFile &ref, const RefSection &r)
+{
+    std::vector<byte> buf(1 << 16);
+    _fseeki64(ref.copy, r.at, SEEK_SET);
+
+    for(long long left = r.length; left > 0;)
+    {
+        size_t n = (size_t)(left < (long long)buf.size() ? left : (long long)buf.size());
+
+        if(fread(&buf[0], 1, n, ref.copy) != n || pack_fwrite(&buf[0], (long)n, f) != (long)n)
+            return false;
+
+        left -= (long long)n;
+    }
+
+    return true;
+}
+
+} // namespace
+
+const ZqQuestPart *zq_find_part(dword id)
+{
+    for(size_t i = 0; i < zq_quest_file.parts.size(); ++i)
+        if(zq_quest_file.parts[i].id == id)
+            return &zq_quest_file.parts[i];
+
+    return NULL;
+}
+
+ZqNewerRegistration::ZqNewerRegistration(dword id, ZqNewerWriter writer, const char *name)
+{
+    NewerEntry e;
+    e.id = id;
+    e.writer = writer;
+    e.name = name;
+    newer_registry().push_back(e);
+}
+
+const char *zq_newer_target_name(int target)
+{
+    return target == ZQ_NEWER_255 ? "2.55.17" : "3.0 Nightly";
+}
+
+int zq_save_newer(const char *filename, int target, std::string &why)
+{
+    std::vector<dword> order = newer_order(target);
+    std::vector<std::string> missing;
+    RefFile ref;
+    const char *partial = getenv("ZQ_NEWER_PARTIAL");
+
+    if(partial && *partial && !read_reference(partial, (std::string(filename) + ".ref.tmp").c_str(), ref))
+    {
+        why = std::string("ZQ_NEWER_PARTIAL: couldn't read ") + partial;
+        return 3;
+    }
+
+    bool use_ref = !ref.sections.empty();
+
+    // every section's writer first runs once into a file that throws the bytes away, so a
+    // section that can't be written is known before anything is
+    for(size_t i = 0; i < order.size(); ++i)
+    {
+        const NewerEntry *e = newer_writer(order[i], target);
+
+        if(!e)
+        {
+            if(!use_ref)
+                missing.push_back(id_name(order[i]));
+
+            continue;
+        }
+
+        PACKFILE *f = zq_open_sink(&g_discard_vtable, NULL);
+
+        if(!f)
+            continue;
+
+        zqw_last_error.clear();
+        int rc = e->writer(f, newer_context(order[i], target));
+        pack_fclose(f);
+
+        if(rc != ZQW_OK)
+            missing.push_back(id_name(order[i]) + (zqw_last_error.empty() ? std::string("") : " (" + zqw_last_error + ")"));
+    }
+
+    if(!missing.empty())
+    {
+        why = std::string("These parts can't be written as ") + zq_newer_target_name(target) + " yet: ";
+
+        for(size_t i = 0; i < missing.size(); ++i)
+            why += (i ? ", " : "") + missing[i];
+
+        return 2;
+    }
+
+    // Upstream 2.55.17 and 3.0 both pack their quest files with no password and don't encode
+    // them (_save_unencoded_quest_int: pack_fopen_password(..., F_WRITE_PACKED, "")).
+    std::string out_tmp = std::string(filename) + ".zqsave.tmp";
+    remove(out_tmp.c_str());
+    PACKFILE *f = pack_fopen_password(out_tmp.c_str(), F_WRITE_PACKED, "");
+
+    if(!f)
+    {
+        why = "The file couldn't be written.";
+        return 3;
+    }
+
+    int ret = 0;
+
+    for(size_t i = 0; i < order.size() && !ret; ++i)
+    {
+        const NewerEntry *e = newer_writer(order[i], target);
+        zqw_last_error.clear();
+
+        if(!e && use_ref)
+        {
+            const RefSection *r = ref.find(order[i]);
+
+            if(r && !copy_reference_section(f, ref, *r))
+            {
+                why = "Copying " + id_name(order[i]) + " from the reference failed.";
+                ret = 5;
+            }
+
+            continue;
+        }
+
+        if(!e || e->writer(f, newer_context(order[i], target)) != ZQW_OK)
+        {
+            why = "Writing " + id_name(order[i]) + " failed" + (zqw_last_error.empty() ? std::string(".") : ": " + zqw_last_error + ".");
+            ret = 5;
+        }
+    }
+
+    pack_fclose(f);
+
+    if(!ret && !replace_file(out_tmp.c_str(), filename))
+    {
+        why = "The saved file couldn't replace the old one.";
+        ret = 7;
+    }
+
+    remove(out_tmp.c_str());
+    return ret;
 }
