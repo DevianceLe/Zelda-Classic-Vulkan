@@ -36,6 +36,27 @@ extern "C" void zplayer_install_crash_report(void); // crash_win32.cpp
 #if defined(__ANDROID__)
 extern "C" int zplayer_android_prepare_data(void); // android_data.cpp
 #endif
+#if defined(__APPLE__)
+#include <SDL3/SDL_filesystem.h>
+#include <string>
+#include <unistd.h>
+
+// The player opens its data relative to the working directory. Started from a
+// terminal inside its folder that's already right; double-clicked in Finder it
+// starts in the user's home folder, so move to the program's own folder when the
+// game data isn't where it started.
+static void zplayer_macos_find_data(void)
+{
+    if(access("zelda.dat", R_OK) == 0)
+        return;
+    const char *base = SDL_GetBasePath();
+    if(!base)
+        return;
+    std::string dat = std::string(base) + "zelda.dat";
+    if(access(dat.c_str(), R_OK) == 0)
+        chdir(base);
+}
+#endif
 
 // zcport (foundation_system.cpp); the platform keeps the title until the
 // window exists. Declared here because this file must not include <allegro.h>.
@@ -53,6 +74,9 @@ static int SDLCALL zplayer_entry(int argc, char *argv[])
     // Game data from the APK into internal storage, which becomes the
     // working directory (the player opens its files relative to it).
     zplayer_android_prepare_data();
+#endif
+#if defined(__APPLE__)
+    zplayer_macos_find_data();
 #endif
     // Instead of the executable's name until the game sets its title.
     set_window_title(ZPLAYER_WINDOW_TITLE);

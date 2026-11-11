@@ -21,6 +21,10 @@
    #if defined(__i386__) || defined(__x86_64__)
       #include <cpuid.h>
    #endif
+   #if defined(__APPLE__)
+      #include <mach-o/dyld.h>
+      #include <stdint.h>
+   #endif
 #endif
 
 // ---------------------------------------------------------------------------
@@ -420,6 +424,10 @@ static void zcport_get_executable_name_os(char *output, int size)
    if (n < 0)
       n = 0;
    output[n] = 0;
+#elif defined(__APPLE__)
+   uint32_t n = (uint32_t)size;
+   if (_NSGetExecutablePath(output, &n) != 0)
+      output[0] = 0;      // the buffer is too small
 #endif
    if (!output[0]) {
       strncpy(output, "./", (size_t)size);

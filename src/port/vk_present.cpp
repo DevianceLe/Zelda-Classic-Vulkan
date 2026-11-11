@@ -190,6 +190,31 @@ struct VulkanPresenter::Impl
         ci.pApplicationInfo = &app;
         ci.enabledExtensionCount = ext_count;
         ci.ppEnabledExtensionNames = exts;
+#if defined(__APPLE__)
+        // macOS has Vulkan only through MoltenVK, a "portability" driver: through the
+        // Vulkan loader it is listed only when the instance asks for those
+        // (VK_KHR_portability_enumeration). Loaded directly it doesn't need this.
+        std::vector<const char *> all_exts(exts, exts + ext_count);
+        {
+            uint32_t n = 0;
+            vkEnumerateInstanceExtensionProperties(NULL, &n, NULL);
+            std::vector<VkExtensionProperties> props(n);
+            if(n)
+                vkEnumerateInstanceExtensionProperties(NULL, &n, &props[0]);
+            for(uint32_t i = 0; i < n; i++)
+            {
+                if(strcmp(props[i].extensionName, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME) == 0)
+                {
+                    all_exts.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+                    ci.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+                }
+                else if(strcmp(props[i].extensionName, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME) == 0)
+                    all_exts.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+            }
+        }
+        ci.enabledExtensionCount = (uint32_t)all_exts.size();
+        ci.ppEnabledExtensionNames = &all_exts[0];
+#endif
 
         // Optional validation layer for development: set ZC_VK_VALIDATION=1.
         const char *layers[] = { "VK_LAYER_KHRONOS_validation" };
@@ -295,13 +320,19 @@ struct VulkanPresenter::Impl
         qci.queueCount = 1;
         qci.pQueuePriorities = &priority;
 
-        const char *exts[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+        const char *exts[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME, NULL };
+        uint32_t ext_n = 1;
+#if defined(__APPLE__)
+        // A device that has VK_KHR_portability_subset (MoltenVK) must have it enabled.
+        if(has_device_extension(gpu, "VK_KHR_portability_subset"))
+            exts[ext_n++] = "VK_KHR_portability_subset";
+#endif
         VkDeviceCreateInfo ci;
         memset(&ci, 0, sizeof(ci));
         ci.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         ci.queueCreateInfoCount = 1;
         ci.pQueueCreateInfos = &qci;
-        ci.enabledExtensionCount = 1;
+        ci.enabledExtensionCount = ext_n;
         ci.ppEnabledExtensionNames = exts;
 
         VkResult r = vkCreateDevice(gpu, &ci, NULL, &device);

@@ -42,13 +42,17 @@
    #endif
    #define ALLEGRO_PLATFORM_STR  "zcport-Switch"
 #elif defined(__APPLE__)
+   /* macOS takes the game's Linux paths too, never its ALLEGRO_MACOSX ones: those were
+    * written for Allegro's 2006 Mac build on PowerPC. They read every float in a quest
+    * in big-endian order (zdefs.h), wrong on Intel and Apple Silicon, put quests and
+    * screenshots at "../../../" outside an app bundle, and drop F9/F10. */
    #ifndef ALLEGRO_UNIX
       #define ALLEGRO_UNIX
    #endif
-   #ifndef ALLEGRO_MACOSX
-      #define ALLEGRO_MACOSX
+   #ifndef ALLEGRO_LINUX
+      #define ALLEGRO_LINUX
    #endif
-   #define ALLEGRO_PLATFORM_STR  "zcport-MacOSX"
+   #define ALLEGRO_PLATFORM_STR  "zcport-macOS"
 #else
    #ifndef ALLEGRO_UNIX
       #define ALLEGRO_UNIX

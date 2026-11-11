@@ -21,7 +21,7 @@
 #endif
 #include "zcport/midi_backend.h"
 
-#if defined(__ANDROID__) || defined(__linux__) || defined(__SWITCH__)
+#if defined(__ANDROID__) || defined(__linux__) || defined(__SWITCH__) || defined(__APPLE__)
 
 #if defined(__SWITCH__)
 #include <stdio.h>

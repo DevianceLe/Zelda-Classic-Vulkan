@@ -6,7 +6,22 @@
 # zplayer. The ZScript parser is generated here too: the top-level directory's
 # flex and bison steps can only feed targets of that directory.
 
-if(WIN32 AND ZC_PORT_SDL AND NOT ZC_ZPLAYER_ONLY)
+# It uses none of the prebuilt Allegro libraries, so it builds in a player-only (64-bit)
+# configuration too; as before it's built on request (--target zqeditor).
+option(ZC_BUILD_ZQEDITOR "Configure zqeditor, ZQuest on SDL3 and Vulkan (Windows)" ON)
+if(WIN32 AND ZC_PORT_SDL AND ZC_BUILD_ZQEDITOR)
+
+# The top-level directory looks for flex and bison only when it configures the Allegro
+# targets.
+if(NOT BISON_FOUND)
+	find_package(BISON QUIET)
+endif()
+if(NOT FLEX_FOUND)
+	find_package(FLEX QUIET)
+endif()
+if(MSVC)
+	set(FLEXFLAGS "--wincompat")
+endif()
 
 set(ZQEDITOR_RELATIVE_SOURCES
 	${ZQUEST_CORE_SOURCES}
@@ -83,7 +98,7 @@ target_include_directories(zqeditor PRIVATE
 # The game's main() becomes zcport_game_main(); see src/port/entry/zplayer_main.cpp.
 # (On the target: a source file's properties would reach zplayer's copy too.)
 target_compile_definitions(zqeditor PRIVATE ZCPORT_MAGIC_MAIN ZC_ZQEDITOR
-	"ZPLAYER_WINDOW_TITLE=\"ZQuest Vulkan 2.53.444.4\"")
+	"ZPLAYER_WINDOW_TITLE=\"ZQuest Vulkan 2.53.444.5\"")
 target_link_libraries(zqeditor PRIVATE zcport_sdl zcport zc_stb_vorbis zc_minimp3 zc_gme zc_dumb windowscodecs ole32)
 set_target_properties(zqeditor PROPERTIES
 	OUTPUT_NAME zqeditor

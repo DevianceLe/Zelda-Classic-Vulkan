@@ -34,7 +34,7 @@
 /* zplayer's window title: shown from startup (zplayer_main.cpp) and set
  * again where the game sets its own title (src/zelda.cpp). */
 #ifndef ZPLAYER_WINDOW_TITLE
-#define ZPLAYER_WINDOW_TITLE "ZC Vulkan 2.53.444.4"
+#define ZPLAYER_WINDOW_TITLE "ZC Vulkan 2.53.444.5"
 #endif
 
 /* The game's main(), see ZCPORT_MAGIC_MAIN in allegro/internal/alconfig.h. */

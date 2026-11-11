@@ -1,4 +1,4 @@
-ZC Vulkan 2.53.444.4
+ZC Vulkan 2.53.444.5
 Nintendo Switch homebrew
 
 The Zelda Classic player for Switch homebrew. It plays 2.53 quests and quests
@@ -26,7 +26,7 @@ Tested so far in the Eden emulator only, not on a real Switch.
 Credits and licenses
 Zelda Classic is by Armageddon Games and its contributors, and is licensed under
 GPLv3 (licenses/ZeldaClassic-GPL3.txt). This port is by Deviance. The complete
-source code is in the matching ZC-2.53.444.4-Vulkan-Source.zip.
+source code is in the matching ZC-2.53.444.5-Vulkan-Source.zip.
 
 The ZC 3.0 Nightly intro uses the ZQuest Classic logo by Eduardc and the music
 "ZC Forever" by Beatscribe. Their terms are in assets/zc/LICENSE.txt and are

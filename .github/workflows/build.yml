@@ -1,7 +1,10 @@
 name: Build
 
-# Every push to main builds Windows, Android, Linux and Nintendo Switch. When VERSION holds a number that has no
-# release yet, the builds are published as a new GitHub Release. Versions ending in -PRE are built but never published.
+# Every push to main builds Windows (x86, x64, ARM64), Android, Linux (x86_64, aarch64), macOS (one universal
+# program for Apple Silicon and Intel) and Nintendo Switch. When VERSION holds a number that has no release yet, the
+# builds are published as a new GitHub Release. Versions ending in -PRE are built but never published.
+# Builds marked experimental (Windows ARM64, Linux aarch64, macOS) can fail without holding back a release; the
+# release then simply has no download for them.
 
 on:
   push:
@@ -17,8 +20,18 @@ permissions:
 
 jobs:
   windows:
+    name: windows (${{ matrix.arch }})
     runs-on: windows-2022
     timeout-minutes: 90
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86, platform: Win32, label: "Windows, 32-bit", experimental: false }
+          - { arch: x64, platform: x64, label: "Windows, 64-bit (x64)", experimental: false }
+          # cross-compiled on the x64 machine: built, never run here
+          - { arch: arm64, platform: ARM64, label: "Windows on ARM (ARM64)", experimental: true }
     steps:
       - uses: actions/checkout@v4
 
@@ -28,7 +41,7 @@ jobs:
           "VERSION=$version" >> $env:GITHUB_ENV
 
       - name: Configure
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A Win32 -DBISON_EXECUTABLE="$PWD/other/winflex/win_bison.exe" -DFLEX_EXECUTABLE="$PWD/other/winflex/win_flex.exe"
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A ${{ matrix.platform }} -DBISON_EXECUTABLE="$PWD/other/winflex/win_bison.exe" -DFLEX_EXECUTABLE="$PWD/other/winflex/win_flex.exe"
 
       - name: Build
         run: cmake --build build --config Release --target zplayer zqeditor -- /m /v:minimal /nologo
@@ -38,13 +51,14 @@ jobs:
           $folder = "ZC-$env:VERSION-Vulkan"
           New-Item -ItemType Directory $folder | Out-Null
           Copy-Item packaging\windows\* $folder -Recurse
+          (Get-Content "$folder\README.txt") -replace '^Windows, 32-bit$', '${{ matrix.label }}' | Set-Content "$folder\README.txt"
           Copy-Item build\Release\zplayer.exe, build\Release\zqeditor.exe $folder
-          Compress-Archive -Path $folder -DestinationPath "ZCZQ-$env:VERSION-Vulkan-Windows-x86.zip"
+          Compress-Archive -Path $folder -DestinationPath "ZCZQ-$env:VERSION-Vulkan-Windows-${{ matrix.arch }}.zip"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: windows
-          path: ZCZQ-*-Vulkan-Windows-x86.zip
+          name: windows-${{ matrix.arch }}
+          path: ZCZQ-*-Vulkan-Windows-${{ matrix.arch }}.zip
           if-no-files-found: error
 
   android:
@@ -89,10 +103,18 @@ jobs:
           if-no-files-found: error
 
   linux:
-    runs-on: ubuntu-latest
+    name: linux (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     # Built against an old glibc on purpose: the result runs on newer distributions too.
     container: debian:11
     timeout-minutes: 90
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, runner: ubuntu-latest, label: "Linux, 64-bit", experimental: false }
+          - { arch: aarch64, runner: ubuntu-24.04-arm, label: "Linux, 64-bit ARM (aarch64)", experimental: true }
     steps:
       - name: Install build tools
         run: |
@@ -123,13 +145,82 @@ jobs:
           mkdir "$folder"
           cp -r packaging/windows/. "$folder/"
           cp packaging/linux/README.txt packaging/android/soundfont.sf2 "$folder/"
+          sed -i 's/^Linux, 64-bit$/${{ matrix.label }}/' "$folder/README.txt"
           install -m 755 build/zplayer "$folder/zplayer"
-          tar -czf "ZC-$VERSION-Vulkan-Linux-x86_64.tar.gz" "$folder"
+          tar -czf "ZC-$VERSION-Vulkan-Linux-${{ matrix.arch }}.tar.gz" "$folder"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: linux
-          path: ZC-*-Vulkan-Linux-x86_64.tar.gz
+          name: linux-${{ matrix.arch }}
+          path: ZC-*-Vulkan-Linux-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+
+  macos:
+    # One universal program (arm64 and x86_64) for Apple Silicon and Intel Macs, on Apple Silicon.
+    runs-on: macos-14
+    timeout-minutes: 90
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        run: echo "VERSION=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_ENV"
+
+      - name: Get MoltenVK
+        # Vulkan on macOS: the official MoltenVK release, whose macOS library is universal.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset=$(gh release view --repo KhronosGroup/MoltenVK --json assets -q '.assets[].name' | grep -i macos | grep -i '\.tar' | head -n 1)
+          [ -n "$asset" ] || asset=$(gh release view --repo KhronosGroup/MoltenVK --json assets -q '.assets[].name' | grep -i all | grep -i '\.tar' | head -n 1)
+          echo "MoltenVK asset: $asset"
+          mkdir mvk
+          gh release download --repo KhronosGroup/MoltenVK --pattern "$asset" --dir mvk
+          tar -xf "mvk/$asset" -C mvk
+          dylib=$(find mvk -name libMoltenVK.dylib -path '*macOS*' | head -n 1)
+          [ -n "$dylib" ] || dylib=$(find mvk -name libMoltenVK.dylib | head -n 1)
+          [ -n "$dylib" ] || { find mvk | head -n 100; echo "no libMoltenVK.dylib"; exit 1; }
+          echo "MoltenVK: $dylib ($(lipo -archs "$dylib"))"
+          lipo -archs "$dylib" | grep -q arm64 && lipo -archs "$dylib" | grep -q x86_64 || { echo "not universal"; exit 1; }
+          echo "MVK_DYLIB=$PWD/$dylib" >> "$GITHUB_ENV"
+          license=$(find mvk -maxdepth 4 -iname 'LICENSE*' | head -n 1)
+          echo "MVK_LICENSE=$PWD/$license" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DZC_ZPLAYER_ONLY=ON -DZC_PORT_SDL=ON "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+
+      - name: Build
+        run: |
+          cmake --build build --target zplayer --parallel 4
+          echo "zplayer: $(lipo -archs build/zplayer)"
+          lipo -archs build/zplayer | grep -q arm64 && lipo -archs build/zplayer | grep -q x86_64
+
+      - name: Package
+        run: |
+          folder="ZC-$VERSION-Vulkan-macOS"
+          mkdir "$folder"
+          cp -R packaging/windows/. "$folder/"
+          cp packaging/macos/README.txt packaging/android/soundfont.sf2 "$folder/"
+          install -m 755 build/zplayer "$folder/zplayer"
+          cp "$MVK_DYLIB" "$folder/libMoltenVK.dylib"
+          [ -f "$MVK_LICENSE" ] && cp "$MVK_LICENSE" "$folder/licenses/MoltenVK.txt"
+          tar -czf "ZC-$VERSION-Vulkan-macOS.tar.gz" "$folder"
+
+      - name: Try loading a quest (Apple Silicon, then Intel through Rosetta)
+        # Not a pass/fail check: this machine has no real GPU, so a failure here may be the machine's.
+        continue-on-error: true
+        run: |
+          set +e
+          cd "ZC-$VERSION-Vulkan-macOS"
+          perl -e 'alarm 120; exec @ARGV' ./zplayer -quest-load-check 1st.qst load_arm64.txt; echo "arm64 exit $?"; cat load_arm64.txt || true
+          perl -e 'alarm 120; exec @ARGV' arch -x86_64 ./zplayer -quest-load-check 1st.qst load_x86_64.txt; echo "x86_64 exit $?"; cat load_x86_64.txt || true
+          tail -n 30 allegro.log || true
+          rm -f load_*.txt allegro.log zc.sav
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: ZC-*-Vulkan-macOS.tar.gz
           if-no-files-found: error
 
   switch:
@@ -165,7 +256,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: [windows, android, linux, switch]
+    needs: [windows, android, linux, macos, switch]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

@@ -1303,7 +1303,18 @@ void platform_thread_main()
       err = SDL_GetError();
    if (ok) {
       g->wake_type = SDL_RegisterEvents(1);
+#if defined(__APPLE__)
+      // macOS: MoltenVK ships next to the program (SDL only looks in the system's own
+      // places); a Vulkan SDK's loader is the fallback.
+      {
+         const char *base = SDL_GetBasePath();
+         std::string mvk = std::string(base ? base : "") + "libMoltenVK.dylib";
+         g->vulkan_loaded = (base && access(mvk.c_str(), R_OK) == 0 && SDL_Vulkan_LoadLibrary(mvk.c_str()))
+                            || SDL_Vulkan_LoadLibrary(NULL);
+      }
+#else
       g->vulkan_loaded = SDL_Vulkan_LoadLibrary(NULL);
+#endif
       g->primary_hz = display_hz(SDL_GetPrimaryDisplay());
       int n = 0;
       SDL_JoystickID *ids = SDL_GetJoysticks(&n);

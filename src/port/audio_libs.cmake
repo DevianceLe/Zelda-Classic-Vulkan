@@ -34,8 +34,14 @@ list(REMOVE_ITEM _zc_gme_sources
 add_library(zc_gme STATIC ${_zc_gme_sources} ${ZC_THIRD_PARTY}/gme/gme/ext/emu2413.c)
 target_include_directories(zc_gme PUBLIC ${ZC_THIRD_PARTY}/gme)
 target_include_directories(zc_gme PRIVATE ${ZC_THIRD_PARTY}/gme/gme)
-include(TestBigEndian)
-test_big_endian(_zc_big_endian)
+if(APPLE)
+    # A universal macOS build (arm64 and x86_64 at once) has no single answer for
+    # test_big_endian; both are little-endian.
+    set(_zc_big_endian FALSE)
+else()
+    include(TestBigEndian)
+    test_big_endian(_zc_big_endian)
+endif()
 if(_zc_big_endian)
     set(_zc_gme_endian BLARGG_BIG_ENDIAN=1)
 else()

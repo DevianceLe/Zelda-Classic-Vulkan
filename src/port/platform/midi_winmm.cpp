@@ -104,7 +104,7 @@ const ZCPORT_MIDI_BACKEND *zcport_sdl::midi_backend()
    return &g_winmm;
 }
 
-#elif !defined(__ANDROID__) && !defined(__linux__)
+#elif !defined(__ANDROID__) && !defined(__linux__) && !defined(__APPLE__)
 
 const ZCPORT_MIDI_BACKEND *zcport_sdl::midi_backend()
 {
