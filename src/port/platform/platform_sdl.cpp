@@ -50,6 +50,10 @@
    #endif
    #include <winalleg.h>
 #endif
+#if defined(__APPLE__)
+   #include <pthread.h>
+   #include <cstdlib>
+#endif
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
@@ -1376,6 +1380,25 @@ void platform_thread_main()
    SDL_Quit();
 }
 
+#if defined(__APPLE__)
+// macOS (Cocoa) allows windows and their events only on the main thread, so there the
+// platform loop runs on the main thread and the game on a thread of its own: main()
+// calls zcport_sdl_host_main(), which starts the game and then waits here until
+// hook_init asks for the loop (instead of hook_init starting a thread).
+bool g_host = false;                // zcport_sdl_host_main() is hosting the loop
+std::thread::id g_host_tid;         // the main thread
+std::mutex g_host_mutex;
+std::condition_variable g_host_cv;
+bool g_host_start = false;          // hook_init asked for the loop
+bool g_host_running = false;        // the loop runs on the main thread
+
+void host_wait_loop_done()
+{
+   std::unique_lock<std::mutex> lock(g_host_mutex);
+   g_host_cv.wait(lock, [] { return !g_host_start && !g_host_running; });
+}
+#endif
+
 // ---------------------------------------------------------------------------
 // hooks (game thread unless noted)
 // ---------------------------------------------------------------------------
@@ -1389,16 +1412,35 @@ int hook_init(void)
    g->init_done = false;
    g->quit = false;
    g->running = true;
-   g->thread = std::thread(platform_thread_main);
-   g->tid = g->thread.get_id();
+#if defined(__APPLE__)
+   if (g_host) {
+      g->tid = g_host_tid;
+      {
+         std::lock_guard<std::mutex> guard(g_host_mutex);
+         g_host_start = true;
+      }
+      g_host_cv.notify_all();
+   }
+   else
+#endif
+   {
+      g->thread = std::thread(platform_thread_main);
+      g->tid = g->thread.get_id();
+   }
    std::unique_lock<std::mutex> lock(g->init_mutex);
    g->init_cv.wait(lock, [] { return g->init_done; });
    if (!g->init_ok) {
       lock.unlock();
+#if defined(__APPLE__)
+      if (g_host)
+         host_wait_loop_done();
+      else
+#endif
       g->thread.join();
       g->running = false;
       std::string msg = "SDL initialisation failed: " + g->init_error;
       zcport_set_error(msg.c_str());
+      fprintf(stderr, "%s\n", msg.c_str());   // the game's log only says "Failed Init!"
       return -1;
    }
    return 0;
@@ -1413,11 +1455,17 @@ void hook_exit(void)
       // of the foundation) runs the exit functions here: the process is
       // ending, so just let the loop stop.
       g->quit = true;
-      g->thread.detach();
+      if (g->thread.joinable())     // (on macOS the loop is the main thread's, no thread object)
+         g->thread.detach();
       g->running = false;
       return;
    }
    run_on_platform([] { g->quit = true; }, false);
+#if defined(__APPLE__)
+   if (g_host)
+      host_wait_loop_done();
+   else
+#endif
    if (g->thread.joinable())
       g->thread.join();
    {
@@ -1527,6 +1575,20 @@ void hook_pump_events(void)
 void hook_message(const char *msg)
 {
    std::string title = window_title();
+#if defined(__APPLE__)
+   // macOS shows message boxes only from the main thread, which runs the platform loop;
+   // with no loop running (it waits for hook_init) a box from here could hang.
+   if (g_host && !on_platform_thread()) {
+      std::string text = msg ? msg : "";
+      if (g && g->running)
+         run_on_platform([title, text] {
+            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, title.c_str(), text.c_str(), NULL);
+         }, true);
+      else
+         fprintf(stderr, "%s: %s\n", title.c_str(), text.c_str());
+      return;
+   }
+#endif
    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, title.c_str(), msg ? msg : "", NULL);
 }
 
@@ -1794,6 +1856,68 @@ AutoRegister g_auto_register;
 // ---------------------------------------------------------------------------
 
 extern "C" int zcport_sdl_link_anchor = 1;
+
+#if defined(__APPLE__)
+namespace
+{
+struct HostGame
+{
+   int (*fn)(int, char **);
+   int argc;
+   char **argv;
+};
+
+void *host_game_thread(void *p)
+{
+   HostGame *h = (HostGame *)p;
+   // The game normally ends the process itself (exit); a return from its main() does it here.
+   exit(h->fn(h->argc, h->argv));
+   return NULL;
+}
+} // namespace
+
+// macOS: called by main() on the main thread. Runs game(argc, argv) on a thread of its
+// own, with the main thread's usual stack size (secondary threads get 512 KB otherwise),
+// and runs the platform loop here whenever hook_init asks for it. Never returns: the
+// game's exit() ends the process. (Returning from main would run the exit functions a
+// second time, alongside the game's own exit.)
+extern "C" int zcport_sdl_host_main(int (*game)(int, char **), int argc, char **argv)
+{
+   static HostGame h;
+   h.fn = game;
+   h.argc = argc;
+   h.argv = argv;
+   g_host_tid = std::this_thread::get_id();
+   g_host = true;
+
+   pthread_attr_t attr;
+   pthread_attr_init(&attr);
+   pthread_attr_setstacksize(&attr, (size_t)64 << 20);
+   pthread_t t;
+   int r = pthread_create(&t, &attr, host_game_thread, &h);
+   pthread_attr_destroy(&attr);
+   if (r != 0) {
+      g_host = false;               // no thread: the game on this thread, as elsewhere
+      return game(argc, argv);
+   }
+   pthread_detach(t);
+
+   for (;;) {
+      {
+         std::unique_lock<std::mutex> lock(g_host_mutex);
+         g_host_cv.wait(lock, [] { return g_host_start; });
+         g_host_start = false;
+         g_host_running = true;
+      }
+      platform_thread_main();
+      {
+         std::lock_guard<std::mutex> guard(g_host_mutex);
+         g_host_running = false;
+      }
+      g_host_cv.notify_all();
+   }
+}
+#endif
 
 extern "C" void zcport_sdl_register(void)
 {

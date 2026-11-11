@@ -101,11 +101,21 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 #else
 
+#if defined(__APPLE__)
+// platform_sdl.cpp: runs the game on a thread of its own and SDL's platform loop on
+// this, the main thread, the only one macOS lets use windows and events.
+extern "C" int zcport_sdl_host_main(int (*game)(int, char **), int argc, char **argv);
+#endif
+
 // SDL_main.h renames this to SDL_main(): exported for SDLActivity on
 // Android, called by SDL's own main() on the other systems.
 int main(int argc, char *argv[])
 {
+#if defined(__APPLE__)
+    return zcport_sdl_host_main(zplayer_entry, argc, argv);
+#else
     return zplayer_entry(argc, argv);
+#endif
 }
 
 #endif

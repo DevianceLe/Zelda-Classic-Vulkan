@@ -1,4 +1,4 @@
-ZC Vulkan 2.53.444.5.1
+ZC Vulkan 2.53.444.6-PRE
 macOS, Apple Silicon and Intel (one universal program)
 
 HIGHLY EXPERIMENTAL. This macOS build is new and has only been built on
@@ -19,7 +19,7 @@ The first time
   This program isn't signed by Apple, so macOS stops it from opening. After you
   unpack the folder, open Terminal and run this once, with the folder's path:
 
-    xattr -dr com.apple.quarantine ~/Downloads/ZC-2.53.444.5.1-Vulkan-macOS
+    xattr -dr com.apple.quarantine ~/Downloads/ZC-2.53.444.6-PRE-Vulkan-macOS
 
   (Or Control-click zplayer, choose Open, then Open again.)
 
@@ -46,7 +46,7 @@ Player settings are stored in zc.cfg and saved games in zc.sav, in this folder.
 Credits and licenses
 Zelda Classic is by Armageddon Games and its contributors, and is licensed under
 GPLv3 (licenses/ZeldaClassic-GPL3.txt). This port is by Deviance. The complete
-source code is in the matching ZC-2.53.444.5.1-Vulkan-Source.zip.
+source code is in the matching ZC-2.53.444.6-PRE-Vulkan-Source.zip.
 
 MoltenVK is by The Brenwill Workshop and the Khronos Group, under the Apache
 License 2.0 (licenses/MoltenVK.txt).
