@@ -114,8 +114,19 @@ static void q30_equip_extra_button(bool x)
     sfx(WAV_PLACE);
 }
 
+void q30_bunny_check(bool on);
+
+// 2.55/3.0: the subscreen chooses among everything Link has, bunny or not (upstream's subscreen
+// looks items up without the bunny check; using them is still checked)
+struct Q30DosubscrBunnyOff
+{
+    Q30DosubscrBunnyOff() { q30_bunny_check(false); }
+    ~Q30DosubscrBunnyOff() { q30_bunny_check(true); }
+};
+
 void dosubscr(miscQdata *misc)
 {
+    Q30DosubscrBunnyOff q30_bunny_off;
     PALETTE temppal;
     
     if(tmpscr->flags3&fNOSUBSCR)

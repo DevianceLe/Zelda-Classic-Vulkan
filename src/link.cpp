@@ -1269,11 +1269,18 @@ attack:
                 || (attack==wSword &&
                     (attackclk<(game->get_canslash()?15:13) || (charging>0 && attackclk!=SWORDCHARGEFRAME)))
                 || ((attack==wWand || attack==wFire || attack==wCByrna) && attackclk<13)
-                || (attack==wHammer && attackclk<=30))
+                || (attack==wHammer && attackclk<=30)
+                || (attack==Q30W_BUGNET && attackclk<24))
         {
             if(!invisible)
             {
                 linktile(&tile, &flip, &extend, ls_stab, dir, zinit.linkanimationstyle);
+
+                // 2.55/3.0 bug net (without qr_OLD_BUG_NET): slashing at both ends of the swing
+                // (upstream turns one end into a reverse slash, which this engine's Link has no
+                // tiles for)
+                if(attack==Q30W_BUGNET && !q30_quest_rule(327) && (attackclk<9 || attackclk>15))
+                    linktile(&tile, &flip, &extend, ls_slash, dir, zinit.linkanimationstyle);
                 
                 if((game->get_canslash() && (attack==wSword || attack==wWand || attack==wFire || attack==wCByrna)) && itemsbuf[itemid].flags&ITEM_FLAG4 && (attackclk<7))
                 {
@@ -1289,8 +1296,9 @@ attack:
                 {
                     tile+=item_tile_mod(shieldModify);
                 }
-                
+
                 tile+=dmap_tile_mod();
+                tile+=q30_bunny_tile_mod();   // 2.55/3.0: Link as a bunny
                 
                 // Stone of Agony
                 if(agony)
@@ -1781,9 +1789,10 @@ attack:
             tile+=item_tile_mod(shieldModify);
         }
     }
-    
+
     tile+=dmap_tile_mod();
-    
+    tile+=q30_bunny_tile_mod();   // 2.55/3.0: Link as a bunny
+
     // Stone of Agony
     if(agony)
     {
@@ -4820,6 +4829,22 @@ bool LinkClass::startwpn(int itemid)
     {
         int q30_used = q30_startwpn(itemid);
 
+        if(q30_used == 2)   // 2.55/3.0: the bug net, swung like a sword (upstream's wBugNet)
+        {
+            if(action==attacking && attack==Q30W_BUGNET)
+                return false;
+
+            if(!checkmagiccost(itemid))     // (bunny included)
+                return false;
+
+            paymagiccost(itemid);
+            action=attacking;
+            attack=Q30W_BUGNET;
+            attackclk=0;
+            q30_bugnet_start(itemid);
+            return false;
+        }
+
         if(q30_used >= 0)
             return q30_used != 0;
     }
@@ -5494,6 +5519,16 @@ bool LinkClass::startwpn(int itemid)
 
 bool LinkClass::doattack()
 {
+    // 2.55/3.0: the bug net's swing lasts 24 frames (upstream's NET_CLK_TOTAL)
+    if(attack==Q30W_BUGNET)
+    {
+        if(++attackclk >= 24)
+            return false;
+
+        q30_bugnet_frame(attackclk);
+        return true;
+    }
+
     //int s = BSZ ? 0 : 11;
     int s = (zinit.linkanimationstyle==las_bszelda) ? 0 : 11;
     
@@ -12066,7 +12101,20 @@ bool LinkClass::dowarp(int type, int index)
         wscr = homescr-DMaps[currdmap].xoff;
         break;
     }
-    
+
+    // A small DMap's negative map offset can put a warp's screen before its map. On any map
+    // but the first that reads the previous map's screen, as every version did; on the first
+    // it would read outside the maps, so the warp is cancelled (upstream 001bfee cancels all
+    // of them). Caves never use the screen.
+    if(wtype != wtCAVE && wdmap < MAXDMAPS && DMaps[wdmap].map * MAPSCRS + wscr + DMaps[wdmap].xoff < 0)
+    {
+        al_trace("Warp to screen 0x%02X of DMap %d is outside its map (DMap offset %d). Cancelling the warp.\n",
+                 (int)wscr, (int)wdmap, (int)DMaps[wdmap].xoff);
+        didpit=false;
+        update_subscreens();
+        return false;
+    }
+
     bool intradmap = (wdmap == currdmap);
     rehydratelake(type!=wtSCROLL);
     
@@ -15096,6 +15144,10 @@ bool checkmagiccost(int itemid)
     {
         return false;
     }
+    else if(!q30_bunny_allows(itemid))  // 2.55/3.0: a bunny can't use it (upstream pairs checkbunny with this)
+    {
+        return false;
+    }
     else if(itemsbuf[itemid].flags & ITEM_RUPEE_MAGIC)
     {
 	if (current_item_power(itype_wallet)) return true; //Infinite wallet.
@@ -15159,7 +15211,22 @@ int Bweapon(int pos)
     //int familyCheck = actualItem ? itemsbuf[actualItem].family : current_subscreen_active->objects[p].d1
     int family = -1;
     bool bow = false;
-    
+
+    // 2.55/3.0: a slot for an item class 2.53 has no family for (the bug net, the Moon Pearl...
+    // all kept as itype_misc) holds the item upstream's slot shows, used directly; 2.53's lookup
+    // would hand over its best misc item instead, whichever class it is
+    {
+        extern bool q30_subscreen_item(const subscreen_object &o, int *id);
+        int q30_id;
+
+        if(!actualItem && current_subscreen_active->objects[p].d10 > 0 &&
+           q30_subscreen_item(current_subscreen_active->objects[p], &q30_id))
+        {
+            directItem = q30_id;
+            return q30_id < 0 ? 0 : q30_id;
+        }
+    }
+
     if(actualItem)
     {
         bool select = false;

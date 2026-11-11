@@ -2096,6 +2096,9 @@ bool has_item(int item_type, int it)                        //does Link possess 
 }
 
 
+int q30_bunny_clock();              // q30_triggers.cpp: the 2.55/3.0 bunny form
+bool q30_bunny_allows(int itemid);
+
 int current_item(int item_type, bool checkenabled)           //item currently being used
 {
     switch(item_type)
@@ -2167,10 +2170,23 @@ int current_item(int item_type, bool checkenabled)           //item currently be
     
     default:
         int maxid = getHighestLevelOfFamily(game, itemsbuf, item_type, checkenabled);
-        
+
+        // 2.55/3.0, as a bunny: only the items usable as one count (upstream's current_item)
+        if(maxid != -1 && !q30_bunny_allows(maxid))
+        {
+            maxid = -1;
+
+            for(int i=0; i<MAXITEMS; i++)
+            {
+                if(game->get_item(i) && itemsbuf[i].family==item_type && !(checkenabled && item_disabled(i)) && q30_bunny_allows(i)
+                   && (maxid == -1 || itemsbuf[i].fam_type > itemsbuf[maxid].fam_type))
+                    maxid = i;
+            }
+        }
+
         if(maxid == -1)
             return 0;
-            
+
         return itemsbuf[maxid].fam_type;
         break;
     }
@@ -2204,7 +2220,11 @@ void flushItemCache()
 // This is used often, so it should be as direct as possible.
 int current_item_id(int itemtype, bool checkmagic)
 {
-    if(itemtype!=itype_ring)  // Rings must always be checked.
+    // 2.55/3.0, as a bunny: not cached (checkmagiccost leaves out what a bunny can't use, and
+    // the subscreen asks without that), as upstream skips its cache for bunny checks
+    const bool q30_bunny = q30_bunny_clock() != 0;
+
+    if(itemtype!=itype_ring && !q30_bunny)  // Rings must always be checked.
     {
         std::map<int,int>::iterator res = itemcache.find(itemtype);
         
@@ -2236,7 +2256,8 @@ int current_item_id(int itemtype, bool checkmagic)
         }
     }
     
-    itemcache[itemtype] = result;
+    if(!q30_bunny)
+        itemcache[itemtype] = result;
     return result;
 }
 

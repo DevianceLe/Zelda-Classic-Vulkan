@@ -523,8 +523,10 @@ static bool parse_scc_command(const std::string &str, size_t &cur, int &code, in
     if(!has_code)
         skip_to_slash(str, cur);
 
-    code = (byte)written_code;      // upstream's field is a byte too
-    const SccCommand *defn = find_scc_command(code);
+    // The whole number is looked up, so one too big for a byte can't wrap round to a real
+    // command (upstream 4dd4ee0, "out-of-range string command numbers ran a different command").
+    const SccCommand *defn = find_scc_command(written_code);
+    code = defn ? written_code : 0;
     int min_args = defn ? defn->min_args : 0;
     int max_args = defn ? defn->max_args : 0;
 
@@ -673,27 +675,29 @@ static void copy_ascii_text(const std::string &str, MsgWriter &out)
 
         if(c == '{')
         {
+            // A braced segment stays in the text as written. Escaped characters inside it are
+            // skipped, so neither \} nor the second slash of \\ can end (or fail to end) it,
+            // and the character after the } is kept (upstream 0d5240e and 80059dd).
             write_ascii_literal(str, literal_start, cur, out);
             literal_start = cur;
             ++cur;
 
             while(cur < last)
             {
-                if(str[cur] == '}' && str[cur - 1] != '\\')
+                if(str[cur] == '\\' && cur + 1 < last)
                 {
-                    ++cur;
-                    break;
+                    cur += 2;
+                    continue;
                 }
 
-                ++cur;
+                if(str[cur++] == '}')
+                    break;
             }
 
+            if(cur > last)
+                cur = last;
+
             write_ascii_literal(str, literal_start, cur, out);
-
-            if(cur < last && q255_keep_for_editor)
-                ++g_editor_text_dropped;    // the character after the braces is skipped
-
-            ++cur;
             continue;
         }
 

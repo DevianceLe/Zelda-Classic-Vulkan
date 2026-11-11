@@ -337,6 +337,10 @@ void q30_set_dmap_subscreens(int dmap, int overlay, int map)
 
 void q30_set_dmap_texts(int, const char *, long) {}     // the player's (titles and intros as drawn)
 void q30_set_dmap_floor(int, int) {}                    // the player's (subscreen conditions)
+void q30_set_dmap_mirror(int, int) {}                   // the player's (the Magic Mirror)
+int q30_dmap_mirror(int) { return -1; }                 // (for the player's usage dump)
+void q30_set_bunny_ltm(long) {}                         // the player's (the bunny form)
+void q30_set_item_bunny(int, bool) {}                   // the player's (the bunny form)
 
 void q30_clear_generic_init() { zq255.generic_init.clear(); }
 

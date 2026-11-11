@@ -3202,7 +3202,9 @@ void draw_screen(mapscr* this_screen, bool showlink)
         
         guys.draw2(framebuf,true);
     }
-    
+
+    q30_draw_mirror_portal(framebuf);   // 2.55/3.0 (upstream draws it here)
+
     if(showlink && ((Link.getAction()!=climbcovertop)&& (Link.getAction()!=climbcoverbottom)))
     {
         if(q30_compat_rule(Q30_QR_PUSHBLOCK_SPRITE_LAYER))
@@ -3220,7 +3222,9 @@ void draw_screen(mapscr* this_screen, bool showlink)
             decorations.draw(framebuf,true);
         }
     }
-    
+
+    q30_draw_bugnet(framebuf);  // 2.55/3.0: the bug net Link is swinging
+
     for(int i=0; i<guys.Count(); i++)
     {
         if(((enemy*)guys.spr(i))->family == eeWALK)

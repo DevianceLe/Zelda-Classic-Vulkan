@@ -3532,8 +3532,22 @@ void animate_selectors()
     sel_b->animate(0);
 }
 
+#ifdef ZC_PLAYER_BUILD
+void q30_bunny_check(bool on);
+
+// upstream's subscreen looks items up without the bunny check: it shows everything Link has
+struct Q30SubscreenBunnyOff
+{
+    Q30SubscreenBunnyOff() { q30_bunny_check(false); }
+    ~Q30SubscreenBunnyOff() { q30_bunny_check(true); }
+};
+#endif
+
 void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, int xofs, int yofs, bool showtime, int pos2)
 {
+#ifdef ZC_PLAYER_BUILD
+    Q30SubscreenBunnyOff q30_bunny_off;
+#endif
     //this is not a good place to be clearing the bitmap
     //other stuff might already have been drawn on it that needs to be kept
     //(eg the game screen when pulling down the subscreen) -DD

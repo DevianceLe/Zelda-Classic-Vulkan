@@ -292,9 +292,31 @@ void fade(int level,bool blackall,bool fromblack)
 }
 
 
+// 2.55/3.0 (upstream's stayLit): a fire whose light lasts keeps the room lit until the screen
+// changes, even when a fire that only lights while it burns goes out after it. Only fires in
+// 2.55/3.0 quests set it (q30_lighting with stay), so 2.53 quests never see it.
+static bool q30_stay_lit = false;
+
+static void lighting_state(bool existslight, bool setnaturaldark);
+
 // false: change screen lighting to naturaldark
 // true: lighten room
 void lighting(bool existslight, bool setnaturaldark)
+{
+    q30_stay_lit = false;   // as upstream's lighting, whose default resets it
+    lighting_state(existslight, setnaturaldark);
+}
+
+// checkLightSources' lighting (upstream's pal_litDEFAULT, or pal_litSET with stay)
+void q30_lighting(bool existslight, bool stay)
+{
+    if(stay)
+        q30_stay_lit = true;
+
+    lighting_state(existslight || q30_stay_lit, false);
+}
+
+static void lighting_state(bool existslight, bool setnaturaldark)
 {
     bool newstate = !existslight && (setnaturaldark ? ((TheMaps[currmap*MAPSCRS+currscr].flags&fDARK) != 0) : naturaldark);
     
@@ -311,6 +333,7 @@ fade((Link.getSpecialCave()>0) ? (Link.getSpecialCave()>=GUYCAVE) ? 10 : 11 : DM
 // Only used during Insta-Warps
 void lightingInstant()
 {
+    q30_stay_lit = false;   // as upstream's
     bool newstate = ((TheMaps[currmap*MAPSCRS+currscr].flags&fDARK) != 0);
     
     if(darkroom != newstate)

@@ -201,6 +201,20 @@ it.family = (byte)family;
     else
         it.flags = s.igetw();
 
+#ifdef ZC_PLAYER_BUILD
+    // upstream's update_old_item: before item version 39, whether a candle's, book's or Din's
+    // Fire's flames light the room only while they burn was qr_TEMPCANDLELIGHT; since then it is
+    // the item's flag 5, which the player now reads (weapons.cpp). ZQuest keeps the flags as
+    // stored, so its re-saves stay exact.
+    if(s.version < 39 && (family == itype_candle || family == itype_book || family == itype_dinsfire))
+    {
+        if(q30_quest_rule(qr_TEMPCANDLELIGHT))
+            it.flags |= ITEM_FLAG5;
+        else
+            it.flags &= ~ITEM_FLAG5;
+    }
+#endif
+
     if(s.version < 71)
         it.script = item_script_id(s.igetw());
 
@@ -394,6 +408,7 @@ int q255_read_items(Q255Section &s)
         q30_clear_item_families();
         q30_clear_item_extras();
         q30_set_item_usesound2(-1, 0);
+        q30_set_item_bunny(-1, false);
     }
 
     if(s.version < 25 || s.version > 71)
@@ -467,12 +482,20 @@ int q255_read_items(Q255Section &s)
         if(s.failed)
             return qe_invalid;
 
+#ifdef ZC_PLAYER_BUILD
+        if(getenv("ZC_LIGHTSCAN") && i < MAXITEMS && (tempitem.family == itype_candle || tempitem.family == itype_book))
+            al_trace("q30 light: item %d '%s' family %d flag2 %d flag5 %d rule %d newdark %d itemv %d\n", i, item_string[i], tempitem.family,
+                     (tempitem.flags & ITEM_FLAG2) != 0, (tempitem.flags & ITEM_FLAG5) != 0, q30_quest_rule(qr_TEMPCANDLELIGHT),
+                     q30_quest_rule(237), s.version);
+#endif
+
         if(s.keep && i < MAXITEMS)
         {
             memcpy(&itemsbuf[i], &tempitem, sizeof(itemdata));
             q30_set_item_family(i, g_true_family);
             q30_set_item_usesound2(i, g_item_usesound2);
             q30_set_item_passive_script(i, (g_item_raw_flags & (1u << 23)) != 0);
+            q30_set_item_bunny(i, (g_item_raw_flags & 0x04000000) != 0);   // ITEM_BUNNY_ENABLED
 q30_set_item_sprite_script(i, g_item_sprite_script, g_item_sprite_initd);
             q30_set_item_weapon_script(i, g_item_weapon_script, g_item_weapon_initd);
             q30_set_item_override_flags(i, (int)g_item_override_flags);

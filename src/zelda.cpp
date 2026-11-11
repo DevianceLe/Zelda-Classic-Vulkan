@@ -696,6 +696,7 @@ void dismissmsg()
 bool q30_compat_rule(int id);
 bool q30_quest_rule(int id);
 long q30_dmap_intro_string(int dmap);
+void q30_bunny_reset();
 
 void dointro()
 {
@@ -1646,7 +1647,45 @@ int init_game()
     {
         homescr = currscr = game->get_continue_scrn();
     }
-    
+
+    // ZC_LIGHTSCAN (test runs only): lists dark screens as ZC_TEST_START takes them
+    if(getenv("ZC_LIGHTSCAN"))
+    {
+        int shown = 0;
+        for(int dm = 0; dm < MAXDMAPS && shown < 16; ++dm)
+        {
+            if(DMaps[dm].level <= 0 || DMaps[dm].map >= map_count)
+                continue;
+            for(int s = 0; s < 0x80 && shown < 16; ++s)
+            {
+                const int col = (s & 15) - DMaps[dm].xoff;
+                if(col < 0 || col > 7 || !(TheMaps[DMaps[dm].map * MAPSCRS + s].flags & fDARK))
+                    continue;
+                al_trace("test: dark screen: ZC_TEST_START=%d,%d (level %d)\n", dm, s - DMaps[dm].xoff, DMaps[dm].level);
+                ++shown;
+                break;  // one per DMap
+            }
+        }
+    }
+
+    // ZC_TEST_START=dmap[,screen[,x,y]]: test runs only, starts there (the screen within the
+    // DMap; without one, the DMap's continue screen; x,y place Link, below)
+    if(const char *test_start = getenv("ZC_TEST_START"))
+    {
+        int dm = -1, sc = -1;
+        const int got = sscanf(test_start, "%d,%d", &dm, &sc);
+        if(got == 1 && dm >= 0 && dm < MAXDMAPS)
+            sc = DMaps[dm].cont;
+        if(got >= 1 && dm >= 0 && dm < MAXDMAPS && sc >= 0 && sc < 0x80)
+        {
+            currdmap = warpscr = worldscr = dm;
+            init_dmap();
+            homescr = currscr = sc + DMaps[currdmap].xoff;
+            game->set_continue_dmap(currdmap);
+            al_trace("test: start on dmap %d screen %d\n", dm, (int)currscr);
+        }
+    }
+
     lastentrance = currscr;
     game->set_continue_scrn(lastentrance);
     lastentrance_dmap = currdmap;
@@ -1693,8 +1732,20 @@ int init_game()
     
     Link.init();
     Link.resetflags(true);
+
+    // ZC_TEST_START=dmap,screen,x,y: test runs only, Link starts at x,y there
+    if(const char *test_start = getenv("ZC_TEST_START"))
+    {
+        int dm, sc, tx, ty;
+        if(sscanf(test_start, "%d,%d,%d,%d", &dm, &sc, &tx, &ty) == 4)
+        {
+            Link.setX(tx);
+            Link.setY(ty);
+        }
+    }
+
     Link.setEntryPoints(LinkX(),LinkY());
-    
+
     copy_pal((RGB*)data[PAL_GUI].dat,RAMpal);
     loadfullpal();
     ringcolor(false);
@@ -1806,14 +1857,47 @@ int init_game()
 
     initZScriptGlobalRAM(); //Call again so we're set up for GLOBAL_SCRIPT_GAME
     ffscript_engine(true);  //Here is a much safer place...
+    q30_bunny_reset();      // 2.55/3.0: Link starts as himself (upstream HeroClass::init)
     q30_game_init(firstplay);
-    
+
+    // ZC_TEST_ITEMS=id,id,...: test runs only, gives Link those items at the start
+    if(const char *test_items = getenv("ZC_TEST_ITEMS"))
+    {
+        for(const char *p = test_items; *p; )
+        {
+            const int id = atoi(p);
+            if(id > 0 && id < MAXITEMS)
+            {
+                game->set_item(id, true);
+                al_trace("test: gave item %d\n", id);
+            }
+            p = strchr(p, ',');
+            if(!p)
+                break;
+            ++p;
+        }
+    }
+
+    // ZC_TEST_DROP=id: test runs only, puts that item 24 pixels in front of Link as an enemy's
+    // timed drop would be (a thing the 2.55/3.0 bug net can catch)
+    if(const char *test_drop = getenv("ZC_TEST_DROP"))
+    {
+        const int id = atoi(test_drop), d = Link.getDir();
+        const int dx = d == left ? -24 : d == right ? 24 : 0, dy = d == up ? -24 : d == down ? 24 : 0;
+        if(id >= 0 && id < MAXITEMS)
+        {
+            items.add(new item(Link.getX() + dx, Link.getY() + dy, (fix)0, id, ipBIGRANGE + ipTIMER, 0));
+            al_trace("test: dropped item %d at %d,%d\n", id, int(Link.getX()) + dx, int(Link.getY()) + dy);
+        }
+    }
+
     return 0;
 }
 
 int cont_game()
 {
     q30_run_continue();
+    q30_bunny_reset();      // 2.55/3.0: as upstream's HeroClass::init on a continue
 
     //  introclk=intropos=msgclk=msgpos=dmapmsgclk=0;
     didpit=false;

@@ -86,29 +86,45 @@ static void ewpn_shot_box(weapon *w)
 byte boomframe[16] = {0,0,1,0,2,0,1,1,0,1,1,3,2,2,1,2};
 byte bszboomflip[4] = {0,2,3,1};
 
+void q30_lighting(bool existslight, bool stay);    // pal.cpp
+
 //light up the screen if there is at least one "lit" weapon
 //otherwise darken the screen
-void checkLightSources()
+// perm (2.55/3.0 quests only, upstream's checkLightSources(true)): the room stays lit until the
+// screen changes
+void checkLightSources(bool perm = false)
 {
     for(int i=0; i<Lwpns.Count(); i++)
     {
         if(((weapon *)Lwpns.spr(i))->isLit)
         {
-            lighting(true);
+            q30_lighting(true, perm);
             return;
         }
     }
-    
+
     for(int i=0; i<Ewpns.Count(); i++)
     {
         if(((weapon *)Ewpns.spr(i))->isLit)
         {
-            lighting(true);
+            q30_lighting(true, perm);
             return;
         }
     }
-    
-    lighting(false);
+
+    q30_lighting(false, perm);
+}
+
+// Whether the flames of Link's fire item light the room only while they burn. 2.53 quests go by
+// qr_TEMPCANDLELIGHT; 2.55/3.0 quests by the candle's or book's own flag 5, as upstream (the
+// reader sets that flag from the rule for items saved before it existed), and by the rule for
+// fire with no item behind it.
+static bool fire_light_temporary(int parentitem)
+{
+    if(!q30_active() || parentitem < 0 || parentitem >= MAXITEMS)
+        return get_bit(quest_rules,qr_TEMPCANDLELIGHT) != 0;
+
+    return (itemsbuf[parentitem].flags & ITEM_FLAG5) != 0;
 }
 
 void getdraggeditem(int j)
@@ -1946,16 +1962,16 @@ bool weapon::animate(int)
                 if(parentitem<0 || !(itemsbuf[parentitem].flags & ITEM_FLAG2))
                 {
                     isLit = true;
-                    checkLightSources();
+                    checkLightSources(q30_active() && !fire_light_temporary(parentitem));
                 }
             }
-            
+
             if(clk==94)
             {
                 dead=1;
-                
+
                 if((parentitem<0 || !(itemsbuf[parentitem].flags & ITEM_FLAG2)) &&
-                   get_bit(quest_rules,qr_TEMPCANDLELIGHT) &&
+                   fire_light_temporary(parentitem) &&
                    (Lwpns.idCount(wFire) + Ewpns.idCount(ewFlame))==1)
                 {
                     isLit = false;
@@ -1985,9 +2001,9 @@ bool weapon::animate(int)
             if(clk==1)
             {
                 isLit = true;
-                checkLightSources();
+                checkLightSources(q30_active() && !fire_light_temporary(parentitem));
             }
-            
+
             if(clk==80)
             {
                 dead=1;
@@ -1996,16 +2012,16 @@ bool weapon::animate(int)
                 findentrance(x,y,mfWANDFIRE,true);
                 q30_trig_fire(this, x, y, 1 | 2 | 4);
 
-                if(get_bit(quest_rules,qr_TEMPCANDLELIGHT)&& (Lwpns.idCount(wFire) + Ewpns.idCount(ewFlame))==1)
+                if(fire_light_temporary(parentitem) && (Lwpns.idCount(wFire) + Ewpns.idCount(ewFlame))==1)
                 {
                     isLit=false;
                     checkLightSources();
                 }
             }
         }
-        
+
         // Killed by script?
-        if(dead==0 && get_bit(quest_rules,qr_TEMPCANDLELIGHT) && (Lwpns.idCount(wFire) + Ewpns.idCount(ewFlame))==1)
+        if(dead==0 && fire_light_temporary(parentitem) && (Lwpns.idCount(wFire) + Ewpns.idCount(ewFlame))==1)
         {
             isLit=false;
             checkLightSources();
@@ -3100,7 +3116,7 @@ mirrors:
             step=0;
             misc = -1; // Don't drift diagonally anymore
             isLit=true;
-            checkLightSources();
+            checkLightSources(q30_active() && !get_bit(quest_rules,qr_TEMPCANDLELIGHT));   // (upstream's)
         }
         
         if(clk==126)
@@ -3135,7 +3151,7 @@ mirrors:
         {
             step=0;  //should already be 0, but still...
             isLit=true;
-            checkLightSources();
+            checkLightSources(q30_active() && !get_bit(quest_rules,qr_TEMPCANDLELIGHT));   // (upstream's)
         }
         
         if(clk==640)

@@ -42,6 +42,8 @@ int q30_dmap_map_subscreen(int dmap);
 void q30_set_dmap_texts(int dmap, const char *title, long intro_string);
 void q30_set_dmap_floor(int dmap, int floor);     // upstream's dmap floor (0 when not given)
 int q30_dmap_floor(int dmap);
+void q30_set_dmap_mirror(int dmap, int mirror);   // upstream's mirrorDMap (-1 when not given)
+int q30_dmap_mirror(int dmap);
 const char *q30_dmap_title(int dmap);   // NULL when the quest gave none
 long q30_dmap_intro_string(int dmap);
 

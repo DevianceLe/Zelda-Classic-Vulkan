@@ -91,6 +91,8 @@ enum Q30TrigFlag
 // upstream's combo types past the numbering this engine shares (cSCRIPT5 = last shared)
 // the thrown-object weapon upstream calls wThrown; free in this engine's id range
 enum { Q30W_THROWN = 120 };
+// Link's attack while he swings the bug net: upstream's wBugNet (free in this engine's range)
+enum { Q30W_BUGNET = 52 };
 
 enum Q30ComboType
 {
@@ -328,6 +330,23 @@ void q30_set_music_player(void (*fn)(long));            // the audio code regist
 void q30_force_ice(long combo);
 void q30_force_ice_velocity(bool setx, long vx, bool sety, long vy);
 void q30_draw_prompt(BITMAP *dest);         // button prompt combo near Link, if any
+void q30_draw_mirror_portal(BITMAP *dest);  // the Magic Mirror's portal on this screen, if any
+// The bug net (2.55/3.0): q30_startwpn answers 2 for it and link.cpp starts the swing as
+// attack Q30W_BUGNET; each frame of it positions the net and catches items; draw_screen draws it.
+void q30_bugnet_start(int itemid);
+void q30_bugnet_frame(int attackclk);
+void q30_draw_bugnet(BITMAP *dest);
+// The bunny form (2.55/3.0): its clock (upstream lbunnyclock), whether an item can be used now
+// (upstream checkbunny), the tile modifier on Link while a bunny, and the readers' data.
+int q30_bunny_clock();
+void q30_set_bunny_clock(int v);
+bool q30_bunny_allows(int itemid);
+int q30_bunny_tile_mod();
+void q30_bunny_check(bool on);              // off while the subscreen draws or chooses (nests)
+void q30_bunny_reset();                     // a game starts or continues
+void q30_set_bunny_ltm(long ltm);           // readers
+void q30_set_item_bunny(int item, bool usable);     // readers; item -1 clears all
+bool q30_item_bunny(int item);
 void q30_trig_push();                       // Link is pushing: fires push triggers
 bool q30_active();                          // true for 2.55+ quests
 // dosubscr, while the active subscreen is open (q30_scripts_subscr.h): L and R don't move the
@@ -377,7 +396,7 @@ void q30_lift_reset();
 void q30_drop_lift();
 void q30_lift_on_hit();
 void q30_do_liftglove(int liftid, bool passive);
-int q30_startwpn(int itemid);               // -1: not handled, else startwpn's return
+int q30_startwpn(int itemid);               // -1: not handled, 2: the bug net, else startwpn's return
 void q30_thrown_frame(weapon *w);
 void q30_draw_lift(BITMAP *dest);
 void q30_draw_darkness(BITMAP *dest);

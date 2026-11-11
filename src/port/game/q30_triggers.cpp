@@ -9,6 +9,7 @@
 #include <time.h>
 #include <algorithm>
 #include <map>
+#include <set>
 
 #include "zelda.h"
 #include "link.h"
@@ -24,6 +25,7 @@
 #include "q30.h"
 #include "q30_triggers.h"
 #include "q30_scripts.h"
+#include "zscriptversion.h"
 
 extern word quest_header_zelda_version;
 extern newcombo *combobuf;
@@ -1481,6 +1483,15 @@ std::map<int, std::vector<byte> > g_posstates;
 dword g_lvlswitches[MAXLEVELS];
 long g_gswitch_timers[256];                 // 0 off, -1 on until toggled, >0 frames left
 
+// The Magic Mirror's portal (upstream's savedportal): where it stands (srcdmap and srcscr, -1 for
+// none) and where it leads back to. Saved with the states, as upstream saves it with the game.
+struct Q30Portal
+{
+    int destdmap, srcdmap, srcscr, destscr, x, y, sfx, warpfx, spr;
+};
+const Q30Portal Q30_NO_PORTAL = { -1, -1, 0, 0, 0, 0, 0, 0, 0 };
+Q30Portal g_portal = Q30_NO_PORTAL;
+
 void states_setup()
 {
     if(g_xstates.empty())
@@ -1567,6 +1578,19 @@ void states_flush()
                 out.push_back(it->second[k]);
             }
 
+    if(g_portal.srcdmap >= 0)
+    {
+        const int fields[9] = { g_portal.destdmap, g_portal.srcdmap, g_portal.srcscr, g_portal.destscr, g_portal.x,
+                                g_portal.y, g_portal.sfx, g_portal.warpfx, g_portal.spr };
+
+        for(int k = 0; k < 9; ++k)
+        {
+            out.push_back(5);
+            out.push_back(k);
+            out.push_back(fields[k]);
+        }
+    }
+
     ZScriptArray *a = state_array();
 
     if(!a)
@@ -1603,6 +1627,7 @@ void states_sync()
     g_posstates.clear();
     memset(g_lvlswitches, 0, sizeof(g_lvlswitches));
     memset(g_gswitch_timers, 0, sizeof(g_gswitch_timers));
+    g_portal = Q30_NO_PORTAL;
     g_state_id = id;
     g_states_dirty = false;
     q30_cutscene_clear();
@@ -1642,6 +1667,17 @@ void states_sync()
 
             if((size_t)(key & 4095) < v.size())
                 v[key & 4095] = (byte)val;
+
+            break;
+        }
+
+        case 5:
+        {
+            int *fields[9] = { &g_portal.destdmap, &g_portal.srcdmap, &g_portal.srcscr, &g_portal.destscr, &g_portal.x,
+                               &g_portal.y, &g_portal.sfx, &g_portal.warpfx, &g_portal.spr };
+
+            if(key >= 0 && key < 9)
+                *fields[key] = (int)val;
 
             break;
         }
@@ -2696,7 +2732,12 @@ void results(const H &h, const Q30Trigger &t, size_t idx, bool &hasitem, bool &u
     else if(t.trig_stuntime == 0)
         g_stun_clk = 0;
 
-    // shield jinx and bunny have no state in 2.53's Link
+    if(t.trig_bunnytime == -1)      // upstream: -2, until cured ('-1' is the DMap's bunny effect)
+        q30_set_bunny_clock(-2);
+    else if(t.trig_bunnytime > -2)
+        q30_set_bunny_clock(t.trig_bunnytime);
+
+    // shield jinx has no state in 2.53's Link
 
     if(t.play_music > -2)
     {
@@ -5804,11 +5845,16 @@ static void check_pitfall();
 void q30_light_update();
 static void lift_frame();
 static void new_darkroom_palette();
+static void mirror_portal_frame();
+static void bunny_frame();
 
 void q30_trig_link_frame()
 {
     if(!q30_active())
         return;
+
+    mirror_portal_frame();
+    bunny_frame();
 
     if(g_stun_clk > 0)
         --g_stun_clk;
@@ -8648,6 +8694,8 @@ bool q30_bottle_revive()
     return false;
 }
 
+static void do_mirror(int id);
+
 int q30_startwpn(int itemid)
 {
     if(!q30_active())
@@ -8658,6 +8706,15 @@ int q30_startwpn(int itemid)
         use_bottle(itemid);
         return 0;
     }
+
+    if(q30_item_family(itemid) == 273)  // itype_mirror
+    {
+        do_mirror(itemid);
+        return 0;
+    }
+
+    if(q30_item_family(itemid) == 272)  // itype_bugnet: Link swings it (LinkClass::startwpn)
+        return 2;
 
     bool glove = q30_item_family(itemid) == Q30_ITYPE_LIFTGLOVE;
 
@@ -9085,6 +9142,566 @@ static int item_usesound2(int item)
 {
     std::map<int, int>::const_iterator it = g_item_usesound2.find(item);
     return it == g_item_usesound2.end() ? 0 : it->second;
+}
+
+// ---- the Magic Mirror (upstream HeroClass::doMirror, mirrorBonk, the mirror portal) ----------
+// Upstream's warps take the screen with the DMap's x offset already added and add it again; the
+// mirror and its portal pass it that way, so a DMap with an x offset lands where upstream lands.
+
+extern int skipcont;
+
+static const int Q30_MF_NOMIRROR = 166;             // mfNOMIRROR
+static const dword Q30_DMF_MIRRORCONTINUE = 0x200000;
+static const byte Q30_FDISABLE_MIRROR = 0x20;      // screen flags9
+
+// upstream HASFLAG_ANY: the flag on the screen or any layer, placed or in the combo
+static bool flag_anywhere(int flag, int pos)
+{
+    if(pos < 0 || pos > 175)
+        return false;
+
+    for(int layer = 0; layer < 7; ++layer)
+    {
+        const mapscr &m = layer ? tmpscr2[layer - 1] : tmpscr[0];
+
+        if(!m.valid)
+            continue;
+
+        if(m.sflag[pos] == flag || q30_combo_flag(m.data[pos]) == flag)
+            return true;
+    }
+
+    return false;
+}
+
+static void item_error()
+{
+    if(g_misc_sfx[MSFX_ERROR])
+        sfx(g_misc_sfx[MSFX_ERROR]);
+}
+
+// upstream FFCore.warp_player(wtIWARP, dmap, scr, -1, -1, effect, sound, 0, -1): an instant
+// warp that keeps Link where he stands (2.53's pit warp does that through didpit)
+static void mirror_warp(int dmap, int scr, int effect, int sound)
+{
+    static const int by_effect[5] = { wtIWARP, wtIWARPZAP, wtIWARPWAVE, wtIWARPBLK, wtIWARPOPEN };
+    mapscr &m = tmpscr[currscr < 128 ? 0 : 1];
+
+    m.sidewarpdmap[0] = dmap;
+    m.sidewarpscr[0] = scr;
+    m.sidewarptype[0] = (effect >= 0 && effect < 5) ? by_effect[effect] : wtIWARP;
+    m.sidewarpoverlayflags &= ~1;
+    didpit = true;
+    pitx = int(Link.getX());
+    pity = int(Link.getY());
+
+    if(sound)
+        sfx(sound);
+
+    Link.dowarp(1, 0);
+}
+
+// upstream mirrorBonk: true where Link can't stand after a mirror warp (solid, deep water, a pit)
+static bool mirror_bonk()
+{
+    const int x = int(Link.getX()), y = int(Link.getY());
+    const int fy = y + (get_bit(quest_rules, qr_LTTPCOLLISION) ? 0 : 8);
+    const bool solid = _walkflag(x, fy, 2) || _walkflag(x + 15, fy, 1);
+    const bool water = iswater(MAPCOMBO(x + 8, y + 12)) && !current_item(itype_flippers);
+    const bool pit = pit_cid_at(x + 8, y + 12) != 0;
+
+    if(getenv("ZC_EVENTLOG") && (solid || water || pit))
+        al_trace("q30 mirror: landing at %d,%d: solid %d (%d %d %d) water %d pit %d, combo %d type %d\n", x, y, solid, _walkflag(x, fy, 1),
+                 _walkflag(x + 8, fy, 1), _walkflag(x + 15, fy, 1), water, pit, MAPCOMBO(x + 8, y + 12), q30_combo_type(MAPCOMBO(x + 8, y + 12)));
+
+    return solid || water || pit;
+}
+
+// the portal standing on this screen (upstream's mirror_portal), not saved
+static bool g_portal_live = false, g_portal_prox = false;
+static int g_portal_at_dmap = -1, g_portal_at_scr = -1;
+static int g_portal_tile = 0, g_portal_cs = 0, g_portal_aspd = 1, g_portal_frames = 1, g_portal_aclk = 0, g_portal_aframe = 0;
+
+static bool portal_here()
+{
+    return g_portal.srcdmap >= 0 && currdmap == g_portal.srcdmap && currscr == g_portal.srcscr &&
+           g_portal.destdmap >= 0 && g_portal.destdmap < MAXDMAPS;
+}
+
+static bool portal_touching()
+{
+    return abs(int(Link.getX()) - g_portal.x) < 12 && abs(int(Link.getY()) - g_portal.y) < 12;
+}
+
+static void portal_load()
+{
+    const wpndata &w = wpnsbuf[(g_portal.spr >= 0 && g_portal.spr < MAXWPNS) ? g_portal.spr : 0];
+    g_portal_tile = w.tile;
+    g_portal_aspd = w.speed ? w.speed : 1;
+    g_portal_frames = w.frames ? w.frames : 1;
+    g_portal_cs = w.csets & 0xF;
+    g_portal_aclk = g_portal_aframe = 0;
+    g_portal_live = true;
+    g_portal_at_dmap = currdmap;
+    g_portal_at_scr = currscr;
+}
+
+// A warp the mirror or its portal made that lands somewhere Link can't stand goes back.
+struct MirrorUndo
+{
+    int lastentrance, lastentrance_dmap, cont_scr, cont_dmap, dmap, scr, x, y;
+};
+
+static MirrorUndo mirror_undo_point()
+{
+    MirrorUndo u = { lastentrance, lastentrance_dmap, game->get_continue_scrn(), game->get_continue_dmap(),
+                     currdmap, currscr, int(Link.getX()), int(Link.getY()) };
+    return u;
+}
+
+static void mirror_undo(const MirrorUndo &u, int effect, int sound)
+{
+    Link.setAction(none);
+    lastentrance = u.lastentrance;
+    lastentrance_dmap = u.lastentrance_dmap;
+    game->set_continue_scrn(u.cont_scr);
+    game->set_continue_dmap(u.cont_dmap);
+    Link.setX(u.x);
+    Link.setY(u.y);
+    mirror_warp(u.dmap, u.scr, effect, sound);
+}
+
+static bool q30_check_bunny(int itemid);
+
+static void do_mirror(int id)
+{
+    if(int(Link.getZ()) > 0)
+        return;     // no mirror in the air
+
+    if((tmpscr->flags9 & Q30_FDISABLE_MIRROR) || !q30_check_bunny(id) || !checkmagiccost(id))
+    {
+        if(getenv("ZC_EVENTLOG"))
+            al_trace("q30 mirror: can't use it here (screen disables it %d, bunny %d, magic %d of %d)\n", (tmpscr->flags9 & Q30_FDISABLE_MIRROR) != 0,
+                     !q30_check_bunny(id), (int)game->get_magic(), (int)itemsbuf[id].magic);
+        item_error();
+        return;
+    }
+
+    const int x = int(Link.getX()), y = int(Link.getY()), sens = 4;
+    const int px[4] = { x + sens, x + sens, x + 15 - sens, x + 15 - sens };
+    const int py[4] = { y + sens, y + 15 - sens, y + sens, y + 15 - sens };
+
+    for(int k = 0; k < 4; ++k)
+    {
+        if(px[k] >= 0 && px[k] < 256 && py[k] >= 0 && py[k] < 176 && flag_anywhere(Q30_MF_NOMIRROR, (py[k] & 0xF0) + (px[k] >> 4)))
+        {
+            if(getenv("ZC_EVENTLOG"))
+                al_trace("q30 mirror: a No Mirror flag at %d,%d\n", px[k], py[k]);
+            item_error();
+            return;
+        }
+    }
+
+    const itemdata &mirror = itemsbuf[id];
+
+    if(DMaps[currdmap].flags & Q30_DMF_MIRRORCONTINUE)
+    {
+        paymagiccost(id);
+
+        if(item_usesound2(id))
+            sfx(item_usesound2(id));
+
+        switch(mirror.misc2)   // upstream doWarpEffect(warpEffect, true)
+        {
+        case 1: zapout(); break;
+        case 2: wavyout(false); break;
+        case 3: blackscr(30, true); break;
+        case 4:
+            if(COOLSCROLL)
+                close_black_opening(x + 8, y + 8 + playing_field_offset, true);
+            else
+                blackscr(30, true);
+            break;
+        }
+
+        if(mirror.flags & ITEM_FLAG2)   // as F6 > Continue
+        {
+            Quit = qCONT;
+            skipcont = 1;
+        }
+        else                            // as Divine Escape
+            restart_level();
+
+        return;
+    }
+
+    const int destdmap = q30_dmap_mirror(currdmap);
+    const int offscr = currscr - DMaps[currdmap].xoff;
+
+    if(getenv("ZC_EVENTLOG"))
+        al_trace("q30 mirror: dmap %d screen %d -> dmap %d\n", (int)currdmap, (int)currscr, destdmap);
+
+    if(destdmap < 0 || destdmap >= MAXDMAPS)
+        return;
+
+    const int destscr = DMaps[destdmap].xoff + offscr;
+
+    if((offscr % 16 != destscr % 16) || unsigned(destscr) >= 0x80)
+        return;
+
+    paymagiccost(id);
+
+    const MirrorUndo undo = mirror_undo_point();
+    const int old_portal_dmap = g_portal.srcdmap;
+    g_portal.srcdmap = -1;
+    states_mark();
+    Link.setAction(none);
+    mirror_warp(destdmap, destscr, mirror.misc1, mirror.usesound);
+
+    const bool bonk = mirror_bonk();
+
+    if(getenv("ZC_EVENTLOG"))
+        al_trace("q30 mirror: landed on dmap %d screen %d at %d,%d%s\n", (int)currdmap, (int)currscr, int(Link.getX()), int(Link.getY()),
+                 bonk ? ", can't stand there: back" : "");
+
+    if(bonk)
+    {
+        g_portal.srcdmap = old_portal_dmap;
+        states_mark();
+        mirror_undo(undo, mirror.misc1, mirror.usesound);
+    }
+    else if(mirror.flags & ITEM_FLAG1)  // leave a portal back
+    {
+        Q30Portal p = { undo.dmap, destdmap, offscr, offscr, int(Link.getX()), int(Link.getY()), mirror.usesound, mirror.misc1, mirror.wpn };
+        g_portal = p;
+        states_mark();
+        portal_load();
+        g_portal_prox = false;  // don't take it straight back
+
+        if(currdmap != game->get_continue_dmap())
+            game->set_continue_scrn(DMaps[currdmap].cont + DMaps[currdmap].xoff);
+
+        game->set_continue_dmap(currdmap);
+        lastentrance_dmap = currdmap;
+        lastentrance = game->get_continue_scrn();
+    }
+}
+
+// Each frame, from Link's (upstream: the start of HeroClass::animate): touching the portal on
+// this screen, after having stepped off it, warps back and removes it.
+static void mirror_portal_frame()
+{
+    if(!portal_here())
+    {
+        g_portal_live = false;
+        return;
+    }
+
+    if(!g_portal_live || g_portal_at_dmap != currdmap || g_portal_at_scr != currscr)
+    {
+        portal_load();
+        g_portal_prox = !portal_touching();
+    }
+
+    static bool was_prox = false;
+    if(getenv("ZC_EVENTLOG") && was_prox != g_portal_prox)
+        al_trace("q30 mirror portal at %d,%d: %s (Link at %d,%d)\n", g_portal.x, g_portal.y, g_portal_prox ? "armed" : "not armed",
+                 int(Link.getX()), int(Link.getY()));
+    was_prox = g_portal_prox;
+
+    if(++g_portal_aclk >= g_portal_aspd)
+    {
+        g_portal_aclk = 0;
+
+        if(++g_portal_aframe >= g_portal_frames)
+            g_portal_aframe = 0;
+    }
+
+    if(!portal_touching())
+    {
+        g_portal_prox = true;
+        return;
+    }
+
+    if(!g_portal_prox)
+        return;
+
+    const Q30Portal p = g_portal;
+    const MirrorUndo undo = mirror_undo_point();
+    Link.setX(p.x);
+    Link.setY(p.y);
+    mirror_warp(p.destdmap, p.destscr + DMaps[p.destdmap].xoff, p.warpfx, p.sfx);
+
+    if(mirror_bonk())
+    {
+        mirror_undo(undo, p.warpfx, p.sfx);
+        g_portal_live = false;      // reloaded on this screen, Link standing on it
+    }
+    else
+    {
+        g_portal = Q30_NO_PORTAL;   // used up
+        g_portal_live = false;
+        states_mark();
+    }
+}
+
+void q30_draw_mirror_portal(BITMAP *dest)
+{
+    if(!q30_active() || !g_portal_live || !portal_here())
+        return;
+
+    overtile16(dest, g_portal_tile + g_portal_aframe, g_portal.x, g_portal.y + playing_field_offset, g_portal_cs, 0);
+}
+
+// ---- the bug net (upstream wBugNet: HeroClass::positionNet and the melee item check) ---------
+// A swing of 24 frames (link.cpp runs it as Link's attack Q30W_BUGNET) that sweeps the net
+// through 8 places around Link, drawing the item's weapon sprite (one tile per place) and
+// catching what it touches: items that can be grabbed or are timed, and fairies, which go into
+// an empty bottle unless the net's flag 1 is set. It never hits enemies or triggers anything.
+
+static const int Q30_NET_CLK_TOTAL = 24, Q30_NET_DIR_INC = Q30_NET_CLK_TOTAL / 3;
+static const int Q30_IP_CANGRAB = 8192;     // upstream ipCANGRAB
+static int g_net_item = -1;
+static int g_net_x = 0, g_net_y = 0, g_net_z = 0, g_net_tile = 0, g_net_cs = 0, g_net_drawn_frame = -1;
+
+void q30_bugnet_start(int itemid)
+{
+    g_net_item = itemid;
+    g_net_drawn_frame = -1;
+
+    if(getenv("ZC_EVENTLOG"))
+        al_trace("q30 bug net: swing item %d facing %d at %d,%d\n", itemid, int(Link.getDir()), int(Link.getX()), int(Link.getY()));
+
+    if(itemid >= 0 && itemid < MAXITEMS && itemsbuf[itemid].usesound)
+        sfx(itemsbuf[itemid].usesound, pan(int(Link.getX())));
+}
+
+// upstream positionNet
+static void position_net(int attackclk)
+{
+    const int id = vbound(g_net_item, 0, MAXITEMS - 1);
+    const int clock = (itemsbuf[id].flags & ITEM_FLAG2) ? (Q30_NET_CLK_TOTAL - 1) - attackclk : attackclk;
+    const int d = Link.getDir();
+    int tiledir = d;
+
+    switch(d)
+    {
+    case up:    if(clock < Q30_NET_DIR_INC) tiledir = l_up;   else if(clock >= Q30_NET_DIR_INC * 2) tiledir = r_up;   break;
+    case down:  if(clock < Q30_NET_DIR_INC) tiledir = r_down; else if(clock >= Q30_NET_DIR_INC * 2) tiledir = l_down; break;
+    case left:  if(clock < Q30_NET_DIR_INC) tiledir = l_down; else if(clock >= Q30_NET_DIR_INC * 2) tiledir = l_up;   break;
+    case right: if(clock < Q30_NET_DIR_INC) tiledir = r_up;   else if(clock >= Q30_NET_DIR_INC * 2) tiledir = r_down; break;
+    }
+
+    int offs;
+    if(tiledir > right)
+        offs = ((clock % Q30_NET_DIR_INC) < Q30_NET_DIR_INC / 2) ? 1 : 0;
+    else
+        offs = vbound(((clock % Q30_NET_DIR_INC) / (Q30_NET_DIR_INC / 3)) - 1, -1, 1);
+
+    int wx = 1, wy = 1;
+
+    switch(tiledir)
+    {
+    case up:     wx = 6 * offs;           wy = -14;                break;
+    case r_up:   wx = offs ? 10 : 14;     wy = offs ? -12 : -10;   break;
+    case right:  wx = 14;                 wy = 6 * offs;           break;
+    case r_down: wx = offs ? 14 : 10;     wy = offs ? 10 : 12;     break;
+    case down:   wx = -6 * offs;          wy = 14;                 break;
+    case l_down: wx = offs ? -10 : -14;   wy = offs ? 12 : 10;     break;
+    case left:   wx = -14;                wy = -6 * offs;          break;
+    case l_up:   wx = offs ? -14 : -10;   wy = offs ? -10 : -12;   break;
+    }
+
+    // where a weapon of Link's goes (as 2.53's sword: w->y = y+wy-(54-yofs)), so it sits as
+    // upstream's does in dungeons that raise Link 2 pixels
+    const wpndata &w = wpnsbuf[itemsbuf[id].wpn];
+    g_net_x = int(Link.getX()) + wx;
+    g_net_y = int(Link.getY()) + wy - (54 - int(Link.yofs));
+    g_net_z = int(Link.getZ());
+    g_net_tile = w.tile + tiledir;
+    g_net_cs = w.csets & 0xF;
+    g_net_drawn_frame = frame;
+}
+
+// upstream's melee item check, for the net
+static void net_catch()
+{
+    const int id = vbound(g_net_item, 0, MAXITEMS - 1);
+    const bool fairies_free = (itemsbuf[id].flags & ITEM_FLAG1) != 0;   // flag 1: fairies aren't bottled
+
+    for(int j = 0; j < items.Count(); j++)
+    {
+        item *ptr = (item*)items.spr(j);
+        const bool fairy = !fairies_free && itemsbuf[ptr->id].family == itype_fairy;
+
+        if((q30_item_family(ptr->id) == ITYPE_BOTTLEFILL || fairy) && !q30_has_bottle(0))
+            continue;   // nothing to put it in
+
+        if(!((ptr->pickup & Q30_IP_CANGRAB) || (ptr->pickup & ipTIMER) || fairy))
+            continue;
+
+        if(!((ptr->pickup & Q30_IP_CANGRAB) || ptr->clk2 >= 32 || fairy))
+            continue;
+
+        if(!ptr->hit(g_net_x, g_net_y, g_net_z, 16, 16, 1))
+            continue;
+
+        const int pickup = ptr->pickup;
+        const int caught = ptr->id;
+
+        if(pickup & ipONETIME)
+            setmapflag(mITEM);
+        else if(pickup & ipONETIME2)
+            setmapflag();
+
+        if(fairy)
+            q30_fill_bottle(itemsbuf[caught].misc4);
+        else
+        {
+            if(itemsbuf[caught].collect_script)
+                ZScriptVersion::RunScript(SCRIPT_ITEM, itemsbuf[caught].collect_script, caught & 0xFFF);
+
+            q30_item_collected(ptr->getUID());
+            getitem(caught);
+        }
+
+        if(getenv("ZC_EVENTLOG"))
+            al_trace("q30 bug net: caught item %d%s\n", caught, fairy ? " (into a bottle)" : "");
+
+        items.del(j);
+
+        for(int i = 0; i < Lwpns.Count(); i++)
+        {
+            weapon *w2 = (weapon*)Lwpns.spr(i);
+
+            if(w2->dragging == j)
+                w2->dragging = -1;
+            else if(w2->dragging > j)
+                w2->dragging -= 1;
+        }
+
+        --j;
+    }
+}
+
+// Each frame of the swing, from Link's doattack (after it counts attackclk).
+void q30_bugnet_frame(int attackclk)
+{
+    position_net(attackclk);
+
+    if(attackclk > 4)   // upstream's checkstab skips the first 4 frames of any swing
+        net_catch();
+}
+
+// draw_screen, after Link (upstream draws the net as Link's weapon)
+void q30_draw_bugnet(BITMAP *dest)
+{
+    if(!q30_active() || g_net_drawn_frame != frame || !g_net_tile)
+        return;
+
+    // a weapon sprite's offset (2.53 weapons draw at playing_field_offset - 2)
+    overtile16(dest, g_net_tile, g_net_x, g_net_y + playing_field_offset - 2 - g_net_z, g_net_cs, 0);
+}
+
+// ---- the bunny form (upstream checkbunny, lbunnyclock, dmfBUNNYIFNOPEARL) ---------------------
+// While Link is a bunny, only items marked usable as a bunny (and the Moon Pearl) count as his:
+// the item lookups and the magic cost check, which upstream pairs with checkbunny everywhere,
+// leave the rest out. The subscreen still shows them all (upstream's subscreen doesn't check).
+// Link's tiles move by the quest's bunny tile modifier.
+
+static const long Q30_ITYPE_PEARL = 269;
+static const dword Q30_DMF_BUNNYIFNOPEARL = 0x100000;
+
+static int g_bunny_clock = 0;       // upstream lbunnyclock: >0 frames left, -1 from the DMap, 0 none
+static long g_bunny_ltm = 0;
+static std::vector<bool> g_item_bunny(MAXITEMS, false);
+static int g_bunny_check_off = 0;   // the subscreen is drawing or choosing
+
+extern std::map<int, int> itemcache;    // zc_sys.cpp: current_item_id's
+
+static void set_bunny_clock(int v)
+{
+    const bool was = g_bunny_clock != 0;
+    g_bunny_clock = v;
+
+    if(was != (g_bunny_clock != 0))
+    {
+        itemcache.clear();      // the items Link has changed
+
+        if(getenv("ZC_EVENTLOG"))
+            al_trace("q30 bunny: %s (clock %d, tile modifier %ld)\n", g_bunny_clock ? "Link is a bunny" : "Link is himself", g_bunny_clock, g_bunny_ltm);
+    }
+}
+
+void q30_set_bunny_ltm(long ltm) { g_bunny_ltm = ltm; }
+
+void q30_set_item_bunny(int item, bool usable)
+{
+    if(item < 0)
+        g_item_bunny.assign(MAXITEMS, false);
+    else if(item < MAXITEMS)
+        g_item_bunny[item] = usable;
+}
+
+bool q30_item_bunny(int item)
+{
+    return item >= 0 && item < MAXITEMS && g_item_bunny[item];
+}
+
+int q30_bunny_clock() { return q30_active() ? g_bunny_clock : 0; }
+void q30_set_bunny_clock(int v) { if(q30_active()) set_bunny_clock(v); }
+
+void q30_bunny_check(bool on) { g_bunny_check_off += on ? -1 : 1; }
+
+// upstream checkbunny: false for an item Link can't use as a bunny
+static bool q30_check_bunny(int itemid)
+{
+    return !q30_active() || !g_bunny_clock || g_bunny_check_off > 0 || (itemid > 0 && q30_item_bunny(itemid)) ||
+           q30_item_family(itemid) == Q30_ITYPE_PEARL;
+}
+
+bool q30_bunny_allows(int itemid)
+{
+    const bool ok = q30_check_bunny(itemid);
+
+    static std::set<int> logged;    // diagnostics: each item once while Link stays a bunny
+    if(!g_bunny_clock)
+        logged.clear();
+    else if(!ok && getenv("ZC_EVENTLOG") && logged.insert(itemid).second)
+        al_trace("q30 bunny: item %d can't be used as a bunny\n", itemid);
+
+    return ok;
+}
+
+int q30_bunny_tile_mod()
+{
+    return (q30_active() && g_bunny_clock) ? (int)g_bunny_ltm : 0;
+}
+
+// Each frame (upstream: in HeroClass::animate): the timer runs down, and a DMap that makes Link
+// a bunny without the Moon Pearl does so until he has it or leaves.
+static void bunny_frame()
+{
+    if(g_bunny_clock > 0)
+        set_bunny_clock(g_bunny_clock - 1);
+
+    if(DMaps[currdmap].flags & Q30_DMF_BUNNYIFNOPEARL)
+    {
+        if(q30_current_item(Q30_ITYPE_PEARL) > -1)
+        {
+            if(g_bunny_clock == -1)
+                set_bunny_clock(0);
+        }
+        else if(g_bunny_clock > -1)
+            set_bunny_clock(-1);
+    }
+    else if(g_bunny_clock == -1)
+        set_bunny_clock(0);
+}
+
+void q30_bunny_reset()
+{
+    set_bunny_clock(0);
 }
 
 void q30_set_init_switch_style(int style)

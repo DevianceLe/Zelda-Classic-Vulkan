@@ -291,6 +291,7 @@ static void set_level_items(zinitdata &temp, int level, bool map, bool compass, 
 // Dark room lighting defaults, which zinitdata has no room for: dither type, dither arg, dither
 // percent, light radius, transdark percent, darkness colour. Handed to the script engine.
 static byte g_init_light[6];
+static long g_init_bunny_ltm = 0;   // the tile modifier on Link while he's a bunny (q30_triggers.cpp)
 
 static void read_init_light(Q255Section &s, int count)
 {
@@ -465,7 +466,7 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
     s.skip(2);  // walk step
     temp.linkanimationstyle = s.getc();
     temp.jump_link_layer_threshold = s.getc();
-    s.skip(4);  // bunny LTM
+    g_init_bunny_ltm = s.igetl_s();     // bunny LTM
     temp.start_dmap = s.igetw();
     s.skip(2);  // subscreen speed
     {
@@ -674,6 +675,7 @@ int q255_read_initdata(Q255Section &s)
     // upstream's defaults for a section too old to have them
     const byte light_defaults[6] = { 0, 0, 20, 24, 0, BLACK };
     memcpy(g_init_light, light_defaults, sizeof(g_init_light));
+    g_init_bunny_ltm = 0;
 
     if(v >= 37)
     {
@@ -687,6 +689,7 @@ int q255_read_initdata(Q255Section &s)
             memcpy(&zinit, &temp, sizeof(zinitdata));
             link_animation_speed = (zinit.linkanimationstyle == las_zelda3slow) ? 2 : 1;
             q30_set_light_init(g_init_light[0], g_init_light[1], g_init_light[2], g_init_light[3], g_init_light[4], g_init_light[5]);
+        q30_set_bunny_ltm(g_init_bunny_ltm);
         }
 
         return 0;
@@ -792,7 +795,7 @@ int q255_read_initdata(Q255Section &s)
     if(v > 27)
         s.skip(4);  // exit water jump
     if(v > 29)
-        s.skip(4);  // bunny LTM
+        g_init_bunny_ltm = s.igetl_s();     // bunny LTM
     if(v > 30)
     {
         byte sw_style = s.getc();     // switchhook style, for enemies' "Switch w/ Player"
@@ -867,6 +870,7 @@ int q255_read_initdata(Q255Section &s)
         memcpy(&zinit, &temp, sizeof(zinitdata));
         link_animation_speed = (zinit.linkanimationstyle == las_zelda3slow) ? 2 : 1;
         q30_set_light_init(g_init_light[0], g_init_light[1], g_init_light[2], g_init_light[3], g_init_light[4], g_init_light[5]);
+        q30_set_bunny_ltm(g_init_bunny_ltm);
     }
 
     return 0;

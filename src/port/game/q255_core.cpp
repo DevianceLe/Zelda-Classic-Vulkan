@@ -527,6 +527,30 @@ void dump_loaded_data()
 
         for(std::map<long, int>::iterator it = items.begin(); it != items.end(); ++it)
             al_trace("use item %ld %d\n", it->first, it->second);
+
+        // the starting items' families, and the DMaps that make Link a bunny without the
+        // Moon Pearl (upstream's dmfBUNNYIFNOPEARL) or continue at a mirror (dmfMIRRORCONTINUE)
+        for(int i = 0; i < MAXITEMS; ++i)
+            if(zinit.items[i])
+                al_trace("use startitem %ld\n", q30_item_family(i));
+
+        for(int i = 0; i < MAXDMAPS; ++i)
+        {
+            if(DMaps[i].flags & 0x100000)
+                al_trace("use dmapflag bunny %d\n", i);
+            if(DMaps[i].flags & 0x200000)
+                al_trace("use dmapflag mirrorcontinue %d\n", i);
+            if(q30_dmap_mirror(i) >= 0)
+                al_trace("use dmapmirror %d -> %d\n", i, q30_dmap_mirror(i));
+        }
+
+        for(int i = 0; i < MAXITEMS; ++i)   // the Moon Pearl, bug net and Magic Mirror items
+        {
+            const long fam = q30_item_family(i);
+            if(fam == 269 || fam == 272 || fam == 273)
+                al_trace("use itemid %d family %ld level %d flags 0x%x misc1 %ld misc2 %ld wpn %d\n", i, fam, (int)itemsbuf[i].fam_type,
+                         (unsigned)itemsbuf[i].flags, (long)itemsbuf[i].misc1, (long)itemsbuf[i].misc2, (int)itemsbuf[i].wpn);
+        }
     }
 
     if(getenv("ZC_Q255_DUMP_SUBS"))

@@ -866,26 +866,28 @@ static void store_dmap_script(int dmap, int kind, word script, const long *initd
 // The same for each DMap's overlay and map subscreens, title and intro string.
 struct DMapExtraRef
 {
-    int dmap, overlay, map, floor;
+    int dmap, overlay, map, floor, mirror;
     std::string title;
     long intro;
 };
 
 static std::vector<DMapExtraRef> g_dmap_extras;
 
-static void store_dmap_extras(int dmap, int overlay, int map, int floor, const std::string &title, long intro)
+static void store_dmap_extras(int dmap, int overlay, int map, int floor, int mirror, const std::string &title, long intro)
 {
     DMapExtraRef r;
     r.dmap = dmap;
     r.overlay = overlay;
     r.map = map;
     r.floor = floor;
+    r.mirror = mirror;
     r.title = title;
     r.intro = intro;
     g_dmap_extras.push_back(r);
     q30_set_dmap_subscreens(dmap, overlay, map);
     q30_set_dmap_texts(dmap, title.c_str(), intro);
     q30_set_dmap_floor(dmap, floor);
+    q30_set_dmap_mirror(dmap, mirror);
 }
 
 static void restore_dmap_scripts()
@@ -899,6 +901,7 @@ static void restore_dmap_scripts()
         q30_set_dmap_subscreens(r.dmap, r.overlay, r.map);
         q30_set_dmap_texts(r.dmap, r.title.c_str(), r.intro);
         q30_set_dmap_floor(r.dmap, r.floor);
+        q30_set_dmap_mirror(r.dmap, r.mirror);
     }
 }
 
@@ -1220,8 +1223,10 @@ static void read_dmap(Q255Section &s, dmap &d, int index)
         }
     }
 
+    int mirror_dmap = -1;   // upstream's default: no mirror DMap
+
     if(s.version >= 16)
-        s.skip(2);      // mirrorDMap
+        mirror_dmap = (short)s.igetw();     // mirrorDMap
 
     long loop_start = 0, loop_end = 0, xfade_in = 0, xfade_out = 0;
 
@@ -1261,7 +1266,7 @@ static void read_dmap(Q255Section &s, dmap &d, int index)
     }
 
     if(keep && !s.failed)
-        store_dmap_extras(index, overlay_sub, map_sub, floor, full_title, intro_string);
+        store_dmap_extras(index, overlay_sub, map_sub, floor, mirror_dmap, full_title, intro_string);
 
     if(s.version >= 25)
     {

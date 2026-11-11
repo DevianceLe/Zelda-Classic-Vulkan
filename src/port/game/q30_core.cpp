@@ -16,6 +16,7 @@ std::map<int, Q30ScriptRef> g_dmap_scripts[q30_dmap_kinds];
 std::map<int, std::pair<int, int> > g_dmap_subscreens;    // overlay, map
 std::map<int, std::pair<std::string, long> > g_dmap_texts;  // title, intro string
 std::map<int, int> g_dmap_floors;
+std::map<int, int> g_dmap_mirrors;
 
 void put(std::map<int, Q30ScriptRef> &table, int key, word script, const long *initd)
 {
@@ -69,6 +70,21 @@ void q30_clear_tables()
     g_dmap_subscreens.clear();
     g_dmap_texts.clear();
     g_dmap_floors.clear();
+    g_dmap_mirrors.clear();
+}
+
+void q30_set_dmap_mirror(int dmap, int mirror)
+{
+    if(mirror >= 0)
+        g_dmap_mirrors[dmap] = mirror;
+    else
+        g_dmap_mirrors.erase(dmap);
+}
+
+int q30_dmap_mirror(int dmap)
+{
+    std::map<int, int>::const_iterator it = g_dmap_mirrors.find(dmap);
+    return it == g_dmap_mirrors.end() ? -1 : it->second;
 }
 
 void q30_set_dmap_floor(int dmap, int floor)

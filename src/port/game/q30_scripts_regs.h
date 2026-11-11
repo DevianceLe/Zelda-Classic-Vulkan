@@ -1013,6 +1013,7 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_LINKITEMA: ret = Awpn * 10000; return true;
     case Z30R_LINKITEMB: ret = Bwpn * 10000; return true;
     case Z30R_LINKSTUN: ret = zasm30_store_get(arg, 0, 0); return true;
+    case Z30R_HEROBUNNY: ret = q30_bunny_clock() * 10000; return true;
     case Z30R_LINKTILEMOD:
     case Z30R_LINKCANFLICKER: ret = zasm30_store_get(arg, 0, 0) ? 10000 : (arg == Z30R_LINKCANFLICKER ? 10000 : 0); return true;
     case Z30R_LINKDIAG: ret = get_bit(quest_rules, qr_LTTPWALK) ? 10000 : 0; return true;
@@ -1290,6 +1291,7 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_IDATAID: ret = ri->idata * 10000; return true;
     case Z30R_IDATATILE: ret = itemsbuf[ri->idata].tile * 10000; return true;
     case Z30R_IDATACSET: ret = (itemsbuf[ri->idata].csets & 15) * 10000; return true;
+    case Z30R_IDATABUNNYABLE: ret = q30_item_bunny(ri->idata) ? 10000 : 0; return true;
     case Z30R_IDATASCRIPT: ret = itemsbuf[ri->idata].script * 10000; return true;
     case Z30R_IDATASPRITE: ret = zasm30_store_get(arg, ri->idata, Z30_INDEX) * 10000; return true;
 
@@ -1933,6 +1935,7 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     {
     case Z30R_LINKITEMX: q30_set_button_item(true, value / 10000); return true;
     case Z30R_LINKITEMY: q30_set_button_item(false, value / 10000); return true;
+    case Z30R_HEROBUNNY: q30_set_bunny_clock(value / 10000); return true;
     case Z30R_LINKITEMA:
     case Z30R_LINKITEMB:
     case Z30R_LINKSTUN:
@@ -2206,6 +2209,7 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     // itemdata->
     case Z30R_IDATATILE: itemsbuf[ri->idata].tile = vbound(value / 10000, 0, NEWMAXTILES - 1); return true;
     case Z30R_IDATACSET: itemsbuf[ri->idata].csets = (itemsbuf[ri->idata].csets & 0xF0) | vbound(value / 10000, 0, 15); return true;
+    case Z30R_IDATABUNNYABLE: q30_set_item_bunny(ri->idata, value != 0); return true;
     case Z30R_IDATASCRIPT: itemsbuf[ri->idata].script = vbound(value / 10000, 0, 255); return true;
     case Z30R_IDATASPRITE: zasm30_store_set(arg, ri->idata, Z30_INDEX, value / 10000); return true;
 
