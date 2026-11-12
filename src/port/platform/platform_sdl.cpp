@@ -61,8 +61,10 @@
 #include <SDL3/SDL_main.h>
 
 #include "vk_present.h"
+#include "sdl_present.h"
 #include "ui_platform.h"
 #include "touch_internal.h"
+#include "zcport/display.h"
 #include "zcport/ui.h"
 #include "platform_sdl_internal.h"
 
@@ -253,8 +255,11 @@ struct State
    // window (platform thread)
    SDL_Window *window;
    zcport::VulkanPresenter *vk;
+   zcport::SdlPresenter *sr;        // SDL's renderer, when Vulkan isn't used
    bool vulkan_loaded;
    bool use_vulkan;
+   bool vsync;
+   std::string vk_device;           // the Vulkan presenter's GPU
    std::atomic<void *> hwnd;
    std::atomic<uint32_t> window_id;
 
@@ -315,7 +320,8 @@ struct State
    State()
       : running(false), init_done(false), init_ok(false),
         cmds_done(0), cmds_queued(0), wake_type(0), wake_pending(false), quit(false),
-        window(NULL), vk(NULL), vulkan_loaded(false), use_vulkan(false), hwnd(NULL), window_id(0),
+        window(NULL), vk(NULL), sr(NULL), vulkan_loaded(false), use_vulkan(false), vsync(false),
+        hwnd(NULL), window_id(0),
         scale_windowed(zcport::SCALE_INTEGER), scale_fullscreen(zcport::SCALE_ASPECT),
         disp_w(0), disp_h(0), windowed(true), mode_active(false),
         pending_new(false), display(NULL), last_handover_us(0), last_present_us(0),
@@ -466,6 +472,65 @@ void present_surface_fallback(const Frame &f)
    SDL_UpdateWindowSurface(g->window);
 }
 
+// Dear ImGui (zplayer's menus and dialogs) and the on-screen gamepad over
+// whichever presenter runs.
+void attach_ui()
+{
+   bool ui = zcui_platform::attach(g->window) &&
+             (g->vk ? g->vk->init_ui() : g->sr ? g->sr->init_ui() : false);
+   zcui_platform::set_renderer_ready(ui);
+   if (!ui)
+      SDL_Log("zcport: the UI layer could not start");
+   zcport_touch::attach(g->window);   // on-screen gamepad (touch screens)
+}
+
+void detach_ui()
+{
+   zcport_touch::detach();
+   zcui_platform::set_renderer_ready(false);
+   if (g->vk)
+      g->vk->shutdown_ui();
+   if (g->sr)
+      g->sr->shutdown_ui();
+   zcui_platform::detach();
+}
+
+void stop_sdl_renderer()
+{
+   if (!g->sr)
+      return;
+   g->sr->shutdown();
+   delete g->sr;
+   g->sr = NULL;
+}
+
+void stop_vulkan()
+{
+   if (!g->vk)
+      return;
+   g->vk->shutdown();
+   delete g->vk;
+   g->vk = NULL;
+   g->use_vulkan = false;
+}
+
+// SDL's renderer (Direct3D, OpenGL, Metal or software) when Vulkan is
+// missing, broken or not chosen. 'drivers' as SdlPresenter::init. Without it
+// the window surface is the last resort (no menus or dialogs).
+bool start_sdl_renderer(const char *drivers)
+{
+   g->sr = new zcport::SdlPresenter;
+   std::string err;
+   if (g->sr->init(g->window, drivers, g->vsync, &err)) {
+      attach_ui();
+      return true;
+   }
+   SDL_Log("zcport: SDL's renderer is unavailable too (%s), using the window surface", err.c_str());
+   delete g->sr;
+   g->sr = NULL;
+   return false;
+}
+
 void present(const Frame &f)
 {
    if (!g->window || f.w <= 0 || f.h <= 0 || f.px.empty())
@@ -477,11 +542,24 @@ void present(const Frame &f)
          ui = zcui_platform::build_frame();
       }
       if (!g->vk->present(&f.px[0], f.w, f.h, f.w, current_scale(), ui)) {
-         SDL_Log("zcport: Vulkan present failed, using the window surface");
-         g->vk->shutdown();
-         delete g->vk;
-         g->vk = NULL;
-         g->use_vulkan = false;
+         SDL_Log("zcport: Vulkan present failed, switching to SDL's renderer");
+         detach_ui();
+         stop_vulkan();
+         if (start_sdl_renderer(NULL))
+            g->need_repaint = true;
+      }
+   }
+   else if (g->sr) {
+      ImDrawData *ui = NULL;
+      if (g->sr->ui_ready()) {
+         g->sr->ui_new_frame();
+         ui = zcui_platform::build_frame();
+      }
+      if (!g->sr->present(&f.px[0], f.w, f.h, f.w, current_scale(), ui)) {
+         SDL_Log("zcport: SDL's renderer stopped (%s), using the window surface", SDL_GetError());
+         detach_ui();
+         stop_sdl_renderer();
+         g->need_repaint = true;
       }
    }
    else {
@@ -554,17 +632,30 @@ void show_black(int w, int h)
 
 void destroy_presenter()
 {
-   zcport_touch::detach();
-   zcui_platform::set_renderer_ready(false);
-   if (g->vk)
-      g->vk->shutdown_ui();
-   zcui_platform::detach();
-   if (g->vk) {
-      g->vk->shutdown();
-      delete g->vk;
-      g->vk = NULL;
-   }
+   detach_ui();
+   stop_vulkan();
+   stop_sdl_renderer();
    g->use_vulkan = false;
+}
+
+// Which presenter to start with: zc.cfg's Video Settings > Renderer, or
+// ZC_RENDERER=auto|sdl|software|surface for test runs ("surface" is the
+// last resort alone, to check it).
+const int RENDERER_SURFACE_ONLY = -1;
+
+int wanted_renderer()
+{
+   const char *e = SDL_getenv("ZC_RENDERER");
+   if (e && *e) {
+      if (!SDL_strcasecmp(e, "sdl"))
+         return zcdisplay::RENDERER_SDL;
+      if (!SDL_strcasecmp(e, "software"))
+         return zcdisplay::RENDERER_SOFTWARE;
+      if (!SDL_strcasecmp(e, "surface"))
+         return RENDERER_SURFACE_ONLY;
+      return zcdisplay::RENDERER_AUTO;
+   }
+   return zcport_sdl::renderer_choice();
 }
 
 // Greys out the close button while the game has no close button callback
@@ -590,7 +681,8 @@ bool create_window(int w, int h, std::string *error)
    // A window under the test driver never takes the keyboard from the desktop.
    if (SDL_getenv("ZQ_UI_SCRIPT"))
       flags |= SDL_WINDOW_NOT_FOCUSABLE;
-   if (g->vulkan_loaded)
+   const int want = wanted_renderer();
+   if (g->vulkan_loaded && want == zcdisplay::RENDERER_AUTO)
       flags |= SDL_WINDOW_VULKAN;
    g->window = SDL_CreateWindow(title.c_str(), w, h, flags);
    if (!g->window && (flags & SDL_WINDOW_VULKAN)) {
@@ -604,26 +696,30 @@ bool create_window(int w, int h, std::string *error)
    if (flags & SDL_WINDOW_VULKAN) {
       g->vk = new zcport::VulkanPresenter;
       std::string err;
-      if (g->vk->init(g->window, false, &err)) {
+      if (g->vk->init(g->window, g->vsync, &err)) {
          g->use_vulkan = true;
-         // zplayer's menus and dialogs (Dear ImGui over the picture)
-         bool ui = zcui_platform::attach(g->window) && g->vk->init_ui();
-         zcui_platform::set_renderer_ready(ui);
-         if (!ui)
-            SDL_Log("zcport: the UI layer could not start");
-         zcport_touch::attach(g->window);   // on-screen gamepad (touch screens)
+         const char *dev = g->vk->device_name();
+         g->vk_device = dev ? dev : "";
+         attach_ui();   // zplayer's menus and dialogs (Dear ImGui over the picture)
       }
       else {
-         SDL_Log("zcport: Vulkan unavailable (%s), using the window surface", err.c_str());
+         SDL_Log("zcport: Vulkan unavailable (%s), trying SDL's renderer", err.c_str());
          destroy_presenter();
          SDL_DestroyWindow(g->window);
-         g->window = SDL_CreateWindow(title.c_str(), w, h, flags & ~SDL_WINDOW_VULKAN);
+         flags &= ~SDL_WINDOW_VULKAN;
+         g->window = SDL_CreateWindow(title.c_str(), w, h, flags);
          if (!g->window) {
             *error = SDL_GetError();
             return false;
          }
       }
    }
+   // No Vulkan (or another renderer chosen): SDL's renderer, else the window
+   // surface.
+   if (!g->vk && want != RENDERER_SURFACE_ONLY)
+      start_sdl_renderer(want == zcdisplay::RENDERER_SOFTWARE ? "software" : NULL);
+   if (!g->vk && !g->sr)
+      SDL_Log("zcport: showing the game through the window surface (no menus or dialogs)");
    SDL_PropertiesID props = SDL_GetWindowProperties(g->window);
    g->hwnd = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL);
    g->window_id = SDL_GetWindowID(g->window);
@@ -1079,6 +1175,16 @@ void handle_event(const SDL_Event &ev)
       case SDL_EVENT_WINDOW_SHOWN:
          g->need_repaint = true;
          break;
+      case SDL_EVENT_RENDER_DEVICE_RESET:
+         if (g->sr)
+            g->sr->device_reset();
+         g->need_repaint = true;
+         break;
+      case SDL_EVENT_RENDER_DEVICE_LOST:
+         if (g->sr)
+            g->sr->device_lost();   // the next present goes to the window surface
+         g->need_repaint = true;
+         break;
       case SDL_EVENT_WINDOW_DISPLAY_CHANGED:
          if (g->window)
             g->window_hz = display_hz(SDL_GetDisplayForWindow(g->window));
@@ -1319,6 +1425,8 @@ void platform_thread_main()
 #else
       g->vulkan_loaded = SDL_Vulkan_LoadLibrary(NULL);
 #endif
+      if (!g->vulkan_loaded)
+         SDL_Log("zcport: no Vulkan loader on this system (%s)", SDL_GetError());
       g->primary_hz = display_hz(SDL_GetPrimaryDisplay());
       int n = 0;
       SDL_JoystickID *ids = SDL_GetJoysticks(&n);
@@ -1648,9 +1756,18 @@ int hook_gfx_open(int w, int h, int color_depth, int windowed)
    zcport_sdl::display_before_open();
    int r = -1;
    std::string err;
-   run_on_platform([&] { r = do_gfx_open(w, h, windowed != 0 ? 1 : 0, &err); }, true);
+   std::string rend;
+   run_on_platform([&] {
+      r = do_gfx_open(w, h, windowed != 0 ? 1 : 0, &err);
+      rend = zcport_sdl::renderer_in_use();
+   }, true);
    if (r != 0 && !err.empty())
       zcport_set_error(err.c_str());
+   static std::string logged;
+   if (r == 0 && rend != logged) {
+      al_trace("Renderer: %s\n", rend.c_str());
+      logged = rend;
+   }
    return r;
 }
 
@@ -2090,10 +2207,26 @@ void set_scale_modes(zcport::ScaleMode windowed, zcport::ScaleMode fullscreen)
 
 void set_vsync(bool on)
 {
-   if (g && g->vk) {
+   if (!g)
+      return;
+   g->vsync = on;   // also for a presenter started later
+   if (g->vk)
       g->vk->set_vsync(on);
+   if (g->sr)
+      g->sr->set_vsync(on);
+   if (g->vk || g->sr)
       g->need_repaint = true;
-   }
+}
+
+std::string renderer_in_use()
+{
+   if (!g || !g->window)
+      return std::string();
+   if (g->vk && g->use_vulkan)
+      return g->vk_device.empty() ? std::string("Vulkan") : "Vulkan, " + g->vk_device;
+   if (g->sr)
+      return zcport::render_driver_title(g->sr->driver_name());
+   return "Window surface (no menus)";
 }
 
 int window_refresh_hz()

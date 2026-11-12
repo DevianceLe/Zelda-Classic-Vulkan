@@ -57,6 +57,10 @@ namespace zcport_sdl
    // Any thread: the refresh rate the window's display runs at.
    int window_refresh_hz();
 
+   // Platform thread: what shows the game ("Vulkan, <GPU>", "Direct3D 11",
+   // ...), empty before the window exists.
+   std::string renderer_in_use();
+
    // ---- platform_display.cpp ------------------------------------------------
 
    // The game's settings loader ran: the display module manages the window.
@@ -65,6 +69,10 @@ namespace zcport_sdl
    // Game thread, from the gfx_open hook before the platform opens the
    // mode: runs the game's settings loader once.
    void display_before_open();
+
+   // The renderer the settings ask for (zcdisplay::Renderer); read when the
+   // window is made, so a change takes effect at the next start.
+   int renderer_choice();
 
    // Platform thread, managed only: shows the window for a w x h mode,
    // windowed or in the chosen fullscreen kind, with the settings' size and

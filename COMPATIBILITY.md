@@ -41,14 +41,11 @@ The final run was stopped before its last 11 quests. Their results are from the 
 
 **Not built yet**
 
-- The Moon Pearl and the bunny state, and the magic mirror item. Kirby's Castle Epic needs the bunny for one of its levels.
 - Z-heights. No quest in this collection uses them yet.
-- Subscreens with more than one page show only the first page. Twelve quests in this collection have such subscreens, Mystical Harps and Tranquil Expression among them.
-- The bug net, so fairies can't be caught in bottles.
 - `Game->IncrementQuest`, which a 2.53.1 script uses to go straight on to the next numbered quest.
 - A script-moved viewport, and saving global script variables past 255. No quest in this collection needs the second one.
 - Quests made in ZC 1.00 and 1.50 can't be opened. None are in this collection.
-- Editing the features only 2.55 and 3.0 Nightly have, and a 2.55 script compiler. ZQuest opens these quests and saves them in their own version, but its menus edit only what 2.53 has. On Linux there's no ZQuest yet at all.
+- Editing the features only 2.55 and 3.0 Nightly have, and a 2.55 script compiler. ZQuest opens these quests and saves them in their own version, but its menus edit only what 2.53 has. ZQuest on Linux and macOS is new and has hardly been tried.
 - Saving a 2.55 quest as 3.0 Nightly. Quests made in 2.53.1 or older can be saved as 2.55.17 or 3.0 Nightly (see [ZQuest](#zquest)).
 
 **Built, but tried in only a few quests**
@@ -57,12 +54,17 @@ The final run was stopped before its last 11 quests. Their results are from the 
 - Bottles and bottle shops: tried in Link's Journey North, The Deep and Mystical Harps. Saving and reloading bottle contents hasn't been tried.
 - Switch hook: tried in Face Hunt, Cambria, Infinite Quest and Jack's Quest. The hook's chain disappears while the switch happens, switched combos and enemies don't flicker or rise, and switching with FFCs isn't done.
 - Push blocks falling into pits: tried in Colossal Tower.
+- Subscreens with more than one page, their page-turn animations and 3.0 widget conditions: tried in Tales of Zelsteria, Tales of Murdoch and Tranquil Expression. Pages that a script turns (barato's card game) haven't been played through, and the B and A items set on a later page haven't been checked after saving and reloading.
+- The Moon Pearl and bunny form: tried in Kirby's Castle Epic. The magic mirror: tried in Link's Rise 2 DX; its portal and mirror-continue DMaps haven't been seen in a quest yet.
+- The bug net: tried in Kirby's Castle, catching a dropped item. Catching a fairy in a bottle hasn't been seen.
+- Item pickup messages and shop messages: tried in Tales of Murdoch. Items that open a screen's secrets: tried in Nestastic Gaiden. Screen items that wait for the secrets, or come back, haven't been seen in play.
+- Lifting and throwing: tried in The Deep. Torches lighting dark rooms: tried in The Deep and Kirby's Castle.
 - Sprite rotation and scaling, script lighting, subscreen widgets and overlay subscreens. Shadows under flying weapons and items haven't been seen on screen yet.
 - Older quests: many fixes this release bring back how their own version played (1.9x warps and the 16-heart cap, 2.10 warp arrivals, dropping segments, Wizzrobes and renewing rooms, 2.50.0 and 2.50.1 enemy weapon sizes and script values). They were checked through logs and recordings; most haven't been seen happening in play.
 
 **Written, but not yet seen working in real play**
 
-- Lifting and throwing, torches and lantern
+- The lantern
 - Ice, new mirrors, screen tints, light beams, bridges and pitfalls
 - Push blocks on layers, scripts running through screen scrolls, passive item scripts, and secret-screen rules
 
@@ -76,11 +78,13 @@ The final run was stopped before its last 11 quests. Their results are from the 
 
 - Linux has been tested on Debian 13 and Arch Linux, in virtual machines with Mesa's software Vulkan driver. Real graphics cards and controllers are untested. EndeavourOS froze while booting in the test virtual machine, before the game could run, so it hasn't been tested.
 - Android starts, but 2.55 and 3.0 Nightly quests haven't been tested on it.
+- Without Vulkan, the player and ZQuest draw through Direct3D, OpenGL or Metal instead, with all their menus (Video Settings > Renderer can also choose it, or software drawing). That has been tried on Windows only.
+- macOS has only been run on GitHub's build machines, where the player starts and loads the 1st Quest. It hasn't been tried on a real Mac.
 - The Nintendo Switch homebrew build has only been tested in the Eden emulator, not on a real Switch. ZQuest isn't part of it.
 
 ## ZQuest
 
-ZQuest (Windows only) opens quests made in every version from 1.90 to 3.0 Nightly and saves each one in the version it was made in. File > Save As can also save it as a newer version: 2.53.1, 2.55.17 or 3.0 Nightly. It never saves a quest as an older version. A change the chosen version can't hold stops the save with the reason, and the file is left as it was.
+ZQuest (on Windows; new and hardly tried on Linux and macOS) opens quests made in every version from 1.90 to 3.0 Nightly and saves each one in the version it was made in. File > Save As can also save it as a newer version: 2.53.1, 2.55.17 or 3.0 Nightly. It never saves a quest as an older version. A change the chosen version can't hold stops the save with the reason, and the file is left as it was.
 
 | Check, on ZC Vulkan 2.53.444.4 | Quests | Result |
 |---|---|---|

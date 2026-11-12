@@ -1,4 +1,4 @@
-# ZC Vulkan 2.53.444.6-PRE
+# ZC Vulkan 2.53.444.6
 
 [![Build](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml/badge.svg)](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml)
 
@@ -29,7 +29,7 @@ Want to know if a quest works? See the **[quest compatibility list](COMPATIBILIT
 What that means in practice:
 
 1. **2.53 quests never change.** A 2.53 quest plays exactly as it always has. A 2.53 quest saved here still opens in the original Zelda Classic 2.53.
-2. **Modern foundations.** SDL3 for windows, input and audio, Vulkan for graphics, and our own compatibility layer instead of Allegro.
+2. **Modern foundations.** SDL3 for windows, input and audio, Vulkan for graphics (Direct3D, OpenGL or Metal where there's no Vulkan), and our own compatibility layer instead of Allegro.
 3. **Everywhere people play.** Windows, Linux and Nintendo Switch homebrew today, Android next.
 4. **Every generation of quest.** The player runs 2.55 and 3.0 Nightly quests alongside 2.53 ones, and it never saves a newer quest as an older one.
 5. **An editor for all of it.** ZQuest will become the place where quests convert between the older and newer formats, in both directions.
@@ -38,18 +38,18 @@ What that means in practice:
 
 **Working**
 
-- Vulkan rendering with window sizes, resolutions, scaling and fullscreen modes
+- Vulkan rendering with window sizes, resolutions, scaling and fullscreen modes. Without Vulkan the game uses Direct3D, OpenGL or Metal instead, or software drawing as a last resort
 - New Dear ImGui menus, dialogs and file browser in the player and the editor
 - ZQuest on SDL3 and Vulkan, with Large and Small layouts you can switch while it runs
 - 2.55 and 3.0 Nightly quest files, scripts of every type, music objects, and combo triggers in the player
-- On 2.55 and 3.0 Nightly quests: slopes, bottles and bottle shops, the switch hook, sprite rotation and scaling, script lighting and dark rooms, subscreen widgets and overlay subscreens. Each has been tried in one to four quests so far
+- On 2.55 and 3.0 Nightly quests: slopes, bottles and bottle shops, the switch hook, sprite rotation and scaling, script lighting and dark rooms, subscreen widgets and overlay subscreens, subscreens with more than one page, the Moon Pearl and bunny form, the magic mirror, the bug net, lifting and throwing, torches, item pickup messages and secret items. Each has been tried in one to four quests so far
 - Older quests (1.90 to 2.50.1) keep more of how their own version played, from a survey of the original source branches
 - The player on 64-bit Linux, tested on Debian 13 and Arch Linux with Mesa's software Vulkan driver
 - The player as Nintendo Switch homebrew, tested in the Eden emulator only
 
 **Written, but not yet confirmed in play on 2.55 and 3.0 Nightly quests**
 
-- Lifting and throwing, torches and lantern
+- The lantern
 - Ice, push blocks, new mirrors, screen tints, light beams, bridges and pitfalls
 - Shadows under flying weapons and items
 - Script file, directory and stack commands
@@ -57,16 +57,14 @@ What that means in practice:
 **Still to do**
 
 - Z-heights
-- Subscreens with more than one page (only the first page shows)
-- The Moon Pearl and bunny state, the magic mirror, and the bug net
-- The 2.55/3.0 Nightly editor. Until it exists, ZQuest refuses quests newer than 2.53.1 and closes. The player still plays them.
-- ZQuest on Linux
+- Editing what only 2.55 and 3.0 Nightly have. ZQuest opens those quests and saves them in their own version, but its menus edit only what 2.53 has
+- Real-hardware testing of ZQuest on Linux and macOS, which is new
 
 The [compatibility page](COMPATIBILITY.md#what-still-doesnt-work) has the full list of what still doesn't work, including known bugs.
 
 ## Getting started
 
-Download the latest zip from the [Releases page](https://github.com/DevianceLe/Zelda-Classic-Vulkan/releases/latest), unzip it somewhere you can write to (not Program Files), and run `zplayer.exe` or `zqeditor.exe`. You need a graphics driver with Vulkan support.
+Download the latest zip from the [Releases page](https://github.com/DevianceLe/Zelda-Classic-Vulkan/releases/latest), unzip it somewhere you can write to (not Program Files), and run `zplayer.exe` or `zqeditor.exe`. Vulkan is used when your graphics driver has it; otherwise the game runs on Direct3D or OpenGL. Video Settings > Renderer lets you pick those, or software drawing, yourself.
 
 To play a quest directly:
 
@@ -76,7 +74,7 @@ zplayer -windowed -standalone "My Quest.qst"
 
 Put a quest's music next to the `.qst` file or in a `Music` folder beside it.
 
-On Linux, unpack the `.tar.gz` and run `./zplayer` from inside the folder. It's one build for nearly every current distribution: you need glibc 2.30 or newer, the Vulkan loader, and a Vulkan driver. ZQuest is Windows only for now.
+On Linux, unpack the `.tar.gz` and run `./zplayer` from inside the folder. It's one build for nearly every current distribution: you need glibc 2.30 or newer. With the Vulkan loader and a Vulkan driver installed it uses Vulkan, otherwise OpenGL. ZQuest is `./zqeditor`; it's new on Linux, so keep backups of your quests.
 
 On Switch, copy the `switch` folder from the zip to the root of your SD card and start `zplayer` from the Homebrew Menu. Put your quests in `sdmc:/switch/zplayer/`.
 

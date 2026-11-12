@@ -55,6 +55,13 @@ enum Scaling
     SCALING_STRETCH = 3      // the whole window
 };
 
+enum Renderer
+{
+    RENDERER_AUTO = 0,       // Vulkan, else SDL's renderer, else the window surface
+    RENDERER_SDL = 1,        // SDL's renderer (Direct3D, OpenGL, Metal), not Vulkan
+    RENDERER_SOFTWARE = 2    // SDL's software renderer (no graphics driver needed)
+};
+
 enum TouchMode
 {
     TOUCH_AUTO = 0,          // shown after a touch, hidden when a key or gamepad is used
@@ -84,6 +91,7 @@ struct Settings
     int touch_mode;          // TouchMode: the on-screen gamepad
     float touch_size;        // its size (1.0 = 100 %)
     float touch_opacity;     // its opacity (0.1 .. 1.0)
+    int renderer;            // Renderer; takes effect at the next start
 };
 
 /* What a new installation gets. */
@@ -147,6 +155,11 @@ bool managed();
  * rate, for the settings window. */
 void logical_size(int *w, int *h);
 int refresh_hz();
+
+/* What shows the game now ("Vulkan, <GPU>", "Direct3D 11", "Software",
+ * ...), and the Renderer setting the window was made with. */
+std::string renderer_in_use();
+int renderer_at_start();
 
 /* Game side, see "Settings source". Called with *s = defaults(). */
 typedef void (*LoadSettingsFn)(Settings *s);

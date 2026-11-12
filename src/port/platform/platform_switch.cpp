@@ -234,6 +234,7 @@ zcdisplay::Settings display_defaults()
    s.touch_mode = zcdisplay::TOUCH_NEVER;
    s.touch_size = 1.0f;
    s.touch_opacity = 0.6f;
+   s.renderer = zcdisplay::RENDERER_AUTO;   // one renderer there (OpenGL ES)
    return s;
 }
 
@@ -1172,6 +1173,8 @@ void logical_size(int *w, int *h)
 }
 
 int refresh_hz() { return kRefreshHz; }
+std::string renderer_in_use() { return "OpenGL ES 3"; }
+int renderer_at_start() { return RENDERER_AUTO; }
 void set_settings_loader(LoadSettingsFn fn) { g_settings_loader = fn; }
 
 } // namespace zcdisplay

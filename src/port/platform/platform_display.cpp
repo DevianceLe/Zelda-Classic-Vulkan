@@ -93,7 +93,11 @@ void normalize(Settings &s)
       s.scaling = zcdisplay::SCALING_FIT;
    if (!(s.ui_scale >= 0.5f && s.ui_scale <= 3.0f))
       s.ui_scale = 1.0f;
+   if (s.renderer < zcdisplay::RENDERER_AUTO || s.renderer > zcdisplay::RENDERER_SOFTWARE)
+      s.renderer = zcdisplay::RENDERER_AUTO;
 }
+
+std::atomic<int> g_renderer_at_start(0);    // the Renderer the window was made with
 
 bool same_hz(float a, float b)
 {
@@ -496,6 +500,18 @@ void display_before_open()
    g_managed = true;
 }
 
+int renderer_choice()
+{
+   int r = zcdisplay::RENDERER_AUTO;
+   {
+      std::lock_guard<std::mutex> guard(g_mutex);
+      if (g_managed)
+         r = g_want.renderer;
+   }
+   g_renderer_at_start = r;
+   return r;
+}
+
 int display_open(int w, int h, bool windowed, std::string *error)
 {
    Settings s;
@@ -647,6 +663,7 @@ Settings defaults()
    s.touch_mode = TOUCH_AUTO;
    s.touch_size = 1.0f;
    s.touch_opacity = 0.6f;
+   s.renderer = RENDERER_AUTO;
    return s;
 }
 
@@ -798,6 +815,19 @@ void logical_size(int *w, int *h)
 int refresh_hz()
 {
    return zcport_sdl::window_refresh_hz();
+}
+
+std::string renderer_in_use()
+{
+   std::string r;
+   if (zcport_sdl::running())
+      zcport_sdl::run([&r] { r = zcport_sdl::renderer_in_use(); });
+   return r;
+}
+
+int renderer_at_start()
+{
+   return g_renderer_at_start.load();
 }
 
 void set_settings_loader(LoadSettingsFn fn)

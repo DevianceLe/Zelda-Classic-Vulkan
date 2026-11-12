@@ -69,6 +69,7 @@ const float kValueWidth = 320.0f;
 // ---------------------------------------------------------------------------
 
 const char *const kScalingKeys[] = { "integer", "fit", "smooth", "stretch" };
+const char *const kRendererKeys[] = { "auto", "sdl", "software" };   // zcdisplay::Renderer
 
 bool same_text(const char *a, const char *b)
 {
@@ -124,6 +125,11 @@ void load_settings(Settings *s)
                   : same_text(tc, "never") ? zcdisplay::TOUCH_NEVER : zcdisplay::TOUCH_AUTO;
     s->touch_size = get_config_int(kSection, "touch_size", 100) / 100.0f;
     s->touch_opacity = get_config_int(kSection, "touch_opacity", 60) / 100.0f;
+    const char *rd = get_config_string(kSection, "renderer", "auto");
+    s->renderer = zcdisplay::RENDERER_AUTO;
+    for (int i = 0; i < 3; i++)
+        if (same_text(rd, kRendererKeys[i]))
+            s->renderer = i;
 
     static bool overlay = false;
     if (!overlay)
@@ -623,6 +629,39 @@ void picture_section(VideoUi &u, const Settings &cur, float sc)
             commit(u, cur, n);
         }
     }
+#if !defined(__SWITCH__)   // one renderer there
+    {
+        row("Renderer");
+        std::vector<std::string> items, tips;
+        items.push_back("Automatic");
+        tips.push_back("Vulkan when this computer has it, otherwise the system's own graphics.");
+#if defined(_WIN32)
+        items.push_back("Direct3D / OpenGL");
+#elif defined(__APPLE__)
+        items.push_back("Metal / OpenGL");
+#else
+        items.push_back("OpenGL");
+#endif
+        tips.push_back("Never uses Vulkan. Try this if the picture or the menus look wrong.");
+        items.push_back("Software");
+        tips.push_back("Draws without the graphics card: slowest, but needs no graphics driver.");
+        int v = cur.renderer;
+        if (combo("##renderer", &v, items, &tips))
+        {
+            Settings n = cur;
+            n.renderer = v;
+            commit(u, cur, n);
+        }
+        if (cur.renderer != zcdisplay::renderer_at_start())
+            ImGui::TextDisabled("Takes effect at the next start.");
+        else
+        {
+            const std::string now = zcdisplay::renderer_in_use();
+            if (!now.empty())
+                ImGui::TextDisabled("In use: %s", now.c_str());
+        }
+    }
+#endif
     ImGui::EndTable();
 }
 
@@ -822,10 +861,11 @@ void log_state(const char *what)
 {
     Settings s = zcdisplay::get();
     ImVec2 ds = ImGui::GetIO().DisplaySize;
-    tlog("%-14s mode=%d fsk=%d win=%dx%d ex=%dx%d@%.2f disp=%d mon=%d scal=%d vs=%d fps=%d ui=%.2f | view=%.0fx%.0f confirming=%d hz=%d scale=%.2f fr=%.1f",
+    tlog("%-14s mode=%d fsk=%d win=%dx%d ex=%dx%d@%.2f disp=%d mon=%d scal=%d vs=%d fps=%d ui=%.2f rd=%d | view=%.0fx%.0f confirming=%d hz=%d scale=%.2f fr=%.1f rend=%s",
          what, s.mode, s.fullscreen_mode, s.window_w, s.window_h, s.exclusive_w, s.exclusive_h, s.exclusive_hz,
-         s.display, zcdisplay::window_monitor(), s.scaling, s.vsync, s.show_fps, s.ui_scale, ds.x, ds.y,
-         g_ui.confirming, zcdisplay::refresh_hz(), zcui::scale(), ImGui::GetIO().Framerate);
+         s.display, zcdisplay::window_monitor(), s.scaling, s.vsync, s.show_fps, s.ui_scale, s.renderer, ds.x, ds.y,
+         g_ui.confirming, zcdisplay::refresh_hz(), zcui::scale(), ImGui::GetIO().Framerate,
+         zcdisplay::renderer_in_use().c_str());
 }
 void run_script(VideoUi &u, const Settings &cur)
 {
@@ -844,6 +884,7 @@ void run_script(VideoUi &u, const Settings &cur)
     else if (a.compare(0, 6, "vsync:") == 0) { n.vsync = atoi(a.c_str() + 6) != 0; commit(u, cur, n); }
     else if (a.compare(0, 4, "fps:") == 0) { n.show_fps = atoi(a.c_str() + 4) != 0; commit(u, cur, n); }
     else if (a.compare(0, 3, "ui:") == 0) { n.ui_scale = atoi(a.c_str() + 3) / 100.0f; commit(u, cur, n); }
+    else if (a.compare(0, 9, "renderer:") == 0) { n.renderer = atoi(a.c_str() + 9); commit(u, cur, n); }
     else if (a == "reset") { Settings d = zcdisplay::defaults(); d.display = cur.display; commit(u, cur, d); }
     else if (a == "altenter") {
         SDL_Event e; SDL_zero(e);
@@ -945,7 +986,7 @@ void settings_layer(void *)
             n.display = cur.display;   // the monitor stays
             commit(u, cur, n);
         }
-        ImGui::SetItemTooltip("Windowed at the game's size, Fit (sharp), no vsync, 100 %%.\n"
+        ImGui::SetItemTooltip("Windowed at the game's size, Fit (sharp), no vsync, automatic renderer, 100 %%.\n"
                               "The monitor stays as it is.");
         const float close_w = 110 * sc;
         ImGui::SameLine();
@@ -984,7 +1025,7 @@ void zplayer_video_settings()
 {
     if (!zcui::available())
     {
-        al_trace("Video Settings: the UI is not available (no Vulkan presenter)\n");
+        al_trace("Video Settings: the UI is not available (no renderer that can draw it)\n");
         return;
     }
     {
@@ -1085,6 +1126,7 @@ void zplayer_video_save_config()
     set_config_string(kSection, "touch_controls", kTouchKeys[s.touch_mode >= 0 && s.touch_mode < 3 ? s.touch_mode : 0]);
     set_config_int(kSection, "touch_size", (int)std::lround(s.touch_size * 100.0f));
     set_config_int(kSection, "touch_opacity", (int)std::lround(s.touch_opacity * 100.0f));
+    set_config_string(kSection, "renderer", kRendererKeys[s.renderer >= 0 && s.renderer < 3 ? s.renderer : 0]);
     set_config_int(kGameSection, "window_display", s.display);
     // Windowed or fullscreen is the game's own setting; it changes only
     // when the player switched this run (not for -windowed / -fullscreen).
