@@ -29,6 +29,7 @@
 #include "link.h"
 #include "mem_debug.h"
 #include "port/game/q30_triggers.h"
+#include "port/game/q30_regions.h"
 
 extern LinkClass Link;
 extern zinitdata zinit;
@@ -1394,6 +1395,23 @@ bool weapon::clip()
         c[1] = d2?128:(144+nb1);
         c[2] = d2?32:(16-nb1);
         c[3] = d2?208:(224+nb1);
+    }
+
+    // a 3.0 scrolling region: enemy weapons stop at the region's edges, Link's at the camera's
+    // window (upstream's weapon::clip)
+    if(q30_region_on())
+    {
+        int l, t, r, b;
+
+        if(id>wEnemyWeapons)
+            q30_region_bounds(&l, &t, &r, &b);
+        else
+            q30_region_view_bounds(&l, &t, &r, &b);
+
+        c[0] += t;
+        c[1] += b - 176;
+        c[2] += l;
+        c[3] += r - 256;
     }
     
     if(x < c[2])

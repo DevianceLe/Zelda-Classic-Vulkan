@@ -132,6 +132,7 @@ int q255_read_guys(Q255Section &s);
 
 // q255_maps.cpp
 int q255_read_maps(Q255Section &s);
+extern std::vector<std::vector<byte> > q255_map_region_ids;    // per map, 64 bytes (MAP v31+)
 int q255_read_dmaps(Q255Section &s);
 
 // q255_init.cpp

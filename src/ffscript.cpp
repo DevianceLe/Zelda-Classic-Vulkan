@@ -27,6 +27,7 @@ FFScript FFCore;
 #include "zscriptversion.h"
 #include "rendertarget.h"
 #include "port/game/q30_scripts.h"
+#include "port/game/q30_regions.h"
 #include "port/game/q30_scripts_defs.h"
 
 extern word quest_header_zelda_version; //2.53 ONLY. In 2.55, we have an array for this in FFCore! -Z
@@ -2029,6 +2030,11 @@ static bool zasm30_gc_array[MAX_ZCARRAY_SIZE];
 // left to zasm30_collect, and 2.53 quests run no instances, so this stays NULL for them.
 static Zasm30Instance *zasm30_array_inst[MAX_ZCARRAY_SIZE];
 
+// 3.0 scripts can have empty arrays (a class's `Layer list[0];`, later grown by ArrayPush or
+// ResizeArray), which upstream marks valid. A local array slot of size 0 is free in 2.53's
+// scheme, so the empty ones of newer quests are marked here. 2.53 quests never set it.
+bool zasm30_empty_array[MAX_ZCARRAY_SIZE];
+
 static void zasm30_free_instance_arrays(const Zasm30Instance *in)
 {
     for(long p = 1; p < MAX_ZCARRAY_SIZE; ++p)
@@ -2038,9 +2044,10 @@ static void zasm30_free_instance_arrays(const Zasm30Instance *in)
 
         zasm30_array_inst[p] = NULL;
 
-        if(localRAM[p].Size() != 0)
+        if(localRAM[p].Size() != 0 || zasm30_empty_array[p])
         {
             localRAM[p].Clear();
+            zasm30_empty_array[p] = false;
             arrayOwner[p] = 255;
         }
     }
@@ -2233,18 +2240,24 @@ static long zasm30_wrap(long v, long half)
 }
 
 // Local arrays a class owns; the same bookkeeping as do_allocatemem.
+static bool zasm30_array_live(long p)
+{
+    return localRAM[p].Size() != 0 || zasm30_empty_array[p];
+}
+
 static long zasm30_new_array(long size)
 {
     dword ptrval;
-    for(ptrval = 1; ptrval < MAX_ZCARRAY_SIZE && localRAM[ptrval].Size() != 0; ptrval++) ;
+    for(ptrval = 1; ptrval < MAX_ZCARRAY_SIZE && zasm30_array_live(ptrval); ptrval++) ;
 
-    if(ptrval >= MAX_ZCARRAY_SIZE || size <= 0)
+    if(ptrval >= MAX_ZCARRAY_SIZE || size < 0)
         return 0;
 
     ZScriptArray &a = localRAM[ptrval];
     a.Resize(size);
     for(dword j = 0; j < (dword)size; j++)
         a[j] = 0;
+    zasm30_empty_array[ptrval] = size == 0;
     arrayOwner[ptrval] = 255;
     zasm30_array_inst[ptrval] = NULL;
     return ptrval * 10000;
@@ -2295,6 +2308,13 @@ public:
     static ZScriptArray& InvalidError(const long ptr)
     {
         Z_scripterrlog("Invalid pointer (%i) passed to array (don't change the values of your array pointers)\n", ptr);
+
+        extern word quest_header_zelda_version;
+
+        if(quest_header_zelda_version >= 0x255 && ri)     // newer quests: which script
+            al_trace("  (script type %d, number %d, at %ld; instruction %ld while ZC_Q30_TRACE is set)\n", (int)curScriptType,
+                     (int)curScriptNum, (long)ri->pc, zasm30_dbg_pc);
+
         return INVALIDARRAY;
     }
     
@@ -2862,9 +2882,9 @@ public:
         }
         else
         {
-            if(localRAM[ptr].Size() == 0)
+            if(localRAM[ptr].Size() == 0 && !zasm30_empty_array[ptr])
                 return InvalidError(ptr);
-                
+
             return localRAM[ptr];
         }
     }
@@ -3076,12 +3096,13 @@ void deallocateArray(const long ptrval)
         arrayOwner[ptrval] = 255;
         zasm30_array_inst[ptrval] = NULL;
 
-        if(localRAM[ptrval].Size() == 0)
+        if(localRAM[ptrval].Size() == 0 && !zasm30_empty_array[ptrval])
             Z_scripterrlog("Script tried to deallocate memory that was not allocated at address %ld\n", ptrval);
         else
         {
             word size = localRAM[ptrval].Size();
             localRAM[ptrval].Clear();
+            zasm30_empty_array[ptrval] = false;
             
             // If this happens once per frame, it can drown out every other message. -L
             //Z_eventlog("Deallocated local array with address %ld, size %d\n", ptrval, size);
@@ -7345,8 +7366,8 @@ void do_allocatemem(const bool v, const bool local, const byte i)
     if(local)
     {
         //localRAM[0] is used as an invalid container, so 0 can be the NULL pointer in ZScript
-        for(ptrval = 1; ptrval < MAX_ZCARRAY_SIZE && localRAM[ptrval].Size() != 0; ptrval++) ;
-        
+        for(ptrval = 1; ptrval < MAX_ZCARRAY_SIZE && (localRAM[ptrval].Size() != 0 || zasm30_empty_array[ptrval]); ptrval++) ;
+
         if(ptrval >= MAX_ZCARRAY_SIZE)
         {
             Z_scripterrlog("%d local arrays already in use, no more can be allocated\n", MAX_ZCARRAY_SIZE-1);
@@ -9176,7 +9197,7 @@ static void zasm30_mark(long v, std::vector<long> &work)
 
     long p = v / 10000;
 
-    if(p <= 0 || p >= MAX_ZCARRAY_SIZE || zasm30_gc_marked[p] || localRAM[p].Size() == 0)
+    if(p <= 0 || p >= MAX_ZCARRAY_SIZE || zasm30_gc_marked[p] || !zasm30_array_live(p))
         return;
 
     zasm30_gc_marked[p] = true;
@@ -9266,9 +9287,10 @@ static void zasm30_collect()
 
     for(long p = 1; p < MAX_ZCARRAY_SIZE; ++p)
     {
-        if(zasm30_gc_array[p] && !zasm30_gc_marked[p] && localRAM[p].Size() != 0)
+        if(zasm30_gc_array[p] && !zasm30_gc_marked[p] && zasm30_array_live(p))
         {
             localRAM[p].Clear();
+            zasm30_empty_array[p] = false;
             arrayOwner[p] = 255;
             zasm30_gc_array[p] = false;
             zasm30_array_inst[p] = NULL;
@@ -9304,6 +9326,10 @@ static void zasm30_resize_array(ZScriptArray &a, long size)
 
     for(long n = 0; n < size; ++n)
         a[n] = n < (long)keep.size() ? keep[n] : 0;
+
+    // a local array shrunk to nothing stays allocated (3.0 keeps empty arrays valid)
+    if(&a >= &localRAM[1] && &a < &localRAM[0] + MAX_ZCARRAY_SIZE)
+        zasm30_empty_array[&a - &localRAM[0]] = size == 0;
 }
 
 // A script that runs on without a Waitframe freezes the game for good: nothing else runs
@@ -9589,7 +9615,34 @@ int run_script(const byte type, const word script, const byte i)
 
     while(scommand != 0xFFFF && scommand != WAITFRAME && scommand != WAITDRAW)
     {
-        if(zasm30_trace_on) zasm30_dbg_pc = pc;
+        if(zasm30_trace_on)
+        {
+            zasm30_dbg_pc = pc;
+
+            // ZC_Q30_PCWATCH=pc,pc,... (with ZC_Q30_TRACE): the first 5 times each runs
+            static std::map<long, int> *watch = NULL;
+
+            if(!watch)
+            {
+                watch = new std::map<long, int>();
+
+                if(const char *w = getenv("ZC_Q30_PCWATCH"))
+                    for(const char *c = w; *c; )
+                    {
+                        (*watch)[atol(c)] = 5;
+                        while(*c && *c != ',') ++c;
+                        if(*c) ++c;
+                    }
+            }
+
+            std::map<long, int>::iterator wi = watch->empty() ? watch->end() : watch->find((long)pc);
+
+            if(wi != watch->end() && wi->second > 0)
+            {
+                --wi->second;
+                al_trace("q30: pc %ld reached (script type %d, %d) frame %d\n", (long)pc, (int)curScriptType, (int)curScriptNum, frame);
+            }
+        }
         numInstructions++;
         if(numInstructions==100000) // No need to check frequently
         {
@@ -10853,7 +10906,7 @@ int run_script(const byte type, const word script, const byte i)
             ZScriptArray &a = ArrayH::getArray(get_register(sarg1) / 10000);
 
             if(&a != &INVALIDARRAY)
-                zasm30_resize_array(a, vbound(get_register(sarg2) / 10000, 1, 65535));
+                zasm30_resize_array(a, vbound(get_register(sarg2) / 10000, 0, 65535));     // 0: empty, as upstream
             break;
         }
 

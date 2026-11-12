@@ -37,6 +37,7 @@
 #include "particles.h"
 #include "mem_debug.h"
 #include "port/game/q30_triggers.h"
+#include "port/game/q30_regions.h"
 
 
 #define EPSILON 0.01 // Define your own tolerance
@@ -2757,7 +2758,8 @@ void do_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, int tempscreen
         
         if(drawprimitives && type >= 0 && type <= 5)
         {
-            do_primitives(bmp, type+1, layer, 0,  playing_field_offset);
+            // (a scrolling region's camera moves them with the screen; 0 otherwise)
+            do_primitives(bmp, type+1, layer, -q30_draw_cam_x,  playing_field_offset - q30_draw_cam_y);
         }
     }
 }
@@ -3078,14 +3080,18 @@ void draw_screen(mapscr* this_screen, bool showlink)
         draw_lens_under(scrollbuf, true);
     }
     
+    // 3.0 scrolling region: the other screens the camera shows, then the camera's window
+    q30_region_compose_lower(scrollbuf);
+
     //2. Blit those layers onto framebuf
-    
-    
+
+
     set_clip_rect(framebuf,draw_screen_clip_rect_x1,draw_screen_clip_rect_y1,draw_screen_clip_rect_x2,draw_screen_clip_rect_y2);
     masked_blit(scrollbuf, framebuf, 0, 0, 0, 0, 256, 224);
-    
-    
-    //3. Draw some sprites onto framebuf
+
+
+    //3. Draw some sprites onto framebuf (in a scrolling region, through its camera)
+    q30_region_begin_sprites();
     set_clip_rect(framebuf,0,0,256,224);
     
     if(!(pricesdisplaybuf->clip))
@@ -3259,7 +3265,8 @@ void draw_screen(mapscr* this_screen, bool showlink)
     
     if(!(this_screen->flags7&fLAYER3BG))
     {
-        do_layer(temp_buf,2, this_screen, 0, 0, 2, false, true);
+        if(q30_region_on()) q30_region_upper_layer(temp_buf, 2, this_screen, true);
+        else do_layer(temp_buf,2, this_screen, 0, 0, 2, false, true);
         do_layer(scrollbuf, 2, this_screen, 0, 0, 2);
         
         for(pcounter=0; pcounter<particles.Count(); pcounter++)
@@ -3271,7 +3278,8 @@ void draw_screen(mapscr* this_screen, bool showlink)
         }
     }
     
-    do_layer(temp_buf,3, this_screen, 0, 0, 2, false, true);
+    if(q30_region_on()) q30_region_upper_layer(temp_buf, 3, this_screen, true);
+    else do_layer(temp_buf,3, this_screen, 0, 0, 2, false, true);
     do_layer(scrollbuf, 3, this_screen, 0, 0, 2);
     //do_primitives(temp_buf, 3, this_screen, 0,playing_field_offset);//don't uncomment me
     
@@ -3283,7 +3291,8 @@ void draw_screen(mapscr* this_screen, bool showlink)
         }
     }
     
-    do_layer(temp_buf,-1, this_screen, 0, 0, 2);
+    if(q30_region_on()) q30_region_upper_layer(temp_buf, -1, this_screen, false);
+    else do_layer(temp_buf,-1, this_screen, 0, 0, 2);
     do_layer(scrollbuf,-1, this_screen, 0, 0, 2);
     
     for(pcounter=0; pcounter<particles.Count(); pcounter++)
@@ -3306,7 +3315,9 @@ void draw_screen(mapscr* this_screen, bool showlink)
     if(!get_bit(quest_rules,qr_SUBSCREENOVERSPRITES))
     {
         set_clip_rect(framebuf,draw_screen_clip_rect_x1,draw_screen_clip_rect_y1,draw_screen_clip_rect_x2,draw_screen_clip_rect_y2);
+        q30_region_end_sprites();   // (the subscreen's items are no part of the playfield)
         put_passive_subscr(framebuf, &QMisc, 0, passive_subscreen_offset, false, sspUP);
+        q30_region_begin_sprites();
     }
     
     
@@ -3362,7 +3373,8 @@ void draw_screen(mapscr* this_screen, bool showlink)
     
     set_clip_rect(framebuf,draw_screen_clip_rect_x1,draw_screen_clip_rect_y1,draw_screen_clip_rect_x2,draw_screen_clip_rect_y2);
     
-    do_layer(temp_buf,4, this_screen, 0, 0, 2, false, true);
+    if(q30_region_on()) q30_region_upper_layer(temp_buf, 4, this_screen, true);
+    else do_layer(temp_buf,4, this_screen, 0, 0, 2, false, true);
     do_layer(scrollbuf, 4, this_screen, 0, 0, 2);
     
     for(pcounter=0; pcounter<particles.Count(); pcounter++)
@@ -3373,10 +3385,12 @@ void draw_screen(mapscr* this_screen, bool showlink)
         }
     }
     
-    do_layer(temp_buf,-4, this_screen, 0, 0, 2); // overhead freeform combos!
+    if(q30_region_on()) q30_region_upper_layer(temp_buf, -4, this_screen, false);
+    else do_layer(temp_buf,-4, this_screen, 0, 0, 2); // overhead freeform combos!
     do_layer(scrollbuf, -4, this_screen, 0, 0, 2);
-    
-    do_layer(temp_buf,5, this_screen, 0, 0, 2, false, true);
+
+    if(q30_region_on()) q30_region_upper_layer(temp_buf, 5, this_screen, true);
+    else do_layer(temp_buf,5, this_screen, 0, 0, 2, false, true);
     do_layer(scrollbuf, 5, this_screen, 0, 0, 2);
     
     for(pcounter=0; pcounter<particles.Count(); pcounter++)
@@ -3394,7 +3408,8 @@ void draw_screen(mapscr* this_screen, bool showlink)
     
     
     //11. Draw some text on framebuf
-    
+    q30_region_end_sprites();   // the playfield is done; text and the subscreen don't move
+
     set_clip_rect(framebuf,0,0,256,224);
     set_clip_rect(scrollbuf,0,0,256,224);
     
@@ -4211,7 +4226,10 @@ void loadscr(int tmp,int destdmap, int scr,int ldir,bool overlay=false)
     }
 
     if(tmp==0)
+    {
         q30_trig_screen_load();
+        q30_region_screen_loaded();     // 3.0 scrolling regions: which one this screen is in
+    }
 }
 
 
@@ -4440,6 +4458,14 @@ bool _walkflag(int x,int y,int cnt)
 {
     //  walkflagx=x; walkflagy=y;
     bool q30_quest = q30_active();
+
+    if(q30_quest)   // a point past the screen, in a scrolling region: the neighbouring screen's combos
+    {
+        const int r = q30_region_walkflag(x, y, cnt);
+
+        if(r >= 0)
+            return r != 0;
+    }
 
 if(get_bit(quest_rules,qr_LTTPWALK))
     {

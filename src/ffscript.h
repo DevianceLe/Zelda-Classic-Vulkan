@@ -818,5 +818,8 @@ struct triangle3Dstruct
 // A 2.55 or 3.0 script's Screen->Polygon, queued with the 2.53 drawing commands (its numbers stay
 // clear of theirs); drawn by zasm30_do_polygon (q30_scripts_cmds.h).
 #define ZASM30_DRAW_POLYGON 0x7F10
+// A 3.0 script's bitmap->Blit(layer, RT_SCREEN, ...): the source rectangle as it was at the call,
+// drawn onto the layer with the others; zasm30_do_screen_blit (q30_scripts_cmds.h).
+#define ZASM30_DRAW_SCREEN_BLIT 0x7F11
 
 #endif

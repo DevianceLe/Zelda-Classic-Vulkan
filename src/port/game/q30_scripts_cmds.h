@@ -1201,10 +1201,13 @@ static void z30_mask_draw(BITMAP *dest, BITMAP *mask, int color, int start, int 
 
 // ---- helpers for commands --------------------------------------------------------------------
 
+// Game->GetFFCScript(name) and the others: the file's bindings are numbered from 0 for script
+// slot 1 (upstream's ffcmap[n-1] is slot n), so the slot is the binding + 1; -1 when no slot
+// has that name (upstream's do_get_script_index_by_name).
 static long z30_name_lookup(int table, const std::string &name)
 {
     std::map<std::string, int>::iterator it = q30_script_names[table].find(name);
-    return it == q30_script_names[table].end() ? 0 : it->second * 10000;
+    return it == q30_script_names[table].end() ? -10000 : (it->second + 1) * 10000;
 }
 
 // The drawing primitive runs right away on the bitmap, with its arguments as a 2.53 command.
@@ -1547,6 +1550,116 @@ void zasm30_do_polygon(BITMAP *bmp, int i, int *sdci, int xoffset, int yoffset)
 
     std::vector<int> pos(v->begin(), v->end());
     z30_draw_polygon(bmp, sdci[2] / 10000, pos, sdci[4] / 10000, sdci[5] / 10000, xoffset, yoffset);
+}
+
+// bitmap->Blit(layer, RT_SCREEN, sx, sy, sw, sh, dx, dy, dw, dh, rotation, cx, cy, mode, lit, mask):
+// upstream defers every bitmap command to drawing time and runs them in order, so the blit sees
+// the bitmap as the commands before it left it. Here bitmap commands run at once, so the source
+// rectangle is copied now and drawn onto the layer with the frame's other screen drawing.
+// Screen->DrawOrigin: DRAW_ORIGIN_SCREEN (2) places dx, dy from the screen's top-left, anything
+// else from the playing field's. Rotation, flips and lit colour aren't drawn (logged once).
+static void z30_queue_screen_blit(BITMAP *src, int layer, int sx, int sy, int sw, int sh, int dx, int dy, int dw, int dh, int mode,
+                                  bool masked, bool rotated)
+{
+    if(zasm30_trace_on)
+    {
+        static int shown = 0;
+
+        if(shown++ < 20)
+            al_trace("q30: blit to the screen: layer %d, %s source, %dx%d from %d,%d to %d,%d (%dx%d), mode %d, masked %d, origin %ld\n",
+                     layer, src ? "a" : "no", sw, sh, sx, sy, dx, dy, dw, dh, mode, masked ? 1 : 0,
+                     zasm30_store_get(Z30R_SCREEN_DRAW_ORIGIN, 0, 0) / 10000);
+    }
+
+    if(!src || sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0 || sw > 4096 || sh > 4096)
+        return;
+
+    if(rotated || (mode & ~1))
+        zasm30_log_once("blit to the screen with rotation, pivot or flip (drawn plain)", 657);
+
+    const int j = script_drawing_commands.GetNext();
+
+    if(j == -1)
+    {
+        Z_scripterrlog("Max draw primitive limit reached\n");
+        return;
+    }
+
+    script_drawing_commands[j][0] = ZASM30_DRAW_SCREEN_BLIT;
+    script_drawing_commands[j][1] = layer * 10000;
+    script_drawing_commands[j][2] = sw;
+    script_drawing_commands[j][3] = sh;
+    script_drawing_commands[j][4] = dx;
+    script_drawing_commands[j][5] = dy;
+    script_drawing_commands[j][6] = dw;
+    script_drawing_commands[j][7] = dh;
+    script_drawing_commands[j][8] = mode;
+    script_drawing_commands[j][9] = masked ? 1 : 0;
+    script_drawing_commands[j][10] = zasm30_store_get(Z30R_SCREEN_DRAW_ORIGIN, 0, 0) / 10000;
+    script_drawing_commands[j][18] = -1;    // the screen, whatever the current render target
+
+    std::vector<long> *v = script_drawing_commands.GetVector();
+    v->resize((size_t)sw * sh);
+
+    for(int y = 0; y < sh; ++y)
+        for(int x = 0; x < sw; ++x)
+        {
+            const int px = sx + x, py = sy + y;
+            (*v)[(size_t)y * sw + x] = (px >= 0 && py >= 0 && px < src->w && py < src->h) ? getpixel(src, px, py) : 0;
+        }
+
+    script_drawing_commands[j].SetVector(v);
+}
+
+// script_drawing.cpp's do_primitives, for a queued screen blit (see z30_queue_screen_blit).
+void zasm30_do_screen_blit(BITMAP *bmp, int i, int *sdci, int xoffset, int yoffset)
+{
+    std::vector<long> *v = (std::vector<long> *)script_drawing_commands[i].GetPtr();
+    const int sw = sdci[2], sh = sdci[3], dw = sdci[6], dh = sdci[7];
+
+    if(!v || (long)v->size() != (long)sw * sh)
+        return;
+
+    BITMAP *tmp = create_bitmap_ex(8, sw, sh);
+
+    if(!tmp)
+        return;
+
+    for(int y = 0; y < sh; ++y)
+        for(int x = 0; x < sw; ++x)
+            _putpixel(tmp, x, y, (int)(*v)[(size_t)y * sw + x]);
+
+    int x = sdci[4] + xoffset, y = sdci[5] + yoffset;
+
+    if(sdci[10] == 2)   // DRAW_ORIGIN_SCREEN: from the screen's top-left, not the playing field's
+        y -= playing_field_offset;
+
+    BITMAP *drawn = tmp;
+
+    if(dw != sw || dh != sh)
+    {
+        drawn = create_bitmap_ex(8, dw, dh);
+
+        if(!drawn)
+        {
+            destroy_bitmap(tmp);
+            return;
+        }
+
+        stretch_blit(tmp, drawn, 0, 0, sw, sh, 0, 0, dw, dh);
+    }
+
+    if(sdci[8] & 1)     // BITDX_TRANS
+        draw_trans_sprite(bmp, drawn, x, y);
+    else if(sdci[9])
+        masked_blit(drawn, bmp, 0, 0, x, y, dw, dh);
+    else
+        blit(drawn, bmp, 0, 0, x, y, dw, dh);
+
+    if(drawn != tmp)
+        destroy_bitmap(drawn);
+
+    destroy_bitmap(tmp);
 }
 
 // bitmap->DrawScreenComboFlags(layer, map, screen, x, y, rotation): each square of the screen
@@ -2766,7 +2879,7 @@ static bool zasm30_command(word cmd)
     case Z30C_GETSUBSCREENSCRIPT:
     case Z30C_GETUNTYPEDSCRIPT:
     {
-        // Upstream: the name is in the array at sarg1's register, the slot returns in rEXP1 (d2).
+        // Upstream: the name is in the array at sarg1's register, and the slot goes back there.
         string name;
         ArrayH::getString(get_register(sarg1) / 10000, name, 256);
         int table = -1;
@@ -2786,7 +2899,7 @@ static bool zasm30_command(word cmd)
         case Z30C_GETGENERICSCRIPT: table = q30_names_generic; break;
         case Z30C_GETSUBSCREENSCRIPT: table = q30_names_subscreen; break;
         }
-        ri->d[2] = table >= 0 ? z30_name_lookup(table, name) : 0;
+        set_register(sarg1, table >= 0 ? z30_name_lookup(table, name) : -10000);
         return true;
     }
 
@@ -2884,6 +2997,17 @@ static bool zasm30_command(word cmd)
         int dx = SH::read_stack(SPR + 9) / 10000, dy = SH::read_stack(SPR + 8) / 10000;
         int dw = SH::read_stack(SPR + 7) / 10000, dh = SH::read_stack(SPR + 6) / 10000;
         bool masked = SH::read_stack(SPR) != 0;
+
+        // RT_SCREEN (-1), or RT_CURRENT (-2) with no render target set: onto the screen's layer
+        const long dst_rt = dst_ref <= -10000 ? dst_ref / 10000 : dst_ref;     // RT_* as a number or raw
+
+        if(dst_rt == -1 || (dst_rt == -2 && zscriptDrawingRenderTarget->GetCurrentRenderTarget() < 0))
+        {
+            z30_queue_screen_blit(z30_bitmap(src_ref), SH::read_stack(SPR + 15) / 10000, sx, sy, sw, sh, dx, dy, dw, dh,
+                                  SH::read_stack(SPR + 2) / 10000, masked, SH::read_stack(SPR + 5) != 0);
+            return true;
+        }
+
         BITMAP *src = z30_bitmap(src_ref), *dst = z30_bitmap(dst_ref);
 
         if(src && dst)

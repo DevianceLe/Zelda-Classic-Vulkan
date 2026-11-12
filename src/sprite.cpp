@@ -216,6 +216,10 @@ void (*q30_sprite_shadow_hook)(sprite *, int *, int *, int *, int *, int *) = NU
 // isn't drawn this frame, else how far up it is drawn.
 int (*q30_sprite_switch_hook)(const sprite *) = NULL;
 
+// A 3.0 scrolling region's camera while draw_screen draws the playfield's sprites (set by
+// q30_regions.cpp; 0 otherwise, always for 2.53 quests and in ZQuest).
+int q30_draw_cam_x = 0, q30_draw_cam_y = 0;
+
 namespace
 {
     // Holds a sprite's script-set appearance for one draw, then puts its own back.
@@ -424,8 +428,8 @@ void sprite::draw(BITMAP* dest)
     if(q30_scope.hidden)
         return;
 
-    int sx = real_x(x+xofs);
-    int sy = real_y(y+yofs)-real_z(z+zofs);
+    int sx = real_x(x+xofs) - q30_draw_cam_x;      // (a scrolling region's camera; 0 otherwise)
+    int sy = real_y(y+yofs)-real_z(z+zofs) - q30_draw_cam_y;
 
     if(id<0)
         return;
@@ -677,8 +681,8 @@ void sprite::draw(BITMAP* dest)
 
 void sprite::draw8(BITMAP* dest)
 {
-    int sx = real_x(x+xofs);
-    int sy = real_y(y+yofs)-real_z(z+zofs);
+    int sx = real_x(x+xofs) - q30_draw_cam_x;      // (a scrolling region's camera; 0 otherwise)
+    int sy = real_y(y+yofs)-real_z(z+zofs) - q30_draw_cam_y;
     
     if(id<0)
         return;
@@ -705,8 +709,8 @@ void sprite::drawcloaked(BITMAP* dest)
     if(q30_scope.hidden)
         return;
 
-    int sx = real_x(x+xofs);
-    int sy = real_y(y+yofs)-real_z(z+zofs);
+    int sx = real_x(x+xofs) - q30_draw_cam_x;      // (a scrolling region's camera; 0 otherwise)
+    int sy = real_y(y+yofs)-real_z(z+zofs) - q30_draw_cam_y;
     
     if(id<0)
         return;
@@ -750,8 +754,8 @@ void sprite::drawshadow(BITMAP* dest,bool translucent)
     int shadowcs = wpnsbuf[iwShadow].csets & 0xFFFF;
     int shadowflip = wpnsbuf[iwShadow].misc & 0xFF;
 
-    int sx = real_x(x+xofs)+(txsz-1)*8;
-    int sy = real_y(y+yofs+(tysz-1)*16);
+    int sx = real_x(x+xofs)+(txsz-1)*8 - q30_draw_cam_x;
+    int sy = real_y(y+yofs+(tysz-1)*16) - q30_draw_cam_y;
     int stile = shadowtile;
 
     if(q30_sprite_shadow_hook)
@@ -1161,7 +1165,7 @@ void movingblock::draw(BITMAP *dest)
     if(clk)
     {
         //    sprite::draw(dest);
-        overcombo(dest,real_x(x+xofs),real_y(y+yofs),bcombo ,cs);
+        overcombo(dest,real_x(x+xofs) - q30_draw_cam_x,real_y(y+yofs) - q30_draw_cam_y,bcombo ,cs);
     }
 }
 

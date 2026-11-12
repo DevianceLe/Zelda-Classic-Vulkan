@@ -394,9 +394,12 @@ void setZScriptVersion(int s_version)
 
 void initZScriptArrayRAM(bool firstplay)
 {
+    extern bool zasm30_empty_array[MAX_ZCARRAY_SIZE];   // ffscript.cpp: newer quests' empty arrays
+
     for(word i = 0; i < MAX_ZCARRAY_SIZE; i++)
     {
         localRAM[i].Clear();
+        zasm30_empty_array[i] = false;
         arrayOwner[i]=255;
     }
     
@@ -871,6 +874,7 @@ LinkClass   Link;
 #include "title.h"
 #include "ending.h"
 #include "port/game/q30_scripts.h"
+#include "port/game/q30_regions.h"
 
 #include "zc_sys.h"
 
@@ -1360,6 +1364,7 @@ void init_dmap()
 int init_game()
 {
     q30_clear_engine();
+    q30_region_forget();        // 3.0 scrolling regions: none until a screen is loaded
 
     srand(replay_seed(time(0)));
     //introclk=intropos=msgclk=msgpos=dmapmsgclk=0;

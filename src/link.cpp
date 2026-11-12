@@ -33,6 +33,7 @@
 #include "zscriptversion.h"
 #include "zc_sys.h"
 #include "port/game/q30_triggers.h"
+#include "port/game/q30_regions.h"
 
 // On 2.55+ quests a bridge hides what's under it from Link; 2.53 quests get MAPCOMBO unchanged.
 #define MAPCOMBO(x,y) q30_link_mapcombo((x),(y))
@@ -4513,6 +4514,10 @@ bool LinkClass::animate(int)
     {
         loadenemies();
     }
+
+    // a 3.0 scrolling region: the other screens in view load theirs too
+    if(frame - newscr_clk >= 2)
+        q30_region_load_enemies_in_view();
     
     // check lots of other things
     checkscroll();
@@ -11025,6 +11030,7 @@ bool did_secret;
 void LinkClass::checkspecial()
 {
     checktouchblk();
+    q30_region_tag_sprites();   // a 3.0 scrolling region: new sprites belong to this screen
     
     bool hasmainguy = hasMainGuy();                           // calculate it once
 
@@ -13820,6 +13826,19 @@ void LinkClass::checkscroll()
     if(action == casting)
         return;
         
+    // 3.0 scrolling region: once Link's centre is past a border inside it, he goes on to that
+    // screen with no scroll (q30_regions.h); its other borders scroll as usual
+    if(q30_region_on())
+    {
+        int ndx, ndy;
+
+        if(q30_region_crossed(int(x), int(y), &ndx, &ndy) >= 0)
+        {
+            q30_region_handoff(ndx, ndy);
+            return;
+        }
+    }
+    
     if(toogam)
     {
         if(x<0 && (currscr&15)==0) x=0;
@@ -13831,7 +13850,7 @@ void LinkClass::checkscroll()
         if(y>160 && currscr>=112) y=160;
     }
     
-    if(y<0)
+    if(y<0 && !q30_region_has_neighbour(up))
     {
         bool doit=!(q30_quest_rule(Q30_QR_NO_SCROLL_WHILE_IN_AIR) && (z>0 || stomping));
         y=0;
@@ -13888,7 +13907,7 @@ void LinkClass::checkscroll()
         }
     }
     
-    if(y>160)
+    if(y>160 && !q30_region_has_neighbour(down))
     {
         bool doit=!(q30_quest_rule(Q30_QR_NO_SCROLL_WHILE_IN_AIR) && (z>0 || stomping));
         y=160;
@@ -13945,7 +13964,7 @@ void LinkClass::checkscroll()
         }
     }
     
-    if(x<0)
+    if(x<0 && !q30_region_has_neighbour(left))
     {
         bool doit=!(q30_quest_rule(Q30_QR_NO_SCROLL_WHILE_IN_AIR) && (z>0 || stomping));
         x=0;
@@ -14003,7 +14022,7 @@ void LinkClass::checkscroll()
         }
     }
     
-    if(x>240)
+    if(x>240 && !q30_region_has_neighbour(right))
     {
         bool doit=!(q30_quest_rule(Q30_QR_NO_SCROLL_WHILE_IN_AIR) && (z>0 || stomping));
         x=240;
@@ -17838,6 +17857,75 @@ LinkClass::WalkflagInfo LinkClass::WalkflagInfo::operator !()
     
     ret.flags = flags ^ UNWALKABLE;
     return ret;
+}
+
+// A 3.0 scrolling region (q30_regions.h): Link's centre is past a border inside it, so he goes
+// on to that screen at once, as upstream walks between a region's screens. This engine keeps
+// one screen live: that screen is loaded and Link's position moves into its coordinates.
+// Enemies, items and enemy weapons of the screen he left go, as they would on a scroll; his
+// own weapons and the effects come along.
+extern sprite_list particles;
+
+void LinkClass::q30_region_handoff(int ndx, int ndy)
+{
+    const int shx = ndx * 256, shy = ndy * 176;
+    const int sdir = ndy < 0 ? up : ndy > 0 ? down : ndx < 0 ? left : right;
+
+    q30_region_keep_current();      // the screen he leaves stays drawn as he left it
+    q30_region_tag_sprites();       // its enemies, items and enemy weapons stay its own
+    q30_region_save_screen_state();
+    clear_bitmap(pricesdisplaybuf);
+    set_clip_state(pricesdisplaybuf, 1);
+
+    // every sprite lives on (upstream keeps a region's sprites in region-wide coordinates):
+    // moved into the next screen's coordinates
+    sprite_list *moved[] = { &Lwpns, &chainlinks, &decorations, &particles, &guys, &items, &Ewpns };
+
+    for(int k = 0; k < 7; ++k)
+        for(int i = 0; i < moved[k]->Count(); ++i)
+        {
+            moved[k]->spr(i)->x -= shx;
+            moved[k]->spr(i)->y -= shy;
+        }
+
+    for(int i = 0; i < 176; ++i)
+        guygrid[i] = 0;
+
+    loaded_guys = loaded_enemies = blockpath = false;
+    sle_clk = 0;
+
+    if(fixed_door)
+    {
+        unsetmapflag(mSECRET);
+        fixed_door = false;
+    }
+
+    currscr += ndx + ndy * 16;
+    homescr = currscr;
+    loadscr(0, currdmap, currscr, sdir, false);
+    x -= shx;
+    y -= shy;
+
+    // a screen visited before in this stay keeps its enemies (alive or killed) and item state;
+    // a new one loads them as on any screen change
+    if(!q30_region_restore_screen_state())
+        did_secret = false;
+    entry_x = x;
+    entry_y = y;
+    warpx = warpy = -1;
+
+    naturaldark = ((TheMaps[currmap * MAPSCRS + currscr].flags & fDARK) != 0);
+    ffscript_engine(true);
+    opendoors = 0;
+    markBmap(-1);
+    map_bkgsfx(true);
+    playLevelMusic();
+    newscr_clk = frame;
+    activated_timed_warp = false;
+    loadside = sdir ^ 1;
+
+    if(getenv("ZC_EVENTLOG"))
+        al_trace("q30 region: Link went on to screen 0x%02X at %d,%d, with %d enemies, %d items, %d enemy weapons\n", currscr, int(x), int(y), guys.Count(), items.Count(), Ewpns.Count());
 }
 
 /*** end of link.cpp ***/

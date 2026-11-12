@@ -272,6 +272,7 @@ class LinkClass : public sprite
     bool checkdamagecombos(int dx, int dy);
     bool checkdamagecombos(int dx1, int dx2, int dy1, int dy2, int layer = -1, bool solid = false);
     void checkscroll();
+    void q30_region_handoff(int ndx, int ndy);  // 3.0 scrolling region: on to the next screen, no scroll
     void checkspecial();
     void checkspecial2(int *ls);
     void checkspecial3();

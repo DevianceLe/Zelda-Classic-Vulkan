@@ -12,6 +12,7 @@
 
 #include "port/game/q30_scripts.h"
 #include "port/game/q30_triggers.h"
+#include "port/game/q30_regions.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -79,7 +80,15 @@ static bool q30_enemy_on_slope(fix ex, fix ey)
 #define ON_SIDEPLATFORM (_walkflag(x+4,y+16,0) || (y>=160 && currscr>=0x70 && !(tmpscr->flags2&wfDOWN)) || q30_enemy_on_slope(x,y))
 
 // If an enemy is this far out of the playing field, just remove it.
-#define OUTOFBOUNDS ((int)y>((tmpscr->flags7&fSIDEVIEW && canfall(id))?192:352) || y<-176 || x<-256 || x > 512)
+// (In a 3.0 scrolling region the playing field is the region: q30_region_bounds.)
+#define OUTOFBOUNDS q30_out_of_bounds(int(x), int(y), (tmpscr->flags7&fSIDEVIEW && canfall(id)) != 0)
+
+static bool q30_out_of_bounds(int x, int y, bool falls)
+{
+    int l, t, r, b;
+    q30_region_bounds(&l, &t, &r, &b);     // 0, 0, 256, 176 outside regions
+    return y > (falls ? b + 16 : b + 176) || y < t - 176 || x < l - 256 || x > r + 256;
+}
 
 namespace
 {
@@ -253,17 +262,22 @@ bool m_walkflag(int dx,int dy,int special, int x=-1000, int y=-1000)
 {
     int yg = (special==spw_floater)?8:0;
     int nb = get_bit(quest_rules, qr_NOBORDER) ? 16 : 0;
+
+    // the playing field's edges: the screen's, or a 3.0 scrolling region's (rl, rt, rr, rb)
+    int rl, rt, rr, rb;
+    q30_region_bounds(&rl, &rt, &rr, &rb);
+    const int ex = rr - 256, ey = rb - 176;   // past the screen's right and bottom edges
     
-    if(dx<16-nb || dy<zc_max(16-yg-nb,0) || dx>=240+nb || dy>=160+nb)
+    if(dx<rl+16-nb || dy<rt+zc_max(16-yg-nb,0) || dx>=ex+240+nb || dy>=ey+160+nb)
         return true;
         
     bool isInDungeon = isdungeon();
     if(isInDungeon || special==spw_wizzrobe)
     {
-        if((x>=32 && dy<32-yg) || (y>-1000 && y<=144 && dy>=144))
+        if((x>=rl+32 && dy<rt+32-yg) || (y>-1000 && y<=ey+144 && dy>=ey+144))
             return true;
             
-        if((x>=32 && dx<32) || (x>-1000 && x<224 && dx>=224))
+        if((x>=rl+32 && dx<rl+32) || (x>-1000 && x<ex+224 && dx>=ex+224))
             if(special!=spw_door) // walk in door way
                 return true;
     }
@@ -281,8 +295,8 @@ bool m_walkflag(int dx,int dy,int special, int x=-1000, int y=-1000)
 		{
 			if(isInDungeon)
 			{
-				if(dy < 32-yg || dy >= 144) return true;
-				if(dx < 32 || dx >= 224) return true;
+				if(dy < rt+32-yg || dy >= ey+144) return true;
+				if(dx < rl+32 || dx >= ex+224) return true;
 			}
 			return false;
 		}
@@ -547,7 +561,10 @@ bool enemy::animate(int index)
         }
         
         if(currscr<128 && count_enemy && !script_spawned)
-            game->guys[(currmap<<7)+currscr]-=1;
+        {
+            const int from = q30_region_sprite_screen(getUID());     // its own screen, in a 3.0 scrolling region
+            game->guys[(currmap<<7)+(from >= 0 ? from : currscr)]-=1;
+        }
     }
     
     scored=false;
@@ -1719,8 +1736,10 @@ void enemy::fix_coords(bool bound)
 {
     if(bound)
     {
-        x=vbound(x, 0, 240);
-        y=vbound(y, 0, 160);
+        int rl, rt, rr, rb;     // the screen, or a 3.0 scrolling region
+        q30_region_bounds(&rl, &rt, &rr, &rb);
+        x=vbound(x, rl, rr-16);
+        y=vbound(y, rt, rb-16);
     }
     
     if(!OUTOFBOUNDS)
@@ -11462,6 +11481,12 @@ bool hasMainGuy()
     {
         if(((enemy*)guys.spr(i))->mainguy)
         {
+            // (a 3.0 scrolling region: another screen's enemies don't keep this one's room shut)
+            const int scr = q30_region_sprite_screen(guys.spr(i)->getUID());
+
+            if(scr >= 0 && scr != currscr)
+                continue;
+
             return true;
         }
     }

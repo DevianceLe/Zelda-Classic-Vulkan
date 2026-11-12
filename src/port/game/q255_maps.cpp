@@ -905,10 +905,14 @@ static void restore_dmap_scripts()
     }
 }
 
+// The scrolling region ids each map stores (MAP v31+, 8 x 8 bytes; q30_regions.cpp reads them).
+std::vector<std::vector<byte> > q255_map_region_ids;
+
 int q255_read_maps(Q255Section &s)
 {
     if(s.keep)
     {
+        q255_map_region_ids.clear();
         q30_clear_placed_flags();
         zasm30_clear_screen_scripts();
         q30_clear_tables();
@@ -989,7 +993,27 @@ int q255_read_maps(Q255Section &s)
             }
 
             if(s.version >= 31)
-                s.skip(REGION_IDS_SIZE);
+            {
+                std::vector<byte> ids(REGION_IDS_SIZE, 0);
+                int used = 0;
+
+                for(int k = 0; k < REGION_IDS_SIZE; ++k)
+                {
+                    ids[k] = s.getc();
+                    used += ids[k] != 0;
+                }
+
+                if(s.keep && !s.failed && i < stored)
+                {
+                    if((int)q255_map_region_ids.size() <= i)
+                        q255_map_region_ids.resize(i + 1);
+
+                    q255_map_region_ids[i] = ids;
+
+                    if(used)
+                        al_trace("2.55 maps: map %d has scrolling regions (%d of its 64 id bytes set)\n", i + 1, used);
+                }
+            }
         }
 
         if(s.failed)

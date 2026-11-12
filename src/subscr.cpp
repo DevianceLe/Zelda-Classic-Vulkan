@@ -2014,11 +2014,13 @@ void draw_textbox(BITMAP *dest, int x, int y, int w, int h, FONT *tempfont, char
                         scanned = ptmp;
                     }
                     
-                    /* put the space at the end of the line */
+                    /* put the space at the end of the line (never past the string's end) */
                     if(!noignore)
                     {
                         ignore = scanned;
-                        scanned += uwidth(scanned);
+
+                        if(ugetc(scanned))
+                            scanned += uwidth(scanned);
                     }
                     else
                     {
@@ -2040,7 +2042,12 @@ void draw_textbox(BITMAP *dest, int x, int y, int w, int h, FONT *tempfont, char
             scanned += uwidth(scanned);
             width += len;
         }
-        
+
+        /* a box narrower than the next character: take it on its own line rather than
+           never moving on (the loop below would run forever, or off the string) */
+        if(scanned == printed && ugetc(scanned))
+            scanned += uwidth(scanned);
+
         /* check if we are to print it */
         if((y1+text_height(tempfont) <= (y+h)))
         {
@@ -2139,7 +2146,7 @@ void draw_textbox(BITMAP *dest, int x, int y, int w, int h, FONT *tempfont, char
             /* print the line end */
             y1 += text_height(tempfont);
         }
-        else
+        else if(ugetc(scanned))     // (not past the end: a text taller than its box ran off it)
         {
             scanned += uwidth(scanned);
         }
@@ -3191,6 +3198,9 @@ static bool q30_minimap_title(BITMAP *dest, int x, int y, const subscreen_object
 
     if(!q30_compat_rule(561))   // qr_OLD_DMAP_INTRO_STRINGS off: the whole title, in the widget's box
     {
+        if(o.w <= 0 || o.h <= 0)
+            return true;
+
         std::string text = full ? full : "";
         std::vector<char> buf(text.begin(), text.end());
         buf.push_back(0);

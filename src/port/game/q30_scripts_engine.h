@@ -349,6 +349,9 @@ static void zasm30_init_type(byte type, Zasm30Instance *in)
         in->frame.inst[0] = currdmap;
         if(ref)
             memcpy(in->ri.d, ref->initd, sizeof(ref->initd));
+        if(zasm30_trace_on && ref)
+            al_trace("q30: dmap %d script %d (type %d) starts with InitD %ld %ld %ld %ld %ld\n", (int)currdmap, (int)ref->script, (int)type,
+                     (long)ref->initd[0], (long)ref->initd[1], (long)ref->initd[2], (long)ref->initd[3], (long)ref->initd[4]);
         break;
     }
     case SCRIPT_COMBO:

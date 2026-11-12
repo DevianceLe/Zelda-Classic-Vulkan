@@ -1399,18 +1399,31 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
         return true;
     }
 
-    // Region and viewport: a 2.53 engine has neither, so the whole screen is one region.
-    case Z30R_REGION_WIDTH: ret = 256 * 10000; return true;
-    case Z30R_REGION_HEIGHT: ret = 176 * 10000; return true;
-    case Z30R_REGION_ID: ret = 0; return true;
-    case Z30R_REGION_SCREEN_WIDTH: ret = 10000; return true;
-    case Z30R_REGION_SCREEN_HEIGHT: ret = 10000; return true;
-    case Z30R_REGION_NUM_COMBOS: ret = 176 * 10000; return true;
-    case Z30R_REGION_ORIGIN_SCREEN: ret = currscr * 10000; return true;
-    // The viewport is the screen (upstream's 256x176 outside extended height mode). Only a
-    // script-moved viewport (mode 2) keeps the position a script gives it.
+    // Region and viewport (q30_regions.h): a screen outside a scrolling region is a region of
+    // its own, one screen big.
+    case Z30R_REGION_WIDTH: ret = q30_region_width() * 10000; return true;
+    case Z30R_REGION_HEIGHT: ret = q30_region_height() * 10000; return true;
+    case Z30R_REGION_ID: ret = q30_region_id() * 10000; return true;
+    case Z30R_REGION_SCREEN_WIDTH: ret = q30_region_screens_wide() * 10000; return true;
+    case Z30R_REGION_SCREEN_HEIGHT: ret = q30_region_screens_high() * 10000; return true;
+    case Z30R_REGION_NUM_COMBOS: ret = 176 * q30_region_screens_wide() * q30_region_screens_high() * 10000; return true;
+    case Z30R_REGION_ORIGIN_SCREEN: ret = q30_region_origin() * 10000; return true;
+    // The viewport: the camera's top-left in region pixels (upstream's 256x176 outside extended
+    // height mode). A script-moved viewport (mode 2) keeps the position a script gives it.
     case Z30R_VIEWPORT_X:
-    case Z30R_VIEWPORT_Y: ret = zasm30_viewport_mode == 2 ? zasm30_store_get(arg, 0, 0) : 0; return true;
+    case Z30R_VIEWPORT_Y:
+    {
+        if(zasm30_viewport_mode == 2)
+        {
+            ret = zasm30_store_get(arg, 0, 0);
+            return true;
+        }
+
+        int vx, vy;
+        q30_region_viewport(&vx, &vy);
+        ret = (arg == Z30R_VIEWPORT_X ? vx : vy) * 10000;
+        return true;
+    }
     case Z30R_VIEWPORT_WIDTH: ret = 256 * 10000; return true;
     case Z30R_VIEWPORT_HEIGHT: ret = zasm30_store_get(arg, 0, 0) ? zasm30_store_get(arg, 0, 0) : 176 * 10000; return true;
     case Z30R_VIEWPORT_MODE: ret = zasm30_viewport_mode; return true;
