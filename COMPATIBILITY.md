@@ -71,6 +71,7 @@ The final run was stopped before its last 11 quests. Their results are from the 
 **Known bugs**
 
 - On Windows, SDL's HIDAPI controller drivers were seen writing over the game's memory while listing devices. That code is inside SDL, so on Windows the game now leaves it off: Xbox, PlayStation, Switch Pro, 8BitDo and most other pads go through Windows' own controller drivers instead, with SDL's built-in button layouts. Pads that only work through HIDAPI (a Switch Pro Controller on USB, GameCube adapters, the Steam Controller) need **Settings > Controls > Extra Pad Support** turned on, which brings the risk back. That has not yet been tried with a real controller.
+- Gamepads read in one layout, and the D-pad always moves; a pad the game doesn't know is set up once in **Settings > Controls > Gamepad Setup**. This was tested with SDL's virtual pads (an unknown PlayStation-style adapter and a standard pad), not yet with a real controller.
 - A script that runs 30 million commands without waiting for a frame is paused until the next frame, so the game no longer freezes. A note goes to `allegro.log` when that happens. The quest may still not behave as its author meant at that spot.
 - The "Flip-Flop Cancel and Wave Warps" option now undoes the 1.9x warp fix if you turn it on. Leave it off.
 

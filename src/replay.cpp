@@ -207,6 +207,7 @@ std::string g_tour_path;
 FILE *g_tour = NULL;
 int g_tour_dwell = 90;          // frames of play on each screen
 int g_tour_maxsec = 0;          // wall-clock limit (0 = none)
+int g_tour_first = 0;           // -tour-first N: start at stop N (to look into one part of a big quest)
 bool g_tour_items = true;       // give Link a weapon of each family first (-tour-no-items: don't)
 std::vector<TourStop> g_tour_stops;
 bool g_tour_built = false;
@@ -357,14 +358,20 @@ void write_key_name(FILE *f, int k)
         fprintf(f, "%d", k);
 }
 
+// FNV-1a 64. The multiply by the prime 0x100000001b3 is done as h * 0x1b3 + (h << 40) on
+// two 32-bit halves: the same hash, without a 64-bit multiply call per byte in 32-bit builds
+// (a tour of a big quest spent up to a fifth of its time here).
 uint64_t fnv1a(uint64_t h, const unsigned char *p, int n)
 {
+    uint32_t lo = (uint32_t)h, hi = (uint32_t)(h >> 32);
     for(int i = 0; i < n; i++)
     {
-        h ^= p[i];
-        h *= 0x100000001b3ULL;
+        lo ^= p[i];
+        const uint64_t m = (uint64_t)lo * 0x1b3u;
+        hi = hi * 0x1b3u + (uint32_t)(m >> 32) + (lo << 8);
+        lo = (uint32_t)m;
     }
-    return h;
+    return ((uint64_t)hi << 32) | lo;
 }
 
 const uint64_t FNV_BASIS = 0xcbf29ce484222325ULL;
@@ -1292,12 +1299,14 @@ void replay_init(int argc, char *argv[])
         {
             g_tour_items = false;
         }
-        else if(same_text(a, "-tour-dwell") || same_text(a, "-tour-maxsec"))
+        else if(same_text(a, "-tour-dwell") || same_text(a, "-tour-maxsec") || same_text(a, "-tour-first"))
         {
             if(!has1 || !parse_int(argv[i+1], &v) || v < 0)
                 fail("%s needs a number", a);
             if(same_text(a, "-tour-dwell"))
                 g_tour_dwell = int(v);
+            else if(same_text(a, "-tour-first"))
+                g_tour_first = int(v);
             else
                 g_tour_maxsec = int(v);
             ++i;
@@ -1476,11 +1485,28 @@ void replay_tour_tick()
         if(g_tour_items)
             tour_give_items();
 
+        if(g_tour_first > 0)
+            g_tour_next = zc_min((size_t)g_tour_first, g_tour_stops.size());
+
         g_tour_settle = 120;
     }
 
     if(resumed && g_tour_settle < 20 && ++g_tour_resumes <= 3)
         g_tour_settle = 20;
+
+    // A long stay away from the main loop (a game over and its menu, a save menu, the ending)
+    // means the game has taken Link off this stop's screen: the stop is over now that the game
+    // is back, and the screen was visited when it began. Waiting on, even for the settle, only
+    // repeats whatever sent him away (Memories of Yesteryear's setup screens end in a scripted
+    // game over that continues on another lethal screen: 2100 frames a stop). Scrolling and
+    // warps take far less.
+    if(gap >= TOUR_NESTED_FRAMES && g_tour_next > 0 && (g_tour_left > 0 || g_tour_settle > 0))
+    {
+        fprintf(g_tour, "away stop %d frames %d at %d\n", (int)g_tour_next - 1, gap, g_frame);
+        fflush(g_tour);
+        g_tour_left = 0;
+        g_tour_settle = 0;
+    }
 
     game->set_life(game->get_maxlife());
 
@@ -1510,7 +1536,9 @@ void replay_tour_tick()
     }
 
     const TourStop s = g_tour_stops[g_tour_next];
-    fprintf(g_tour, "v %d %d %d %d %d %d\n", (int)g_tour_next, s.dmap, s.map, s.scr, s.wscr, g_frame);
+    // The last field is the wall-clock time in ms since the tour began, so slow screens show up.
+    fprintf(g_tour, "v %d %d %d %d %d %d %d\n", (int)g_tour_next, s.dmap, s.map, s.scr, s.wscr, g_frame,
+            (int)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - g_tour_t0).count());
     fflush(g_tour);
     ++g_tour_next;
     g_tour_arrive = g_frame;

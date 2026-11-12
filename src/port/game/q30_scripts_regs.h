@@ -1416,8 +1416,12 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_VIEWPORT_MODE: ret = zasm30_viewport_mode; return true;
     case Z30R_HEROSHIELDJINX: ret = zasm30_shield_jinx * 10000; return true;
 
-    // Game->MaxLWeapons(): 2.53's sprite lists hold 255 each.
-    case Z30R_SPRITEMAXLWPN: ret = 255 * 10000; return true;
+    // Game->MaxNPCs/MaxLWeapons/MaxEWeapons/MaxItemsprites(): each list's limit (255 at most,
+    // which 2.53's lists hold).
+    case Z30R_SPRITEMAXNPC: ret = guys.getMax() * 10000; return true;
+    case Z30R_SPRITEMAXLWPN: ret = Lwpns.getMax() * 10000; return true;
+    case Z30R_SPRITEMAXEWPN: ret = Ewpns.getMax() * 10000; return true;
+    case Z30R_SPRITEMAXITEM: ret = items.getMax() * 10000; return true;
 
     // ->LightRadius and ->LightShape of an npc, weapon or item (also Sprite->LightRadius): what
     // a script gave it, drawn in new dark rooms by q30_script_lights.
@@ -1648,6 +1652,38 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
         ret = -10000;
         if(m && n >= 0 && n < 4)
             ret = (arg == Z30R_MAPDATASIDEWARPDMAP ? m->sidewarpdmap[n] : m->sidewarpscr[n]) * 10000;
+        return true;
+    }
+    // mapdata->Pattern: the screen's enemy pattern
+    case Z30R_MAPDATAPATTERN:
+    {
+        mapscr *m = z30_mapdata_now();
+        ret = m ? m->pattern * 10000 : -10000;
+        return true;
+    }
+    // mapdata->TileWarpDMap[], TileWarpScreen[], TileWarpType[], SideWarpType[] and the two
+    // overlay flag arrays (upstream's mapdata array registers)
+    case Z30R_MAPDATATILEWARPDMAP:
+    case Z30R_MAPDATATILEWARPSCREEN:
+    case Z30R_MAPDATATILEWARPTYPE:
+    case Z30R_MAPDATASIDEWARPTYPE:
+    case Z30R_MAPDATATILEWARPOVFLAGS:
+    case Z30R_MAPDATASIDEWARPOVFLAGS:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX;
+        ret = -10000;
+        if(!m || n < 0 || n >= 4)
+            return true;
+        switch(arg)
+        {
+        case Z30R_MAPDATATILEWARPDMAP: ret = m->tilewarpdmap[n] * 10000; break;
+        case Z30R_MAPDATATILEWARPSCREEN: ret = m->tilewarpscr[n] * 10000; break;
+        case Z30R_MAPDATATILEWARPTYPE: ret = m->tilewarptype[n] * 10000; break;
+        case Z30R_MAPDATASIDEWARPTYPE: ret = m->sidewarptype[n] * 10000; break;
+        case Z30R_MAPDATATILEWARPOVFLAGS: ret = ((m->tilewarpoverlayflags >> n) & 1) ? 10000 : 0; break;
+        case Z30R_MAPDATASIDEWARPOVFLAGS: ret = ((m->sidewarpoverlayflags >> n) & 1) ? 10000 : 0; break;
+        }
         return true;
     }
     case Z30R_MAPDATASIDEWARPID:
@@ -2338,12 +2374,26 @@ static bool zasm30_set_register_inner(const long arg, const long value)
             zasm30_log_once("register write", arg);
         return true;
 
-    // Game->MaxLWeapons(n): the list can't grow past its 255, and nothing lowers it here: a
-    // script asking for another limit is logged.
+    // Game->MaxNPCs(n) and the others: a lower limit is kept (adding past it fails, as upstream);
+    // 2.53's lists can't hold more than 255, so a higher one is logged and stays at 255.
+    case Z30R_SPRITEMAXNPC:
     case Z30R_SPRITEMAXLWPN:
-        if(value / 10000 != 255)
-            zasm30_log_once("register write", arg);
+    case Z30R_SPRITEMAXEWPN:
+    case Z30R_SPRITEMAXITEM:
+    {
+        sprite_list &l = arg == Z30R_SPRITEMAXNPC ? guys : arg == Z30R_SPRITEMAXLWPN ? Lwpns
+                       : arg == Z30R_SPRITEMAXEWPN ? Ewpns : items;
+        const long v = value / 10000;
+        if(v > SLMAX)
+        {
+            static bool said = false;
+            if(!said)
+                al_trace("ZASM: a script asked for a sprite list of %ld; this engine's hold %d\n", v, SLMAX);
+            said = true;
+        }
+        l.setMax((int)vbound(v, 1, SLMAX));
         return true;
+    }
 
     case Z30R_NPCGLOWRAD: case Z30R_LWPNGLOWRAD: case Z30R_EWPNGLOWRAD: case Z30R_ITEMGLOWRAD:
     case Z30R_NPCGLOWSHP: case Z30R_LWPNGLOWSHP: case Z30R_EWPNGLOWSHP: case Z30R_ITEMGLOWSHP:
@@ -2595,6 +2645,40 @@ static bool zasm30_set_register_inner(const long arg, const long value)
         const long n = Z30_INDEX;
         if(m && n >= 0 && n < 4)
             m->sidewarpscr[n] = (byte)vbound(value / 10000, 0, 255);
+        return true;
+    }
+    case Z30R_MAPDATAPATTERN:
+    {
+        mapscr *m = z30_mapdata_now();
+        if(m)
+            m->pattern = (byte)vbound(value / 10000, 0, 255);
+        return true;
+    }
+    case Z30R_MAPDATATILEWARPDMAP:
+    case Z30R_MAPDATATILEWARPSCREEN:
+    case Z30R_MAPDATATILEWARPTYPE:
+    case Z30R_MAPDATASIDEWARPTYPE:
+    case Z30R_MAPDATATILEWARPOVFLAGS:
+    case Z30R_MAPDATASIDEWARPOVFLAGS:
+    {
+        mapscr *m = z30_mapdata_now();
+        const long n = Z30_INDEX;
+        if(!m || n < 0 || n >= 4)
+            return true;
+        const byte b = (byte)vbound(value / 10000, 0, 255);
+        switch(arg)
+        {
+        case Z30R_MAPDATATILEWARPDMAP: m->tilewarpdmap[n] = (word)vbound(value / 10000, 0, MAXDMAPS - 1); break;
+        case Z30R_MAPDATATILEWARPSCREEN: m->tilewarpscr[n] = b; break;
+        case Z30R_MAPDATATILEWARPTYPE: m->tilewarptype[n] = b; break;
+        case Z30R_MAPDATASIDEWARPTYPE: m->sidewarptype[n] = b; break;
+        case Z30R_MAPDATATILEWARPOVFLAGS:
+            if(value) m->tilewarpoverlayflags |= (1 << n); else m->tilewarpoverlayflags &= ~(1 << n);
+            break;
+        case Z30R_MAPDATASIDEWARPOVFLAGS:
+            if(value) m->sidewarpoverlayflags |= (1 << n); else m->sidewarpoverlayflags &= ~(1 << n);
+            break;
+        }
         return true;
     }
     case Z30R_MAPDATASIDEWARPID:

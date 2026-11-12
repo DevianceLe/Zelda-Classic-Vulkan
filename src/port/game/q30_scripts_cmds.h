@@ -700,6 +700,8 @@ int q30_enemy_slide(enemy *e);
 void q30_enemy_fire(enemy *e);
 void q30_enemy_constant_walk(enemy *e, int rate, int homing, int special);
 void q30_enemy_constant_walk_8(enemy *e, int rate, int homing, int special);
+void q30_enemy_newdir(enemy *e, int rate, int homing, int special);      // guys.cpp
+void q30_enemy_newdir_8(enemy *e, int rate, int homing, int special);
 
 // ---- paldata objects ----------------------------------------------------------------------------
 // Upstream's user_paldata. Colours are in the script's own range: 0-255, or 0-63 with
@@ -1381,6 +1383,170 @@ static void z30_bmp_dither()
     }
 
     z30_ditherblit(dest, mask, (byte)color, (int)type, (byte)arg, 0, 0);
+}
+
+// bitmap->WriteTile(layer, x, y, tile, is8bit, mask): the 16x16 square of the bitmap at x, y
+// becomes the tile (upstream's write_tile): its pixels taken modulo 16 for a 4-bit tile, 256 for
+// an 8-bit one; with mask, only the non-zero ones are written over what the tile had.
+static void z30_bmp_write_tile()
+{
+    const long ref = SH::read_stack(SPR + 6);
+    BITMAP *src = z30_bitmap(ref);
+    const int x = SH::read_stack(SPR + 4) / 10000;
+    const int y = SH::read_stack(SPR + 3) / 10000;
+    const long tile = SH::read_stack(SPR + 2) / 10000;
+    const bool is8bit = SH::read_stack(SPR + 1) != 0;
+    const bool overlay = SH::read_stack(SPR) != 0;
+
+    if(!src)
+    {
+        Z_scripterrlog("bitmap->WriteTile() wanted to read from an invalid bitmap id: %ld. Aborting.\n", ref);
+        return;
+    }
+
+    if(tile < 0 || tile >= NEWMAXTILES)
+        return;
+
+    unpack_tile(newtilebuf, (int)tile, 0, true);
+    byte px[256];
+    memcpy(px, unpackbuf, sizeof(px));
+    bool blank = !is8bit;
+    const int mod = is8bit ? 256 : 16;
+
+    for(int tx = 0; tx < 16; ++tx)
+        for(int ty = 0; ty < 16; ++ty)
+        {
+            const int v = getpixel(src, x + tx, y + ty) % mod;    // -1 off the bitmap, as upstream
+
+            if(v)
+            {
+                blank = false;
+                px[tx + 16 * ty] = (byte)v;
+            }
+            else if(!overlay)
+                px[tx + 16 * ty] = 0;
+        }
+
+    if(overlay)
+    {
+        if(!blank)
+            blank_tile_table[tile] = false;
+    }
+    else
+        blank_tile_table[tile] = blank;
+
+    reset_tile(newtilebuf, (int)tile, is8bit ? tf8Bit : tf4Bit);
+    pack_tile(newtilebuf, px, (int)tile);
+    unpack_tile(newtilebuf, (int)tile, 0, true);    // the cached copy follows
+}
+
+// Polygon(layer, points, coordinates[], colour, opacity) on a bitmap (upstream do_polygonr): the
+// array holds x, y pairs; points is capped to what it holds; opacity 127 or less is translucent.
+static void z30_draw_polygon(BITMAP *bmp, long points, std::vector<int> &pos, int color, int opacity, int xoffset, int yoffset)
+{
+    size_t sz = pos.size() & ~(size_t)1;
+
+    if(points > (long)(sz / 2))
+        points = (long)(sz / 2);
+
+    if(points < 1)
+        return;
+
+    for(size_t q = 0; q < sz; q += 2)
+    {
+        pos[q] += xoffset;
+        pos[q + 1] += yoffset;
+    }
+
+    if(opacity <= 127)
+        drawing_mode(DRAW_MODE_TRANS, NULL, 0, 0);
+    else
+        drawing_mode(DRAW_MODE_SOLID, NULL, 0, 0);
+
+    polygon(bmp, (int)points, &pos[0], color);
+    drawing_mode(DRAW_MODE_SOLID, NULL, 0, 0);
+}
+
+static void z30_array_ints(long ptr, std::vector<int> &out)
+{
+    ZScriptArray &a = ArrayH::getArray(ptr);
+    out.clear();
+
+    if(&a == &INVALIDARRAY)
+        return;
+
+    for(dword q = 0; q < a.Size(); ++q)
+        out.push_back((int)(a[q] / 10000));
+}
+
+// bitmap->Polygon(layer, points, coordinates[], colour, opacity): drawn now, as the other
+// bitmap commands of these quests are.
+static void z30_bmp_polygon()
+{
+    BITMAP *dest = z30_bitmap(SH::read_stack(SPR + 5));
+    const long points = SH::read_stack(SPR + 3) / 10000;
+    const long ptr = SH::read_stack(SPR + 2) / 10000;
+    const int color = SH::read_stack(SPR + 1) / 10000;
+    const int opacity = SH::read_stack(SPR) / 10000;
+
+    if(!dest)
+        return;
+
+    std::vector<int> pos;
+    z30_array_ints(ptr, pos);
+    color_map = &trans_table2;
+    z30_draw_polygon(dest, points, pos, color, opacity, 0, 0);
+    color_map = &trans_table;
+}
+
+// Screen->Polygon(layer, points, coordinates[], colour, opacity): queued with the frame's other
+// screen drawing (2.53's drawing commands), the coordinates kept in the command's vector.
+static void z30_screen_polygon()
+{
+    const long ptr = SH::read_stack(SPR + 2) / 10000;
+
+    if(!ptr)
+    {
+        Z_scripterrlog("Invalid array pointer %ld passed to Screen->Polygon(). Aborting.\n", ptr);
+        return;
+    }
+
+    std::vector<int> pos;
+    z30_array_ints(ptr, pos);
+
+    if(pos.empty())
+        return;
+
+    const int j = script_drawing_commands.GetNext();
+
+    if(j == -1)
+    {
+        Z_scripterrlog("Max draw primitive limit reached\n");
+        return;
+    }
+
+    script_drawing_commands[j][0] = ZASM30_DRAW_POLYGON;
+    script_drawing_commands[j][18] = zscriptDrawingRenderTarget->GetCurrentRenderTarget();
+
+    for(int k = 1; k <= 5; ++k)
+        script_drawing_commands[j][k] = SH::read_stack(SPR + (5 - k));
+
+    std::vector<long> *v = script_drawing_commands.GetVector();
+    v->assign(pos.begin(), pos.end());
+    script_drawing_commands[j].SetVector(v);
+}
+
+// script_drawing.cpp's do_primitives, for a queued Screen->Polygon: sdci[2] points, sdci[4]
+// colour, sdci[5] opacity, the coordinates in the command's vector.
+void zasm30_do_polygon(BITMAP *bmp, int i, int *sdci, int xoffset, int yoffset)
+{
+    std::vector<long> *v = (std::vector<long> *)script_drawing_commands[i].GetPtr();
+
+    if(!v || v->empty())
+        return;
+
+    std::vector<int> pos(v->begin(), v->end());
+    z30_draw_polygon(bmp, sdci[2] / 10000, pos, sdci[4] / 10000, sdci[5] / 10000, xoffset, yoffset);
 }
 
 // bitmap->DrawScreenComboFlags(layer, map, screen, x, y, rotation): each square of the screen
@@ -2632,6 +2798,17 @@ static bool zasm30_command(word cmd)
         return true;
     }
     case Z30C_OWNARRAYR:
+    {
+        // OwnArray(): the array now belongs to the script that asked, so it goes when that
+        // script's instance does (never, for a global or FFC script). Arrays a 3.0 script made
+        // are the collector's.
+        const long p = get_register(sarg1) / 10000;
+
+        if(curscript != zasm30_stream && p > 0 && p < MAX_ZCARRAY_SIZE && localRAM[p].Size() != 0)
+            zasm30_array_inst[p] = zasm30_cur_inst;
+
+        return true;
+    }
     case Z30C_DESTROYARRAYR:
         return true;
     case Z30C_BITMAPOWN:
@@ -3425,6 +3602,174 @@ static bool zasm30_command(word cmd)
 
     // -- bitmap drawing that the 2.53 draw commands have no form of ----------------------------
     case Z30C_BMPDITHER: z30_bmp_dither(); return true;
+    case Z30C_BMPWRITETILE: z30_bmp_write_tile(); return true;
+    case Z30C_BMPPOLYGONR: z30_bmp_polygon(); return true;
+    case Z30C_POLYGONR: z30_screen_polygon(); return true;
+
+    // bitmap->MaskedBlit(layer, mask, pattern, repeats[, colour | start, end]): where the mask's
+    // pixel is in the range (1..255, one colour, or start..end), the pattern's pixel is written,
+    // the pattern tiled when it repeats (upstream mask_blit).
+    case Z30C_BMPMASKBLIT:
+    case Z30C_BMPMASKBLIT2:
+    case Z30C_BMPMASKBLIT3:
+    {
+        const int numargs = cmd == Z30C_BMPMASKBLIT ? 4 : cmd == Z30C_BMPMASKBLIT2 ? 5 : 6;
+        BITMAP *dest = z30_bitmap(SH::read_stack(SPR + numargs));
+        BITMAP *mask = z30_bitmap(SH::read_stack(SPR + numargs - 2));
+        BITMAP *pattern = z30_bitmap(SH::read_stack(SPR + numargs - 3));
+        const bool repeats = SH::read_stack(SPR + numargs - 4) != 0;
+        long start = 0x01, end = 0xFF;
+
+        if(cmd == Z30C_BMPMASKBLIT2)
+            start = end = SH::read_stack(SPR) / 10000;
+        else if(cmd == Z30C_BMPMASKBLIT3)
+        {
+            start = SH::read_stack(SPR + 1) / 10000;
+            end = SH::read_stack(SPR) / 10000;
+        }
+
+        if(!dest || !mask || !pattern)
+        {
+            Z_scripterrlog("bitmap->MaskedBlit() was given an invalid bitmap. Aborting.\n");
+            return true;
+        }
+
+        start = vbound(start, 0, 255);
+        end = vbound(end, 0, 255);
+        int wid = zc_min(dest->w, mask->w), hei = zc_min(dest->h, mask->h);
+
+        if(!repeats)
+        {
+            wid = zc_min(wid, pattern->w);
+            hei = zc_min(hei, pattern->h);
+        }
+
+        for(int ty = 0; ty < hei; ++ty)
+            for(int tx = 0; tx < wid; ++tx)
+            {
+                const int c = mask->line[ty][tx];
+
+                if(c >= start && c <= end)
+                    dest->line[ty][tx] = pattern->line[ty % pattern->h][tx % pattern->w];
+            }
+
+        return true;
+    }
+
+    // -- screen effects: Screen->ZapIn/ZapOut/WavyIn/WavyOut and Screen->Zap/Wavy(out): the
+    // warp effects 2.53 already has, run right away as upstream does --------------------------
+    case Z30C_ZAPIN: zapin(); return true;
+    case Z30C_ZAPOUT: zapout(); return true;
+    case Z30C_WAVYIN: wavyin(); return true;
+    case Z30C_WAVYOUT: wavyout(false); return true;
+    case Z30C_FXZAPR:
+    case Z30C_FXZAPV:
+    case Z30C_FXWAVYR:
+    case Z30C_FXWAVYV:
+    {
+        const bool v = cmd == Z30C_FXZAPV || cmd == Z30C_FXWAVYV;
+        const bool out = (v ? sarg1 : get_register(sarg1)) != 0;
+
+        if(cmd == Z30C_FXZAPR || cmd == Z30C_FXZAPV)
+        {
+            if(out) zapout(); else zapin();
+        }
+        else
+        {
+            if(out) wavyout(false); else wavyin();
+        }
+        return true;
+    }
+
+    // -- lweapon/eweapon->MakeAngular() and MakeDirectional() (upstream do_lwpnmakeangular...):
+    // a weapon moving in one of the 8 directions keeps the same motion as an angle, and back ---
+    case Z30C_LWPNMAKEANGULAR:
+    case Z30C_EWPNMAKEANGULAR:
+    case Z30C_LWPNMAKEDIRECTIONAL:
+    case Z30C_EWPNMAKEDIRECTIONAL:
+    {
+        const bool lw = cmd == Z30C_LWPNMAKEANGULAR || cmd == Z30C_LWPNMAKEDIRECTIONAL;
+        weapon *w = lw ? z30_lwpn_ref() : z30_ewpn_ref();
+
+        if(!w)
+            return true;
+
+        if(cmd == Z30C_LWPNMAKEANGULAR || cmd == Z30C_EWPNMAKEANGULAR)
+        {
+            if(w->angular)
+                return true;
+
+            const double step = (double)w->step;
+            const int nd = w->dir & 7;      // upstream NORMAL_DIR for the 8 directions
+            double vx = 0, vy = 0;
+
+            switch(nd)
+            {
+            case l_up: case l_down: case left: vx = -step; break;
+            case r_up: case r_down: case right: vx = step; break;
+            }
+
+            switch(nd)
+            {
+            case l_up: case r_up: case up: vy = -step; break;
+            case l_down: case r_down: case down: vy = step; break;
+            }
+
+            w->angular = true;
+            w->angle = atan2(vy, vx);
+            w->step = fix(sqrt(vx * vx + vy * vy));
+        }
+        else if(w->angular)
+        {
+            double a = fmod(w->angle, 2 * PI);
+            if(a < 0)
+                a += 2 * PI;
+            // the nearest of the 8 directions, as upstream's AngleToDir
+            static const int dirs[8] = { right, r_down, down, l_down, left, l_up, up, r_up };
+            w->dir = dirs[(int)floor(a / (PI / 4) + 0.5) & 7];
+            w->angular = false;
+        }
+        return true;
+    }
+
+    // npc->NewDir(int[] {rate, homing, special}): 2.53's own new-direction choice.
+    case Z30C_NPCNEWDIR:
+    case Z30C_NPCNEWDIR8:
+    {
+        ZScriptArray &a = ArrayH::getArray(get_register(sarg1) / 10000);
+
+        if(&a == &INVALIDARRAY || GuyH::loadNPC(ri->guyref, "npc->NewDir()") != SH::_NoError)
+            return true;
+
+        if(a.Size() != 3)
+        {
+            Z_scripterrlog("Invalid array size passed to npc->NewDir(): %ld\n", (long)a.Size());
+            return true;
+        }
+
+        if(cmd == Z30C_NPCNEWDIR)
+            q30_enemy_newdir(GuyH::getNPC(), a[0] / 10000, a[1] / 10000, a[2] / 10000);
+        else
+            q30_enemy_newdir_8(GuyH::getNPC(), a[0] / 10000, a[1] / 10000, a[2] / 10000);
+        return true;
+    }
+
+    // Game->SaveSRAM()/LoadSRAM(): 2.55 wrote the quest's live data to a .zcsram file; 3.0 removed
+    // it ("repeatedly broken with updates") and so does this player: the script is told it failed.
+    case Z30C_SAVEGAMESTRUCTS:
+    case Z30C_READGAMESTRUCTS:
+    {
+        static bool said = false;
+        if(!said)
+            Z_scripterrlog("SaveSRAM() and LoadSRAM() are not supported (removed in ZC 3.0 as well).\n");
+        said = true;
+        set_register(sarg1, -10000);
+        return true;
+    }
+
+    // The first command of a script class's destructor: a marker that runs as nothing.
+    case Z30C_STARTDESTRUCTOR:
+        return true;
     case Z30C_BMPDRAWSCREENCOMBOFR: z30_bmp_draw_screen_flags(); return true;
     case Z30C_BMPDRAWSTRINGR2: z30_bmp_draw_string2(); return true;
 

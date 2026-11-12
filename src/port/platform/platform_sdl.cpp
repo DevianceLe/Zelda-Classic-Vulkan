@@ -228,6 +228,8 @@ struct Joy
    SDL_Gamepad *gp;
    ZCPORT_JOY_STATE st;
    std::string name;
+   unsigned long last_used;      // joy_use_serial when it was last used; 0 never
+   bool primed;                  // refreshed once: what it reads at connection isn't use
 };
 
 struct State
@@ -316,6 +318,7 @@ struct State
    // joysticks
    std::mutex joy_mutex;
    std::vector<Joy> joys;
+   unsigned long joy_use_serial = 0;
 
    State()
       : running(false), init_done(false), init_ok(false),
@@ -917,31 +920,63 @@ void release_everything()
 
 // ---- joysticks ------------------------------------------------------------------
 
+// The D-pad (hat bits) also moves the first stick, as on the Switch: the game's default
+// (analog_movement = 1) reads only stick 0 for movement, and the D-pad is what Zelda is played
+// with. A stick pushed further than the D-pad keeps its own value.
+void fold_dpad(ZCPORT_JOY_STATE &st, int hat)
+{
+   if (!hat)
+      return;
+   if (st.num_axes < 2)
+      st.num_axes = 2;
+   if (hat & 8)
+      st.axis[0] = -32768;
+   else if (hat & 2)
+      st.axis[0] = 32767;
+   if (hat & 1)
+      st.axis[1] = -32768;
+   else if (hat & 4)
+      st.axis[1] = 32767;
+}
+
 void refresh_joy(Joy &j)
 {
    ZCPORT_JOY_STATE &st = j.st;
+   const ZCPORT_JOY_STATE before = st;
    memset(&st, 0, sizeof(st));
    st.name = j.name.c_str();
    if (j.gp) {
-      // Axes: left stick, right stick, triggers. Buttons in the order the
-      // reference's DirectInput driver reports an XInput pad: A B X Y LB RB
-      // Back Start LS RS, then Guide. D-pad: hat 0.
+      // Every pad SDL knows (and every pad set up with Settings > Gamepad Setup) in one
+      // layout, the Switch build's (platform_switch.cpp), which the game's default bindings
+      // (btn_a = 2, btn_b = 1, btn_s = 10, btn_m = 9, btn_l = 5, btn_r = 6, btn_p = 12,
+      // btn_ex1..4 = 7, 8, 4, 3, btn_up/down/left/right = 13..16) land on: the bottom, right,
+      // left and top face buttons, L, R, the triggers as buttons, Back/Select, Start, the
+      // stick clicks, the D-pad, then Guide and the extra button.
+      // Axes: left stick (with the D-pad), right stick, triggers. D-pad: hat 0 too.
       static const SDL_GamepadAxis axes[] = {
          SDL_GAMEPAD_AXIS_LEFTX, SDL_GAMEPAD_AXIS_LEFTY, SDL_GAMEPAD_AXIS_RIGHTX,
          SDL_GAMEPAD_AXIS_RIGHTY, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER
       };
-      static const SDL_GamepadButton buttons[] = {
+      static const int buttons[18] = {
          SDL_GAMEPAD_BUTTON_SOUTH, SDL_GAMEPAD_BUTTON_EAST, SDL_GAMEPAD_BUTTON_WEST,
          SDL_GAMEPAD_BUTTON_NORTH, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER,
-         SDL_GAMEPAD_BUTTON_BACK, SDL_GAMEPAD_BUTTON_START, SDL_GAMEPAD_BUTTON_LEFT_STICK,
-         SDL_GAMEPAD_BUTTON_RIGHT_STICK, SDL_GAMEPAD_BUTTON_GUIDE
+         -1, -2,   // the triggers
+         SDL_GAMEPAD_BUTTON_BACK, SDL_GAMEPAD_BUTTON_START, SDL_GAMEPAD_BUTTON_RIGHT_STICK,
+         SDL_GAMEPAD_BUTTON_LEFT_STICK, SDL_GAMEPAD_BUTTON_DPAD_UP, SDL_GAMEPAD_BUTTON_DPAD_DOWN,
+         SDL_GAMEPAD_BUTTON_DPAD_LEFT, SDL_GAMEPAD_BUTTON_DPAD_RIGHT, SDL_GAMEPAD_BUTTON_GUIDE,
+         SDL_GAMEPAD_BUTTON_MISC1
       };
       st.num_axes = 6;
       for (int i = 0; i < 6; i++)
          st.axis[i] = SDL_GetGamepadAxis(j.gp, axes[i]);
-      st.num_buttons = 11;
-      for (int i = 0; i < 11; i++)
-         st.button[i] = SDL_GetGamepadButton(j.gp, buttons[i]) ? 1 : 0;
+      st.num_buttons = 18;
+      for (int i = 0; i < 18; i++) {
+         if (buttons[i] == -1 || buttons[i] == -2)   // a trigger past half way
+            st.button[i] = SDL_GetGamepadAxis(j.gp, buttons[i] == -1 ? SDL_GAMEPAD_AXIS_LEFT_TRIGGER
+                                                                      : SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 16384;
+         else
+            st.button[i] = SDL_GetGamepadButton(j.gp, (SDL_GamepadButton)buttons[i]) ? 1 : 0;
+      }
       st.num_hats = 1;
       int hat = 0;
       if (SDL_GetGamepadButton(j.gp, SDL_GAMEPAD_BUTTON_DPAD_UP))    hat |= 1;
@@ -949,9 +984,11 @@ void refresh_joy(Joy &j)
       if (SDL_GetGamepadButton(j.gp, SDL_GAMEPAD_BUTTON_DPAD_DOWN))  hat |= 4;
       if (SDL_GetGamepadButton(j.gp, SDL_GAMEPAD_BUTTON_DPAD_LEFT))  hat |= 8;
       st.hat[0] = hat;
-      return;
+      fold_dpad(st, hat);
    }
-   if (j.js) {
+   else if (j.js) {
+      // A device SDL has no layout for: its own numbering (Settings > Gamepad Setup gives it
+      // the one above). Its first hat, usually the D-pad, moves the first stick as above.
       int na = SDL_GetNumJoystickAxes(j.js);
       int nb = SDL_GetNumJoystickButtons(j.js);
       int nh = SDL_GetNumJoystickHats(j.js);
@@ -964,7 +1001,27 @@ void refresh_joy(Joy &j)
          st.button[i] = SDL_GetJoystickButton(j.js, i) ? 1 : 0;
       for (int i = 0; i < st.num_hats; i++)
          st.hat[i] = SDL_GetJoystickHat(j.js, i) & 15;   // same bits as ours
+      if (st.num_hats > 0)
+         fold_dpad(st, st.hat[0]);
    }
+
+   if (!j.primed) {
+      j.primed = true;
+      return;
+   }
+
+   // Which pad was used last (joystick 0 follows it, see hook_joy_poll): a button or the
+   // D-pad pressed, or an axis newly pushed past half way. An axis resting off centre
+   // (a trigger, a throttle) doesn't count, as it never crosses.
+   bool used = false;
+   for (int i = 0; i < st.num_buttons && !used; i++)
+      used = st.button[i] && !before.button[i];
+   for (int i = 0; i < st.num_hats && !used; i++)
+      used = st.hat[i] && st.hat[i] != before.hat[i];
+   for (int i = 0; i < st.num_axes && !used; i++)
+      used = (std::abs(st.axis[i]) > 16384) && (std::abs(before.axis[i]) <= 16384);
+   if (used)
+      j.last_used = ++g->joy_use_serial;
 }
 
 void refresh_joys()
@@ -984,6 +1041,8 @@ void add_joy(SDL_JoystickID id)
    j.id = id;
    j.js = NULL;
    j.gp = NULL;
+   j.last_used = 0;
+   j.primed = false;
    if (SDL_IsGamepad(id))
       j.gp = SDL_OpenGamepad(id);
    if (!j.gp)
@@ -995,6 +1054,31 @@ void add_joy(SDL_JoystickID id)
    memset(&j.st, 0, sizeof(j.st));
    g->joys.push_back(j);
    refresh_joy(g->joys.back());
+}
+
+// A raw joystick that now has a gamepad mapping (Settings > Gamepad Setup, or a mapping file)
+// is opened again as a gamepad: from then on it reads in the standard layout.
+void upgrade_joy(SDL_JoystickID id)
+{
+   std::lock_guard<std::mutex> guard(g->joy_mutex);
+   for (size_t i = 0; i < g->joys.size(); i++) {
+      Joy &j = g->joys[i];
+      if (j.id != id || j.gp)
+         continue;
+      SDL_Gamepad *gp = SDL_OpenGamepad(id);
+      if (!gp)
+         return;
+      if (j.js)
+         SDL_CloseJoystick(j.js);
+      j.js = NULL;
+      j.gp = gp;
+      const char *n = SDL_GetGamepadName(gp);
+      j.name = n ? n : "Gamepad";
+      memset(&j.st, 0, sizeof(j.st));
+      j.primed = false;
+      refresh_joy(j);
+      return;
+   }
 }
 
 void remove_joy(SDL_JoystickID id)
@@ -1202,6 +1286,9 @@ void handle_event(const SDL_Event &ev)
       case SDL_EVENT_JOYSTICK_ADDED:
          add_joy(ev.jdevice.which);
          break;
+      case SDL_EVENT_GAMEPAD_ADDED:      // also sent when a mapping makes a joystick a gamepad
+         upgrade_joy(ev.gdevice.which);
+         break;
       case SDL_EVENT_JOYSTICK_REMOVED:
          remove_joy(ev.jdevice.which);
          break;
@@ -1396,6 +1483,40 @@ static bool use_hidapi()
 #endif
 }
 
+// ---------------------------------------------------------------------------
+// gamepad mappings
+// ---------------------------------------------------------------------------
+
+// The player's own pad layouts (Settings > Gamepad Setup) live beside zc.cfg, in SDL's usual
+// mapping file; a community gamecontrollerdb.txt next to the program is read first, so the
+// player's own lines win.
+static const char kGamepadDb[] = "gamecontrollerdb.txt";
+
+void load_gamepad_mappings()
+{
+   const char *base = SDL_GetBasePath();
+   std::string beside = std::string(base ? base : "") + kGamepadDb;
+   int n = 0;
+   if (base && SDL_GetPathInfo(beside.c_str(), NULL))
+      n = SDL_AddGamepadMappingsFromFile(beside.c_str());
+   if (SDL_GetPathInfo(kGamepadDb, NULL)) {
+      const int m = SDL_AddGamepadMappingsFromFile(kGamepadDb);
+      if (m > 0)
+         n += m;
+   }
+   if (n > 0)
+      SDL_Log("zcport: %d gamepad mapping(s) from %s", n, kGamepadDb);
+}
+
+// The GUID a mapping line starts with, lower case.
+std::string mapping_guid(const std::string &line)
+{
+   std::string g = line.substr(0, line.find(','));
+   for (size_t i = 0; i < g.size(); i++)
+      g[i] = (char)tolower((unsigned char)g[i]);
+   return g;
+}
+
 void platform_thread_main()
 {
    if (!use_hidapi())
@@ -1428,6 +1549,9 @@ void platform_thread_main()
       if (!g->vulkan_loaded)
          SDL_Log("zcport: no Vulkan loader on this system (%s)", SDL_GetError());
       g->primary_hz = display_hz(SDL_GetPrimaryDisplay());
+      // Gamepad layouts SDL doesn't know: the player's own (Settings > Gamepad Setup) and any
+      // community gamecontrollerdb.txt put next to the program.
+      load_gamepad_mappings();
       int n = 0;
       SDL_JoystickID *ids = SDL_GetJoysticks(&n);
       for (int i = 0; ids && i < n; i++)
@@ -1870,6 +1994,9 @@ int hook_joy_count(void)
    return (int)g->joys.size();
 }
 
+// Joystick 0 (the game's default joystick_index) is whichever pad was used last, so any
+// connected pad plays: a second device (an adapter's empty port, a virtual pad, a wheel) can't
+// take it. The others are the devices in the order they came, as before.
 int hook_joy_poll(int index, ZCPORT_JOY_STATE *state)
 {
    if (!g || !g->running || !state)
@@ -1877,6 +2004,11 @@ int hook_joy_poll(int index, ZCPORT_JOY_STATE *state)
    std::lock_guard<std::mutex> guard(g->joy_mutex);
    if (index < 0 || index >= (int)g->joys.size())
       return -1;
+   if (index == 0) {
+      for (size_t i = 1; i < g->joys.size(); i++)
+         if (g->joys[i].last_used > g->joys[index].last_used)
+            index = (int)i;
+   }
    *state = g->joys[index].st;
    return 0;
 }
@@ -2091,6 +2223,36 @@ extern "C" int zcport_sdl_using_vulkan(void)
    int r = -1;
    run_on_platform([&r] { r = g->window ? (g->use_vulkan ? 1 : 0) : -1; }, true);
    return r;
+}
+
+extern "C" int zcport_sdl_gamepad_add_mapping(const char *mapping)
+{
+   if (!mapping || !*mapping || SDL_AddGamepadMapping(mapping) < 0) {
+      SDL_Log("zcport: gamepad mapping refused (%s)", SDL_GetError());
+      return -1;
+   }
+   // keep it: every line of the file but an earlier one for this pad, then this one
+   const std::string line(mapping), guid = mapping_guid(line);
+   std::vector<std::string> keep;
+   if (FILE *f = fopen(kGamepadDb, "r")) {
+      char buf[2048];
+      while (fgets(buf, sizeof(buf), f)) {
+         std::string l(buf);
+         while (!l.empty() && (l.back() == '\n' || l.back() == '\r'))
+            l.pop_back();
+         if (!l.empty() && mapping_guid(l) != guid)
+            keep.push_back(l);
+      }
+      fclose(f);
+   }
+   keep.push_back(line);
+   FILE *f = fopen(kGamepadDb, "w");
+   if (!f)
+      return 0;   // in use for this run all the same
+   for (size_t i = 0; i < keep.size(); i++)
+      fprintf(f, "%s\n", keep[i].c_str());
+   fclose(f);
+   return 0;
 }
 
 extern "C" uint32_t zcport_sdl_window_id(void)

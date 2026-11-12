@@ -1,4 +1,4 @@
-# ZC Vulkan 2.53.444.6
+# ZC Vulkan 2.53.444.6.1
 
 [![Build](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml/badge.svg)](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml)
 
@@ -73,6 +73,8 @@ zplayer -windowed -standalone "My Quest.qst"
 ```
 
 Put a quest's music next to the `.qst` file or in a `Music` folder beside it.
+
+Gamepads work as they are: the D-pad and left stick move, and the face buttons, Start and the shoulder buttons follow one layout on every pad. For a pad the game doesn't know (an old USB pad or a PlayStation adapter), use Settings > Controls > Gamepad Setup once.
 
 On Linux, unpack the `.tar.gz` and run `./zplayer` from inside the folder. It's one build for nearly every current distribution: you need glibc 2.30 or newer. With the Vulkan loader and a Vulkan driver installed it uses Vulkan, otherwise OpenGL. ZQuest is `./zqeditor`; it's new on Linux, so keep backups of your quests.
 

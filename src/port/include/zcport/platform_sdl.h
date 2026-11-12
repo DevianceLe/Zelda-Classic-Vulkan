@@ -43,6 +43,14 @@ void zcport_sdl_register(void);
  * Same behaviour as zc_place_window_on_display() in src/zsys.cpp. */
 void zcport_place_window_on_display(int display);
 
+/* ---- gamepads (Settings > Gamepad Setup, src/port/game/ui_gamepad.cpp) ------ */
+
+/* Adds an SDL gamepad mapping ("GUID,name,a:b1,...") for this run and keeps it in
+ * gamecontrollerdb.txt beside zc.cfg, in place of an earlier line for the same GUID; that
+ * file is read when the platform starts. The pad then reads in the game's standard layout.
+ * Returns 0, or -1 when SDL refused the mapping. Any thread. */
+int zcport_sdl_gamepad_add_mapping(const char *mapping);
+
 /* ---- for tests ------------------------------------------------------------- */
 
 /* Number of frames the platform thread has presented so far. */

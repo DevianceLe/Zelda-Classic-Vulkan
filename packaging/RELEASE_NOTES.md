@@ -1,3 +1,23 @@
+## 2.53.444.6.1
+
+**Gamepads just work**
+
+- **The D-pad always moves Link**, on every pad. Many pads, and most PlayStation USB adapters, report their D-pad in a way 2.53 never read, so only the analog stick moved you, or nothing did
+- **One button layout for every pad**, the one ZC's default buttons are made for: the right and bottom face buttons are A and B, Start is Start, Select opens ZC's menu, L and R are L and R, and the second shoulder buttons are Ex1 and Ex2. Before, Start was on the right-stick click of an Xbox or PlayStation pad. If you changed your joystick buttons in an earlier version, check them in Settings > Controls > Joystick Buttons
+- **Any connected pad plays**: the game follows whichever pad you used last, so an adapter's empty second port or a virtual pad can no longer take its place
+- **Settings > Controls > Gamepad Setup...** lists your pads and shows each button press as it reads it. A pad the game doesn't know (an old USB pad, a PlayStation adapter) can be set up there: press each button when asked, and it's remembered (in `gamecontrollerdb.txt` next to `zc.cfg`). After that it uses the standard layout in the game and in the menus. A community `gamecontrollerdb.txt` placed next to the program is read as well
+- The menus can now be steered with any connected pad, not only the first
+
+**2.55 and 3.0 Nightly quests**
+
+- OneScreenGollab no longer runs out of script memory partway through: arrays an enemy's or weapon's script makes are freed with it, as in 2.55
+- Script commands quests used that weren't there yet: `Bitmap->WriteTile` (Stellar Seas), polygons, `MaskedBlit`, the zap and wavy screen effects, `MakeAngular`/`MakeDirectional` for weapons, `NPC->NewDir`, the sprite list limits (`Game->MaxLWeapons` and the others, up to 255), and the mapdata tile-warp, side-warp and pattern values. A tour of all 93 2.55 and 3.0 Nightly quests in the PureZC collection now finds no script command or value the player doesn't handle
+- `SaveSRAM()`/`LoadSRAM()` report failure to the script, as ZC 3.0 does
+
+**Tested:** the 2.53 re-saves and the recorded 1st Quest run are unchanged (all 2,478 frames). Pads were tested with virtual devices, not a real controller: an unknown PlayStation-style adapter (D-pad, Start, set up and remembered across a restart, Grikarugun played with it) and a standard pad next to it. Windows 32-bit and 64-bit and Linux build.
+
+**Grikarugun:** each menu ignores the buttons for about 5 seconds after it appears (that's the quest's own script), and its Z3 movement option leads back to the movement menu; choose Custom.
+
 ## What's new in 2.53.444.6
 
 **Runs without Vulkan**

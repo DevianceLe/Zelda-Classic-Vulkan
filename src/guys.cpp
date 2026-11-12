@@ -574,7 +574,12 @@ public:
     int do_lined_up(int range, bool dir8) { return lined_up(range, dir8); }
     void do_constant_walk(int rate, int homing, int special) { constant_walk(rate, homing, special); }
     void do_constant_walk_8(int rate, int homing, int special) { constant_walk_8(rate, homing, special); }
+    void do_newdir(int rate, int homing, int special) { newdir(rate, homing, special); }
+    void do_newdir_8(int rate, int homing, int special) { newdir_8(rate, homing, special); }
 };
+
+void q30_enemy_newdir(enemy *e, int rate, int homing, int special) { ((q30_enemy_access *)e)->do_newdir(rate, homing, special); }
+void q30_enemy_newdir_8(enemy *e, int rate, int homing, int special) { ((q30_enemy_access *)e)->do_newdir_8(rate, homing, special); }
 
 int q30_enemy_slide(enemy *e) { return ((q30_enemy_access *)e)->do_slide(); }
 void q30_enemy_fire(enemy *e) { ((q30_enemy_access *)e)->do_fire(); }

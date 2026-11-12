@@ -419,6 +419,9 @@ bool attach(SDL_Window *window)
         detach();
     if(!ImGui_ImplSDL3_InitForVulkan(window))
         return false;
+    // Every connected pad steers the menus, as every pad plays the game (platform_sdl.cpp),
+    // not only the first one SDL lists.
+    ImGui_ImplSDL3_SetGamepadMode(ImGui_ImplSDL3_GamepadMode_AutoAll);
 #endif
     g_window = window;
     float s = window_scale(window) * g_user_scale.load();

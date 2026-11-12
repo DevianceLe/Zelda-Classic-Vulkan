@@ -815,4 +815,8 @@ struct triangle3Dstruct
     int size[2], color[3];
 };
 
+// A 2.55 or 3.0 script's Screen->Polygon, queued with the 2.53 drawing commands (its numbers stay
+// clear of theirs); drawn by zasm30_do_polygon (q30_scripts_cmds.h).
+#define ZASM30_DRAW_POLYGON 0x7F10
+
 #endif

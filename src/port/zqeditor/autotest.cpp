@@ -6,6 +6,7 @@
 // Commands, one per line (coordinates are window pixels):
 //   move X Y | click X Y [HOLD_MS] | rclick X Y | dclick X Y | wait MS | key NAME [MS] | type TEXT
 //   down NAME | up NAME     (a key held across other commands, for shortcuts)
+//   padraw | padstd | padbtn N V | padhat H V | padaxis A V   (a virtual pad, see pad_attach)
 // The number of commands handled is written to <file>.pos after each one.
 //
 // Written from scratch for zcport.
@@ -174,6 +175,39 @@ void key(const std::string &name, int ms)
     }
 }
 
+// Virtual pads (SDL's virtual joysticks), so pad handling can be tested without one:
+//   padraw    a device SDL has no layout for, as a PlayStation USB adapter: 12 buttons,
+//             2 axes, 1 hat, unknown maker
+//   padstd    a pad SDL knows (the standard gamepad buttons, 2 sticks, 2 triggers)
+//   padbtn N V | padhat H V | padaxis A V   set the last pad's raw button / hat / axis
+SDL_Joystick *g_vpad = NULL;
+
+void pad_attach(bool standard)
+{
+    SDL_VirtualJoystickDesc d;
+    SDL_INIT_INTERFACE(&d);
+    if(standard)
+    {
+        d.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+        d.naxes = SDL_GAMEPAD_AXIS_COUNT;
+        d.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+        d.name = "Test Standard Pad";
+    }
+    else
+    {
+        d.type = SDL_JOYSTICK_TYPE_UNKNOWN;
+        d.vendor_id = 0x1234;
+        d.product_id = 0x5678;
+        d.naxes = 2;
+        d.nbuttons = 12;
+        d.nhats = 1;
+        d.name = "Test PS1 Adapter";
+    }
+    const SDL_JoystickID id = SDL_AttachVirtualJoystick(&d);
+    g_vpad = id ? SDL_OpenJoystick(id) : NULL;
+    fprintf(stderr, "autotest: virtual pad %s: id %u %s\n", d.name, (unsigned)id, g_vpad ? "open" : SDL_GetError());
+}
+
 void run(const std::string &path)
 {
     std::streamoff at = 0;
@@ -239,6 +273,14 @@ void run(const std::string &path)
                         sscanf(line.c_str(), "%31s %31s", word, name);
                         key_hold(name, word[0] == 'd');
                     }
+                    else if(!strcmp(word, "padraw") || !strcmp(word, "padstd"))
+                        pad_attach(word[3] == 's');
+                    else if(!strcmp(word, "padbtn") && g_vpad)
+                        SDL_SetJoystickVirtualButton(g_vpad, a, b != 0);
+                    else if(!strcmp(word, "padhat") && g_vpad)
+                        SDL_SetJoystickVirtualHat(g_vpad, a, (Uint8)b);
+                    else if(!strcmp(word, "padaxis") && g_vpad)
+                        SDL_SetJoystickVirtualAxis(g_vpad, a, (Sint16)b);
                 }
                 ++handled;
                 std::ofstream pos((path + ".pos").c_str(), std::ios::trunc);

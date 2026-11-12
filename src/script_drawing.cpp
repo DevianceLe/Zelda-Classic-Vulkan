@@ -2398,6 +2398,8 @@ void do_drawscreenr(BITMAP *bmp, int *sdci, int xoffset, int yoffset, bool isOff
 // do primitives
 ////////////////////////////////////////////////////////
 
+void zasm30_do_polygon(BITMAP *bmp, int i, int *sdci, int xoffset, int yoffset);   // q30_scripts_cmds.h
+
 void do_primitives(BITMAP *targetBitmap, int type, mapscr *, int xoff, int yoff)
 {
     color_map = &trans_table2;
@@ -2569,13 +2571,11 @@ void do_primitives(BITMAP *targetBitmap, int type, mapscr *, int xoff, int yoff)
             do_drawtriangle3dr(bmp, i, sdci, xoffset, yoffset);
         }
         break;
-	/*
-	case POLYGONR:
+        case ZASM30_DRAW_POLYGON:   // a 2.55 or 3.0 script's Screen->Polygon
         {
-            do_polygonr(bmp, i, sdci, xoffset, yoffset);
+            zasm30_do_polygon(bmp, i, sdci, xoffset, yoffset);
         }
         break;
-	*/
         
         case BITMAPR:
         {

@@ -133,6 +133,7 @@ class sprite_list
 {
     sprite *sprites[SLMAX];
     int count;
+    int max_count;      // SLMAX; a 2.55/3.0 script may lower it (Game->MaxLWeapons ...)
     map<long, int> containedUIDs;
     // Cache requests from scripts
     mutable long lastUIDRequested;
@@ -146,6 +147,8 @@ public:
     sprite *spr(int index);
     bool swap(int a,int b);
     bool add(sprite *s);
+    void setMax(int m) { max_count = m < 0 ? 0 : m > SLMAX ? SLMAX : m; }
+    int getMax() const { return max_count; }
     // removes pointer from list but doesn't delete it
     bool remove(sprite *s);
     fix getX(int j);

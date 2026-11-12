@@ -757,7 +757,7 @@ void sprite::drawshadow(BITMAP* dest,bool translucent)
 
 //class enemy;
 
-sprite_list::sprite_list() : count(0) {}
+sprite_list::sprite_list() : count(0), max_count(SLMAX) {}
 void sprite_list::clear()
 {
     while(count>0) del(0);
@@ -789,7 +789,7 @@ bool sprite_list::swap(int a,int b)
 
 bool sprite_list::add(sprite *s)
 {
-    if(count>=SLMAX)
+    if(count>=max_count)
     {
         delete s;
         return false;

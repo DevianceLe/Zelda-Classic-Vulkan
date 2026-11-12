@@ -1195,6 +1195,12 @@ static void z30_scrdata_game_init(bool first);     // q30_scripts_save.h
 
 void q30_game_init(bool first)
 {
+    // limits a newer quest's script set (Game->MaxNPCs ...) end with that game
+    guys.setMax(SLMAX);
+    Lwpns.setMax(SLMAX);
+    Ewpns.setMax(SLMAX);
+    items.setMax(SLMAX);
+
     if(!zasm30_ffscript_version)
         return;
 

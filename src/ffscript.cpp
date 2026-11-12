@@ -2019,6 +2019,33 @@ static long zasm30_screen_stack[ZSCRIPT_STACK_ALLOC];
 static std::vector<std::vector<long> > zasm30_objects;
 static bool zasm30_gc_array[MAX_ZCARRAY_SIZE];
 
+// The script instance (a 2.55 quest's npc, weapon, item sprite, item, DMap, generic... script)
+// that made each local array, or NULL. Upstream frees the arrays a script owns when its sprite
+// is removed or its script is reset (deallocateAllScriptOwned); without that, an enemy or
+// weapon script that ends inside an array's scope keeps the array for good, and a quest that
+// fires many scripted weapons runs out of the 4095 arrays (OneScreenGollab: a boss's eweapon
+// script, after which every allocation fails and its global script loops on errors).
+// FFC scripts keep 2.53's rule (their arrays go with the screen), arrays a 3.0 script made are
+// left to zasm30_collect, and 2.53 quests run no instances, so this stays NULL for them.
+static Zasm30Instance *zasm30_array_inst[MAX_ZCARRAY_SIZE];
+
+static void zasm30_free_instance_arrays(const Zasm30Instance *in)
+{
+    for(long p = 1; p < MAX_ZCARRAY_SIZE; ++p)
+    {
+        if(zasm30_array_inst[p] != in)
+            continue;
+
+        zasm30_array_inst[p] = NULL;
+
+        if(localRAM[p].Size() != 0)
+        {
+            localRAM[p].Clear();
+            arrayOwner[p] = 255;
+        }
+    }
+}
+
 static Zasm30Frame &zasm30_frame()
 {
     return *zasm30_cur_frame;
@@ -2047,6 +2074,8 @@ static std::vector<Zasm30Instance *> zasm30_retired;
 // stops the script after the current command and the memory goes when the outermost run returns.
 static void zasm30_retire_instance(Zasm30Instance *in)
 {
+    zasm30_free_instance_arrays(in);
+
     if(zasm30_run_depth > 0)
     {
         in->dropped = true;
@@ -2217,6 +2246,7 @@ static long zasm30_new_array(long size)
     for(dword j = 0; j < (dword)size; j++)
         a[j] = 0;
     arrayOwner[ptrval] = 255;
+    zasm30_array_inst[ptrval] = NULL;
     return ptrval * 10000;
 }
 
@@ -2430,6 +2460,13 @@ public:
     
     static INLINE int checkFFC(const long ffc, const char * const str)
     {
+        // FFCs 33 to 128 exist in 2.55 and 3.0 quests (upstream's MAXFFCS is 128), not in this
+        // engine. Using one is no script error there, so it isn't logged here either: scripts
+        // that look through all 128 every frame wrote millions of lines to allegro.log, each
+        // flushed (OneScreenGollab). They still read as missing.
+        if(zasm30_ffscript_version != 0 && ffc >= MAXFFCS && ffc < 128)
+            return _OutOfBounds;
+
         return checkBounds(ffc, 0, MAXFFCS-1, str);
     }
     
@@ -3037,7 +3074,8 @@ void deallocateArray(const long ptrval)
     else
     {
         arrayOwner[ptrval] = 255;
-        
+        zasm30_array_inst[ptrval] = NULL;
+
         if(localRAM[ptrval].Size() == 0)
             Z_scripterrlog("Script tried to deallocate memory that was not allocated at address %ld\n", ptrval);
         else
@@ -7325,6 +7363,8 @@ void do_allocatemem(const bool v, const bool local, const byte i)
                 
             // Keep track of which FFC created the array so we know which to deallocate when changing screens
             arrayOwner[ptrval]=i;
+            // A 2.55 sprite, item, DMap or generic script's array goes when its instance does.
+            zasm30_array_inst[ptrval] = (zasm30_cur_inst && curscript != zasm30_stream) ? zasm30_cur_inst : NULL;
         }
     }
     else
@@ -9231,6 +9271,7 @@ static void zasm30_collect()
             localRAM[p].Clear();
             arrayOwner[p] = 255;
             zasm30_gc_array[p] = false;
+            zasm30_array_inst[p] = NULL;
         }
     }
 }
@@ -9440,7 +9481,10 @@ int run_script(const byte type, const word script, const byte i)
         break;
     }
     
-    if(!zasm30_trace_on && getenv("ZC_Q30_TRACE"))
+    // Read once: a getenv on every script run took longer than many of the scripts.
+    static const bool zasm30_trace_env = getenv("ZC_Q30_TRACE") != NULL;
+
+    if(!zasm30_trace_on && zasm30_trace_env)
         zasm30_trace_on = true;
 
     // Every script from a 2.55 or 3.0 quest gets the deep stack: their code expects the stack

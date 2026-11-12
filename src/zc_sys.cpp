@@ -63,6 +63,9 @@
 #include "ffscript.h"
 #ifdef ZC_PORT
 #include "zcport/video_settings.h" // zplayer: Settings > Video Settings
+#if !defined(__SWITCH__)
+#include "zcport/gamepad_setup.h"  // zplayer: Settings > Controls > Gamepad Setup
+#endif
 #include "port/game/ui_dialogs.h"
 #include "port/game/q30_audio.h" // 2.55/3.0 music and sound: empty and inert for 2.53 quests
 #else
@@ -7527,6 +7530,14 @@ static int onPadSupport()
     save_game_configs();
     return D_O_K;
 }
+
+// The connected pads, what they press, and setting up a pad SDL doesn't know
+// (src/port/game/ui_gamepad.cpp, a Dear ImGui window).
+static int onGamepadSetup()
+{
+    zplayer_gamepad_setup();
+    return D_O_K;
+}
 #endif
 
 static MENU controls_menu[] =
@@ -7538,6 +7549,7 @@ static MENU controls_menu[] =
     { (char *)"&Cheat Modifier Keys...",    onKeyboardModifierKeys,           NULL,                      0, NULL },
 #ifdef ZC_PAD_SUPPORT_MENU
     { (char *)"Extra &Pad Support (applies next start)", onPadSupport, NULL,                    0, NULL },
+    { (char *)"&Gamepad Setup...",          onGamepadSetup,          NULL,                      0, NULL },
 #endif
     { NULL,                                 NULL,                    NULL,                      0, NULL }
 };
