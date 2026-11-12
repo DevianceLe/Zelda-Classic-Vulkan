@@ -535,8 +535,10 @@ int zq_tile_check(const char *report)
     fprintf(out, "%s: quest version 0x%x build %d, TILE v%d, %ld tiles in the file, %ld of them past 65,519 (%ld drawn on)\n",
             ok ? "SAME" : (r.failed ? "UNREADABLE" : "DIFFERENT"), zv, build, version, count, past, drawn_past);
     fprintf(out, "tiles that differ from ZQuest's: %ld, past 65,519: %ld, first: %ld\n", mismatches, mismatches_past, first_bad);
-    fprintf(out, "hash of the tiles past 65,519: file %016llx, ZQuest %016llx\n",
-            (unsigned long long)file_hash, (unsigned long long)zq_hash);
+    // (two 32-bit halves: on 64-bit Linux and macOS zcport/lp64.h makes "long" an int, so no
+    // "unsigned long long" here)
+    fprintf(out, "hash of the tiles past 65,519: file %08x%08x, ZQuest %08x%08x\n",
+            (unsigned)(file_hash >> 32), (unsigned)file_hash, (unsigned)(zq_hash >> 32), (unsigned)zq_hash);
     fprintf(out, "pages past 251 with tiles drawn on (page:tiles):");
 
     for(int pg = 252, shown = 0; pg < TILE_PAGES && shown < 16; ++pg)
@@ -597,7 +599,7 @@ std::string file_digest(const char *path)
 
     fclose(f);
     char buf[64];
-    snprintf(buf, sizeof(buf), "%ld bytes %016llx", n, (unsigned long long)h);
+    snprintf(buf, sizeof(buf), "%d bytes %08x%08x", (int)n, (unsigned)(h >> 32), (unsigned)h);
     return buf;
 }
 
