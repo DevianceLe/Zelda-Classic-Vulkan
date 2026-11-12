@@ -30,6 +30,8 @@
 #include "subscr.h"
 #include "zq_writers.h"
 #include "q255.h"
+#include "zq_q255_store.h"
+#include "zq_tape.h"
 
 extern DoorComboSet *DoorComboSets;
 extern dmap *DMaps;
@@ -37,6 +39,7 @@ extern std::vector<mapscr> TheMaps;
 extern word map_count;
 extern newcombo *combobuf;
 extern zinitdata zinit;
+extern zquestheader header;
 void clear_screen(mapscr *temp_scr);   // qst.cpp
 
 // q255_maps.cpp, for ZQuest only: one screen or DMap read as the 2.55 loader reads it,
@@ -2185,6 +2188,119 @@ void put_screen_grouped(Out &o, word v, const mapscr &c, const mapscr &loaded, c
     }
 }
 
+// ---- MAP: the screen editor's fields (zq_record_editor.cpp) ---------------------------------
+
+// ZQW_TAPE_CHECK=1 (for testing the record editor's schemas, zq_tape.cpp): a record read as a
+// tape must end where the writer's walk says and encode back to its own bytes.
+bool tape_check_on()
+{
+    static int env = -1;
+
+    if(env < 0)
+        env = getenv("ZQW_TAPE_CHECK") ? 1 : 0;
+
+    return env == 1;
+}
+
+int g_tape_bad = 0, g_tape_records = 0;
+
+void tape_check(const char *what, int index, word v, const std::vector<byte> &bytes, size_t at, size_t end,
+                bool (*schema)(TapeParser &, int))
+{
+    Tape t;
+    TapeParser p(bytes.empty() ? NULL : &bytes[0], end, at, &t);
+    bool ok = schema(p, v) && p.pos == end;
+    std::vector<byte> enc;
+
+    if(ok)
+    {
+        t.encode(enc);
+        ok = enc.size() == end - at && (enc.empty() || !memcmp(&enc[0], &bytes[at], enc.size()));
+    }
+
+    ++g_tape_records;
+
+    if(!ok && g_tape_bad++ < 5)
+        al_trace("zqw tape %s v%d: record %d doesn't read and encode back (%d of %d bytes)\n", what, v, index,
+                 (int)(p.pos - at), (int)(end - at));
+}
+
+void tape_check_report(const char *what, word v)
+{
+    if(tape_check_on())
+        al_trace("zqw tape %s v%d: %d records, %d bad\n", what, v, g_tape_records, g_tape_bad);
+
+    g_tape_bad = g_tape_records = 0;
+}
+
+// Sets a field from an edited one of the same key and kind.
+void take_field(TapeField &to, const TapeField &from)
+{
+    if(to.kind != from.kind)
+        return;
+
+    to.value = from.value;
+    to.bytes = from.bytes;
+}
+
+// A screen's record with its edited 2.55/3.0-only fields put in: the record read as a tape,
+// the fields set by key, the groups they need switched on, and the record laid out again.
+// False when the record can't be read.
+bool apply_screen_fields(size_t index, word v, std::vector<byte> &rec)
+{
+    std::map<int, std::map<std::string, TapeField> >::const_iterator it = zq255.screen_fields.find((int)index);
+
+    if(it == zq255.screen_fields.end() || it->second.empty())
+        return true;
+
+    Tape t;
+    TapeParser p(rec.empty() ? NULL : &rec[0], rec.size(), 0, &t);
+
+    if(!zq_tape_screen(p, v) || p.pos != rec.size())
+        return false;
+
+    TapeField *has = t.find("has");
+
+    if(v >= 23 && !has)
+        return true;    // an unused screen: nothing to put in
+
+    if(has)
+    {
+        // the groups the edited fields belong to: from a walk with every group on
+        Tape all, src = t;
+        src.find("has")->value = 0xEFFF;
+        TapeParser q(&src, &all);
+        zq_tape_screen(q, v);
+
+        for(std::map<std::string, TapeField>::const_iterator f = it->second.begin(); f != it->second.end(); ++f)
+            if(!t.find(f->first.c_str()))
+                if(const TapeField *g = all.find(f->first.c_str()))
+                    has->value |= g->gate;
+    }
+
+    for(std::map<std::string, TapeField>::const_iterator f = it->second.begin(); f != it->second.end(); ++f)
+        if(TapeField *x = t.find(f->first.c_str()))
+            take_field(*x, f->second);
+
+    Tape out;
+    TapeParser r(&t, &out);
+    zq_tape_screen(r, v);
+
+    for(std::map<std::string, TapeField>::const_iterator f = it->second.begin(); f != it->second.end(); ++f)
+        if(TapeField *x = out.find(f->first.c_str()))
+            take_field(*x, f->second);
+
+    rec.clear();
+    out.encode(rec);
+    return true;
+}
+
+bool has_screen_fields(size_t index)
+{
+    std::map<int, std::map<std::string, TapeField> >::const_iterator it = zq255.screen_fields.find((int)index);
+    return it != zq255.screen_fields.end() && !it->second.empty();
+}
+
 // What a map's own fields are in the v23+ format (before its screens).
 struct MapHead
 {
@@ -2337,6 +2453,9 @@ int write_maps_255(PACKFILE *f, const ZqPartContext &ctx)
                 if(!used)
                     return ERR_READ;
 
+                if(tape_check_on())
+                    tape_check("MAP", (int)index, v, body, in.pos, in.pos + used, zq_tape_screen);
+
                 in.pos += used;
             }
             else
@@ -2348,7 +2467,7 @@ int write_maps_255(PACKFILE *f, const ZqPartContext &ctx)
             const mapscr &c = TheMaps[index];
             const bool unchanged = used && screen_unchanged(index);
 
-            if(unchanged && !zqw_force_serialize)
+            if(unchanged && !zqw_force_serialize && !has_screen_fields(index))
             {
                 o.copy(body, start, in.pos);
                 continue;
@@ -2406,6 +2525,13 @@ int write_maps_255(PACKFILE *f, const ZqPartContext &ctx)
                     }
                 }
 
+                // the 2.55/3.0-only fields edited in the screen editor
+                if(!apply_screen_fields(index, v, rec.b))
+                {
+                    encoder_ok = false;
+                    break;
+                }
+
                 // a map written anew has no layers or palette of its own for unused screens
                 const bool head_kept = screens_in_raw;
                 got.screen_midi = c.screen_midi;
@@ -2414,9 +2540,12 @@ int write_maps_255(PACKFILE *f, const ZqPartContext &ctx)
                 ok = back == rec.b.size() && same_screen(c, got);
             }
 
-            if(ok && encoder_ok && !exact_differs(ID_MAPS, (int)index, unchanged, rec.b, body, start, in.pos))
+            // a screen with fields edited in the screen editor counts as changed: it can't be dropped quietly
+            const bool kept_as_is = unchanged && !has_screen_fields(index);
+
+            if(ok && encoder_ok && !exact_differs(ID_MAPS, (int)index, kept_as_is, rec.b, body, start, in.pos))
                 o.pn(&rec.b[0], rec.b.size());
-            else if(refuse(ID_MAPS, (int)index, unchanged, "can't be held in this version"))
+            else if(refuse(ID_MAPS, (int)index, kept_as_is, "can't be held in this version"))
                 return ERR_CANT_HOLD;
             else
                 o.copy(body, start, in.pos);
@@ -2424,6 +2553,7 @@ int write_maps_255(PACKFILE *f, const ZqPartContext &ctx)
     }
 
     o.copy(body, in.pos, body.size());
+    tape_check_report("MAP", v);
     return put_part(f, ctx.part->id, orig, o);
 }
 
@@ -2694,9 +2824,28 @@ int write_dmaps_255(PACKFILE *f, const ZqPartContext &ctx)
             pos = end;
         }
 
+        if(have_raw && tape_check_on())
+            tape_check("DMAP", i, v, body, start, end, zq_tape_dmap);
+
         if(i >= MAXDMAPS)
         {
             o.copy(body, start, end);
+            continue;
+        }
+
+        // a DMap edited in the DMap editor for newer quests: its record as edited
+        std::map<int, std::vector<byte> >::const_iterator edited = zq255.dmap_records.find(i);
+
+        if(edited != zq255.dmap_records.end())
+        {
+            size_t back = 0;
+
+            if(!edited->second.empty() && read_dmap_255(edited->second, 0, v, &back, got) && back == edited->second.size() &&
+               same_dmap(DMaps[i], got, false))
+                o.pn(&edited->second[0], edited->second.size());
+            else if(refuse(ID_DMAPS, i, false, "doesn't read back as edited"))
+                return ERR_CANT_HOLD;
+
             continue;
         }
 
@@ -2735,9 +2884,326 @@ int write_dmaps_255(PACKFILE *f, const ZqPartContext &ctx)
     }
 
     o.copy(body, pos, body.size());
+    tape_check_report("DMAP", v);
     return put_part(f, ctx.part->id, orig, o);
 }
 
 ZqWriterRegistration g_reg_dmaps_255(ID_DMAPS, write_dmaps_255, "DMaps, 2.55/3.0 versions 9-28");
 
+// Edited DMaps and screen fields count in their sections' fingerprints (nothing for a quest
+// with none).
+void hash_dmap_records(uint64_t *h)
+{
+    for(std::map<int, std::vector<byte> >::const_iterator it = zq255.dmap_records.begin(); it != zq255.dmap_records.end(); ++it)
+    {
+        const int i = it->first;
+        const unsigned n = (unsigned)it->second.size();
+        zq_hash_add(h, &i, sizeof(i));
+        zq_hash_add(h, &n, sizeof(n));
+        zq_hash_add(h, it->second.empty() ? NULL : &it->second[0], it->second.size());
+    }
+}
+
+void hash_screen_fields(uint64_t *h)
+{
+    for(std::map<int, std::map<std::string, TapeField> >::const_iterator it = zq255.screen_fields.begin();
+        it != zq255.screen_fields.end(); ++it)
+        for(std::map<std::string, TapeField>::const_iterator f = it->second.begin(); f != it->second.end(); ++f)
+        {
+            zq_hash_add(h, &it->first, sizeof(it->first));
+            zq_hash_add(h, f->first.data(), f->first.size());
+            zq_hash_add(h, &f->second.value, sizeof(f->second.value));
+            zq_hash_add(h, f->second.bytes.empty() ? NULL : &f->second.bytes[0], f->second.bytes.size());
+        }
+}
+
+ZqStoreHashRegistration g_hash_dmaps(ID_DMAPS, hash_dmap_records);
+ZqStoreHashRegistration g_hash_screens(ID_MAPS, hash_screen_fields);
+
+// The open quest's DMap part and each record's place in its body (and the body's end).
+bool dmap_layout(std::vector<byte> &orig, std::vector<byte> &body, word &v, std::vector<size_t> &rec_at)
+{
+    const ZqQuestPart *part = find_part(ID_DMAPS);
+
+    if(!part || header.zelda_version != 0x255 || !part_bytes(*part, orig) || orig.size() < 10)
+        return false;
+
+    v = (word)(orig[0] | (orig[1] << 8));
+
+    if(v < 9 || v > 28)
+        return false;
+
+    body.assign(orig.begin() + 8, orig.end());
+    const int count = body[0] | (body[1] << 8);
+    size_t pos = 2;
+    dmap d;
+    rec_at.clear();
+
+    for(int i = 0; i < count; ++i)
+    {
+        size_t end = 0;
+        rec_at.push_back(pos);
+
+        if(!read_dmap_255(body, pos, v, &end, d))
+            return false;
+
+        pos = end;
+    }
+
+    rec_at.push_back(pos);
+    return true;
+}
+
+// The open quest's MAP part, walked to a screen: its record (as loaded) and the version.
+bool screen_raw(size_t index, std::vector<byte> &rec, word &v)
+{
+    const ZqQuestPart *part = find_part(ID_MAPS);
+    std::vector<byte> orig;
+
+    if(!part || header.zelda_version != 0x255 || !part_bytes(*part, orig) || orig.size() < 10)
+        return false;
+
+    v = (word)(orig[0] | (orig[1] << 8));
+
+    if(v < 18 || v > 41)
+        return false;
+
+    const std::vector<byte> body(orig.begin() + 8, orig.end());
+    In in(body, 0);
+    const int maps = in.g16();
+    mapscr scratch;
+
+    for(int i = 0; i < maps; ++i)
+    {
+        byte valid = 1;
+        word autolayers[6] = { 0, 0, 0, 0, 0, 0 };
+        word autopalette = 0;
+
+        if(v > 22)
+            valid = in.g8();
+
+        if(valid)
+        {
+            if(v > 25)
+            {
+                for(int q = 0; q < 6; ++q) autolayers[q] = in.g16();
+                if(v >= 36) autopalette = in.g16();
+            }
+
+            if(v >= 31)
+                in.skip(64);
+        }
+
+        if(in.bad)
+            return false;
+
+        if(!valid)
+        {
+            if((size_t)i == index / MAPSCRS)
+                return false;   // the file has no screens for this map
+
+            continue;
+        }
+
+        for(int j = 0; j < MAPSCRS; ++j)
+        {
+            const size_t used = read_screen_255(body, in.pos, v, j, autolayers, autopalette, scratch);
+
+            if(!used)
+                return false;
+
+            if((size_t)i * MAPSCRS + j == index)
+            {
+                rec.assign(body.begin() + in.pos, body.begin() + in.pos + used);
+                return true;
+            }
+
+            in.pos += used;
+        }
+    }
+
+    return false;
+}
+
 } // namespace
+
+// ---- the record editor's access (zq_record_editor.cpp) ---------------------------------
+
+// DMap i's record as it stands (edited, or as loaded) and the section version.
+bool zq255_dmap_record(int i, std::vector<byte> &rec, int *version)
+{
+    std::vector<byte> orig, body;
+    std::vector<size_t> rec_at;
+    word v = 0;
+
+    if(i < 0 || i >= MAXDMAPS || !dmap_layout(orig, body, v, rec_at) || i + 1 >= (int)rec_at.size())
+        return false;
+
+    if(version)
+        *version = v;
+
+    std::map<int, std::vector<byte> >::const_iterator it = zq255.dmap_records.find(i);
+
+    if(it != zq255.dmap_records.end())
+        rec = it->second;
+    else
+        rec.assign(body.begin() + rec_at[i], body.begin() + rec_at[i + 1]);
+
+    return true;
+}
+
+// Puts an edited DMap record in: the section (with every edited record) is read, DMap i takes
+// what the reader makes of it, and the store keeps its scripts, subscreens and music.
+bool zq255_dmap_commit(int i, const std::vector<byte> &rec, std::string &why)
+{
+    std::vector<byte> orig, body;
+    std::vector<size_t> rec_at;
+    word v = 0;
+
+    if(i < 0 || i >= MAXDMAPS || !dmap_layout(orig, body, v, rec_at) || i + 1 >= (int)rec_at.size())
+    {
+        why = "this quest's DMaps can't be edited this way";
+        return false;
+    }
+
+    std::vector<byte> sec(body.begin(), body.begin() + 2);
+
+    for(size_t k = 0; k + 1 < rec_at.size(); ++k)
+    {
+        std::map<int, std::vector<byte> >::const_iterator it = zq255.dmap_records.find((int)k);
+
+        if((int)k == i)
+            sec.insert(sec.end(), rec.begin(), rec.end());
+        else if(it != zq255.dmap_records.end())
+            sec.insert(sec.end(), it->second.begin(), it->second.end());
+        else
+            sec.insert(sec.end(), body.begin() + rec_at[k], body.begin() + rec_at[k + 1]);
+    }
+
+    sec.insert(sec.end(), body.begin() + rec_at.back(), body.end());
+
+    // everything the reader changes, kept to be put back but for DMap i
+    std::vector<dmap> dmaps(DMaps, DMaps + MAXDMAPS);
+    const std::vector<Zq255Store::Music> music = zq255.music;
+    const std::map<int, std::pair<int, bool> > dmap_music = zq255.dmap_music;
+    std::map<int, Q30ScriptRef> scripts[q30_dmap_kinds];
+
+    for(int k = 0; k < q30_dmap_kinds; ++k)
+        scripts[k] = zq255.dmap_scripts[k];
+
+    const std::map<int, std::pair<int, int> > subs = zq255.dmap_subscreens;
+
+    Q255Section s;
+    s.data = sec.empty() ? NULL : &sec[0];
+    s.size = sec.size();
+    s.version = v;
+    s.cversion = (word)(orig[2] | (orig[3] << 8));
+    s.keep = true;
+    s.header = &header;
+    const int ret = q255_read_dmaps(s);
+    const bool ok = ret == 0 && !s.failed;
+
+    const dmap got = DMaps[i];
+    std::map<int, std::pair<int, bool> >::const_iterator gm = zq255.dmap_music.find(i);
+    const bool have_music = gm != zq255.dmap_music.end();
+    const std::pair<int, bool> got_music = have_music ? gm->second : std::make_pair(0, false);
+    Zq255Store::Music got_object;
+
+    if(have_music && !got_music.second && got_music.first >= 1 && got_music.first <= (int)zq255.music.size())
+        got_object = zq255.music[got_music.first - 1];
+
+    std::map<int, Q30ScriptRef> got_scripts[q30_dmap_kinds];
+
+    for(int k = 0; k < q30_dmap_kinds; ++k)
+        got_scripts[k] = zq255.dmap_scripts[k];
+
+    const std::map<int, std::pair<int, int> > got_subs = zq255.dmap_subscreens;
+
+    memcpy(DMaps, &dmaps[0], sizeof(dmap) * MAXDMAPS);
+    zq255.music = music;
+    zq255.dmap_music = dmap_music;
+
+    for(int k = 0; k < q30_dmap_kinds; ++k)
+        zq255.dmap_scripts[k] = scripts[k];
+
+    zq255.dmap_subscreens = subs;
+
+    if(!ok)
+    {
+        why = "the DMap reader doesn't take the record";
+        return false;
+    }
+
+    DMaps[i] = got;
+
+    for(int k = 0; k < q30_dmap_kinds; ++k)
+    {
+        std::map<int, Q30ScriptRef>::const_iterator x = got_scripts[k].find(i);
+
+        if(x != got_scripts[k].end())
+            zq255.dmap_scripts[k][i] = x->second;
+        else
+            zq255.dmap_scripts[k].erase(i);
+    }
+
+    std::map<int, std::pair<int, int> >::const_iterator gs = got_subs.find(i);
+
+    if(gs != got_subs.end())
+        zq255.dmap_subscreens[i] = gs->second;
+    else
+        zq255.dmap_subscreens.erase(i);
+
+    if(!have_music)
+        zq255.dmap_music.erase(i);
+    else if(got_music.second)
+        zq255.dmap_music[i] = got_music;
+    else
+    {
+        // an older DMap's own music object (loop points, crossfades): a new one at the end
+        zq255.music.push_back(got_object);
+        zq255.dmap_music[i] = std::make_pair((int)zq255.music.size(), false);
+    }
+
+    zq255.dmap_records[i] = rec;
+    return true;
+}
+
+// Screen index's record as loaded and its section version (the editor puts the edited fields
+// in itself); false for a screen the file has no record for.
+bool zq255_screen_record(int index, std::vector<byte> &rec, int *version)
+{
+    word v = 0;
+
+    if(index < 0 || !screen_raw((size_t)index, rec, v))
+        return false;
+
+    if(version)
+        *version = v;
+
+    return true;
+}
+
+// After the screen editor's edits: what those fields make of fields 2.53 also holds (the
+// screen's MIDI from its music, the lens layer from the Lens's layers) goes into TheMaps,
+// so the screen reads back as ZQuest holds it. Only for the fields the edit touched.
+void zq255_screen_fields_sync(int index, bool music, bool lens)
+{
+    std::vector<byte> rec;
+    word v = 0;
+
+    if(index < 0 || (size_t)index >= TheMaps.size() || !screen_raw((size_t)index, rec, v) ||
+       !apply_screen_fields((size_t)index, v, rec))
+        return;
+
+    mapscr got;
+    const word no_layers[6] = { 0, 0, 0, 0, 0, 0 };
+
+    if(!read_screen_255(rec, 0, v, index % MAPSCRS, no_layers, 0, got))
+        return;
+
+    if(music)
+        TheMaps[index].screen_midi = got.screen_midi;
+
+    if(lens)
+        TheMaps[index].lens_layer = got.lens_layer;
+}

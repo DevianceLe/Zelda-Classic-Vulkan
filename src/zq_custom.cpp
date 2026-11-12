@@ -1246,8 +1246,23 @@ void test_item(itemdata test, int x, int y)
 }
 
 
+bool zq_edit_item_newer(int index, bool *shown);     // port/zqeditor/zq_record_editor.cpp
+bool zq_edit_enemy_newer(int index, bool *shown);
+bool zq255_copy_record(bool item, int dest, int src);
+
 void edit_itemdata(int index)
 {
+    // A 2.55 or 3.0 Nightly quest's items hold far more than this dialog shows: they get the
+    // editor for their own version.
+    if(zq255_quest_is_newer())
+    {
+        bool shown = false;
+        zq_edit_item_newer(index, &shown);
+        
+        if(shown)
+            return;
+    }
+    
     char frm[8], spd[8], fcs[8], dly[8], ltm[8];
     char /*cls[8],*/ cll[8], amt[8], fmx[8], max[8], asn[8];
     char snd[8], mgc[8], hrt[8], pow[8];
@@ -1747,7 +1762,10 @@ void ilist_rclick_func(int index, int x, int y)
         copiedItem=bii[index].i;
     else if(ret==1) // paste
     {
-        itemsbuf[bii[index].i]=itemsbuf[copiedItem];
+        // a newer quest's item is its whole record, past what itemsbuf holds
+        if(!zq255_quest_is_newer() || !zq255_copy_record(true, bii[index].i, copiedItem))
+            itemsbuf[bii[index].i]=itemsbuf[copiedItem];
+        
         ilist_dlg[2].flags|=D_DIRTY;
         saved=false;
     }
@@ -2961,6 +2979,15 @@ int d_ecstile_proc(int msg,DIALOG *d,int c)
 
 void edit_enemydata(int index)
 {
+    if(zq255_quest_is_newer())
+    {
+        bool shown = false;
+        zq_edit_enemy_newer(index, &shown);
+        
+        if(shown)
+            return;
+    }
+    
     char hp[8], dp[8], wdp[8], rat[8], hrt[8], hom[8], grm[8], spd[8],
          frt[8], efr[8], bsp[8];
     char w[8],h[8],sw[8],sh[8],ew[8],eh[8];
@@ -3312,7 +3339,9 @@ int onCustomEnemies()
         {
             if(copiedGuy>0 && index!=0)
             {
-                guysbuf[index]=guysbuf[copiedGuy];
+                if(!zq255_quest_is_newer() || !zq255_copy_record(false, index, copiedGuy))
+                    guysbuf[index]=guysbuf[copiedGuy];
+                
                 saved=false;
             }
         }

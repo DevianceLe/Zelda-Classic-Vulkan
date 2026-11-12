@@ -35,6 +35,8 @@
 #include "zquest.h"
 #include "zq_writers.h"
 #include "zqw_itemguy.h"
+#include "zq_tape.h"
+#include "zqn_255.h"
 
 extern guydata *guysbuf;
 extern char *guy_string[eMAXGUYS];
@@ -2079,5 +2081,580 @@ int zqn_guys(PACKFILE *f, const ZqNewerContext &ctx)
 }
 
 ZqNewerRegistration g_register(ID_GUYS, zqn_guys, "enemies for 2.55.17 and 3.0");
+
+// ---- a quest made in 2.55 (zqn_255.h) ------------------------------------------------------
+//
+// Each enemy's record read with the tape (zq_tape_guy) the way readguy_single reads versions 41
+// to 59, then the conversions that reader makes for records older than 3.0's version 60, in its
+// order. The header fixes readguys makes before reading the records don't reach these: every
+// record is read over them. Names as readguys keeps them (upstream_name).
+
+void from_tape(UGuy &g, const TapeIndex &t, int v)
+{
+    char k[32];
+#define T(key) t.get(key)
+    g.flags = (dword)T("flags");
+    g.flags2 = (dword)T("flags2");
+    g.tile = T("tile");
+    g.width = (byte)T("width");
+    g.height = (byte)T("height");
+    g.s_tile = T("s_tile");
+    g.s_width = (byte)T("s_width");
+    g.s_height = (byte)T("s_height");
+    g.e_tile = T("e_tile");
+    g.e_width = (byte)T("e_width");
+    g.e_height = (byte)T("e_height");
+    g.hp = (short)T("hp");
+    g.family = (short)T("family");
+    g.cset = (short)T("cset");
+    g.anim = (short)T("anim");
+    g.e_anim = (short)T("e_anim");
+    g.frate = (short)T("frate");
+    g.e_frate = (short)T("e_frate");
+    g.dp = (short)T("dp");
+    g.wdp = (short)T("wdp");
+    g.weapon = (short)T("weapon");
+    g.rate = (short)T("rate");
+    g.hrate = (short)T("hrate");
+    g.step = (short)T("step");
+    g.homing = (short)T("homing");
+    g.grumble = (short)T("grumble");
+    g.item_set = (short)T("item_set");
+
+    for(int j = 0; j < 32; ++j)
+    {
+        snprintf(k, sizeof(k), "attr%d", j);
+        g.misc[j] = T(k);
+    }
+
+    g.bgsfx = (short)T("bgsfx");
+    g.bosspal = (short)T("bosspal");
+    g.extend = (short)T("extend");
+
+    for(int j = 0; j < U_DEFENSES; ++j)
+    {
+        snprintf(k, sizeof(k), "def%d", j);
+        g.defense[j] = (byte)T(k);
+    }
+
+    g.hitsfx = (word)T("hitsfx");
+    g.deadsfx = (word)T("deadsfx");
+    g.txsz = T("txsz"); g.tysz = T("tysz"); g.hxsz = T("hxsz"); g.hysz = T("hysz"); g.hzsz = T("hzsz");
+    g.hxofs = T("hxofs"); g.hyofs = T("hyofs"); g.xofs = T("xofs"); g.yofs = T("yofs"); g.zofs = T("zofs");
+    g.wpnsprite = T("wpnsprite");
+    g.SIZEflags = T("sizeflags");
+    g.frozentile = T("frozentile");
+    g.frozencset = T("frozencset");
+    g.frozenclock = T("frozenclock");
+
+    for(int q = 0; q < 10; ++q)
+    {
+        snprintf(k, sizeof(k), "frozenmisc%d", q);
+        g.frozenmisc[q] = (short)T(k);
+    }
+
+    g.firesfx = (short)T("firesfx");
+
+    for(int q = 0; q < 32; ++q)
+    {
+        snprintf(k, sizeof(k), "movement%d", q);
+        g.movement[q] = T(k);
+        snprintf(k, sizeof(k), "new_weapon%d", q);
+        g.new_weapon[q] = T(k);
+    }
+
+    const char *const sc = v < 59 ? "" : "sc.";
+    snprintf(k, sizeof(k), "%sscript", sc);
+    g.script = (word)T(k);
+
+    for(int q = 0; q < 8; ++q)
+    {
+        snprintf(k, sizeof(k), "%sinitd%d", sc, q);
+        g.initD[q] = T(k);
+    }
+
+    g.editorflags = T("editorflags");
+
+    if(v >= 40 && v < 54)
+    {
+        g.wd.script = (word)T("w.script");
+
+        for(int q = 0; q < 8; ++q)
+        {
+            snprintf(k, sizeof(k), "w.initd%d", q);
+            g.wd.run_args[q] = T(k);
+        }
+    }
+
+    g.moveflags = (dword)T("moveflags");
+    g.spr_shadow = (word)T("spr_shadow");
+    g.spr_death = (word)T("spr_death");
+    g.spr_spawn = (word)T("spr_spawn");
+    g.specialsfx = (word)T("specialsfx");
+
+    if(t.find("vpsuspend"))
+    {
+        g.viewport_suspend_range = T("vpsuspend");
+        g.viewport_despawn_range = T("vpdespawn");
+    }
+
+    g.firesfx_secondary = (short)T("firesfx2");
+#undef T
+}
+
+// read_weap_data (versions 1 to 5 of a weapon's data); what a version lacks stays as cleared
+void weapon_from_tape(UWeapon &w, const TapeIndex &t)
+{
+    char k[40], n[24];
+#define W(name) (snprintf(k, sizeof(k), "wd.%s", name), t.get(k))
+#define WD(name, dflt) (snprintf(k, sizeof(k), "wd.%s", name), t.find(k) ? t.get(k) : (dflt))
+    w.flags = (word)W("flags");
+    w.moveflags = (dword)W("moveflags");
+    w.wflags = (word)W("wflags");
+
+    for(int q = 0; q < 5; ++q)
+    {
+        snprintf(n, sizeof(n), "burnspr%d", q);
+        w.burnsprs[q] = (word)W(n);
+        snprintf(n, sizeof(n), "lightrad%d", q);
+        w.light_rads[q] = (byte)W(n);
+        snprintf(n, sizeof(n), "lightofs%d", q);
+        w.light_offsets[q] = W(n);
+    }
+
+    w.glow_shape = (byte)W("glow");
+    w.override_flags = W("override");
+    w.tilew = W("tilew"); w.tileh = W("tileh"); w.hxsz = W("hxsz"); w.hysz = W("hysz"); w.hzsz = W("hzsz");
+    w.hxofs = W("hxofs"); w.hyofs = W("hyofs"); w.xofs = W("xofs"); w.yofs = W("yofs");
+    w.step = W("step");
+    w.unblockable = (byte)W("unblockable");
+    w.timeout = W("timeout");
+    w.imitate_weapon = (byte)W("imitate");
+    w.default_defense = (byte)W("defdef");
+    w.lift_level = (byte)W("liftlvl");
+    w.lift_time = (byte)W("lifttime");
+    w.lift_height = W("lifthei");
+    const bool old = t.find("wd.script") != NULL;
+
+    w.script = (word)(old ? W("script") : W("sc.script"));
+
+    for(int q = 0; q < 8; ++q)
+    {
+        snprintf(n, sizeof(n), old ? "initd%d" : "sc.initd%d", q);
+        w.run_args[q] = W(n);
+    }
+
+    w.pierce_count = (short)W("pierce");
+    w.bounce_mult = WD("bouncemult", w.bounce_mult);
+    w.bounce_add = WD("bounceadd", w.bounce_add);
+    w.viewport_suspend_range = WD("vpsuspend", w.viewport_suspend_range);
+    w.viewport_despawn_range = WD("vpdespawn", w.viewport_despawn_range);
+#undef W
+#undef WD
+}
+
+void convert_255_record(UGuy &g, const UCtx &c, const TapeIndex &t)
+{
+    const int v = c.v;
+    long *m = g.misc;
+
+    if(c.cv < 4)
+    {
+        if(g.family == eeKEESE && !m[0])
+            m[15] = 120, m[16] = 16;
+
+        if(g.family == eePEAHAT)
+            m[15] = 80, m[16] = 16;
+
+        if(g.family == eeGHINI)
+            m[15] = 120, m[16] = 10;
+    }
+
+    if(v < 42)
+    {
+        switch(g.family)
+        {
+        case eeTEK: case eePEAHAT: case eeROCK: case eeTRAP:
+        case eePROJECTILE: case eeSPINTILE: case eeKEESE: case eeFIRE:
+        case eeFAIRY: case eeGUY: case eeNONE: case eeZORA:
+        case eeAQUA: case eeDIG: case eeGHOMA: case eeGANON:
+        case eePATRA: case eeGLEEOK: case eeMOLD: case eeMANHAN:
+            g.moveflags = MF_CAN_PITWALK;
+            break;
+
+        case eeLEV:
+            g.moveflags = MF_CAN_PITFALL;
+            break;
+
+        case eeDONGO:
+            g.moveflags = MF_OBEYS_GRAV;
+            break;
+
+        case eeLANM:
+            g.moveflags = 0;
+            break;
+
+        case eeWIZZ: case eeWALLM: case eeGHINI:
+            g.moveflags = MF_OBEYS_GRAV | MF_CAN_PITWALK;
+            break;
+
+        case eeWALK:
+            if(m[8] == e9tPOLSVOICE || m[8] == e9tVIRE)
+                break;
+
+            g.moveflags = MF_OBEYS_GRAV | MF_CAN_PITFALL;
+            break;
+
+        default:
+            if(g.family == eeOTHER || (g.family >= eeSCRIPT01 && g.family <= eeSCRIPT20)
+               || (g.family >= eeFFRIENDLY01 && g.family <= eeFFRIENDLY10))
+                g.moveflags = MF_OBEYS_GRAV | MF_CAN_PITFALL;
+
+            break;
+        }
+    }
+
+    if(v < 43)
+    {
+        switch(g.family)
+        {
+        case eeTEK: case eePEAHAT: case eeROCK: case eeTRAP:
+        case eePROJECTILE: case eeSPINTILE: case eeKEESE: case eeFIRE:
+        case eeFAIRY: case eeGUY: case eeNONE: case eeZORA:
+        case eeAQUA: case eeDIG: case eeGHOMA: case eeGANON:
+        case eePATRA: case eeGLEEOK: case eeMOLD: case eeMANHAN:
+        case eeWIZZ: case eeWALLM: case eeGHINI:
+            g.moveflags |= MF_CAN_WATERWALK | MF_CAN_PITWALK;
+            break;
+        }
+    }
+
+    if(v < 44 && g.family == eeGHOMA)
+        g.flags |= guy_fadeinstant;
+
+    if(v <= 44)
+    {
+        g.spr_shadow = (g.family == eeROCK && m[9] == 1) ? iwLargeShadow : iwShadow;
+        g.spr_death = iwDeath;
+        g.spr_spawn = iwSpawn;
+    }
+
+    if(v < 46 && g.family == eeWALK && m[8] == e9tPOLSVOICE)
+        g.moveflags |= MF_CAN_WATERWALK;
+
+    if(v < 47 && g.family == eeDIG && m[9] != 1)
+        g.flags2 |= U_guy_ignorekill;
+
+    if(v < 49 && g.family == eeWALK && (m[6] == e7tPERMJINX || m[6] == e7tTEMPJINX || m[6] == e7tUNJINX))
+    {
+        switch(m[7])
+        {
+        case 0: m[7] = U30_e8tSWORD; break;
+        case 1: m[7] = U30_e8tITEM; break;
+        case 2: m[7] = U30_e8tSWORD | U30_e8tITEM; break;
+        default: m[7] = 0; break;
+        }
+    }
+
+    if(v < 51)
+        guy_update_firesfx(g, c);
+    else if(v < 60)
+        g.firesfx_secondary = g.firesfx;
+
+    if(v < 60)
+        guy_silence_unplayed_firesfx(g, c);
+
+    if(v < 52)
+        guy_update_weaponflags(g);
+    else if(v < 54)
+    {
+        char k[24];
+        g.wd.unblockable = (byte)t.get("w.unblockable");
+        g.wd.moveflags = (dword)t.get("w.moveflags");
+        g.wd.override_flags = t.get("w.override");
+        g.wd.tilew = t.get("w.tilew"); g.wd.tileh = t.get("w.tileh");
+        g.wd.hxsz = t.get("w.hxsz"); g.wd.hysz = t.get("w.hysz"); g.wd.hzsz = t.get("w.hzsz");
+        g.wd.hxofs = t.get("w.hxofs"); g.wd.hyofs = t.get("w.hyofs");
+        g.wd.xofs = t.get("w.xofs"); g.wd.yofs = t.get("w.yofs");
+        g.wd.step = t.get("w.step") * 100;     // zslongToFix(step * 100)
+
+        for(int q = 0; q < 5; ++q)
+        {
+            snprintf(k, sizeof(k), "w.burnspr%d", q);
+            g.wd.burnsprs[q] = (word)t.get(k);
+            snprintf(k, sizeof(k), "w.lightrad%d", q);
+            g.wd.light_rads[q] = (byte)t.get(k);
+        }
+    }
+
+    if(v < 53)
+        guy_update_weaponspecialsfx(g);
+
+    if(v >= 54)
+        weapon_from_tape(g.wd, t);
+    else
+    {
+        if(g.flags & guy_burning_sprites)
+            g.wd.wflags |= WFLAG_UPDATE_IGNITE_SPRITE;
+
+        g.wd.flags |= WD_SET_STEP;
+
+        if(g.weapon == ewRock)
+            g.wd.wflags |= WFLAG_BREAK_ON_SOLID;
+    }
+}
+
+int zqn255_guys(PACKFILE *f, const ZqNewerContext &ctx)
+{
+    if(!zqn255_source(ctx) || !ctx.src_part || ctx.src_version < 41 || ctx.src_version > 59 || ctx.target != ZQ_NEWER_30)
+        return ZQW_UNSUPPORTED;
+
+    Zqn255Section s;
+
+    if(!zqn255_section(ctx, s))
+        return 2;
+
+    std::vector<byte> rules;
+
+    if(!zqn255_rules_loaded(ctx.target, rules))
+        return 2;
+
+    UCtx c;
+    memset(&c, 0, sizeof(c));
+    c.target = ctx.target;
+    c.zver = ctx.src_zelda_version;
+    c.build = ctx.src_build;
+    c.v = s.version;
+    c.cv = s.cversion;
+    c.moresounds = ((rules[106 >> 3] >> (106 & 7)) & 1) != 0;   // qr_MORESOUNDS
+    c.eightway_dep = ((rules[277 >> 3] >> (277 & 7)) & 1) != 0; // qr_8WAY_SHOT_SFX_DEP
+    const size_t names = 64 * (size_t)MAXGUYS;
+
+    if(s.data.size() < names)
+    {
+        zqw_last_error = "its enemies aren't laid out as expected";
+        return 2;
+    }
+
+    std::vector<byte> out;
+    put_le(out, V_GUYS_30, 2);
+    put_le(out, V_GUYS_30, 2);
+    put_le(out, 0, 4);
+
+    for(int i = 0; i < MAXGUYS; ++i)
+    {
+        char raw[64], name[64];
+        memcpy(raw, &s.data[(size_t)i * 64], 64);
+        raw[63] = 0;
+        upstream_name(name, raw, i);
+        out.insert(out.end(), name, name + 64);
+    }
+
+    size_t at = names;
+
+    for(int i = 0; i < MAXGUYS; ++i)
+    {
+        Tape tape;
+        TapeParser p(&s.data[0], s.data.size(), at, &tape);
+
+        if(!zq_tape_guy(p, s.version) || p.bad)
+        {
+            zqw_last_error = "an enemy of its enemy section couldn't be read";
+            return 2;
+        }
+
+        at = p.pos;
+        const TapeIndex t(tape);
+        UGuy g;
+        clear_guy(g, ctx.target);
+        from_tape(g, t, s.version);
+        convert_255_record(g, c, t);
+        write_guy_30(out, g);
+    }
+
+    if(at != s.data.size())
+    {
+        zqw_last_error = "its enemy section has bytes past its last enemy";
+        return 2;
+    }
+
+    zqw_ig::set_le(out, 4, (dword)(out.size() - 8), 4);
+    return zqw_ig::write_part(f, ID_GUYS, out);
+}
+
+ZqNewerRegistration g_register_255(ID_GUYS, zqn255_guys, "2.55 enemies as 3.0");
+
+// A quest made in an older 2.55 build, saved as 2.55.17: each enemy's record (versions 41-47)
+// gets 2.55.17's readguys conversions for its version (3.0's for the same versions, which it
+// inherited), then is laid out again as version 48 (the tape's rebuild: every field kept by
+// name, the newer ones at the reader's values just set).
+void convert_255_17_record(Tape &t, int v, int cv)
+{
+    const long family = (long)t.get("family");
+    const long a0 = (long)t.get("attr0"), a6 = (long)t.get("attr6"), a8 = (long)t.get("attr8"), a9 = (long)t.get("attr9");
+    (void)a6;
+
+    if(cv < 4)
+    {
+        if(family == eeKEESE && !a0)
+            zqn255_tape_set(t, "attr15", 120), zqn255_tape_set(t, "attr16", 16);
+
+        if(family == eePEAHAT)
+            zqn255_tape_set(t, "attr15", 80), zqn255_tape_set(t, "attr16", 16);
+
+        if(family == eeGHINI)
+            zqn255_tape_set(t, "attr15", 120), zqn255_tape_set(t, "attr16", 10);
+    }
+
+    dword move = (dword)t.get("moveflags");
+
+    if(v < 42)
+    {
+        switch(family)
+        {
+        case eeTEK: case eePEAHAT: case eeROCK: case eeTRAP:
+        case eePROJECTILE: case eeSPINTILE: case eeKEESE: case eeFIRE:
+        case eeFAIRY: case eeGUY: case eeNONE: case eeZORA:
+        case eeAQUA: case eeDIG: case eeGHOMA: case eeGANON:
+        case eePATRA: case eeGLEEOK: case eeMOLD: case eeMANHAN:
+            move = MF_CAN_PITWALK;
+            break;
+
+        case eeLEV:
+            move = MF_CAN_PITFALL;
+            break;
+
+        case eeDONGO:
+            move = MF_OBEYS_GRAV;
+            break;
+
+        case eeLANM:
+            move = 0;
+            break;
+
+        case eeWIZZ: case eeWALLM: case eeGHINI:
+            move = MF_OBEYS_GRAV | MF_CAN_PITWALK;
+            break;
+
+        case eeWALK:
+            if(a8 == e9tPOLSVOICE || a8 == e9tVIRE)
+                break;
+
+            move = MF_OBEYS_GRAV | MF_CAN_PITFALL;
+            break;
+
+        default:
+            if(family == eeOTHER || (family >= eeSCRIPT01 && family <= eeSCRIPT20)
+               || (family >= eeFFRIENDLY01 && family <= eeFFRIENDLY10))
+                move = MF_OBEYS_GRAV | MF_CAN_PITFALL;
+
+            break;
+        }
+    }
+
+    if(v < 43)
+    {
+        switch(family)
+        {
+        case eeTEK: case eePEAHAT: case eeROCK: case eeTRAP:
+        case eePROJECTILE: case eeSPINTILE: case eeKEESE: case eeFIRE:
+        case eeFAIRY: case eeGUY: case eeNONE: case eeZORA:
+        case eeAQUA: case eeDIG: case eeGHOMA: case eeGANON:
+        case eePATRA: case eeGLEEOK: case eeMOLD: case eeMANHAN:
+        case eeWIZZ: case eeWALLM: case eeGHINI:
+            move |= MF_CAN_WATERWALK | MF_CAN_PITWALK;
+            break;
+        }
+    }
+
+    if(v < 46 && family == eeWALK && a8 == e9tPOLSVOICE)
+        move |= MF_CAN_WATERWALK;
+
+    zqn255_tape_set(t, "moveflags", move);
+
+    if(v < 44 && family == eeGHOMA)
+        zqn255_tape_set(t, "flags", (dword)t.get("flags") | guy_fadeinstant);
+
+    if(v <= 44)
+    {
+        zqn255_tape_set(t, "spr_shadow", (family == eeROCK && a9 == 1) ? iwLargeShadow : iwShadow);
+        zqn255_tape_set(t, "spr_death", iwDeath);
+        zqn255_tape_set(t, "spr_spawn", iwSpawn);
+    }
+
+    if(v < 47 && family == eeDIG && a9 != 1)
+        zqn255_tape_set(t, "flags2", (dword)t.get("flags2") | U_guy_ignorekill);
+}
+
+int zqn255_17_guys(PACKFILE *f, const ZqNewerContext &ctx)
+{
+    if(!zqn255_source(ctx) || !ctx.src_part || ctx.src_version < 41 || ctx.src_version > 47 || ctx.target != ZQ_NEWER_255)
+        return ZQW_UNSUPPORTED;
+
+    Zqn255Section s;
+
+    if(!zqn255_section(ctx, s))
+        return 2;
+
+    const size_t names = 64 * (size_t)MAXGUYS;
+
+    if(s.data.size() < names)
+    {
+        zqw_last_error = "its enemies aren't laid out as expected";
+        return 2;
+    }
+
+    std::vector<byte> out;
+    put_le(out, V_GUYS_255, 2);
+    put_le(out, CV_GUYS_255, 2);
+    put_le(out, 0, 4);
+
+    for(int i = 0; i < MAXGUYS; ++i)
+    {
+        char raw[64], name[64];
+        memcpy(raw, &s.data[(size_t)i * 64], 64);
+        raw[63] = 0;
+        upstream_name(name, raw, i);
+        out.insert(out.end(), name, name + 64);
+    }
+
+    size_t at = names;
+
+    for(int i = 0; i < MAXGUYS; ++i)
+    {
+        Tape tape;
+        TapeParser p(&s.data[0], s.data.size(), at, &tape);
+
+        if(!zq_tape_guy(p, s.version) || p.bad)
+        {
+            zqw_last_error = "an enemy of its enemy section couldn't be read";
+            return 2;
+        }
+
+        at = p.pos;
+        convert_255_17_record(tape, s.version, s.cversion);
+        std::vector<byte> rec;
+
+        if(!zqn255_tape_rebuild(zq_tape_guy, tape, V_GUYS_255, rec))
+        {
+            zqw_last_error = "an enemy couldn't be laid out as 2.55.17's version 48";
+            return 2;
+        }
+
+        out.insert(out.end(), rec.begin(), rec.end());
+    }
+
+    if(at != s.data.size())
+    {
+        zqw_last_error = "its enemy section has bytes past its last enemy";
+        return 2;
+    }
+
+    zqw_ig::set_le(out, 4, (dword)(out.size() - 8), 4);
+    return zqw_ig::write_part(f, ID_GUYS, out);
+}
+
+ZqNewerRegistration g_register_255_17(ID_GUYS, zqn255_17_guys, "2.55 enemies as 2.55.17");
+
 
 } // namespace

@@ -192,6 +192,11 @@ struct Q30WeaponData
     long bounce_mult, bounce_add;
     long viewport_suspend_range, viewport_despawn_range;
 
+    // For ZQuest's writers, which encode a changed record again: the data's own format
+    // version as the file had it (0: none read) and its script's instance values, as bytes.
+    int data_version;           // -1: none read
+    std::vector<byte> inst_raw;
+
     Q30WeaponData();
 };
 
@@ -236,6 +241,9 @@ struct Q30Combo
     // animation
     word delay;
     byte cs2_flash_duration;
+
+    // For ZQuest's writers: the combo script's instance values (v72+), as bytes.
+    std::vector<byte> script_inst_raw;
 
     Q30Combo();
 };
@@ -399,7 +407,8 @@ double q30_walk_speed_scale(int x, int y, int z, double step);   // same, for a 
 bool q30_respawn_forced();                  // a trigger fixed the drown respawn point
 bool q30_link_stunned();
 long q30_item_switch_family(int itemid);    // the family startwpn should treat this item as
-bool q30_switchhook_frame(weapon *w);       // true: the hook head is done
+int q30_switchhook_frame(weapon *w);        // 0 carry on, 1 the hook head is done, 2 held for a switch
+bool q30_switchhook_held(const weapon *w);  // the hook, held still while a switch runs (no hits)
 void q30_switchhook_update();
 // The switch hook's switch (upstream's doSwitchHook): Link is held while it runs.
 bool q30_switchhook_defer_cost(int itemid); // startwpn: true when the item pays at the swap instead

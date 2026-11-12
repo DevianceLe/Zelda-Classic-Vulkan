@@ -89,6 +89,7 @@ Q30WeaponData::Q30WeaponData()
     pierce_count = -1;
     bounce_mult = bounce_add = 0;
     viewport_suspend_range = viewport_despawn_range = 0;
+    data_version = -1;
 }
 
 Q30Combo::Q30Combo()

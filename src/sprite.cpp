@@ -211,6 +211,11 @@ void (*q30_sprite_appearance_hook)(sprite *, int *, int *, fix *) = NULL;
 bool (*q30_sprite_draw_hook)(sprite *, BITMAP *, int, int) = NULL;
 void (*q30_sprite_shadow_hook)(sprite *, int *, int *, int *, int *, int *) = NULL;
 
+// 2.55+ quests only (q30_triggers.cpp installs it): a sprite taking part in a switch hook
+// switch (the hook, the enemy or item being switched) flickers or rises with Link: -1 when it
+// isn't drawn this frame, else how far up it is drawn.
+int (*q30_sprite_switch_hook)(const sprite *) = NULL;
+
 namespace
 {
     // Holds a sprite's script-set appearance for one draw, then puts its own back.
@@ -220,10 +225,21 @@ namespace
         int tile, flip;
         fix yofs;
     public:
-        Q30DrawScope(sprite *spr) : s(spr), tile(spr->tile), flip(spr->flip), yofs(spr->yofs)
+        bool hidden;
+        Q30DrawScope(sprite *spr) : s(spr), tile(spr->tile), flip(spr->flip), yofs(spr->yofs), hidden(false)
         {
             if(q30_sprite_appearance_hook)
                 q30_sprite_appearance_hook(s, &s->tile, &s->flip, &s->yofs);
+
+            if(q30_sprite_switch_hook)
+            {
+                const int rise = q30_sprite_switch_hook(s);
+
+                if(rise < 0)
+                    hidden = true;
+                else
+                    s->yofs -= rise;
+            }
         }
         ~Q30DrawScope()
         {
@@ -404,10 +420,13 @@ void sprite::draw(BITMAP* dest)
     }
 
     Q30DrawScope q30_scope(this);
-    
+
+    if(q30_scope.hidden)
+        return;
+
     int sx = real_x(x+xofs);
     int sy = real_y(y+yofs)-real_z(z+zofs);
-    
+
     if(id<0)
         return;
         
@@ -682,6 +701,10 @@ void sprite::draw8(BITMAP* dest)
 void sprite::drawcloaked(BITMAP* dest)
 {
     Q30DrawScope q30_scope(this);
+
+    if(q30_scope.hidden)
+        return;
+
     int sx = real_x(x+xofs);
     int sy = real_y(y+yofs)-real_z(z+zofs);
     

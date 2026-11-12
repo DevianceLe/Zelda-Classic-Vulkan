@@ -157,7 +157,8 @@ const byte g_scale6[64] =
 
 int zqn_csets(PACKFILE *f, const ZqNewerContext &ctx)
 {
-    if(!handled(ctx))
+    // a 2.55 quest's palettes at 2.53's own version 4 are all in ZQuest's (zqn_255.cpp: later ones)
+    if(!handled(ctx) && !(ctx.src_part && ctx.src_version == 4))
         return ZQW_UNSUPPORTED;
 
     const word version = ctx.src_zelda_version;

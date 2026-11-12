@@ -24,6 +24,16 @@
 #include "zquest.h"
 #include "zq_custom.h"
 
+bool zq_edit_rules_newer(int category, bool *shown);    // port/zqeditor/zq_rules_editor.cpp
+
+// A 2.55 or 3.0 Nightly quest's rules: the editor for its own version, at this category.
+static bool rules_newer(int category)
+{
+    bool shown = false;
+    zq_edit_rules_newer(category, &shown);
+    return shown;
+}
+
 static int animrules1_list[] =
 {
     6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,-1
@@ -86,6 +96,9 @@ static int animationrules[] =
 
 int onAnimationRules()
 {
+    if(rules_newer(0))
+        return D_O_K;
+
     if(is_large)
         large_dialog(animationrules_dlg);
         
@@ -160,6 +173,9 @@ static int comborules[] =
 
 int onComboRules()
 {
+    if(rules_newer(1))
+        return D_O_K;
+
     if(is_large)
         large_dialog(comborules_dlg);
         
@@ -264,6 +280,9 @@ static int itemrules[] =
 
 int onItemRules()
 {
+    if(rules_newer(4))
+        return D_O_K;
+
     if(is_large)
         large_dialog(itemrules_dlg);
         
@@ -353,6 +372,9 @@ static int enemyrules[] =
 
 int onEnemyRules()
 {
+    if(rules_newer(3))
+        return D_O_K;
+
     if(is_large)
         large_dialog(enemyrules_dlg);
         
@@ -447,6 +469,9 @@ static int fixesrules[] =
 
 int onFixesRules()
 {
+    if(rules_newer(6))
+        return D_O_K;
+
     if(is_large)
         large_dialog(fixesrules_dlg);
         
@@ -536,6 +561,9 @@ static int miscrules[] =
 
 int onMiscRules()
 {
+    if(rules_newer(5))
+        return D_O_K;
+
     if(is_large)
         large_dialog(miscrules_dlg);
         
@@ -605,6 +633,9 @@ static DIALOG compatrules_dlg[] =
 
 int onCompatRules()
 {
+    if(rules_newer(2))
+        return D_O_K;
+
     if(is_large)
         large_dialog(compatrules_dlg);
         

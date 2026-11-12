@@ -96,7 +96,7 @@ static void read_bitstr(Q255Section &s, Q30Bits &out)
 
 // A script_config (p_getvar): the script, the run_args array, and the inst_init
 // map. The array has a word count and p_getarr reads no more than its 8 ints.
-static void read_script_config(Q255Section &s, word &script, long *initd)
+static void read_script_config(Q255Section &s, word &script, long *initd, std::vector<byte> *inst_raw = NULL)
 {
     script = s.igetw();
     word args = s.igetw();
@@ -109,14 +109,20 @@ static void read_script_config(Q255Section &s, word &script, long *initd)
             initd[q] = v;
     }
 
+    // the instance values: kept as bytes (count included) for ZQuest's writers
+    const size_t at = s.pos;
     word inst = s.igetw();
     s.skip((size_t)inst * (2 + 4));
+
+    if(inst_raw && !s.failed)
+        inst_raw->assign(s.data + at, s.data + s.pos);
 }
 
 // A weapon_data (read_weap_data), which has a format version of its own.
 static void read_weapon_data(Q255Section &s, Q30WeaponData &d)
 {
     word v = s.igetw();
+    d.data_version = v;
     d.flags = s.igetw();
     d.moveflags = s.igetl();
     d.wflags = s.igetw();
@@ -158,7 +164,7 @@ static void read_weapon_data(Q255Section &s, Q30WeaponData &d)
             d.initd[q] = s.igetl_s();
     }
     else
-        read_script_config(s, d.script, d.initd);
+        read_script_config(s, d.script, d.initd, &d.inst_raw);
 
     d.pierce_count = s.igetw_s();
 
@@ -652,7 +658,7 @@ static void read_combo_new(Q255Section &s, word v, newcombo &c, Q30Combo &x, dwo
         memset(initd, 0, sizeof(initd));
 
         if(v >= 72)
-            read_script_config(s, script, initd);
+            read_script_config(s, script, initd, &x.script_inst_raw);
         else
         {
             script = s.igetw();
@@ -956,6 +962,38 @@ static bool combo_needs_entry(const newcombo &c, const Q30Combo &x)
     return false;
 }
 
+// ZQuest only: whether a combo holds anything at all past newcombo, including what the game
+// has no use for (a script with no type, lifting details, weapon data). ZQuest keeps all of it,
+// so its writer can encode a combo again without losing a field.
+static bool combo_holds_anything(const newcombo &c, const Q30Combo &x)
+{
+    static const Q30Combo z;
+
+    if(combo_needs_entry(c, x))
+        return true;
+
+    if(x.walk != z.walk || x.script || x.only_gentrig || !x.script_inst_raw.empty())
+        return true;
+
+    for(int q = 0; q < 8; ++q)
+        if(x.initd[q])
+            return true;
+
+    if(x.liftcs != z.liftcs || x.liftundercs != z.liftundercs || x.liftlvl != z.liftlvl || x.liftitm != z.liftitm ||
+       x.liftbreaksprite != z.liftbreaksprite || x.liftbreaksfx != z.liftbreaksfx || x.lifthei != z.lifthei ||
+       x.lifttime != z.lifttime || x.lift_parent_item != z.lift_parent_item)
+        return true;
+
+    if(x.sfx_falling || x.sfx_drowning || x.sfx_lava_drowning || x.spr_falling || x.spr_drowning || x.spr_lava_drowning)
+        return true;
+
+    // weapon data that was in the file at all (v55+), or its two v51-54 fields
+    if(x.lift_weap.data_version >= 0 || x.misc_weap.data_version >= 0 || x.lift_weap.light_rads[0] || x.lift_weap.glow_shape)
+        return true;
+
+    return false;
+}
+
 // The combo section's version, which some game behaviour depends on (q30_slash_next_skip).
 int q255_combo_section_version = 0;
 
@@ -1016,7 +1054,7 @@ int q255_read_combos(Q255Section &s)
         {
             combobuf[i] = c;
 
-            if(combo_needs_entry(c, *x))
+            if(combo_needs_entry(c, *x) || (q255_keep_for_editor && combo_holds_anything(c, *x)))
                 q30_combo_store(i, x);
             else
                 delete x;

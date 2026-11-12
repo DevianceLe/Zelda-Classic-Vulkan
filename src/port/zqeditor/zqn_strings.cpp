@@ -341,3 +341,10 @@ int zqn_strings(PACKFILE *f, const ZqNewerContext &ctx)
 ZqNewerRegistration g_reg(ID_STRINGS, zqn_strings, "strings for 2.55.17 and 3.0");
 
 } // namespace
+
+// 2.55 strings saved as 3.0 (zqn_255_strings.cpp) convert their text the same way.
+std::string zqn_ascii_text(const std::string &legacy)
+{
+    return ascii_text(legacy);
+}
+

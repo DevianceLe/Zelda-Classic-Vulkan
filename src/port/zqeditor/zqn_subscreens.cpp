@@ -878,8 +878,8 @@ struct Lists
     Lists() : dmaps_fixed(false) {}
 };
 
-// read_old_subscreens and fixup_old_dmap_subscreen_indices.
-void from_old_groups(const std::vector<OldGroup> &groups, Lists &l)
+// The DMaps' subscreen numbers as ZQuest holds them, before the fixup.
+void dmaps_from_zquest(Lists &l)
 {
     l.dm_active.resize(MAXDMAPS);
     l.dm_passive.resize(MAXDMAPS);
@@ -889,7 +889,12 @@ void from_old_groups(const std::vector<OldGroup> &groups, Lists &l)
         l.dm_active[i] = DMaps[i].active_subscreen;
         l.dm_passive[i] = DMaps[i].passive_subscreen;
     }
+}
 
+// read_old_subscreens and fixup_old_dmap_subscreen_indices, on the DMaps' numbers in l (one per
+// DMap, MAXDMAPS).
+void from_old_groups(const std::vector<OldGroup> &groups, Lists &l)
+{
     bool hit_empty = false, has_old = false;
     int reach[2] = { 0, 0 };
     int fallback_type = -1, fallback_index = -1;
@@ -1145,6 +1150,7 @@ bool held_lists(int target, Lists &l)
                 return false;
             }
 
+        dmaps_from_zquest(l);
         from_old_groups(groups, l);
     }
     else if(part || changed)
@@ -1156,6 +1162,7 @@ bool held_lists(int target, Lists &l)
         for(int i = 0; i < OLD_MAX_GROUPS; ++i)
             group_from_zquest(custom_subscreen[i], tb, groups[i]);
 
+        dmaps_from_zquest(l);
         from_old_groups(groups, l);
     }
     else
@@ -1247,4 +1254,71 @@ bool zqn_dmap_subscreens(std::vector<int> &active, std::vector<int> &passive)
     active = l.dm_active;
     passive = l.dm_passive;
     return true;
+}
+
+bool zqn_old_subscreens_30(const std::vector<byte> &data, int version, std::vector<int> &dm_active,
+                           std::vector<int> &dm_passive, std::vector<std::vector<byte> > &active,
+                           std::vector<std::vector<byte> > &passive)
+{
+    if(version < 6 || version > 7 || (int)dm_active.size() != MAXDMAPS || (int)dm_passive.size() != MAXDMAPS)
+        return false;
+
+    // read_one_old_subscreen reads the 128 groups the same way for both versions; version 7 only
+    // skips the gauges' conversion (reader_fixups)
+    Src s;
+    s.d = data;
+    TextBuf tb;
+    const bool hc24 = rule_24hc();
+    std::vector<OldGroup> groups(OLD_MAX_GROUPS);
+
+    for(int i = 0; i < OLD_MAX_GROUPS; ++i)
+        if(!read_group(s, version, hc24, tb, groups[i]))
+            return false;
+
+    Lists l;
+    l.dm_active = dm_active;
+    l.dm_passive = dm_passive;
+    from_old_groups(groups, l);
+    dm_active = l.dm_active;
+    dm_passive = l.dm_passive;
+    active.clear();
+    passive.clear();
+
+    for(size_t i = 0; i < l.active.size(); ++i)
+    {
+        Buf b;
+        write_sub(b, ZQ_NEWER_30, l.active[i]);
+        active.push_back(b.b);
+    }
+
+    for(size_t i = 0; i < l.passive.size(); ++i)
+    {
+        Buf b;
+        write_sub(b, ZQ_NEWER_30, l.passive[i]);
+        passive.push_back(b.b);
+    }
+
+    return true;
+}
+
+void zqn_default_subscreens_30(int mode, std::vector<std::vector<byte> > &active, std::vector<std::vector<byte> > &passive)
+{
+    Lists l;
+    from_defaults(ZQ_NEWER_30, mode, l);
+    active.clear();
+    passive.clear();
+
+    for(size_t i = 0; i < l.active.size(); ++i)
+    {
+        Buf b;
+        write_sub(b, ZQ_NEWER_30, l.active[i]);
+        active.push_back(b.b);
+    }
+
+    for(size_t i = 0; i < l.passive.size(); ++i)
+    {
+        Buf b;
+        write_sub(b, ZQ_NEWER_30, l.passive[i]);
+        passive.push_back(b.b);
+    }
 }

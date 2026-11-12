@@ -112,6 +112,14 @@ bool target_ok(const ZqNewerContext &ctx)
     return (ctx.target == ZQ_NEWER_255 || ctx.target == ZQ_NEWER_30) && ctx.src_zelda_version < 0x255;
 }
 
+// A 2.55 quest's section at the same version as 2.53's own: ZQuest's 2.53 data holds all of it,
+// and these writers write it as they do a 2.53 quest's (door combo sets v1, item drop sets v2).
+bool target_ok_253_layout(const ZqNewerContext &ctx, word v253)
+{
+    return target_ok(ctx) || ((ctx.target == ZQ_NEWER_255 || ctx.target == ZQ_NEWER_30) && ctx.src_zelda_version >= 0x255 &&
+                              ctx.src_part && ctx.src_version == v253);
+}
+
 // A section as both versions write it: id, version, cversion (2.55.17 its CV_ constant, 3.0 the
 // version again), any extra field, the size, the data.
 int emit(PACKFILE *f, dword id, word version, word cversion, const Out *extra, const Out &body)
@@ -235,7 +243,7 @@ void compiler_numbers(Out &o, bool t30)
 
 int zqn_header(PACKFILE *f, const ZqNewerContext &ctx)
 {
-    if(!target_ok(ctx))
+    if(!target_ok(ctx) && !((ctx.target == ZQ_NEWER_255 || ctx.target == ZQ_NEWER_30) && ctx.src_zelda_version >= 0x255))
         return ZQW_UNSUPPORTED;
 
     bool t30 = ctx.target == ZQ_NEWER_30;
@@ -567,7 +575,7 @@ bool made_door_sets(std::vector<DoorComboSet> &sets, std::vector<word> &screen_s
 
 int zqn_doors(PACKFILE *f, const ZqNewerContext &ctx)
 {
-    if(!target_ok(ctx))
+    if(!target_ok_253_layout(ctx, 1))
         return ZQW_UNSUPPORTED;
 
     std::vector<DoorComboSet> made;
@@ -666,7 +674,7 @@ int zqn_cheats(PACKFILE *f, const ZqNewerContext &ctx)
 
 int zqn_dropsets(PACKFILE *f, const ZqNewerContext &ctx)
 {
-    if(!target_ok(ctx))
+    if(!target_ok_253_layout(ctx, 2))
         return ZQW_UNSUPPORTED;
 
     int n = count_item_drop_sets();

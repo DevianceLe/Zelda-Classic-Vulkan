@@ -69,6 +69,16 @@ set(ZQEDITOR_SOURCES
 	${ZCPORT_DIR}/zqeditor/zq_writers.cpp
 	${ZCPORT_DIR}/zqeditor/zq_tests.cpp
 	${ZCPORT_DIR}/zqeditor/zq_tile_refs.cpp
+	${ZCPORT_DIR}/zqeditor/zq_combo_names.cpp
+	${ZCPORT_DIR}/zqeditor/zq_combo_editor.cpp
+	${ZCPORT_DIR}/zqeditor/zq_tape.cpp
+	${ZCPORT_DIR}/zqeditor/zq_tape_misc.cpp
+	${ZCPORT_DIR}/zqeditor/zq_tape_strings.cpp
+	${ZCPORT_DIR}/zqeditor/zq_tape_subscreens.cpp
+	${ZCPORT_DIR}/zqeditor/zq_item_names.cpp
+	${ZCPORT_DIR}/zqeditor/zq_record_editor.cpp
+	${ZCPORT_DIR}/zqeditor/zq_rule_names.cpp
+	${ZCPORT_DIR}/zqeditor/zq_rules_editor.cpp
 )
 # Image import: the Windows Imaging Component on Windows, SDL elsewhere (PNG, BMP).
 if(WIN32)
@@ -109,7 +119,7 @@ target_include_directories(zqeditor PRIVATE
 # The game's main() becomes zcport_game_main(); see src/port/entry/zplayer_main.cpp.
 # (On the target: a source file's properties would reach zplayer's copy too.)
 target_compile_definitions(zqeditor PRIVATE ZCPORT_MAGIC_MAIN ZC_ZQEDITOR
-	"ZPLAYER_WINDOW_TITLE=\"ZQuest Vulkan 2.53.444.6.1\"")
+	"ZPLAYER_WINDOW_TITLE=\"ZQuest Vulkan 2.53.444.7-PRE\"")
 target_link_libraries(zqeditor PRIVATE zcport_sdl zcport zc_stb_vorbis zc_minimp3 zc_gme zc_dumb)
 if(WIN32)
 	target_link_libraries(zqeditor PRIVATE windowscodecs ole32)

@@ -2374,8 +2374,8 @@ static bool zasm30_set_register_inner(const long arg, const long value)
             zasm30_log_once("register write", arg);
         return true;
 
-    // Game->MaxNPCs(n) and the others: a lower limit is kept (adding past it fails, as upstream);
-    // 2.53's lists can't hold more than 255, so a higher one is logged and stays at 255.
+    // Game->MaxNPCs(n) and the others: 1 to 1024, as upstream (MAX_LWPN_SPRITES and the
+    // others); adding past the limit fails, as upstream. Every list starts at 255.
     case Z30R_SPRITEMAXNPC:
     case Z30R_SPRITEMAXLWPN:
     case Z30R_SPRITEMAXEWPN:
@@ -2383,15 +2383,19 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     {
         sprite_list &l = arg == Z30R_SPRITEMAXNPC ? guys : arg == Z30R_SPRITEMAXLWPN ? Lwpns
                        : arg == Z30R_SPRITEMAXEWPN ? Ewpns : items;
-        const long v = value / 10000;
-        if(v > SLMAX)
+        l.setMax((int)vbound(value / 10000, 1, SLMAX_ALLOC));
+
+        if(l.getMax() > SLMAX)     // once per list: a quest that holds more than 2.53 could
         {
-            static bool said = false;
-            if(!said)
-                al_trace("ZASM: a script asked for a sprite list of %ld; this engine's hold %d\n", v, SLMAX);
-            said = true;
+            static bool said[4];
+            const int k = arg == Z30R_SPRITEMAXNPC ? 0 : arg == Z30R_SPRITEMAXLWPN ? 1 : arg == Z30R_SPRITEMAXEWPN ? 2 : 3;
+
+            if(!said[k])
+                al_trace("ZASM: a script set a sprite list's limit to %d (list %d)\n", l.getMax(), k);
+
+            said[k] = true;
         }
-        l.setMax((int)vbound(v, 1, SLMAX));
+
         return true;
     }
 

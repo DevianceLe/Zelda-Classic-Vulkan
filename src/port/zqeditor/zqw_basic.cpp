@@ -34,6 +34,8 @@
 #include "md5.h"
 #include "sfx.h"
 #include "zq_writers.h"
+#include "zq_q255_store.h"
+#include "zq_rule_names.h"
 
 extern zquestheader header;
 extern miscQdata misc;
@@ -824,13 +826,19 @@ bool parse_rules_255(const std::vector<byte> &b, Rules255 &r)
 }
 
 // q255_read_rules: version, cversion, from v17 the compat rule version, size, then the rule
-// bits (20 bytes, 100 from v15) and from v18 the compiler settings.
-int write_rules_255(PACKFILE *f, const std::vector<byte> &b)
+// bits (20 bytes, 100 from v15) and from v18 the compiler settings. The section as the rules
+// editor for newer quests left it, when it was edited there (zq255.rules_section).
+int write_rules_255(PACKFILE *f, const std::vector<byte> &loaded)
 {
+    const std::vector<byte> &b = zq255.rules_section.empty() ? loaded : zq255.rules_section;
     Rules255 r;
 
     if(!parse_rules_255(b, r))
         return ZQW_BAD_PART;
+
+    if(getenv("ZQW_TAPE_CHECK"))
+        al_trace("zqw RULE v%d compat %u size %u%s\n", (int)r.version, (unsigned)r.compat, (unsigned)r.size,
+                 zq255.rules_section.empty() ? "" : " (edited)");
 
     if(r.version < 13 || r.version > 18)
         return ZQW_UNSUPPORTED;
@@ -1377,11 +1385,112 @@ bool old_string_frame_255()
     std::vector<byte> b;
     Rules255 r;
 
-    if(!p || !part_bytes(*p, b) || !parse_rules_255(b, r))
+    if(!zq255.rules_section.empty())
+        b = zq255.rules_section;
+    else if(!p || !part_bytes(*p, b))
+        return true;
+
+    if(!parse_rules_255(b, r))
         return true;
 
     int bit = Q255_QR_STRING_FRAME_OLD_WIDTH_HEIGHT;
     return r.version >= 15 && bit / 8 < (int)r.size && ((b[r.body + bit / 8] >> (bit % 8)) & 1);
+}
+
+// ZQW_TAPE_CHECK=1 (for testing the string data editor's schema, zq_tape_strings.cpp).
+void tape_check_strings(const std::vector<byte> &b, int v)
+{
+    if(!getenv("ZQW_TAPE_CHECK") || b.size() < 8)
+        return;
+
+    const std::vector<byte> body(b.begin() + 8, b.end());
+    Tape t;
+    TapeParser p(body.empty() ? NULL : &body[0], body.size(), 0, &t);
+    bool ok = zq_tape_strings(p, v) && p.pos == body.size();
+    std::vector<byte> enc;
+
+    if(ok)
+    {
+        t.encode(enc);
+        ok = enc == body;
+    }
+
+    al_trace("zqw tape STR v%d: %d strings, %d bad%s\n", v, (int)t.get("count"), ok ? 0 : 1,
+             ok ? "" : " (doesn't read and encode back)");
+}
+
+// The section with the 2.55 / 3.0 string settings edited in the string data editor put in (by
+// key: zq255.string_fields), read back the way the player reads it. Edits of strings the
+// section no longer has are dropped.
+bool merge_string_fields(const std::vector<byte> &sec, int v, std::vector<byte> &out, std::string &why)
+{
+    out = sec;
+
+    if(zq255.string_fields.empty())
+        return true;
+
+    const std::vector<byte> body(sec.begin() + 8, sec.end());
+    Tape t;
+    TapeParser p(body.empty() ? NULL : &body[0], body.size(), 0, &t);
+
+    if(!zq_tape_strings(p, v) || p.pos != body.size())
+    {
+        why = "the strings don't read as their version says";
+        return false;
+    }
+
+    std::map<std::string, size_t> at;
+
+    for(size_t i = 0; i < t.f.size(); ++i)
+        if(t.f[i].extra)
+            at[t.f[i].key] = i;
+
+    for(std::map<std::string, TapeField>::const_iterator it = zq255.string_fields.begin(); it != zq255.string_fields.end(); ++it)
+    {
+        std::map<std::string, size_t>::const_iterator x = at.find(it->first);
+
+        if(x != at.end())
+        {
+            t.f[x->second].value = it->second.value;
+            t.f[x->second].bytes = it->second.bytes;
+        }
+    }
+
+    std::vector<byte> nb;
+    t.encode(nb);
+    Q255Section r;
+    r.data = nb.empty() ? NULL : &nb[0];
+    r.size = nb.size();
+    r.version = (word)v;
+    r.cversion = rd16(sec, 2);
+    r.keep = false;
+    r.header = &header;
+
+    if(q255_read_strings(r) != 0 || r.failed || r.pos != r.size)
+    {
+        why = "the strings with these settings don't read back";
+        return false;
+    }
+
+    out.assign(sec.begin(), sec.begin() + 8);
+    out.insert(out.end(), nb.begin(), nb.end());
+    const dword size = (dword)nb.size();
+    out[4] = (byte)size;
+    out[5] = (byte)(size >> 8);
+    out[6] = (byte)(size >> 16);
+    out[7] = (byte)(size >> 24);
+    return true;
+}
+
+int emit_strings_255(PACKFILE *f, const std::vector<byte> &sec, int v)
+{
+    std::vector<byte> out;
+    std::string why;
+
+    if(!merge_string_fields(sec, v, out, why))
+        return refuse("The strings' 2.55/3.0 settings can't be saved: %s.", why.c_str());
+
+    return emit(f, ID_STRINGS, out);
 }
 
 int write_strings_255(PACKFILE *f, const std::vector<byte> &b)
@@ -1396,6 +1505,8 @@ int write_strings_255(PACKFILE *f, const std::vector<byte> &b)
 
     if(v < 5 || v > 13)
         return ZQW_UNSUPPORTED;
+
+    tape_check_strings(b, v);
 
     word count = in.w();
     std::vector<Str255> recs(count);
@@ -1431,7 +1542,7 @@ int write_strings_255(PACKFILE *f, const std::vector<byte> &b)
     }
 
     out.set32(4, (dword)(out.b.size() - 8));
-    return emit(f, ID_STRINGS, out.b);
+    return emit_strings_255(f, out.b, v);
 }
 
 int zqw_strings(PACKFILE *f, const ZqPartContext &ctx)
@@ -1912,6 +2023,91 @@ int write_misc_old(PACKFILE *f, const std::vector<byte> &b)
 }
 
 // q255_read_misc, versions 7 to 23
+// ZQW_TAPE_CHECK=1 (for testing the misc data editor's schema, zq_tape_misc.cpp): the section
+// read as a tape ends where it does and encodes back to its own bytes.
+void tape_check_misc(const std::vector<byte> &b, int v)
+{
+    if(!getenv("ZQW_TAPE_CHECK") || b.size() < 8)
+        return;
+
+    const std::vector<byte> body(b.begin() + 8, b.end());
+    Tape t;
+    TapeParser p(body.empty() ? NULL : &body[0], body.size(), 0, &t);
+    bool ok = zq_tape_misc(p, v) && p.pos == body.size();
+    std::vector<byte> enc;
+
+    if(ok)
+    {
+        t.encode(enc);
+        ok = enc == body;
+    }
+
+    al_trace("zqw tape MISC v%d: 1 records, %d bad%s\n", v, ok ? 0 : 1, ok ? "" : " (doesn't read and encode back)");
+}
+
+// The section with the 2.55 / 3.0 settings edited in the misc data editor put in (by key:
+// zq255.misc_fields), read back the way the player reads it.
+bool merge_misc_fields(const std::vector<byte> &sec, int v, std::vector<byte> &out, std::string &why)
+{
+    out = sec;
+
+    if(zq255.misc_fields.empty())
+        return true;
+
+    const std::vector<byte> body(sec.begin() + 8, sec.end());
+    Tape t;
+    TapeParser p(body.empty() ? NULL : &body[0], body.size(), 0, &t);
+
+    if(!zq_tape_misc(p, v) || p.pos != body.size())
+    {
+        why = "the misc data doesn't read as its version says";
+        return false;
+    }
+
+    for(std::map<std::string, TapeField>::const_iterator it = zq255.misc_fields.begin(); it != zq255.misc_fields.end(); ++it)
+        if(TapeField *x = t.find(it->first.c_str()))
+        {
+            x->value = it->second.value;
+            x->bytes = it->second.bytes;
+        }
+
+    std::vector<byte> nb;
+    t.encode(nb);
+    Q255Section r;
+    r.data = nb.empty() ? NULL : &nb[0];
+    r.size = nb.size();
+    r.version = (word)v;
+    r.cversion = rd16(sec, 2);
+    r.keep = false;
+    r.header = &header;
+
+    if(q255_read_misc(r) != 0 || r.failed || r.pos != r.size)
+    {
+        why = "the misc data with these settings doesn't read back";
+        return false;
+    }
+
+    out.assign(sec.begin(), sec.begin() + 8);
+    out.insert(out.end(), nb.begin(), nb.end());
+    const dword size = (dword)nb.size();
+    out[4] = (byte)size;
+    out[5] = (byte)(size >> 8);
+    out[6] = (byte)(size >> 16);
+    out[7] = (byte)(size >> 24);
+    return true;
+}
+
+int emit_misc_255(PACKFILE *f, const std::vector<byte> &sec, int v)
+{
+    std::vector<byte> out;
+    std::string why;
+
+    if(!merge_misc_fields(sec, v, out, why))
+        return refuse("The misc data's 2.55/3.0 settings can't be saved: %s.", why.c_str());
+
+    return emit(f, ID_MISC, out);
+}
+
 int write_misc_255(PACKFILE *f, const std::vector<byte> &b)
 {
     In in(b, 0);
@@ -1924,6 +2120,8 @@ int write_misc_255(PACKFILE *f, const std::vector<byte> &b)
 
     if(v < 7 || v > 23)
         return ZQW_UNSUPPORTED;
+
+    tape_check_misc(b, v);
 
     const int item_bytes = v >= 20 ? 2 : 1;
     const size_t shop_rec = 32 + 3 * item_bytes + 6 + 3;
@@ -1951,7 +2149,7 @@ int write_misc_255(PACKFILE *f, const std::vector<byte> &b)
         return ZQW_BAD_PART;
 
     if(!zqw_force_serialize && !memcmp(&misc, &g_loaded.misc, sizeof(misc)))
-        return emit(f, ID_MISC, b);
+        return emit_misc_255(f, b, v);
 
     const bool force = zqw_force_serialize;
     Out out;
@@ -2080,7 +2278,7 @@ int write_misc_255(PACKFILE *f, const std::vector<byte> &b)
 
     out.copy(b, rest_at, b.size() - rest_at);       // sprites, bottles, sounds, save menus...
     out.set32(4, (dword)(out.b.size() - 8));
-    return emit(f, ID_MISC, out.b);
+    return emit_misc_255(f, out.b, v);
 }
 
 int zqw_misc(PACKFILE *f, const ZqPartContext &ctx)
@@ -2110,4 +2308,415 @@ ZqWriterRegistration g_reg_misc(ID_MISC, zqw_misc, "misc data, every version");
 const char *zqw_basic_refusal()
 {
     return g_refusal.c_str();
+}
+
+// ---- the rules editor's access (zq_rules_editor.cpp) -----------------------------------
+
+namespace
+{
+
+// The RULE section as it stands: as edited in the rules editor, or as loaded.
+bool rules_section_bytes(std::vector<byte> &b)
+{
+    if(!zq255.rules_section.empty())
+    {
+        b = zq255.rules_section;
+        return true;
+    }
+
+    const ZqQuestPart *p = find_part(ID_RULES);
+    return p && part_bytes(*p, b);
+}
+
+// Whether a change ZQuest's 2.53 view of the rules has (a rule changed elsewhere in ZQuest)
+// goes into the stored bits the way write_rules_255 puts it in.
+bool view_edit_goes_in(int bit, const byte *was)
+{
+    return !loader_owned_rule(bit) && bit_of(was, bit) == bit_of(g_loaded.rules, bit) &&
+           !(bit == qr_BITMAPOFFSETFIX && zq_quest_file.build < 42);
+}
+
+void hash_rules_section(uint64_t *h)
+{
+    if(!zq255.rules_section.empty())
+        zq_hash_add(h, &zq255.rules_section[0], zq255.rules_section.size());
+}
+
+ZqStoreHashRegistration g_hash_rules(ID_RULES, hash_rules_section);
+
+} // namespace
+
+// The open 2.55 / 3.0 quest's rules, taken apart, with what ZQuest changed in its 2.53 view of
+// them since the load already in.
+bool zq255_rules_get(ZqRuleSection &s)
+{
+    std::vector<byte> b;
+    Rules255 r;
+
+    if(header.zelda_version != 0x255 || !rules_section_bytes(b) || !parse_rules_255(b, r) || r.version < 13 || r.version > 18)
+        return false;
+
+    s.version = r.version;
+    s.compat = r.compat;
+    s.total = r.version < 15 ? QUESTRULES_SIZE : 100;
+    memset(s.rules, 0, sizeof(s.rules));
+    memcpy(s.rules, &b[r.body], s.total);
+    s.has_settings = false;
+    s.setting_version = 0;
+    s.settings.clear();
+    size_t end = r.body + s.total;
+
+    if(r.version > 17)
+    {
+        In in(b, end);
+        const dword sv = in.l();
+        std::vector<std::pair<word, long> > settings;
+
+        if(sv > 0)
+        {
+            const word n = in.w();
+
+            for(word q = 0; q < n && !in.bad; ++q)
+            {
+                const word id = in.w();
+                const long val = (long)in.l();
+                settings.push_back(std::make_pair(id, val));
+            }
+        }
+
+        if(in.bad)
+            return false;
+
+        s.has_settings = true;
+        s.setting_version = sv;
+        s.settings.swap(settings);
+        end = in.pos;
+    }
+
+    s.rest.assign(b.begin() + end, b.end());
+
+    // a rule changed in ZQuest's 2.53 view (outside this editor) goes in as the save puts it
+    byte was[QUESTRULES_SIZE];
+    read_rules_255(s.rules, r.version, r.compat, was);
+
+    for(int bit = 0; bit < QUESTRULES_SIZE * 8; ++bit)
+        if(bit_of(g_loaded.rules, bit) != bit_of(quest_rules, bit) && view_edit_goes_in(bit, was))
+            flip_bit(s.rules, bit);
+
+    return true;
+}
+
+// Puts edited rules in: the section the save writes, ZQuest's 2.53 view of them, and the whole
+// bitfield the newer data's labels go by.
+bool zq255_rules_put(const ZqRuleSection &s, std::string &why)
+{
+    std::vector<byte> b;
+    Rules255 r;
+    ZqRuleSection cur;
+
+    if(!zq255_rules_get(cur) || !rules_section_bytes(b) || !parse_rules_255(b, r))
+    {
+        why = "this quest's rules can't be edited this way";
+        return false;
+    }
+
+    if(s.version != cur.version || s.total != cur.total || s.has_settings != cur.has_settings ||
+       (s.version < 17 && s.compat != cur.compat))
+    {
+        why = "the rules aren't laid out as this quest's version has them";
+        return false;
+    }
+
+    Out o;
+    o.w(r.version);
+    o.copy(b, 2, 2);        // cversion
+
+    if(r.version > 16)
+        o.l(s.compat);
+
+    const size_t size_at = o.b.size();
+    o.l(0);
+    o.put(s.rules, s.total);
+
+    if(s.has_settings)
+    {
+        o.l(s.setting_version);
+
+        if(s.setting_version > 0)
+        {
+            o.w((int)s.settings.size());
+
+            for(size_t q = 0; q < s.settings.size(); ++q)
+            {
+                o.w(s.settings[q].first);
+                o.l((dword)s.settings[q].second);
+            }
+        }
+        else if(!s.settings.empty())
+        {
+            why = "compiler settings need a compiler setting version";
+            return false;
+        }
+    }
+
+    o.put(s.rest.empty() ? NULL : &s.rest[0], s.rest.size());
+    o.set32(size_at, (dword)(o.b.size() - size_at - 4));
+
+    // ZQuest's 2.53 view: the bits it reads differently now move, both as it has them and as
+    // the load left them, so the save sees no change of its own to put in. A change from
+    // outside this editor that the record took in is the record's from now on.
+    byte was[QUESTRULES_SIZE], now[QUESTRULES_SIZE], stored_was[QUESTRULES_SIZE];
+    read_rules_255(cur.rules, cur.version, cur.compat, was);
+    read_rules_255(s.rules, s.version, s.compat, now);
+    read_rules_255(&b[r.body], r.version, r.compat, stored_was);
+
+    for(int bit = 0; bit < QUESTRULES_SIZE * 8; ++bit)
+    {
+        if(bit_of(g_loaded.rules, bit) != bit_of(quest_rules, bit) && view_edit_goes_in(bit, stored_was))
+            set_bit(g_loaded.rules, bit, bit_of(quest_rules, bit));
+
+        if(bit_of(was, bit) != bit_of(now, bit))
+        {
+            flip_bit(quest_rules, bit);
+            flip_bit(g_loaded.rules, bit);
+        }
+    }
+
+    zq255.rules_section = o.b;
+    zq255.rules.assign(s.rules, s.rules + s.total);
+    set_bit(extra_rules, er_SHORTDGNWALK, bit_of(s.rules, 193) ? 1 : 0);                      // q255_read_rules
+    set_bit(extra_rules, er_BROKENCHARINTDRAWING, s.total > 83 && bit_of(s.rules, 667) ? 1 : 0);
+    return true;
+}
+
+// ---- the misc data editor's access (zq_record_editor.cpp) ------------------------------
+
+namespace
+{
+
+void hash_misc_fields(uint64_t *h)
+{
+    for(std::map<std::string, TapeField>::const_iterator it = zq255.misc_fields.begin(); it != zq255.misc_fields.end(); ++it)
+    {
+        zq_hash_add(h, it->first.data(), it->first.size());
+        zq_hash_add(h, &it->second.value, sizeof(it->second.value));
+
+        if(!it->second.bytes.empty())
+            zq_hash_add(h, &it->second.bytes[0], it->second.bytes.size());
+    }
+}
+
+ZqStoreHashRegistration g_hash_misc(ID_MISC, hash_misc_fields);
+
+} // namespace
+
+// The MISC section's data as loaded, and its version; false when the open quest's misc data
+// isn't a 2.55 / 3.0 section.
+bool zq255_misc_record(std::vector<byte> &rec, int *version)
+{
+    const ZqQuestPart *p = find_part(ID_MISC);
+    std::vector<byte> b;
+
+    if(header.zelda_version != 0x255 || !p || !part_bytes(*p, b) || b.size() < 8)
+        return false;
+
+    const int v = rd16(b, 0);
+
+    if(v < 7 || v > 23)
+        return false;
+
+    if(version)
+        *version = v;
+
+    rec.assign(b.begin() + 8, b.end());
+    return true;
+}
+
+// Puts the misc data editor's edits in (the 2.55 / 3.0 fields that differ from the loaded
+// section): checked against the loaded section, then the store the rest of ZQuest reads
+// (bottle names, misc sounds and sprites) follows.
+bool zq255_misc_commit(const std::map<std::string, TapeField> &edits, std::string &why)
+{
+    const ZqQuestPart *p = find_part(ID_MISC);
+    std::vector<byte> b, merged;
+
+    if(header.zelda_version != 0x255 || !p || !part_bytes(*p, b) || b.size() < 8)
+    {
+        why = "this quest's misc data can't be edited this way";
+        return false;
+    }
+
+    const int v = rd16(b, 0);
+    std::map<std::string, TapeField> keep;
+    keep.swap(zq255.misc_fields);
+    zq255.misc_fields = edits;
+
+    if(!merge_misc_fields(b, v, merged, why))
+    {
+        zq255.misc_fields.swap(keep);
+        return false;
+    }
+
+    // the store, as the load fills it
+    const std::vector<byte> body(merged.begin() + 8, merged.end());
+    Tape t;
+    TapeParser tp(body.empty() ? NULL : &body[0], body.size(), 0, &t);
+    zq_tape_misc(tp, v);
+    char k[32];
+
+    if(v >= 12)
+        for(int i = 0; i < 256; ++i)
+        {
+            snprintf(k, sizeof(k), "spr%d", i);
+            q30_set_misc_sprite(i, (int)t.get(k));
+        }
+
+    if(v >= 14)
+        for(int i = 0; i < 256; ++i)
+        {
+            snprintf(k, sizeof(k), "sfx%d", i);
+            q30_set_misc_sfx(i, (int)t.get(k));
+        }
+
+    if(v >= 13)
+    {
+        for(int i = 0; i < 64; ++i)
+        {
+            Q30BottleType bt;
+            memset(&bt, 0, sizeof(bt));
+            snprintf(k, sizeof(k), "bt%d.name", i);
+
+            if(const TapeField *nm = t.find(k))
+                memcpy(bt.name, nm->bytes.empty() ? "" : (const char *)&nm->bytes[0], nm->bytes.size() < 32 ? nm->bytes.size() : 32);
+
+            for(int j = 0; j < 3; ++j)
+            {
+                snprintf(k, sizeof(k), "bt%d.counter%d", i, j);
+                bt.counter[j] = (signed char)t.get(k);
+                snprintf(k, sizeof(k), "bt%d.amount%d", i, j);
+                bt.amount[j] = (word)t.get(k);
+            }
+
+            snprintf(k, sizeof(k), "bt%d.flags", i);
+            bt.flags = (byte)t.get(k);
+            snprintf(k, sizeof(k), "bt%d.next", i);
+            bt.next_type = (byte)t.get(k);
+            q30_set_bottle_type(i, bt);
+        }
+
+        for(int i = 0; i < 256; ++i)
+        {
+            Q30BottleShop bs;
+            memset(&bs, 0, sizeof(bs));
+            snprintf(k, sizeof(k), "bs%d.name", i);
+
+            if(const TapeField *nm = t.find(k))
+                memcpy(bs.name, nm->bytes.empty() ? "" : (const char *)&nm->bytes[0], nm->bytes.size() < 32 ? nm->bytes.size() : 32);
+
+            for(int j = 0; j < 3; ++j)
+            {
+                snprintf(k, sizeof(k), "bs%d.fill%d", i, j);
+                bs.fill[j] = (byte)t.get(k);
+                snprintf(k, sizeof(k), "bs%d.combo%d", i, j);
+                bs.comb[j] = (word)t.get(k);
+                snprintf(k, sizeof(k), "bs%d.cset%d", i, j);
+                bs.cset[j] = (byte)t.get(k);
+                snprintf(k, sizeof(k), "bs%d.price%d", i, j);
+                bs.price[j] = (word)t.get(k);
+                snprintf(k, sizeof(k), "bs%d.str%d", i, j);
+                bs.str[j] = (word)t.get(k);
+            }
+
+            q30_set_bottle_shop(i, bs);
+        }
+    }
+
+    return true;
+}
+
+// ---- the string data editor's access (zq_record_editor.cpp) ----------------------------
+
+namespace
+{
+
+void hash_string_fields(uint64_t *h)
+{
+    for(std::map<std::string, TapeField>::const_iterator it = zq255.string_fields.begin(); it != zq255.string_fields.end(); ++it)
+    {
+        zq_hash_add(h, it->first.data(), it->first.size());
+        zq_hash_add(h, &it->second.value, sizeof(it->second.value));
+
+        if(!it->second.bytes.empty())
+            zq_hash_add(h, &it->second.bytes[0], it->second.bytes.size());
+    }
+}
+
+ZqStoreHashRegistration g_hash_strings(ID_STRINGS, hash_string_fields);
+
+} // namespace
+
+// The STR section's data as loaded, and its version; false when the open quest's strings
+// aren't a 2.55 / 3.0 section.
+bool zq255_strings_record(std::vector<byte> &rec, int *version)
+{
+    const ZqQuestPart *p = find_part(ID_STRINGS);
+    std::vector<byte> b;
+
+    if(header.zelda_version != 0x255 || !p || !part_bytes(*p, b) || b.size() < 8)
+        return false;
+
+    const int v = rd16(b, 0);
+
+    if(v < 5 || v > 13)
+        return false;
+
+    if(version)
+        *version = v;
+
+    rec.assign(b.begin() + 8, b.end());
+    return true;
+}
+
+// Puts the string data editor's edits in (the 2.55 / 3.0 fields that differ from the loaded
+// section), checked against the loaded section; the text wrapping the margins give follows.
+bool zq255_strings_commit(const std::map<std::string, TapeField> &edits, std::string &why)
+{
+    const ZqQuestPart *p = find_part(ID_STRINGS);
+    std::vector<byte> b, merged;
+
+    if(header.zelda_version != 0x255 || !p || !part_bytes(*p, b) || b.size() < 8)
+    {
+        why = "this quest's strings can't be edited this way";
+        return false;
+    }
+
+    const int v = rd16(b, 0);
+    std::map<std::string, TapeField> keep;
+    keep.swap(zq255.string_fields);
+    zq255.string_fields = edits;
+
+    if(!merge_string_fields(b, v, merged, why))
+    {
+        zq255.string_fields.swap(keep);
+        return false;
+    }
+
+    if(v >= 7)
+    {
+        const std::vector<byte> body(merged.begin() + 8, merged.end());
+        Tape t;
+        TapeParser tp(body.empty() ? NULL : &body[0], body.size(), 0, &t);
+        zq_tape_strings(tp, v);
+        const int count = (int)t.get("count");
+        char kl[32], kr[32];
+
+        for(int i = 0; i < count; ++i)
+        {
+            snprintf(kl, sizeof(kl), "msg%d.margin_left", i);
+            snprintf(kr, sizeof(kr), "msg%d.margin_right", i);
+            q30_set_msg_wrap_extra(i, 16 - ((int)t.get(kl) + (int)t.get(kr)));
+        }
+    }
+
+    return true;
 }

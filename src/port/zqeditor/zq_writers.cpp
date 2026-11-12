@@ -59,6 +59,23 @@ int dc_feof(void *) { return 1; }
 int dc_ferror(void *) { return 0; }
 const PACKFILE_VTABLE g_discard_vtable = { dc_fclose, dc_getc, dc_ungetc, dc_fread, dc_putc, dc_fwrite, dc_fseek, dc_feof, dc_ferror };
 
+// Appends what is written to a std::vector<byte> (the user pointer).
+int vc_putc(int c, void *user)
+{
+    ((std::vector<byte> *)user)->push_back((byte)c);
+    return c & 0xFF;
+}
+#pragma push_macro("long")  // packfile callbacks use the system's long (zcport/lp64.h)
+#undef long
+long vc_fwrite(const void *p, long n, void *user)
+{
+    const byte *b = (const byte *)p;
+    ((std::vector<byte> *)user)->insert(((std::vector<byte> *)user)->end(), b, b + n);
+    return n;
+}
+#pragma pop_macro("long")
+const PACKFILE_VTABLE g_vector_vtable = { dc_fclose, dc_getc, dc_ungetc, dc_fread, vc_putc, vc_fwrite, dc_fseek, dc_feof, dc_ferror };
+
 } // namespace
 
 namespace { std::vector<dword> &every_save_ids(); }
@@ -83,6 +100,38 @@ void zq_writers_note_loaded()
 {
     for(size_t i = 0; i < load_hooks().size(); ++i)
         load_hooks()[i]();
+}
+
+namespace
+{
+std::vector<std::pair<dword, void (*)(uint64_t *)> > &store_hashers()
+{
+    static std::vector<std::pair<dword, void (*)(uint64_t *)> > h;
+    return h;
+}
+}
+
+ZqStoreHashRegistration::ZqStoreHashRegistration(dword id, void (*fn)(uint64_t *h))
+{
+    store_hashers().push_back(std::make_pair(id, fn));
+}
+
+void zq_hash_store(dword id, uint64_t *h)
+{
+    for(size_t i = 0; i < store_hashers().size(); ++i)
+        if(store_hashers()[i].first == id)
+            store_hashers()[i].second(h);
+}
+
+void zq_hash_add(uint64_t *h, const void *data, size_t n)
+{
+    const unsigned char *b = (const unsigned char *)data;
+
+    for(size_t i = 0; i < n; ++i)
+    {
+        *h ^= b[i];
+        *h *= 1099511628211ULL;
+    }
 }
 
 ZqEverySave::ZqEverySave(dword id)
@@ -373,6 +422,43 @@ bool needs_writing(const ZqQuestPart &p, bool flat_changed)
 }
 
 } // namespace
+
+PACKFILE *zq_open_vector_sink(std::vector<byte> *out)
+{
+    return zq_open_sink(&g_vector_vtable, out);
+}
+
+bool zq_own_part_bytes(const ZqQuestPart &p, std::vector<byte> &out)
+{
+    out.clear();
+
+    if(!needs_writing(p, flat_pair_changed()))
+    {
+        if(p.length <= 0)
+            return true;
+
+        out.resize((size_t)p.length);
+        return zq_part_read(p, 0, &out[0], out.size());
+    }
+
+    PACKFILE *f = zq_open_vector_sink(&out);
+
+    if(!f)
+        return false;
+
+    int rc = zq_write_part(f, p);
+    pack_fclose(f);
+    size_t skip = zq_part_is_raw(p.id) ? 0 : 4;
+
+    if(rc != ZQW_OK || out.size() < skip)
+    {
+        out.clear();
+        return false;
+    }
+
+    out.erase(out.begin(), out.begin() + skip);
+    return true;
+}
 
 void zq_own_format_blockers(std::vector<std::string> &names)
 {
@@ -866,8 +952,23 @@ const NewerEntry *newer_writer(dword id, int target)
         if(!f)
             return NULL;
 
+        // ZQ_NEWER_TRACE=<file> (tests only): each writer asked, and what it said
+        static FILE *trace = getenv("ZQ_NEWER_TRACE") && *getenv("ZQ_NEWER_TRACE") ? fopen(getenv("ZQ_NEWER_TRACE"), "w") : NULL;
+
+        if(trace)
+        {
+            fprintf(trace, "%s: %s ...", id_name(id).c_str(), r[i].name);
+            fflush(trace);
+        }
+
         int rc = r[i].writer(f, c);
         pack_fclose(f);
+
+        if(trace)
+        {
+            fprintf(trace, " %d\n", rc);
+            fflush(trace);
+        }
 
         if(rc != ZQW_UNSUPPORTED)
             return &r[i];
@@ -1102,7 +1203,9 @@ int zq_save_newer(const char *filename, int target, std::string &why)
     // them (_save_unencoded_quest_int: pack_fopen_password(..., F_WRITE_PACKED, "")).
     std::string out_tmp = std::string(filename) + ".zqsave.tmp";
     remove(out_tmp.c_str());
-    PACKFILE *f = pack_fopen_password(out_tmp.c_str(), F_WRITE_PACKED, "");
+    // ZQ_NEWER_UNPACKED=1 (tests only): the quest data unpacked, to compare sections quickly
+    const char *unpacked = getenv("ZQ_NEWER_UNPACKED");
+    PACKFILE *f = pack_fopen_password(out_tmp.c_str(), unpacked && *unpacked == '1' ? F_WRITE : F_WRITE_PACKED, "");
 
     if(!f)
     {
@@ -1111,6 +1214,7 @@ int zq_save_newer(const char *filename, int target, std::string &why)
     }
 
     int ret = 0;
+    std::string from_ref;
 
     for(size_t i = 0; i < order.size() && !ret; ++i)
     {
@@ -1120,6 +1224,9 @@ int zq_save_newer(const char *filename, int target, std::string &why)
         if(!e && use_ref)
         {
             const RefSection *r = ref.find(order[i]);
+
+            if(r)
+                from_ref += (from_ref.empty() ? "" : " ") + id_name(order[i]);
 
             if(r && !copy_reference_section(f, ref, *r))
             {
@@ -1138,6 +1245,9 @@ int zq_save_newer(const char *filename, int target, std::string &why)
     }
 
     pack_fclose(f);
+
+    if(!ret && use_ref)
+        why = "from the reference: " + from_ref;
 
     if(!ret && !replace_file(out_tmp.c_str(), filename))
     {

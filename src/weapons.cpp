@@ -2444,11 +2444,16 @@ bool weapon::animate(int)
         // Hookshot grab and retract code
         if(misc==0)
         {
-            if(q30_switchhook_frame(this))
+            const int q30_sw = q30_switchhook_frame(this);
+
+            if(q30_sw == 1)
             {
                 dead=0;
                 break;
             }
+
+            if(q30_sw == 2)     // 2.55+: held where it is while a switch hook switch runs
+                break;
 
 int maxlength=parentitem>-1 ? 16*itemsbuf[parentitem].misc1 : 0;
             

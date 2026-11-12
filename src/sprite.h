@@ -128,12 +128,16 @@ public:
 /**********************************/
 
 #define SLMAX 255
+// A 2.55/3.0 script may raise a list's limit (Game->MaxLWeapons ...) up to upstream's 1024
+// (ffscript.h's MAX_LWPN_SPRITES and the others); every list starts at SLMAX, so 2.53 quests
+// hold what they always did.
+#define SLMAX_ALLOC 1024
 
 class sprite_list
 {
-    sprite *sprites[SLMAX];
+    sprite *sprites[SLMAX_ALLOC];
     int count;
-    int max_count;      // SLMAX; a 2.55/3.0 script may lower it (Game->MaxLWeapons ...)
+    int max_count;      // SLMAX, or what a 2.55/3.0 script set (1..SLMAX_ALLOC)
     map<long, int> containedUIDs;
     // Cache requests from scripts
     mutable long lastUIDRequested;
@@ -147,7 +151,7 @@ public:
     sprite *spr(int index);
     bool swap(int a,int b);
     bool add(sprite *s);
-    void setMax(int m) { max_count = m < 0 ? 0 : m > SLMAX ? SLMAX : m; }
+    void setMax(int m) { max_count = m < 0 ? 0 : m > SLMAX_ALLOC ? SLMAX_ALLOC : m; }
     int getMax() const { return max_count; }
     // removes pointer from list but doesn't delete it
     bool remove(sprite *s);

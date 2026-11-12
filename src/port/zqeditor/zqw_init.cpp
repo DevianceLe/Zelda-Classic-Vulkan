@@ -36,6 +36,7 @@
 #include "zq_sections.h"
 #include "zq_writers.h"
 #include "zq_q255_store.h"
+#include "zq_tape.h"
 #include "zqw_init.h"
 
 extern zinitdata zinit;
@@ -1745,6 +1746,62 @@ void init_255_old(Patch &p, int v)
         p.fail("generic script start data");
 }
 
+// ZQW_TAPE_CHECK=1 (for testing the init data editor's schema, zq_tape.cpp): the section read
+// as a tape ends where it does and encodes back to its own bytes.
+void tape_check_init(const Src &s, const Head &h, int v)
+{
+    if(!getenv("ZQW_TAPE_CHECK") || s.d.size() < h.body)
+        return;
+
+    const std::vector<byte> body(s.d.begin() + h.body, s.d.end());
+    Tape t;
+    TapeParser p(body.empty() ? NULL : &body[0], body.size(), 0, &t);
+    bool ok = zq_tape_init(p, v) && p.pos == body.size();
+    std::vector<byte> enc;
+
+    if(ok)
+    {
+        t.encode(enc);
+        ok = enc == body;
+    }
+
+    al_trace("zqw tape INIT v%d: 1 records, %d bad%s\n", v, ok ? 0 : 1, ok ? "" : " (doesn't read and encode back)");
+
+    if(!ok)
+    {
+        if(enc.empty())
+            t.encode(enc);
+
+        size_t k = 0;
+
+        while(k < enc.size() && k < body.size() && enc[k] == body[k])
+            ++k;
+
+        // the field there
+        size_t at = 0;
+        std::string key = "?";
+
+        for(size_t i = 0; i < t.f.size(); ++i)
+        {
+            std::vector<byte> one;
+            Tape single;
+            single.f.push_back(t.f[i]);
+            single.encode(one);
+
+            if(at + one.size() > k)
+            {
+                key = t.f[i].key;
+                break;
+            }
+
+            at += one.size();
+        }
+
+        al_trace("zqw tape INIT v%d: parse stopped at %d of %d (bad %d), encoding differs at %d (field %s)\n", v,
+                 (int)p.pos, (int)body.size(), p.bad ? 1 : 0, (int)k, key.c_str());
+    }
+}
+
 int write_initdata(PACKFILE *f, const ZqPartContext &ctx)
 {
     const int v = ctx.version;
@@ -1786,6 +1843,34 @@ int write_initdata(PACKFILE *f, const ZqPartContext &ctx)
 
     if(!start(ctx, s, h))
         return BAD_PART;
+
+    if(q255)
+    {
+        tape_check_init(s, h, v);
+
+        // edited in the init data editor for newer quests: the record as edited, with the
+        // editor's view as the save sets it (zq_save_own_format_ex)
+        if(!zq255.init_record.empty())
+        {
+            std::vector<byte> rec = zq255.init_record;
+            Tape t;
+            TapeParser tp(&rec[0], rec.size(), 0, &t);
+
+            if(!zq_tape_init(tp, v) || tp.pos != rec.size())
+            {
+                set_why("the init data: the edited record doesn't read back");
+                return CANT_HOLD;
+            }
+
+            if(TapeField *x = t.find("last_map")) x->value = zinit.last_map;
+            if(TapeField *x = t.find("last_screen")) x->value = zinit.last_screen;
+            rec.clear();
+            t.encode(rec);
+            Buf body;
+            body.put(&rec[0], rec.size());
+            return emit(f, ctx.part->id, s, h, body);
+        }
+    }
 
     Buf body;
     Patch p(s, body);
@@ -3300,6 +3385,85 @@ void subs_new(Patch &p, int v)
     (void)kept;
 }
 
+// ZQW_TAPE_CHECK=1 (for testing the subscreen data editor's schema, zq_tape_subscreens.cpp).
+void tape_check_subs(const Src &s, const Head &h, int v)
+{
+    if(!getenv("ZQW_TAPE_CHECK") || s.d.size() < h.body)
+        return;
+
+    const std::vector<byte> body(s.d.begin() + h.body, s.d.end());
+    Tape t;
+    TapeParser p(body.empty() ? NULL : &body[0], body.size(), 0, &t);
+    bool ok = zq_tape_subscreens(p, v) && p.pos == body.size();
+    std::vector<byte> enc;
+
+    if(ok)
+    {
+        t.encode(enc);
+        ok = enc == body;
+    }
+
+    al_trace("zqw tape SUBS v%d: %d fields, %d bad%s\n", v, (int)t.f.size(), ok ? 0 : 1,
+             ok ? "" : " (doesn't read and encode back)");
+}
+
+// The section's data with the subscreen data editor's edits (zq255.sub_fields) put in by key,
+// laid out again (a flag that adds fields, such as "selectable") and read back the way the
+// player reads it.
+bool merge_sub_fields(std::vector<byte> &data, int v, std::string &why)
+{
+    if(zq255.sub_fields.empty())
+        return true;
+
+    Tape t;
+    TapeParser p(data.empty() ? NULL : &data[0], data.size(), 0, &t);
+
+    if(!zq_tape_subscreens(p, v) || p.pos != data.size())
+    {
+        why = "they don't read as their version says";
+        return false;
+    }
+
+    std::map<std::string, size_t> at;
+
+    for(size_t i = 0; i < t.f.size(); ++i)
+        if(t.f[i].extra)
+            at[t.f[i].key] = i;
+
+    for(std::map<std::string, TapeField>::const_iterator it = zq255.sub_fields.begin(); it != zq255.sub_fields.end(); ++it)
+    {
+        std::map<std::string, size_t>::const_iterator x = at.find(it->first);
+
+        if(x != at.end())
+        {
+            t.f[x->second].value = it->second.value;
+            t.f[x->second].bytes = it->second.bytes;
+        }
+    }
+
+    Tape out;
+    TapeParser rp(&t, &out);
+    zq_tape_subscreens(rp, v);
+    std::vector<byte> nb;
+    out.encode(nb);
+
+    Q255Section r;
+    r.data = nb.empty() ? NULL : &nb[0];
+    r.size = nb.size();
+    r.version = (word)v;
+    r.keep = false;
+    r.header = &header;
+
+    if(q255_read_subscreens(r) != 0 || r.failed || r.pos != r.size)
+    {
+        why = "with these settings they don't read back";
+        return false;
+    }
+
+    data.swap(nb);
+    return true;
+}
+
 int write_subscreens(PACKFILE *f, const ZqPartContext &ctx)
 {
     const int v = ctx.version;
@@ -3318,6 +3482,9 @@ int write_subscreens(PACKFILE *f, const ZqPartContext &ctx)
     if(!start(ctx, s, h))
         return BAD_PART;
 
+    if(q255 && v >= 8)
+        tape_check_subs(s, h, v);
+
     Buf body;
     Patch p(s, body);
 
@@ -3325,6 +3492,22 @@ int write_subscreens(PACKFILE *f, const ZqPartContext &ctx)
         subs_new(p, v);
     else
         subs_old(p, v, q255);
+
+    if(q255 && v >= 8 && !zq255.sub_fields.empty() && !s.bad && !p.cant)
+    {
+        // the 2.55/3.0 settings edited in the subscreen data editor go on what 2.53's own
+        // subscreen edits made of the section
+        p.copy(s.left());
+        std::string why;
+
+        if(!merge_sub_fields(body.b, v, why))
+        {
+            set_why("the subscreens: " + why);
+            return CANT_HOLD;
+        }
+
+        return emit(f, ctx.part->id, s, h, body);
+    }
 
     return finish(f, ctx, s, h, p, body);
 }
@@ -3351,3 +3534,156 @@ void snapshot_subscreens()
 }
 
 } // namespace
+
+// ---- the init data editor's access (zq_record_editor.cpp) -------------------------------
+
+void hash_init_record(uint64_t *h)
+{
+    if(!zq255.init_record.empty())
+        zq_hash_add(h, &zq255.init_record[0], zq255.init_record.size());
+}
+
+ZqStoreHashRegistration g_hash_init(ID_INITDATA, hash_init_record);
+
+// The INIT section's data as it stands (edited, or as loaded) and its version; false when the
+// open quest's init data isn't a 2.55 / 3.0 section.
+bool zq255_init_record(std::vector<byte> &rec, int *version)
+{
+    const ZqQuestPart *part = zq_find_part(ID_INITDATA);
+    std::vector<byte> d;
+
+    if(!part || header.zelda_version != 0x255)
+        return false;
+
+    d.resize((size_t)part->length);
+
+    if(d.size() < 8 || !zq_part_read(*part, 0, &d[0], d.size()))
+        return false;
+
+    const int v = d[0] | (d[1] << 8);
+
+    if(v < 18 || v > 52)
+        return false;
+
+    if(version)
+        *version = v;
+
+    if(!zq255.init_record.empty())
+        rec = zq255.init_record;
+    else
+        rec.assign(d.begin() + 8, d.end());
+
+    return true;
+}
+
+// Puts an edited record in: it is read the way a load reads it, into zinit and the newer data
+// the store keeps (lighting, bottles, generic and screen script data...).
+bool zq255_init_commit(const std::vector<byte> &rec, std::string &why)
+{
+    std::vector<byte> cur;
+    int v = 0;
+
+    if(!zq255_init_record(cur, &v))
+    {
+        why = "this quest's init data can't be edited this way";
+        return false;
+    }
+
+    const ZqQuestPart *part = zq_find_part(ID_INITDATA);
+    byte head[4] = { 0, 0, 0, 0 };
+    zq_part_read(*part, 0, head, 4);
+
+    Q255Section s;
+    s.data = rec.empty() ? NULL : &rec[0];
+    s.size = rec.size();
+    s.version = (word)v;
+    s.cversion = (word)(head[2] | (head[3] << 8));
+    s.keep = true;
+    s.header = &header;
+    const byte view_map = zinit.last_map, view_screen = zinit.last_screen;
+    const int ret = q255_read_initdata(s);
+
+    if(ret != 0 || s.failed || s.pos != s.size)
+    {
+        why = "the init data reader doesn't take it";
+        return false;
+    }
+
+    zinit.last_map = view_map;      // the editor's view stays where it is
+    zinit.last_screen = view_screen;
+    zq255.init_record = rec;
+    return true;
+}
+
+// ---- the subscreen data editor's access (zq_record_editor.cpp) -----------------------
+
+namespace
+{
+
+void hash_sub_fields(uint64_t *h)
+{
+    for(std::map<std::string, TapeField>::const_iterator it = zq255.sub_fields.begin(); it != zq255.sub_fields.end(); ++it)
+    {
+        zq_hash_add(h, it->first.data(), it->first.size());
+        zq_hash_add(h, &it->second.value, sizeof(it->second.value));
+
+        if(!it->second.bytes.empty())
+            zq_hash_add(h, &it->second.bytes[0], it->second.bytes.size());
+    }
+}
+
+ZqStoreHashRegistration g_hash_subs(ID_SUBSCREEN, hash_sub_fields);
+
+} // namespace
+
+// The SUBS section's data as loaded and its version; false unless it is a 2.55 / 3.0 section in
+// upstream's own format (version 8 on).
+bool zq255_subs_record(std::vector<byte> &rec, int *version)
+{
+    const ZqQuestPart *part = zq_find_part(ID_SUBSCREEN);
+    std::vector<byte> d;
+
+    if(!part || header.zelda_version != 0x255)
+        return false;
+
+    d.resize((size_t)part->length);
+
+    if(d.size() < 8 || !zq_part_read(*part, 0, &d[0], d.size()))
+        return false;
+
+    const int v = d[0] | (d[1] << 8);
+
+    if(v < 8 || v > 21)
+        return false;
+
+    if(version)
+        *version = v;
+
+    rec.assign(d.begin() + 8, d.end());
+    return true;
+}
+
+// Puts the subscreen data editor's edits in, checked against the section as loaded.
+bool zq255_subs_commit(const std::map<std::string, TapeField> &edits, std::string &why)
+{
+    std::vector<byte> rec;
+    int v = 0;
+
+    if(!zq255_subs_record(rec, &v))
+    {
+        why = "this quest's subscreens can't be edited this way";
+        return false;
+    }
+
+    std::map<std::string, TapeField> keep;
+    keep.swap(zq255.sub_fields);
+    zq255.sub_fields = edits;
+
+    if(!merge_sub_fields(rec, v, why))
+    {
+        zq255.sub_fields.swap(keep);
+        return false;
+    }
+
+    return true;
+}

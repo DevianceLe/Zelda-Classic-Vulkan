@@ -66,6 +66,15 @@ void Zq255Store::clear()
     guy_weapon_script.clear();
     guy_moveflags.clear();
     guy_wpnsprite.clear();
+    item_records.clear();
+    guy_records.clear();
+    dmap_records.clear();
+    init_record.clear();
+    rules_section.clear();
+    misc_fields.clear();
+    string_fields.clear();
+    sub_fields.clear();
+    screen_fields.clear();
     bottle_types.clear();
     bottle_shops.clear();
     init_bottle_slots.clear();
@@ -178,6 +187,76 @@ const Q30Combo *q30_combo(int id)
         return NULL;
 
     return zq255.combos[id];
+}
+
+// ---- ZQuest's combo operations (zq_q255.h) -----------------------------------------------
+
+namespace
+{
+std::vector<Q30Combo *> g_combo_undo;   // the table as go_combos() saw it
+
+bool combo_id_ok(int i)
+{
+    return i >= 0 && i < MAXCOMBOS;
+}
+}
+
+void zq255_combo_copy(int dest, int src)
+{
+    if(!combo_id_ok(dest) || !combo_id_ok(src) || dest == src)
+        return;
+
+    Q30Combo *n = zq255.combos[src] ? new Q30Combo(*zq255.combos[src]) : NULL;
+    delete zq255.combos[dest];
+    zq255.combos[dest] = n;
+}
+
+void zq255_combo_swap(int a, int b)
+{
+    if(!combo_id_ok(a) || !combo_id_ok(b))
+        return;
+
+    Q30Combo *t = zq255.combos[a];
+    zq255.combos[a] = zq255.combos[b];
+    zq255.combos[b] = t;
+}
+
+void zq255_combo_clear(int i)
+{
+    if(!combo_id_ok(i))
+        return;
+
+    delete zq255.combos[i];
+    zq255.combos[i] = NULL;
+}
+
+void zq255_combos_undo_note()
+{
+    for(size_t i = 0; i < g_combo_undo.size(); ++i)
+        delete g_combo_undo[i];
+
+    g_combo_undo.clear();
+
+    if(!zq255_quest_is_newer())
+        return;
+
+    g_combo_undo.assign(MAXCOMBOS, (Q30Combo *)NULL);
+
+    for(int i = 0; i < MAXCOMBOS; ++i)
+        if(zq255.combos[i])
+            g_combo_undo[i] = new Q30Combo(*zq255.combos[i]);
+}
+
+void zq255_combos_undo_restore()
+{
+    if(g_combo_undo.size() != (size_t)MAXCOMBOS)
+        return;
+
+    for(int i = 0; i < MAXCOMBOS; ++i)
+    {
+        delete zq255.combos[i];
+        zq255.combos[i] = g_combo_undo[i] ? new Q30Combo(*g_combo_undo[i]) : NULL;
+    }
 }
 
 int q30_combo_type(int id)

@@ -43,8 +43,10 @@
 #include "zq_q255_store.h"
 #include "zq_writers.h"
 #include "zqw_itemguy.h"
+#include "zq_tape.h"
 
 extern itemdata *itemsbuf;
+extern zquestheader header;
 extern char *item_string[ITEMCNT];
 
 namespace
@@ -85,7 +87,8 @@ ZqLoadHookRegistration g_hook(snapshot);
 
 bool item_changed(int i)
 {
-    return diff_item(itemsbuf[i], g_items[i]) != NULL || strcmp(item_string[i], g_names[i]) != 0;
+    return diff_item(itemsbuf[i], g_items[i]) != NULL || strcmp(item_string[i], g_names[i]) != 0 ||
+           zq255.item_records.count(i) != 0;
 }
 
 // ZQuest's buffers while a reader runs on what was written: put back afterwards.
@@ -744,7 +747,11 @@ void build_255(const std::vector<byte> &body, const Layout255 &L, const std::vec
         size_t at = out.size();
         Rec r(&body[0], body.size(), L.rec_at[i], mode[i] == M_DIRECT, &out);
 
-        if(mode[i] == M_COPY || i >= MAXITEMS)
+        std::map<int, std::vector<byte> >::const_iterator edited = zq255.item_records.find(i);
+
+        if(edited != zq255.item_records.end() && i < MAXITEMS)
+            out.insert(out.end(), edited->second.begin(), edited->second.end());
+        else if(mode[i] == M_COPY || i >= MAXITEMS)
             r.keep(L.rec_at[i + 1] - L.rec_at[i]);
         else
             item_255(r, L.version, i, itemsbuf[i], g_items[i], item_string[i], g_names[i]);
@@ -842,6 +849,42 @@ const char *diff_255(const Read255 &got, int i, int count)
     return NULL;
 }
 
+// ZQW_TAPE_CHECK=1 (for testing the record editor's schema, zq_tape.cpp): every record read
+// as a tape ends where the writer's walk says, and encodes back to its own bytes.
+bool tape_check_items(const std::vector<byte> &body, const Layout255 &L)
+{
+    static int env = -1;
+
+    if(env < 0)
+        env = getenv("ZQW_TAPE_CHECK") ? 1 : 0;
+
+    if(env != 1)
+        return true;
+
+    int bad = 0;
+
+    for(int i = 0; i < L.count; ++i)
+    {
+        Tape t;
+        TapeParser p(&body[0], L.rec_at[i + 1], L.rec_at[i], &t);
+        bool ok = zq_tape_item(p, L.version) && p.pos == L.rec_at[i + 1];
+        std::vector<byte> enc;
+
+        if(ok)
+        {
+            t.encode(enc);
+            ok = enc.size() == L.rec_at[i + 1] - L.rec_at[i] && !memcmp(&enc[0], &body[L.rec_at[i]], enc.size());
+        }
+
+        if(!ok && bad++ < 5)
+            al_trace("zqw tape ITEM v%d: record %d doesn't read and encode back (%d of %d bytes)\n", L.version, i,
+                     (int)(p.pos - L.rec_at[i]), (int)(L.rec_at[i + 1] - L.rec_at[i]));
+    }
+
+    al_trace("zqw tape ITEM v%d: %d records, %d bad\n", L.version, L.count, bad);
+    return bad == 0;
+}
+
 int encode_items_255(const ZqPartContext &ctx, std::vector<byte> &out)
 {
     std::vector<byte> orig;
@@ -859,6 +902,9 @@ int encode_items_255(const ZqPartContext &ctx, std::vector<byte> &out)
         note("items v%d: the part isn't laid out as q255_read_items reads it\n", L.version);
         return ERR_PARSE;
     }
+
+    if(!tape_check_items(body, L))
+        return ERR_PARSE;
 
     // The section can't list more items than it does: 2.55 always writes all of them.
     for(int i = L.count; i < MAXITEMS; ++i)
@@ -1001,7 +1047,144 @@ int zqw_items(PACKFILE *f, const ZqPartContext &ctx)
 }
 
 ZqWriterRegistration g_register(ID_ITEMS, zqw_items, "items, in the quest's own version");
+
+// Edited records count in the section's fingerprint (nothing for a quest with none).
+void hash_item_records(uint64_t *h)
+{
+    for(std::map<int, std::vector<byte> >::const_iterator it = zq255.item_records.begin(); it != zq255.item_records.end(); ++it)
+    {
+        const int i = it->first;
+        const unsigned n = (unsigned)it->second.size();
+        zq_hash_add(h, &i, sizeof(i));
+        zq_hash_add(h, &n, sizeof(n));
+        zq_hash_add(h, it->second.empty() ? NULL : &it->second[0], it->second.size());
+    }
+}
+
+ZqStoreHashRegistration g_hash_items(ID_ITEMS, hash_item_records);
+
+// The open quest's item part, walked; false if it has none the 2.55 reader takes.
+bool item_layout(std::vector<byte> &orig, std::vector<byte> &body, Layout255 &L)
+{
+    const ZqQuestPart *part = zq_find_part(ID_ITEMS);
+
+    if(!part || header.zelda_version != 0x255 || !read_part(*part, orig) || orig.size() < 8)
+        return false;
+
+    L.version = (word)get_le(orig, 0, 2);
+    L.cversion = (word)get_le(orig, 2, 2);
+
+    if(L.version < 25 || L.version > 71)
+        return false;
+
+    body.assign(orig.begin() + 8, orig.end());
+    return get_le(orig, 4, 4) == body.size() && walk_255(body, L);
+}
 // Old quests derive some of this from the rules at load: written on every save (zq_writers.h).
 ZqEverySave g_every_save_items(ID_ITEMS);
 
 } // namespace
+
+// ---- the record editor's access (zq_record_editor.cpp) ---------------------------------
+
+// Item i's record as it stands (edited, or as loaded) and the section version; false when the
+// open quest's items aren't a 2.55 / 3.0 section or the file has no record i.
+bool zq255_item_record(int i, std::vector<byte> &rec, int *version)
+{
+    std::vector<byte> orig, body;
+    Layout255 L;
+
+    if(i < 0 || i >= MAXITEMS || !item_layout(orig, body, L) || i >= L.count)
+        return false;
+
+    if(version)
+        *version = L.version;
+
+    std::map<int, std::vector<byte> >::const_iterator it = zq255.item_records.find(i);
+
+    if(it != zq255.item_records.end())
+        rec = it->second;
+    else
+        rec.assign(body.begin() + L.rec_at[i], body.begin() + L.rec_at[i + 1]);
+
+    return true;
+}
+
+// Puts an edited record in: the section is read with record i replaced, and item i takes
+// what the reader makes of it (itemsbuf, its name, the newer data the store keeps). Returns
+// false (why says) if the reader doesn't take it.
+bool zq255_item_commit(int i, const std::vector<byte> &rec, std::string &why)
+{
+    std::vector<byte> orig, body;
+    Layout255 L;
+
+    if(i < 0 || i >= MAXITEMS || !item_layout(orig, body, L) || i >= L.count)
+    {
+        why = "this quest's items can't be edited this way";
+        return false;
+    }
+
+    std::vector<byte> out(orig.begin(), orig.begin() + 8);
+    out.insert(out.end(), body.begin(), body.begin() + L.rec_at[i]);
+    out.insert(out.end(), rec.begin(), rec.end());
+    out.insert(out.end(), body.begin() + L.rec_at[i + 1], body.end());
+    set_le(out, 4, (dword)(out.size() - 8), 4);
+
+    ZqPartContext ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.zelda_version = header.zelda_version;
+    ctx.build = header.build;
+    ctx.version = L.version;
+    ctx.cversion = L.cversion;
+    Read255 got;
+
+    if(!read_back_255(out, ctx, got))
+    {
+        why = "the item reader doesn't take the record";
+        return false;
+    }
+
+    itemsbuf[i] = got.d[i];
+    strncpy(item_string[i], got.names[i].c_str(), 63);
+    item_string[i][63] = 0;
+
+#define TAKE(from, to) if(got.from.count(i)) zq255.to[i] = got.from[i]; else zq255.to.erase(i)
+    TAKE(family, item_family);
+    TAKE(usesound2, item_usesound2);
+    TAKE(override_flags, item_override_flags);
+    TAKE(display_name, item_display_name);
+    TAKE(passive, item_passive_script);
+    TAKE(sprite, item_sprite_script);
+    TAKE(weapon, item_weapon_script);
+#undef TAKE
+    zq255.item_records[i] = rec;
+    return true;
+}
+
+// Quest > Defaults > Items: the records edited in the item editor for newer quests go back to
+// how they were loaded (buffers and store too), so the reset that follows isn't overridden by
+// them when the quest is saved.
+void zq255_forget_item_edits()
+{
+    std::vector<byte> orig, body;
+    Layout255 L;
+
+    if(zq255.item_records.empty() || !item_layout(orig, body, L))
+        return;
+
+    std::vector<int> edited;
+
+    for(std::map<int, std::vector<byte> >::const_iterator it = zq255.item_records.begin(); it != zq255.item_records.end(); ++it)
+        edited.push_back(it->first);
+
+    for(size_t k = 0; k < edited.size(); ++k)
+    {
+        const int i = edited[k];
+        std::string why;
+
+        if(i < L.count)
+            zq255_item_commit(i, std::vector<byte>(body.begin() + L.rec_at[i], body.begin() + L.rec_at[i + 1]), why);
+    }
+
+    zq255.item_records.clear();
+}

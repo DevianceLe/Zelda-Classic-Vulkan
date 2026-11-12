@@ -36,8 +36,10 @@
 #include "zq_q255_store.h"
 #include "zq_writers.h"
 #include "zqw_itemguy.h"
+#include "zq_tape.h"
 
 extern guydata *guysbuf;
+extern zquestheader header;
 extern char *guy_string[eMAXGUYS];
 extern word quest_header_zelda_version, quest_header_zelda_build;
 
@@ -107,7 +109,8 @@ ZqLoadHookRegistration g_hook(snapshot);
 
 bool guy_changed(int i)
 {
-    return diff_guy(guysbuf[i], g_guys[i]) != NULL || strcmp(guy_string[i], g_names[i]) != 0;
+    return diff_guy(guysbuf[i], g_guys[i]) != NULL || strcmp(guy_string[i], g_names[i]) != 0 ||
+           zq255.guy_records.count(i) != 0;
 }
 
 // ZQuest's buffers while a reader runs on what was written: put back afterwards.
@@ -697,6 +700,68 @@ const char *diff_255(int v, int i, const std::vector<guydata> &d, const std::vec
     return NULL;
 }
 
+// ZQW_TAPE_CHECK=1: every record read as a tape (zq_tape.cpp) ends where the writer's walk
+// says, and encodes back to its own bytes.
+bool tape_check_guys(const std::vector<byte> &body, int v, const std::vector<size_t> &rec_at)
+{
+    static int env = -1;
+
+    if(env < 0)
+        env = getenv("ZQW_TAPE_CHECK") ? 1 : 0;
+
+    if(env != 1)
+        return true;
+
+    int bad = 0;
+
+    for(int i = 0; i < FILE_GUYS; ++i)
+    {
+        Tape t;
+        TapeParser p(&body[0], rec_at[i + 1], rec_at[i], &t);
+        bool ok = zq_tape_guy(p, v) && p.pos == rec_at[i + 1];
+        std::vector<byte> enc;
+
+        if(ok)
+        {
+            t.encode(enc);
+            ok = enc.size() == rec_at[i + 1] - rec_at[i] && !memcmp(&enc[0], &body[rec_at[i]], enc.size());
+        }
+
+        if(!ok && bad++ < 5)
+            al_trace("zqw tape GUY v%d: record %d doesn't read and encode back (%d of %d bytes)\n", v, i,
+                     (int)(p.pos - rec_at[i]), (int)(rec_at[i + 1] - rec_at[i]));
+    }
+
+    al_trace("zqw tape GUY v%d: %d records, %d bad\n", v, FILE_GUYS, bad);
+    return bad == 0;
+}
+
+// Each record's place in the body (and the body's end), walking it as the reader does.
+bool walk_guys_255(const std::vector<byte> &body, int v, std::vector<size_t> &rec_at)
+{
+    rec_at.clear();
+    size_t pos = 64 * (size_t)FILE_GUYS;
+
+    if(body.size() < pos)
+        return false;
+
+    for(int i = 0; i < FILE_GUYS; ++i)
+    {
+        rec_at.push_back(pos);
+        std::vector<byte> scratch;
+        Rec r(&body[0], body.size(), pos, false, &scratch);
+        guy_255(r, v, i, guysbuf[i], guysbuf[i]);
+
+        if(r.short_read)
+            return false;
+
+        pos = r.pos;
+    }
+
+    rec_at.push_back(pos);
+    return pos == body.size();
+}
+
 int encode_guys_255(const ZqPartContext &ctx, std::vector<byte> &out)
 {
     std::vector<byte> orig;
@@ -736,6 +801,9 @@ int encode_guys_255(const ZqPartContext &ctx, std::vector<byte> &out)
         return ERR_PARSE;
     }
 
+    if(!tape_check_guys(body, v, rec_at))
+        return ERR_PARSE;
+
     std::vector<int> mode(FILE_GUYS);
 
     for(int i = 0; i < FILE_GUYS; ++i)
@@ -765,7 +833,11 @@ int encode_guys_255(const ZqPartContext &ctx, std::vector<byte> &out)
             size_t at = out.size();
             Rec r(&body[0], body.size(), rec_at[i], mode[i] == M_DIRECT, &out);
 
-            if(mode[i] == M_COPY)
+            std::map<int, std::vector<byte> >::const_iterator edited = zq255.guy_records.find(i);
+
+            if(edited != zq255.guy_records.end() && i < MAXGUYS)
+                out.insert(out.end(), edited->second.begin(), edited->second.end());
+            else if(mode[i] == M_COPY)
                 r.keep(rec_at[i + 1] - rec_at[i]);
             else
                 guy_255(r, v, i, guysbuf[i], g_guys[i]);
@@ -894,7 +966,142 @@ int zqw_guys(PACKFILE *f, const ZqPartContext &ctx)
 }
 
 ZqWriterRegistration g_register(ID_GUYS, zqw_guys, "enemies, in the quest's own version");
+
+// Edited records count in the section's fingerprint (nothing for a quest with none).
+void hash_guy_records(uint64_t *h)
+{
+    for(std::map<int, std::vector<byte> >::const_iterator it = zq255.guy_records.begin(); it != zq255.guy_records.end(); ++it)
+    {
+        const int i = it->first;
+        const unsigned n = (unsigned)it->second.size();
+        zq_hash_add(h, &i, sizeof(i));
+        zq_hash_add(h, &n, sizeof(n));
+        zq_hash_add(h, it->second.empty() ? NULL : &it->second[0], it->second.size());
+    }
+}
+
+ZqStoreHashRegistration g_hash_guys(ID_GUYS, hash_guy_records);
+
+// The open quest's enemy part, walked; false if it has none the 2.55 reader takes.
+bool guy_layout(std::vector<byte> &orig, std::vector<byte> &body, int &v, std::vector<size_t> &rec_at)
+{
+    const ZqQuestPart *part = zq_find_part(ID_GUYS);
+
+    if(!part || header.zelda_version != 0x255 || !read_part(*part, orig) || orig.size() < 8)
+        return false;
+
+    v = (int)get_le(orig, 0, 2);
+
+    if(v < 24 || v > 60)
+        return false;
+
+    body.assign(orig.begin() + 8, orig.end());
+    return get_le(orig, 4, 4) == body.size() && walk_guys_255(body, v, rec_at);
+}
 // Old quests derive some of this from the rules at load: written on every save (zq_writers.h).
 ZqEverySave g_every_save_guys(ID_GUYS);
 
 } // namespace
+
+// ---- the record editor's access (zq_record_editor.cpp) ---------------------------------
+
+// Enemy i's record as it stands (edited, or as loaded) and the section version; false when
+// the open quest's enemies aren't a 2.55 / 3.0 section.
+bool zq255_guy_record(int i, std::vector<byte> &rec, int *version)
+{
+    std::vector<byte> orig, body;
+    std::vector<size_t> rec_at;
+    int v = 0;
+
+    if(i < 0 || i >= MAXGUYS || i >= FILE_GUYS || !guy_layout(orig, body, v, rec_at))
+        return false;
+
+    if(version)
+        *version = v;
+
+    std::map<int, std::vector<byte> >::const_iterator it = zq255.guy_records.find(i);
+
+    if(it != zq255.guy_records.end())
+        rec = it->second;
+    else
+        rec.assign(body.begin() + rec_at[i], body.begin() + rec_at[i + 1]);
+
+    return true;
+}
+
+// Puts an edited record in: the section is read with record i replaced, and enemy i takes
+// what the reader makes of it (guysbuf and the newer data the store keeps). The name stays
+// ZQuest's (it lives in the names block). False (why says) if the reader doesn't take it.
+bool zq255_guy_commit(int i, const std::vector<byte> &rec, std::string &why)
+{
+    std::vector<byte> orig, body;
+    std::vector<size_t> rec_at;
+    int v = 0;
+
+    if(i < 0 || i >= MAXGUYS || i >= FILE_GUYS || !guy_layout(orig, body, v, rec_at))
+    {
+        why = "this quest's enemies can't be edited this way";
+        return false;
+    }
+
+    std::vector<byte> out(orig.begin(), orig.begin() + 8);
+    out.insert(out.end(), body.begin(), body.begin() + rec_at[i]);
+    out.insert(out.end(), rec.begin(), rec.end());
+    out.insert(out.end(), body.begin() + rec_at[i + 1], body.end());
+    set_le(out, 4, (dword)(out.size() - 8), 4);
+
+    ZqPartContext ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.zelda_version = header.zelda_version;
+    ctx.build = header.build;
+    ctx.version = (word)v;
+    ctx.cversion = (word)get_le(orig, 2, 2);
+    std::vector<guydata> d;
+    std::vector<std::string> names;
+    SavedGuys got;
+
+    if(!read_back_255(out, ctx, d, names, got))
+    {
+        why = "the enemy reader doesn't take the record";
+        return false;
+    }
+
+    guysbuf[i] = d[i];
+
+#define TAKE(map) if(got.map.count(i)) zq255.guy_##map[i] = got.map[i]; else zq255.guy_##map.erase(i)
+    TAKE(defenses);
+    TAKE(script);
+    TAKE(weapon_script);
+    TAKE(moveflags);
+    TAKE(wpnsprite);
+#undef TAKE
+    zq255.guy_records[i] = rec;
+    return true;
+}
+
+// Quest > Defaults > Enemies: as zq255_forget_item_edits.
+void zq255_forget_guy_edits()
+{
+    std::vector<byte> orig, body;
+    std::vector<size_t> rec_at;
+    int v = 0;
+
+    if(zq255.guy_records.empty() || !guy_layout(orig, body, v, rec_at))
+        return;
+
+    std::vector<int> edited;
+
+    for(std::map<int, std::vector<byte> >::const_iterator it = zq255.guy_records.begin(); it != zq255.guy_records.end(); ++it)
+        edited.push_back(it->first);
+
+    for(size_t k = 0; k < edited.size(); ++k)
+    {
+        const int i = edited[k];
+        std::string why;
+
+        if(i + 1 < (int)rec_at.size())
+            zq255_guy_commit(i, std::vector<byte>(body.begin() + rec_at[i], body.begin() + rec_at[i + 1]), why);
+    }
+
+    zq255.guy_records.clear();
+}

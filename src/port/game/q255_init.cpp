@@ -1883,6 +1883,34 @@ static subscreen_group g_sub_page_temp;
 // SubscrPage::read; dest is NULL for a subscreen that isn't kept. The first page goes straight
 // into the subscreen; later pages are converted the same way and kept apart, for page changes
 // (q30_scripts_subscr.h), as is a copy of the first.
+// For ZQuest's subscreen data editor (zq_tape_subscreens.cpp): how many bytes one widget of
+// a version 8+ section takes, from just after its type byte, as read_widget reads it; 0 if it
+// doesn't read. The globals a load fills are left as they were.
+size_t q255_widget_extent(const byte *data, size_t size, int version, byte type)
+{
+    if(!data || !size)
+        return 0;
+
+    const SubWidget255 last = g_sub_last;
+    const std::string label = g_sub_label, seltext = g_sub_seltext;
+    const Q30SubCond cond = g_sub_cond;
+    const Q30SubTrans trans = g_sub_widget_trans;
+    Q255Section s;
+    s.data = data;
+    s.size = size;
+    s.version = (word)version;
+    s.keep = false;
+    subscreen_object t;
+    std::string text;
+    read_widget(s, type, t, text);
+    g_sub_last = last;
+    g_sub_label = label;
+    g_sub_seltext = seltext;
+    g_sub_cond = cond;
+    g_sub_widget_trans = trans;
+    return s.failed ? 0 : s.pos;
+}
+
 static void read_sub_page(Q255Section &s, subscreen_group *dest, bool first)
 {
     const long cursor_pos = s.igetl_s();

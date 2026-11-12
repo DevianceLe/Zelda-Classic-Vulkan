@@ -22,6 +22,8 @@
 #include "zq_sections.h"
 #include "zq_tile_refs.h"
 
+void zq_hash_store(dword id, uint64_t *h);  // zq_writers.cpp: newer data ZQuest edits
+
 extern void (*qst_section_hook)(PACKFILE *f, dword id, bool start);
 
 // ZQuest's 2.53 writers (zq_class.cpp), called here only to fingerprint its data
@@ -547,6 +549,8 @@ int fingerprint(dword id, uint64_t *out)
     }
     else if(id != ID_MISC)
         zq_hash_wide_tile_refs(id, &sink.h);     // id 0, a pre-1.93 body: every section's
+
+    zq_hash_store(id, &sink.h);     // newer data 2.53's writers don't hold (nothing for a 2.53 quest)
 
     *out = sink.h;
     return ok ? FP_OK : FP_FAILED;

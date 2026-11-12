@@ -21,4 +21,12 @@ int zq255_export_not_ready();
 // pickers stop here, though ZQuest's buffers always hold NEWMAXTILES.
 int zq_tile_limit();
 
+// ZQuest's combo operations on combobuf (zq_tiles.cpp): a 2.55/3.0 combo's newer part (the
+// Q30Combo table) goes along, so a copied or moved combo stays whole. Nothing for older quests.
+void zq255_combo_copy(int dest, int src);
+void zq255_combo_swap(int a, int b);
+void zq255_combo_clear(int i);
+void zq255_combos_undo_note();      // with go_combos()
+void zq255_combos_undo_restore();   // with comeback_combos()
+
 #endif

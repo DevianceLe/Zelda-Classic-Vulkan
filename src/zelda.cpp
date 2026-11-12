@@ -1924,6 +1924,22 @@ int init_game()
         }
     }
 
+    // ZC_TEST_ENEMY=id: test runs only, puts that enemy (0: the screen's first) 24 pixels in
+    // front of Link, already appeared
+    if(const char *test_enemy = getenv("ZC_TEST_ENEMY"))
+    {
+        int id = atoi(test_enemy);
+        const int d = Link.getDir();
+        const int dx = d == left ? -24 : d == right ? 24 : 0, dy = d == up ? -24 : d == down ? 24 : 0;
+        if(id <= 0)
+            id = tmpscr->enemy[0];
+        if(id > 0 && id < MAXGUYS)
+        {
+            addenemy(int(Link.getX()) + dx, int(Link.getY()) + dy, id, 0);
+            al_trace("test: enemy %d at %d,%d\n", id, int(Link.getX()) + dx, int(Link.getY()) + dy);
+        }
+    }
+
     return 0;
 }
 

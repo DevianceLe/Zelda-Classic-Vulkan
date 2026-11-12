@@ -108,12 +108,26 @@ std::string numbered_name(int i)
 // file has it.
 std::vector<std::string> g_loaded_names;
 
+// ZQuest's sound flags and samples as loaded. A 2.55 quest's loader (q255_read_sfx, as 2.55
+// does) flags the original sounds the quest doesn't replace as the quest's own, which its file
+// doesn't: such a sound is the quest's only when the user changed it since.
+std::vector<byte> g_loaded_flags;
+std::vector<const void *> g_loaded_data;
+std::vector<unsigned long> g_loaded_len;
+
 void snapshot_names()
 {
     g_loaded_names.assign(WAV_COUNT, std::string());
+    g_loaded_flags.assign(customsfxflag, customsfxflag + (WAV_COUNT >> 3));
+    g_loaded_data.assign(WAV_COUNT, (const void *)NULL);
+    g_loaded_len.assign(WAV_COUNT, 0);
 
     for(int i = 1; i < WAV_COUNT; ++i)
+    {
         g_loaded_names[i] = c_string(sfx_string[i], 36);
+        g_loaded_data[i] = customsfxdata[i].data;
+        g_loaded_len[i] = (unsigned long)customsfxdata[i].len;
+    }
 }
 
 ZqLoadHookRegistration g_names_hook(snapshot_names);
@@ -237,9 +251,24 @@ bool sound_set(const ZqNewerContext &ctx, SoundSet &set)
 
     set.wavcount = (ctx.src_part && v < 6) ? 128 : WAV_COUNT;
 
-    // The user may have added or removed sounds since the load: ZQuest's flags win.
-    if(set.read)
+    // The user may have added or removed sounds since the load: ZQuest's flags win. A 2.55
+    // quest's file flags are kept for every sound the user left alone (see g_loaded_flags).
+    if(set.read && (ctx.src_zelda_version < 0x255 || g_loaded_flags.size() != sizeof(fflags) || !ctx.src_part))
         memcpy(fflags, customsfxflag, sizeof(fflags));
+    else if(set.read)
+    {
+        for(int i = 1; i < WAV_COUNT; ++i)
+        {
+            bool now = flag_of(customsfxflag, i);
+            bool changed = now != flag_of(&g_loaded_flags[0], i) || customsfxdata[i].data != g_loaded_data[i] ||
+                           (unsigned long)customsfxdata[i].len != g_loaded_len[i] || name_changed(i);
+
+            if(changed && now)
+                set_flag(fflags, i);
+            else if(changed)
+                fflags[(i - 1) >> 3] &= (byte)~(1 << ((i - 1) & 7));
+        }
+    }
 
     memcpy(set.flags, fflags, sizeof(fflags));
 
@@ -485,7 +514,9 @@ int zqn_sfx(PACKFILE *f, const ZqNewerContext &ctx)
 {
     zqn::wg_edit_test_once();
 
-    if(ctx.src_zelda_version >= 0x255)
+    // A 2.55 quest's sounds up to version 8 are laid out as 2.53's version 6, and ZQuest holds
+    // all of them (q255_read_sfx); version 9 is 3.0's own list.
+    if(ctx.src_zelda_version >= 0x255 && !(ctx.src_part && ctx.src_version >= 6 && ctx.src_version <= 8))
         return ZQW_UNSUPPORTED;
 
     if(!sfxdata)
@@ -535,7 +566,8 @@ int zqn_midis(PACKFILE *f, const ZqNewerContext &ctx)
 {
     zqn::wg_edit_test_once();
 
-    if(ctx.src_zelda_version >= 0x255)
+    // A 2.55 quest's tunes at version 4 are 2.53's own, read by 2.53's reader.
+    if(ctx.src_zelda_version >= 0x255 && !(ctx.src_part && ctx.src_version == 4))
         return ZQW_UNSUPPORTED;
 
     Buf body;

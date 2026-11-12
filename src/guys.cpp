@@ -14043,7 +14043,7 @@ void check_collisions()
     {
         weapon *w = (weapon*)Lwpns.spr(i);
         
-        if(!(w->Dead()) && w->id!=wSword && w->id!=wHammer && w->id!=wWand)
+        if(!(w->Dead()) && w->id!=wSword && w->id!=wHammer && w->id!=wWand && !q30_switchhook_held(w))
         {
             for(int j=0; j<guys.Count(); j++)
             {

@@ -588,6 +588,59 @@ static MENU maps_menu[] =
     {  NULL,                                NULL,                      NULL,                     0,            NULL   }
 };
 
+bool zq_edit_misc_newer(const char *tab, bool *shown);     // port/zqeditor/zq_record_editor.cpp
+bool zq255_quest_is_newer();
+
+// Quest > Misc Data > 2.55/3.0 Misc Data: what 2.53's misc data dialogs don't have (misc
+// sounds and sprites, bottle types and shops, the shops' item strings).
+int onMiscDataNewer()
+{
+    bool shown = false;
+
+    if(zq255_quest_is_newer())
+        zq_edit_misc_newer(NULL, &shown);
+
+    if(!shown)
+        jwin_alert("2.55/3.0 Misc Data","This is for quests made in 2.55 or 3.0 Nightly.",NULL,NULL,"O&K",NULL,'k',0,lfont);
+
+    return D_O_K;
+}
+
+bool zq_edit_strings_newer(int string, bool *shown);     // port/zqeditor/zq_record_editor.cpp
+
+// Quest > 2.55/3.0 String Data: what 2.53's string editor doesn't have (margins, portraits,
+// shadows, draw layers, icons, scrolling and menu sounds).
+int onStringsNewer()
+{
+    bool shown = false;
+
+    if(zq255_quest_is_newer())
+        zq_edit_strings_newer(1, &shown);
+
+    if(!shown)
+        jwin_alert("2.55/3.0 String Data","This is for quests made in 2.55 or 3.0 Nightly.",NULL,NULL,"O&K",NULL,'k',0,lfont);
+
+    return D_O_K;
+}
+
+bool zq_edit_subs_newer(bool *shown);     // port/zqeditor/zq_record_editor.cpp
+
+// Quest > Misc Data > 2.55/3.0 Subscreen Data: what 2.53's subscreen editor doesn't have (the
+// subscreens' settings and page changes, every page's widgets, conditions, cursor links).
+int onSubsNewer()
+{
+    bool shown = false;
+
+    if(zq255_quest_is_newer())
+        zq_edit_subs_newer(&shown);
+
+    if(!shown)
+        jwin_alert("2.55/3.0 Subscreen Data","This is for quests made in 2.55 or 3.0 Nightly",
+                   "with subscreens in their own format.",NULL,"O&K",NULL,'k',0,lfont);
+
+    return D_O_K;
+}
+
 static MENU misc_menu[] =
 {
     { (char *)"S&ubscreens",                onEditSubscreens,          NULL,                     0,            NULL   },
@@ -598,6 +651,8 @@ static MENU misc_menu[] =
     { (char *)"&Triforce Pieces",           onTriPieces,               NULL,                     0,            NULL   },
     { (char *)"&End String",                onEndString,               NULL,                     0,            NULL   },
     { (char *)"Item &Drop Sets",            onItemDropSets,            NULL,                     0,            NULL   },
+    { (char *)"2.55/3.0 Misc Data...",      onMiscDataNewer,           NULL,                     0,            NULL   },
+    { (char *)"2.55/3.0 Subscreen Data...", onSubsNewer,               NULL,                     0,            NULL   },
 //{ (char *)"Screen &Opening/Closing",    onScreenOpeningClosing,    NULL,                     0,            NULL   },
     {  NULL,                                NULL,                      NULL,                     0,            NULL   }
 };
@@ -684,6 +739,7 @@ static MENU quest_menu[] =
     { (char *)"&Items",                     onCustomItems,             NULL,                     0,            NULL   },
     { (char *)"Ene&mies",                   onCustomEnemies,           NULL,                     0,            NULL   },
     { (char *)"&Strings",                   onStrings,                 NULL,                     0,            NULL   },
+    { (char *)"2.55/3.0 String Data...",    onStringsNewer,            NULL,                     0,            NULL   },
     { (char *)"&DMaps",                     onDmaps,                   NULL,                     0,            NULL   },
     { (char *)"I&nit Data",                 onInit,                    NULL,                     0,            NULL   },
     { (char *)"Misc D&ata\t ",              NULL,                      misc_menu,                0,            NULL   },
@@ -798,6 +854,27 @@ static MENU view_menu[] =
 
 int onSelectFFCombo();
 
+// Screen > 2.55/3.0 Screen Data: what a 2.55 or 3.0 Nightly screen has that 2.53's dialogs
+// don't show (port/zqeditor/zq_record_editor.cpp).
+bool zq_edit_screen_newer(int index, bool *shown);
+
+int onScrDataNewer()
+{
+    if(!zq255_quest_is_newer())
+    {
+        jwin_alert("2.55/3.0 Screen Data","This is for quests made in 2.55 or 3.0 Nightly.",NULL,NULL,"O&K",NULL,'k',0,lfont);
+        return D_O_K;
+    }
+
+    bool shown = false;
+    zq_edit_screen_newer(Map.getCurrMap()*MAPSCRS+Map.getCurrScr(), &shown);
+
+    if(!shown)
+        jwin_alert("2.55/3.0 Screen Data","This screen isn't in use, or isn't in the quest's file yet.",NULL,NULL,"O&K",NULL,'k',0,lfont);
+
+    return D_O_K;
+}
+
 static MENU data_menu[] =
 {
     { (char *)"&Screen Data\tF9",           onScrData,                 NULL,                     0,            NULL   },
@@ -818,6 +895,8 @@ static MENU data_menu[] =
     { (char *)"&Item\tI",                   onItem,                    NULL,                     0,            NULL   },
     { (char *)"&Enemies\tE",                onEnemies,                 NULL,                     0,            NULL   },
     { (char *)"&Palette\tF4",               onScreenPalette,           NULL,                     0,            NULL   },
+    { (char *)"",                           NULL,                      NULL,                     0,            NULL   },
+    { (char *)"2.55/3.0 Screen Data...",    onScrDataNewer,            NULL,                     0,            NULL   },
     {  NULL,                                NULL,                      NULL,                     0,            NULL   }
 };
 
@@ -1950,11 +2029,15 @@ int onDefault_Combos()
     return D_O_K;
 }
 
+void zq255_forget_item_edits();     // port/zqeditor/zqw_items.cpp
+void zq255_forget_guy_edits();      // port/zqeditor/zqw_guys.cpp
+
 int onDefault_Items()
 {
     if(jwin_alert("Confirm Reset","Reset all items?", NULL, NULL, "Yes", "Cancel", 'y', 27,lfont) == 1)
     {
         saved=false;
+        zq255_forget_item_edits();     // a newer quest's edited records would override the reset
         reset_items(true, &header);
     }
     
@@ -1977,6 +2060,7 @@ int onDefault_Guys()
     if(jwin_alert("Confirm Reset","Reset all enemy/NPC data?", NULL, NULL, "Yes", "Cancel", 'y', 27,lfont) == 1)
     {
         saved=false;
+        zq255_forget_guy_edits();
         reset_guys();
     }
     
@@ -13045,8 +13129,21 @@ static DIALOG editdmap_dlg[] =
     {  NULL,                          0,      0,      0,      0,    0,                      0,                       0,    0,           0,             0,  NULL,                                                  NULL,                 NULL                  }
 };
 
+bool zq_edit_dmap_newer(int index, bool *shown);    // port/zqeditor/zq_record_editor.cpp
+bool zq255_copy_dmap(int dest, int src);
+
 void editdmap(int index)
 {
+    // A 2.55 or 3.0 Nightly quest's DMaps get the editor for their own version.
+    if(zq255_quest_is_newer())
+    {
+        bool shown = false;
+        zq_edit_dmap_newer(index, &shown);
+
+        if(shown)
+            return;
+    }
+
     char levelstr[4], compassstr[4], contstr[4], tmusicstr[56], dmapnumstr[60];
     char *tmfname;
     byte gridstring[8];
@@ -13353,7 +13450,9 @@ int onDmaps()
 		{
 			if( pSelectedDmap != &DMaps[d] )
 			{
-				::memcpy(&DMaps[d], pSelectedDmap, sizeof(dmap));
+				// a newer quest's DMap is its whole record, past what 2.53's dmap holds
+				if(!zq255_quest_is_newer() || !zq255_copy_dmap(d, (int)(pSelectedDmap - DMaps)))
+					::memcpy(&DMaps[d], pSelectedDmap, sizeof(dmap));
 				saved=false;
 			}
 		}
@@ -23451,6 +23550,48 @@ int main(int argc,char **argv)
                 FILE *out = fopen(argv[roundtrip_arg+2], "w");    // a report even when the load fails
                 if(out) { fprintf(out, "LOAD FAILED: %d\n", ret); fclose(out); }
             }
+
+            exit(ret == 0 ? 0 : 3);
+        }
+
+        // -qst-dump-record in.qst item|enemy id report.txt: a 2.55/3.0 item's or enemy's record,
+        // field by field (for testing the record editor; zq_record_editor.cpp)
+        int dumprec_arg = used_switch(argc,argv,"-qst-dump-record");
+
+        if(dumprec_arg && argc>dumprec_arg+4)
+        {
+            extern bool skip_quest_password;
+            extern bool zq_batch_load;
+            extern int zq_dump_record(int kind, int id, const char *report);
+            skip_quest_password = true;
+            zq_batch_load = true;
+            int ret = load_quest(argv[dumprec_arg+1],true,true);
+
+            if(ret == qe_OK)
+            {
+                const char *k = argv[dumprec_arg+2];
+                ret = zq_dump_record(!strcmp(k,"item") ? 0 : !strcmp(k,"enemy") ? 1 : !strcmp(k,"dmap") ? 2 : !strcmp(k,"screen") ? 3 : !strcmp(k,"init") ? 4 : !strcmp(k,"misc") ? 5 : !strcmp(k,"strings") ? 6 : !strcmp(k,"subscreens") ? 7 : !strcmp(k,"rules") ? 9 : -1,
+                                     atoi(argv[dumprec_arg+3]),argv[dumprec_arg+4]);
+            }
+
+            exit(ret == 0 ? 0 : 3);
+        }
+
+        // -qst-dump-combo in.qst id report.txt: one combo's fields, the 2.55/3.0 ones too
+        // (for testing the combo editor; zq_combo_editor.cpp)
+        int dumpcombo_arg = used_switch(argc,argv,"-qst-dump-combo");
+
+        if(dumpcombo_arg && argc>dumpcombo_arg+3)
+        {
+            extern bool skip_quest_password;
+            extern bool zq_batch_load;
+            extern int zq_dump_combo(int id, const char *report);
+            skip_quest_password = true;
+            zq_batch_load = true;
+            int ret = load_quest(argv[dumpcombo_arg+1],true,true);
+
+            if(ret == qe_OK)
+                ret = zq_dump_combo(atoi(argv[dumpcombo_arg+2]),argv[dumpcombo_arg+3]);
 
             exit(ret == 0 ? 0 : 3);
         }

@@ -27,10 +27,13 @@
 #include "zdefs.h"
 #include "zsys.h"
 #include "qst.h"
+#include "sfx.h"
 #include "tiles.h"
 #include "zq_writers.h"
 #include "q255.h"
 #include "q30_triggers.h"
+#include "zq_q255_store.h"
+#include "zqn_255.h"
 
 extern newcombo *combobuf;
 extern combo_alias combo_aliases[MAXCOMBOALIASES];
@@ -264,6 +267,7 @@ void combo_key(Out &o, const newcombo &c)
 const size_t COMBO_KEY = 19;
 
 std::vector<byte> g_combos_loaded;     // every combo as loaded, as combo_key has it
+void note_q30_combos();
 
 void note_combos()
 {
@@ -276,6 +280,7 @@ void note_combos()
         combo_key(o, combobuf[i]);
 
     g_combos_loaded.swap(o.b);
+    note_q30_combos();
 
     if(mutate())
         for(int i = 3; i < MAXCOMBOS; i += 7)
@@ -297,6 +302,8 @@ bool same_combo(const newcombo &a, const newcombo &b)
     return x.b == y.b;
 }
 
+bool q30_unchanged(int i);
+
 bool combo_unchanged(int i)
 {
     if(i < 0 || i >= MAXCOMBOS || g_combos_loaded.size() < (size_t)(i + 1) * COMBO_KEY)
@@ -304,7 +311,7 @@ bool combo_unchanged(int i)
 
     Out o;
     combo_key(o, combobuf[i]);
-    return !memcmp(&o.b[0], &g_combos_loaded[(size_t)i * COMBO_KEY], COMBO_KEY);
+    return !memcmp(&o.b[0], &g_combos_loaded[(size_t)i * COMBO_KEY], COMBO_KEY) && q30_unchanged(i);
 }
 
 // How many combos to write: those in the file, and any after them that were changed (the
@@ -748,6 +755,1056 @@ bool patch_grouped(const std::vector<byte> &raw, word v, const newcombo &was, co
     return true;
 }
 
+// ---- CMBO: a whole 2.55/3.0 combo encoded again ------------------------------------------
+//
+// For a combo whose newer fields were edited (the combo editor for 2.55 and 3.0 quests): the
+// record written from newcombo and the Q30Combo table, field by field as q255_combos.cpp
+// reads it, in the section's own version. Upstream's load fixes are undone where the format
+// allows; where it can't hold a value, the read-back check in write_combos_255 refuses it.
+
+enum
+{
+    CHAS_ATTRIB = 0x0001, CHAS_FLAG = 0x0002, CHAS_TRIG = 0x0004, CHAS_LIFT = 0x0040,
+    CHAS_GENERAL = 0x0080, CHAS_MISC_WEAP_DATA = 0x0100
+};
+
+void put_cstr(Out &o, const std::string &s)
+{
+    const size_t n = s.size() < 255 ? s.size() : 255;
+    o.p8((byte)n);
+    o.pn(s.data(), n);
+}
+
+// upstream's p_putbitstr: the size (65535), then pairs or plain bytes, whichever is shorter
+void put_bitstr(Out &o, const Q30Bits &b)
+{
+    size_t cap = b.v.size() < 65535 ? b.v.size() : 65535;
+
+    while(cap && !b.v[cap - 1])
+        --cap;
+
+    size_t set = 0;
+
+    for(size_t q = 0; q < cap; ++q)
+        if(b.v[q])
+            ++set;
+
+    const bool pairs = set * 3 <= cap;
+    o.p16(65535);
+    o.p8(pairs ? 1 : 0);
+    o.p16((word)(pairs ? set : cap));
+
+    for(size_t q = 0; q < cap; ++q)
+    {
+        if(pairs)
+        {
+            if(!b.v[q])
+                continue;
+
+            o.p16((word)q);
+        }
+
+        o.p8(b.v[q]);
+    }
+}
+
+// a script_config: the script, its eight InitDs, then the instance values as they were read
+void put_script_config(Out &o, word script, const long *initd, const std::vector<byte> &inst_raw)
+{
+    o.p16(script);
+    o.p16(8);
+
+    for(int q = 0; q < 8; ++q)
+        o.p32((dword)initd[q]);
+
+    if(inst_raw.size() >= 2)
+        o.pn(&inst_raw[0], inst_raw.size());
+    else
+        o.p16(0);
+}
+
+bool weapon_blank(const Q30WeaponData &d)
+{
+    static const Q30WeaponData z;
+    return d.flags == z.flags && d.moveflags == z.moveflags && d.wflags == z.wflags &&
+           !memcmp(d.burnsprs, z.burnsprs, sizeof(z.burnsprs)) && !memcmp(d.light_rads, z.light_rads, sizeof(z.light_rads)) &&
+           !memcmp(d.light_offsets, z.light_offsets, sizeof(z.light_offsets)) && d.glow_shape == z.glow_shape &&
+           d.override_flags == z.override_flags && d.tilew == z.tilew && d.tileh == z.tileh && d.hxsz == z.hxsz &&
+           d.hysz == z.hysz && d.hzsz == z.hzsz && d.hxofs == z.hxofs && d.hyofs == z.hyofs && d.xofs == z.xofs &&
+           d.yofs == z.yofs && d.step == z.step && d.unblockable == z.unblockable && d.timeout == z.timeout &&
+           d.imitate_weapon == z.imitate_weapon && d.default_defense == z.default_defense &&
+           d.lift_level == z.lift_level && d.lift_time == z.lift_time && d.lift_height == z.lift_height &&
+           d.script == z.script && !memcmp(d.initd, z.initd, sizeof(z.initd)) && d.pierce_count == z.pierce_count &&
+           d.bounce_mult == z.bounce_mult && d.bounce_add == z.bounce_add &&
+           d.viewport_suspend_range == z.viewport_suspend_range && d.viewport_despawn_range == z.viewport_despawn_range;
+}
+
+// read_weapon_data's format, in data version wv
+void put_weapon_data(Out &o, const Q30WeaponData &d, word wv)
+{
+    o.p16(wv);
+    o.p16(d.flags);
+    o.p32(d.moveflags);
+    o.p16(d.wflags);
+
+    for(int q = 0; q < 5; ++q)
+    {
+        if(wv < 1)
+            o.p8((byte)d.burnsprs[q]);
+        else
+            o.p16(d.burnsprs[q]);
+
+        o.p8(d.light_rads[q]);
+
+        if(wv >= 3)
+            o.p32((dword)d.light_offsets[q]);
+    }
+
+    o.p8(d.glow_shape);
+    o.p32((dword)d.override_flags);
+    o.p32((dword)d.tilew);
+    o.p32((dword)d.tileh);
+    o.p32((dword)d.hxsz);
+    o.p32((dword)d.hysz);
+    o.p32((dword)d.hzsz);
+    o.p32((dword)d.hxofs);
+    o.p32((dword)d.hyofs);
+    o.p32((dword)d.xofs);
+    o.p32((dword)d.yofs);
+    o.p32((dword)d.step);
+    o.p8(d.unblockable);
+    o.p32((dword)d.timeout);
+    o.p8(d.imitate_weapon);
+    o.p8(d.default_defense);
+    o.p8(d.lift_level);
+    o.p8(d.lift_time);
+    o.p32((dword)d.lift_height);
+
+    if(wv < 5)
+    {
+        o.p16(d.script);
+
+        for(int q = 0; q < 8; ++q)
+            o.p32((dword)d.initd[q]);
+    }
+    else
+        put_script_config(o, d.script, d.initd, d.inst_raw);
+
+    o.p16((word)d.pierce_count);
+
+    if(wv >= 2)
+    {
+        o.p32((dword)d.bounce_mult);
+        o.p32((dword)d.bounce_add);
+    }
+
+    if(wv >= 4)
+    {
+        o.p32((dword)d.viewport_suspend_range);
+        o.p32((dword)d.viewport_despawn_range);
+    }
+}
+
+// read_trigger's format in section version v
+void put_trigger(Out &o, word v, const Q30Trigger &t)
+{
+    if(v >= 52)
+        put_cstr(o, t.label);
+
+    if(v < 57)
+    {
+        const int words = (v < 36) ? 3 : 6;
+
+        for(int q = 0; q < words; ++q)
+        {
+            dword val = 0;
+
+            for(int b = 0; b < 32; ++b)
+                if(t.flags.get((size_t)q * 32 + b))
+                    val |= 1u << b;
+
+            o.p32(val);
+        }
+    }
+    else
+        put_bitstr(o, t.flags);
+
+    o.p32((dword)t.triggerlevel);
+    o.p8(t.triggerbtn);
+    if(v >= 65) o.p16(t.triggeritem); else o.p8((byte)t.triggeritem);
+    if(v >= 53) o.p16(t.trigtimer); else o.p8((byte)t.trigtimer);
+    if(v >= 64) o.p16(t.trigsfx); else o.p8((byte)t.trigsfx);
+    o.p32((dword)t.trigchange);
+    o.p16(t.trigprox);
+    if(v >= 53) o.p16((word)t.trigctr); else o.p8((byte)t.trigctr);
+    o.p32((dword)t.trigctramnt);
+    o.p8(t.triglbeam);
+    o.p8((byte)t.trigcschange);
+    if(v >= 65) o.p32((dword)t.spawnitem); else o.p16((word)t.spawnitem);
+    o.p16((word)t.spawnenemy);
+    o.p8((byte)t.exstate);
+    o.p32((dword)t.spawnip);
+    o.p8(t.trigcopycat);
+    o.p8(t.trigcooldown);
+
+    if(v >= 35)
+    {
+        o.p16(t.prompt_cid);
+        o.p8(t.prompt_cs);
+        o.p16((word)t.prompt_x);
+        o.p16((word)t.prompt_y);
+    }
+
+    if(v >= 36)
+    {
+        o.p8(t.trig_lstate);
+        o.p8(t.trig_gstate);
+        o.p32((dword)t.trig_statetime);
+    }
+
+    if(v >= 37)
+        o.p16(t.trig_genscr);
+
+    if(v >= 38)
+    {
+        o.p8(t.trig_group);
+        o.p16(t.trig_group_val);
+    }
+
+    if(v >= 45)
+    {
+        o.p8((byte)t.exdoor_dir);
+        o.p8(t.exdoor_ind);
+    }
+
+    if(v >= 46)
+    {
+        if(v >= 59) o.p16(t.trig_levelitems); else o.p8((byte)t.trig_levelitems);
+        o.p16((word)t.trigdmlevel);
+
+        for(int q = 0; q < 3; ++q)
+        {
+            if(v >= 48)
+                o.p16((word)t.trigtint[q]);
+            else
+            {
+                // six-bit values the reader scales up: the one that reads back as this, if any
+                const int want = t.trigtint[q];
+                signed char found = 0;
+
+                for(int val = -63; val <= 63; ++val)
+                {
+                    const int a = val < 0 ? -val : val;
+                    const int scaled = (a * 255) / 63;
+
+                    if((val < 0 ? -scaled : scaled) == want)
+                    {
+                        found = (signed char)val;
+                        break;
+                    }
+                }
+
+                o.p8((byte)found);
+            }
+        }
+
+        o.p16((word)t.triglvlpalette);
+        o.p16((word)t.trigbosspalette);
+        o.p16((word)t.trigquaketime);
+        o.p16((word)t.trigwavytime);
+        o.p16((word)t.trig_swjinxtime);
+        o.p16((word)t.trig_itmjinxtime);
+        o.p16((word)t.trig_stuntime);
+        o.p16((word)t.trig_bunnytime);
+        o.p8(t.trig_pushtime);
+    }
+
+    if(v >= 47)
+        o.p16((word)t.trig_shieldjinxtime);
+
+    if(v >= 53)
+    {
+        o.p32(t.req_level_state);
+        o.p32(t.unreq_level_state);
+        put_bitstr(o, t.req_global_state);
+        put_bitstr(o, t.unreq_global_state);
+        o.p16(t.fail_prompt_cid);
+        o.p8(t.fail_prompt_cs);
+        o.p32((dword)t.trig_msgstr);
+        o.p32((dword)t.fail_msgstr);
+        o.p32((dword)t.player_bounce);
+        o.p32((dword)t.req_player_z);
+    }
+
+    if(v >= 54)
+    {
+        o.p8(t.req_player_dir);
+        o.p32((dword)t.dest_player_x);
+        o.p32((dword)t.dest_player_y);
+        o.p32((dword)t.dest_player_z);
+        o.p32((dword)t.req_player_jump);
+        o.p32((dword)t.req_player_x);
+        o.p32((dword)t.req_player_y);
+    }
+
+    if(v >= 56)
+    {
+        o.p8((byte)t.dest_player_dir);
+        o.p32((dword)t.force_ice_combo);
+        o.p32((dword)t.force_ice_vx);
+        o.p32((dword)t.force_ice_vy);
+    }
+
+    if(v >= 58)
+    {
+        o.p32((dword)t.trig_gravity);
+        o.p32((dword)t.trig_terminal_v);
+    }
+
+    if(v >= 61)
+    {
+        put_bitstr(o, t.req_screen_state);
+        put_bitstr(o, t.unreq_screen_state);
+        put_bitstr(o, t.req_screen_ex_state);
+        put_bitstr(o, t.unreq_screen_ex_state);
+        o.p8(t.trigstatemap);
+        o.p8(t.trigstatescreen);
+    }
+
+    if(v >= 62)
+    {
+        o.p32((dword)t.play_music);
+        o.p8((byte)t.set_music_refresh);
+    }
+
+    if(v >= 68)
+    {
+        o.p16((word)t.viewport_cond_range);
+        o.p32((dword)t.chance_numerator);
+        o.p32((dword)t.chance_denominator);
+        o.p16((word)t.sfx_pan);
+        o.p8(t.sfx_volume);
+        o.p32((dword)t.sfx_frequency);
+    }
+
+    if(v >= 69)
+    {
+        for(int dir = 0; dir < 4; ++dir)
+        {
+            put_bitstr(o, t.req_screen_ex_door[dir]);
+            put_bitstr(o, t.unreq_screen_ex_door[dir]);
+        }
+    }
+
+    if(v >= 70)
+        o.p8(t.combopos_state);
+
+    if(v >= 71)
+        o.p8(t.large_combo_copycat);
+}
+
+// The fields a combo of the v33+ format would have groups for (upstream's writecombo_loop,
+// with the tile and flag also counting for BASIC so they are never dropped).
+word combo_groups(word v, const newcombo &c, const Q30Combo &x, dword tile)
+{
+    word has = 0;
+
+    for(int q = 0; q < 24; ++q)
+        if(x.attributes[q])
+            has |= CHAS_ATTRIB;
+
+    if(!x.triggers.empty() || (v >= 52 && x.only_gentrig))
+        has |= CHAS_TRIG;
+
+    if(x.usrflags || x.genflags)
+        has |= CHAS_FLAG;
+
+    if(c.frames || c.speed || c.nextcombo || c.nextcset || c.skipanim || c.skipanimy || c.animflags || x.delay ||
+       x.cs2_flash_duration)
+        has |= CHAS_ANIM;
+
+    if(x.script || !x.label.empty())
+        has |= CHAS_SCRIPT;
+
+    for(int q = 0; q < 8 && !(has & CHAS_SCRIPT); ++q)
+        if(x.initd[q])
+            has |= CHAS_SCRIPT;
+
+    if(tile || c.flip || x.walk != 0xF0 || x.type || x.flag || c.csets)
+        has |= CHAS_BASIC;
+
+    if(x.liftcmb || x.liftcs || x.liftdmg || x.liftlvl || x.liftitm || x.liftflags || x.liftgfx || x.liftsprite ||
+       x.liftsfx || x.liftundercmb || x.liftundercs || x.liftbreaksprite != -1 || x.liftbreaksfx || x.lifthei != 8 ||
+       x.lifttime != 16 || x.lift_parent_item || !weapon_blank(x.lift_weap))
+        has |= CHAS_LIFT;
+
+    if(x.speed_mult != 1 || x.speed_div != 1 || x.speed_add || x.sfx_appear || x.sfx_disappear || x.sfx_loop ||
+       x.sfx_walking || x.sfx_standing || x.spr_appear || x.spr_disappear || x.spr_walking || x.spr_standing ||
+       x.sfx_tap || x.sfx_landing || x.spr_falling || x.spr_drowning || x.spr_lava_drowning || x.sfx_falling ||
+       x.sfx_drowning || x.sfx_lava_drowning || x.z_height || x.z_step_height || x.dive_under_level ||
+       x.large_combo_dirs)
+        has |= CHAS_GENERAL;
+
+    if(!weapon_blank(x.misc_weap))
+        has |= CHAS_MISC_WEAP_DATA;
+
+    return has;
+}
+
+// A v33+ record. keep_has: the groups the original had, which stay (an absent group and a
+// present one at its defaults read the same). weap_version: the weapon data version to use
+// where the combo has none of its own (another combo's in the same section, or -1: none known).
+bool encode_grouped(Out &o, word v, const newcombo &c, const Q30Combo &x, dword tile, word keep_has, int weap_version)
+{
+    word has = (word)(keep_has | combo_groups(v, c, x, tile));
+
+    if(v < 55)
+    {
+        if(has & 0xFF00)
+            return false;               // misc weapon data: no room before v55
+
+        o.p8((byte)has);
+    }
+    else
+        o.p16(has);
+
+    if(has & CHAS_BASIC)
+    {
+        o.p32(tile);
+        o.p8(c.flip);
+        o.p8(x.walk);
+        o.p8(x.type);
+        o.p8(x.flag);
+        o.p8(c.csets);
+    }
+
+    if(has & CHAS_SCRIPT)
+    {
+        if(v >= 41)
+            put_cstr(o, x.label);
+        else
+        {
+            char label[11];
+            memset(label, 0, sizeof(label));
+            strncpy(label, x.label.c_str(), sizeof(label));
+            o.pn(label, 11);
+        }
+
+        if(v >= 72)
+            put_script_config(o, x.script, x.initd, x.script_inst_raw);
+        else
+        {
+            o.p16(x.script);
+            const int n = (v >= 43) ? 8 : 2;
+
+            for(int q = 0; q < n; ++q)
+                o.p32((dword)x.initd[q]);
+        }
+    }
+
+    if(has & CHAS_ANIM)
+    {
+        o.p8(c.frames);
+        o.p8(c.speed);
+        o.p16(c.nextcombo);
+        o.p8(c.nextcset);
+        o.p8(c.skipanim);
+        o.p8(c.skipanimy);
+        o.p8(c.animflags);
+
+        if(v >= 73)
+        {
+            o.p16(x.delay);
+            o.p8(x.cs2_flash_duration);
+        }
+    }
+
+    if(has & CHAS_ATTRIB)
+    {
+        if(v < 63)
+        {
+            for(int q = 0; q < 4; ++q)
+                o.p32((dword)x.attributes[q]);
+
+            for(int q = 0; q < 8; ++q)
+                o.p8((byte)(x.attributes[8 + q] / 10000));
+
+            for(int q = 0; q < 8; ++q)
+                o.p16((word)(x.attributes[16 + q] / 10000));
+        }
+        else
+        {
+            o.p16(24);
+
+            for(int q = 0; q < 24; ++q)
+                o.p32((dword)x.attributes[q]);
+        }
+    }
+
+    if(has & CHAS_FLAG)
+    {
+        o.p32(x.usrflags);
+        o.p16(x.genflags);
+    }
+
+    if(has & CHAS_TRIG)
+    {
+        if(v >= 52)
+        {
+            if(x.triggers.size() > 255)
+                return false;
+
+            o.p8((byte)x.triggers.size());
+
+            for(size_t q = 0; q < x.triggers.size(); ++q)
+                put_trigger(o, v, x.triggers[q]);
+
+            o.p8(x.only_gentrig);
+        }
+        else
+        {
+            // one trigger, always there; ONLYGENTRIG is one of its flags
+            Q30Trigger t = x.triggers.empty() ? Q30Trigger() : x.triggers[0];
+
+            if(x.triggers.size() > 1)
+                return false;
+
+            if(x.only_gentrig)
+                t.flags.set(Q30TF_ONLYGENTRIG);
+
+            put_trigger(o, v, t);
+        }
+    }
+
+    if(has & CHAS_LIFT)
+    {
+        o.p16(x.liftcmb);
+        o.p8(x.liftcs);
+        o.p16(x.liftundercmb);
+        o.p8(x.liftundercs);
+        o.p8(x.liftdmg);
+        o.p8(x.liftlvl);
+        o.p8(x.liftitm);
+        o.p8(x.liftflags);
+        o.p8(x.liftgfx);
+        if(v < 66) o.p8((byte)x.liftsprite); else o.p16(x.liftsprite);
+        if(v < 64) o.p8((byte)x.liftsfx); else o.p16(x.liftsfx);
+        o.p16((word)x.liftbreaksprite);
+        o.p8(x.liftbreaksfx);
+
+        if(v >= 34)
+        {
+            o.p8(x.lifthei);
+            o.p8(x.lifttime);
+        }
+
+        if(v >= 65)
+            o.p16(x.lift_parent_item);
+        else if(v >= 39)
+            o.p8((byte)x.lift_parent_item);
+
+        if(v >= 51 && v < 55)
+        {
+            o.p8(x.lift_weap.light_rads[0]);
+            o.p8(x.lift_weap.glow_shape);
+        }
+
+        if(v >= 55)
+        {
+            // its own version, else the section's, else the oldest (every reader takes it; what
+            // it can't hold doesn't read back, and the save refuses it)
+            const int wv = x.lift_weap.data_version >= 0 ? x.lift_weap.data_version : (weap_version >= 0 ? weap_version : 0);
+            put_weapon_data(o, x.lift_weap, (word)wv);
+        }
+    }
+
+    if(has & CHAS_GENERAL)
+    {
+        o.p8(x.speed_mult);
+        o.p8(x.speed_div);
+        o.p32((dword)x.speed_add);
+
+        if(v >= 42)
+        {
+            if(v < 64)
+            {
+                o.p8((byte)x.sfx_appear);
+                o.p8((byte)x.sfx_disappear);
+                o.p8((byte)x.sfx_loop);
+                o.p8((byte)x.sfx_walking);
+                o.p8((byte)x.sfx_standing);
+            }
+            else
+            {
+                o.p16(x.sfx_appear);
+                o.p16(x.sfx_disappear);
+                o.p16(x.sfx_loop);
+                o.p16(x.sfx_walking);
+                o.p16(x.sfx_standing);
+            }
+
+            if(v < 66)
+            {
+                o.p8((byte)x.spr_appear);
+                o.p8((byte)x.spr_disappear);
+                o.p8((byte)x.spr_walking);
+                o.p8((byte)x.spr_standing);
+            }
+            else
+            {
+                o.p16(x.spr_appear);
+                o.p16(x.spr_disappear);
+                o.p16(x.spr_walking);
+                o.p16(x.spr_standing);
+            }
+        }
+
+        if(v < 64)
+        {
+            if(v >= 44)
+                o.p8((byte)x.sfx_tap);
+
+            if(v >= 49)
+                o.p8((byte)x.sfx_landing);
+        }
+        else
+        {
+            o.p16(x.sfx_tap);
+            o.p16(x.sfx_landing);
+        }
+
+        if(v >= 50)
+        {
+            if(v < 66)
+            {
+                o.p8((byte)x.spr_falling);
+                o.p8((byte)x.spr_drowning);
+                o.p8((byte)x.spr_lava_drowning);
+            }
+            else
+            {
+                o.p16(x.spr_falling);
+                o.p16(x.spr_drowning);
+                o.p16(x.spr_lava_drowning);
+            }
+
+            if(v < 64)
+            {
+                o.p8((byte)x.sfx_falling);
+                o.p8((byte)x.sfx_drowning);
+                o.p8((byte)x.sfx_lava_drowning);
+            }
+            else
+            {
+                o.p16(x.sfx_falling);
+                o.p16(x.sfx_drowning);
+                o.p16(x.sfx_lava_drowning);
+            }
+        }
+
+        if(v >= 56)
+        {
+            o.p32((dword)x.z_height);
+            o.p32((dword)x.z_step_height);
+        }
+
+        if(v >= 60)
+            o.p8(x.dive_under_level);
+
+        if(v >= 71)
+            o.p8(x.large_combo_dirs);
+    }
+
+    if(has & CHAS_MISC_WEAP_DATA)
+    {
+        const int wv = x.misc_weap.data_version >= 0 ? x.misc_weap.data_version : (weap_version >= 0 ? weap_version : 0);
+        put_weapon_data(o, x.misc_weap, (word)wv);
+    }
+
+    return true;
+}
+
+// The script types that got CMBTYPEFX added before v23 (read_combo_old).
+bool script_type_v23(byte type)
+{
+    switch(type)
+    {
+    case cSCRIPT1: case cSCRIPT2: case cSCRIPT3: case cSCRIPT4: case cSCRIPT5:
+    case Q30C_SCRIPT6: case Q30C_SCRIPT7: case Q30C_SCRIPT8: case Q30C_SCRIPT9: case Q30C_SCRIPT10:
+    case Q30C_TRIGGERGENERIC: case Q30C_CSWITCH:
+        return true;
+    }
+
+    return false;
+}
+
+// The types whose usrflags 0x8000 became genflags 0x0001 before v20 (read_combo_old).
+bool genflag_type_v20(byte type)
+{
+    switch(type)
+    {
+    case cPUSH_WAIT: case cPUSH_HEAVY: case cPUSH_HW: case cL_STATUE: case cR_STATUE:
+    case cPUSH_HEAVY2: case cPUSH_HW2: case cPOUND: case cC_STATUE: case cMIRROR:
+    case cMIRRORSLASH: case cMIRRORBACKSLASH: case cMAGICPRISM: case cMAGICPRISM4:
+    case cMAGICSPONGE: case cEYEBALL_A: case cEYEBALL_B: case cEYEBALL_4:
+    case cBUSH: case cFLOWERS: case cLOCKBLOCK: case cLOCKBLOCK2:
+    case cBOSSLOCKBLOCK: case cBOSSLOCKBLOCK2: case cCHEST: case cCHEST2:
+    case cLOCKEDCHEST: case cLOCKEDCHEST2: case cBOSSCHEST: case cBOSSCHEST2:
+    case cBUSHNEXT: case cBUSHTOUCHY: case cFLOWERSTOUCHY: case cBUSHNEXTTOUCHY:
+    case Q30C_SIGNPOST: case Q30C_CSWITCHBLOCK: case Q30C_TORCH: case Q30C_TRIGGERGENERIC:
+        return true;
+    }
+
+    return false;
+}
+
+// A record of the old flat format (v7-32), with upstream's old-format load fixes undone.
+// raw: the original record, for the two bytes the loader skips (cur_frame, aclk).
+bool encode_flat(Out &o, word v, const newcombo &c, const Q30Combo &x, dword tile, const std::vector<byte> *raw)
+{
+    if(x.triggers.size() > 1)
+        return false;
+
+    Q30Trigger t = x.triggers.empty() ? Q30Trigger() : x.triggers[0];
+    dword usrflags = x.usrflags;
+    long attributes[24];
+    memcpy(attributes, x.attributes, sizeof(attributes));
+    dword trigflags[3] = { 0, 0, 0 };
+
+    for(int b = 0; b < 96; ++b)
+        if(t.flags.get(b))
+            trigflags[b / 32] |= 1u << (b % 32);
+
+    // undo, newest fix first
+    if(v < 20 && genflag_type_v20(x.type) && (x.genflags & 0x0001))
+        usrflags |= 0x8000;
+
+    if(v < 28)
+    {
+        switch(x.type)
+        {
+        case cLOCKBLOCK: case cLOCKEDCHEST:
+            if(usrflags & 0x80)
+                usrflags |= 0x40;
+            else
+                usrflags &= ~0x40u;
+            usrflags &= ~0x80u;
+            break;
+        }
+    }
+
+    if(v < 27)
+    {
+        trigflags[0] &= ~(0x00040000u | 0x00080000u);
+
+        if(t.trigchange == 1)
+            trigflags[0] |= 0x00040000;
+        else if(t.trigchange == -1)
+            trigflags[0] |= 0x00080000;
+    }
+
+    if(v < 25)
+    {
+        switch(x.type)
+        {
+        case cLOCKBLOCK: case cBOSSLOCKBLOCK:
+            // the lock sound: the default unless the file says the quest sets its own
+            if(attributes[8 + 3] != (long)WAV_DOOR * 10000)
+                usrflags |= 0x4;
+            break;
+        }
+    }
+
+    if(v < 23 && script_type_v23(x.type))
+        trigflags[Q30TF_CMBTYPEFX / 32] &= ~(1u << (Q30TF_CMBTYPEFX % 32));
+
+    if(v < 19)
+        for(int q = 0; q < 4; ++q)
+            attributes[q] /= 10000;
+
+    if(v >= 11)
+        o.p32(tile);
+    else
+        o.p16((word)tile);
+
+    o.p8(c.flip);
+    o.p8(v < 18 ? (byte)(x.walk & 0x0F) : x.walk);
+    o.p8(x.type);
+    o.p8(c.csets);
+    o.p8(c.frames);
+    o.p8(c.speed);
+    o.p16(c.nextcombo);
+    o.p8(c.nextcset);
+    o.p8(x.flag);
+    o.p8(c.skipanim);
+    o.p16(c.nexttimer);
+    o.p8(c.skipanimy);
+    o.p8(c.animflags);
+
+    if(v >= 8)
+    {
+        for(int q = 0; q < 4; ++q)
+            o.p32((dword)attributes[q]);
+
+        o.p32(usrflags);
+
+        if(v >= 20)
+            o.p16(x.genflags);
+    }
+
+    if(v >= 10)
+        for(int q = 0; q < 3; ++q)
+            o.p32(trigflags[q]);
+    else if(v == 9)
+        for(int q = 0; q < 2; ++q)
+            o.p32(trigflags[q]);
+
+    if(v >= 9)
+        o.p32((dword)t.triggerlevel);
+
+    if(v >= 22)
+        o.p8(t.triggerbtn);
+
+    if(v >= 24)
+    {
+        o.p8((byte)t.triggeritem);
+        o.p8((byte)t.trigtimer);
+    }
+
+    if(v >= 25)
+        o.p8((byte)t.trigsfx);
+
+    if(v >= 27)
+        o.p32((dword)t.trigchange);
+
+    if(v >= 29)
+    {
+        o.p16(t.trigprox);
+        o.p8((byte)t.trigctr);
+        o.p32((dword)t.trigctramnt);
+    }
+
+    if(v >= 30)
+        o.p8(t.triglbeam);
+
+    if(v >= 31)
+    {
+        o.p8((byte)t.trigcschange);
+        o.p16((word)t.spawnitem);
+        o.p16((word)t.spawnenemy);
+        o.p8((byte)t.exstate);
+        o.p32((dword)t.spawnip);
+        o.p8(t.trigcopycat);
+    }
+
+    if(v >= 32)
+        o.p8(t.trigcooldown);
+
+    if(v >= 12)
+    {
+        char label[11];
+        memset(label, 0, sizeof(label));
+        strncpy(label, x.label.c_str(), sizeof(label));
+        o.pn(label, 11);
+    }
+
+    if(v >= 13)
+        for(int q = 0; q < 4; ++q)
+            o.p8((byte)(attributes[8 + q] / 10000));
+
+    if(v >= 14)
+    {
+        o.p16(x.script);
+
+        for(int q = 0; q < 2; ++q)
+            o.p32((dword)x.initd[q]);
+    }
+
+    if(v >= 15)
+    {
+        o.p32(tile);    // o_tile: the animation's first tile
+
+        const size_t at = flat_layout(v).o_tile + 4;
+
+        if(raw && raw->size() >= at + 2)
+            o.pn(&(*raw)[at], 2);
+        else
+        {
+            o.p8(0);
+            o.p8(0);
+        }
+    }
+
+    if(v >= 17)
+    {
+        for(int q = 4; q < 8; ++q)
+            o.p8((byte)(attributes[8 + q] / 10000));
+
+        for(int q = 0; q < 8; ++q)
+            o.p16((word)(attributes[16 + q] / 10000));
+    }
+
+    return true;
+}
+
+// read_combo_255 that also returns the Q30Combo part.
+bool read_combo_255x(const std::vector<byte> &body, size_t at, word v, size_t *end, newcombo &c, Q30Combo &x)
+{
+    Q255Section s;
+    s.data = body.empty() ? NULL : &body[0];
+    s.size = body.size();
+    s.pos = at;
+    s.version = v;
+    s.keep = false;
+    int ret = q255_editor_read_combo(s, &c, &x);
+    *end = s.pos;
+    return ret == 0 && !s.failed;
+}
+
+// ---- CMBO: the Q30Combo part, for telling edits apart and checking what reads back -------
+
+// The canonical bytes of a combo's newer part: every group in the newest format. The weapon
+// data's own version is left out (it says how the file held it, not what it holds).
+void q30_canon(const Q30Combo &x, Out &o)
+{
+    Q30Combo y = x;
+    y.lift_weap.data_version = y.misc_weap.data_version = -1;
+    newcombo c;
+    memset(&c, 0, sizeof(c));
+    encode_grouped(o, 73, c, y, 0, 0x01FF, 5);
+}
+
+uint64_t q30_hash(const Q30Combo *x)
+{
+    if(!x)
+        return 0;
+
+    Out o;
+    q30_canon(*x, o);
+    uint64_t h = 14695981039346656037ULL;
+    zq_hash_add(&h, o.b.empty() ? NULL : &o.b[0], o.b.size());
+    return h ? h : 1;
+}
+
+std::vector<uint64_t> g_q30_loaded;    // each combo's q30_hash as loaded
+
+void note_q30_combos()
+{
+    g_q30_loaded.assign(MAXCOMBOS, 0);
+
+    for(int i = 0; i < MAXCOMBOS; ++i)
+        g_q30_loaded[i] = q30_hash(zq255.combos[i]);
+}
+
+bool q30_unchanged(int i)
+{
+    if(g_q30_loaded.size() != (size_t)MAXCOMBOS)
+        return zq255.combos[i] == NULL;
+
+    return q30_hash(zq255.combos[i]) == g_q30_loaded[i];
+}
+
+// The section's fingerprint takes in the newer part (nothing for a quest that has none).
+void hash_q30_combos(uint64_t *h)
+{
+    for(int i = 0; i < MAXCOMBOS; ++i)
+        if(zq255.combos[i])
+        {
+            const uint64_t x = q30_hash(zq255.combos[i]);
+            zq_hash_add(h, &i, sizeof(i));
+            zq_hash_add(h, &x, sizeof(x));
+        }
+}
+
+ZqStoreHashRegistration g_hash_combos(ID_COMBOS, hash_q30_combos);
+
+// ZQW_FULL_ENCODE (for testing the encoders): every combo written goes through the whole-record
+// encoder, as if its newer part had been edited.
+bool full_encode()
+{
+    static int s = -1;
+
+    if(s < 0)
+        s = getenv("ZQW_FULL_ENCODE") ? 1 : 0;
+
+    return s == 1;
+}
+
+byte narrow_type(byte t) { return t < cMAX ? t : (byte)cNONE; }
+byte narrow_flag(byte f) { return f == 104 ? (byte)mfPUSHED : (f >= mfMAX ? (byte)mfNONE : f); }
+
+// The combo as a whole: the table's newer part, with what ZQuest's 2.53 editing changed in
+// newcombo (type, flag, the walk's low nibble) taking over where they no longer agree.
+void effective_q30(int i, const newcombo &c, Q30Combo &x)
+{
+    x = zq255.combos[i] ? *zq255.combos[i] : Q30Combo();
+
+    if(narrow_type(x.type) != c.type)
+        x.type = c.type;
+
+    if(narrow_flag(x.flag) != c.flag)
+        x.flag = flag_255(c.flag);
+
+    x.walk = (byte)((x.walk & 0xF0) | (c.walk & 0x0F));
+}
+
+// upstream's update_combo fixes (apply_load_fixes in q255_combos.cpp) undone for an old
+// format: the reader sets these whatever the record says, so the record keeps none of them
+// (the landing sound isn't even in the format before v49).
+void undo_update_combo(word v, Q30Combo &x)
+{
+    const bool water = x.type == cWATER || x.type == cSHALLOWWATER;
+
+    if(v < 49 && water && x.sfx_landing == WAV_ZN1SPLASH)
+        x.sfx_landing = 0;
+
+    if(v < 40)
+    {
+        if(water && x.attributes[8 + 6] == 56L * 10000)
+            x.attributes[8 + 6] = 0;
+        else if((x.type == cTALLGRASS || x.type == cTALLGRASSNEXT || x.type == cTALLGRASSTOUCHY) &&
+                x.attributes[8 + 6] == 55L * 10000)
+            x.attributes[8 + 6] = 0;
+    }
+}
+
+// The tile as the original record holds it, past what newcombo keeps.
+dword raw_tile(const std::vector<byte> &raw, word v)
+{
+    if(v <= 32)
+    {
+        FlatLayout l = flat_layout(v);
+
+        if(raw.size() < l.bytes)
+            return 0;
+
+        return l.tile_bytes == 4 ? le32(raw, 0) : (dword)(raw[0] | (raw[1] << 8));
+    }
+
+    const size_t hb = v < 55 ? 1 : 2;
+
+    if(raw.size() < hb)
+        return 0;
+
+    const word has = hb == 1 ? raw[0] : (word)(raw[0] | (raw[1] << 8));
+    return (has & CHAS_BASIC) && raw.size() >= hb + 4 ? le32(raw, hb) : 0;
+}
+
+// The weapon data version this section uses, from any combo that has weapon data (-1: none).
+int section_weap_version()
+{
+    int wv = -1;
+
+    for(int i = 0; i < MAXCOMBOS; ++i)
+        if(const Q30Combo *x = zq255.combos[i])
+        {
+            if(x->lift_weap.data_version > wv) wv = x->lift_weap.data_version;
+            if(x->misc_weap.data_version > wv) wv = x->misc_weap.data_version;
+        }
+
+    return wv;
+}
+
 int write_combos_255(PACKFILE *f, const ZqPartContext &ctx)
 {
     const word v = ctx.version;
@@ -771,6 +1828,7 @@ int write_combos_255(PACKFILE *f, const ZqPartContext &ctx)
     size_t pos = 2;
     newcombo was, got;
     memset(&was, 0, sizeof(was));
+    int weap_version = -1;      // found when first needed
 
     for(int i = 0; i < count; ++i)
     {
@@ -804,6 +1862,99 @@ int write_combos_255(PACKFILE *f, const ZqPartContext &ctx)
 
         if(!have_raw)
             memset(&was, 0, sizeof(was));
+
+        // the newer part was edited (or a new combo has one): the whole record is encoded again
+        if(full_encode() || (!q30_unchanged(i) && (zq255.combos[i] || have_raw)))
+        {
+            std::vector<byte> raw;
+
+            if(have_raw)
+                raw.assign(body.begin() + start, body.begin() + end);
+
+            Q30Combo x;
+            effective_q30(i, c, x);
+            const dword tile = (have_raw && was.tile == c.tile) ? raw_tile(raw, v) : (dword)c.tile;
+            word keep_has = 0;
+
+            if(have_raw && v > 32)
+                keep_has = v < 55 ? raw[0] : (word)(raw[0] | (raw[1] << 8));
+
+            if(weap_version < 0)
+                weap_version = section_weap_version();
+
+            Out e;
+            Q30Combo ux = x;
+            undo_update_combo(v, ux);
+            const bool enc = v <= 32 ? encode_flat(e, v, c, ux, tile, have_raw ? &raw : NULL)
+                                     : encode_grouped(e, v, c, ux, tile, keep_has, weap_version);
+            newcombo gc;
+            Q30Combo gx;
+            size_t back_end = 0;
+            bool ok = enc && !e.b.empty() && read_combo_255x(e.b, 0, v, &back_end, gc, gx) && back_end == e.b.size();
+
+            if(ok)
+            {
+                Out a, b;
+                q30_canon(x, a);
+                q30_canon(gx, b);
+                ok = same_combo(c, gc) && a.b == b.b;
+
+                // ZQW_DEBUG_COMBO: where the newer part read back differently (its canonical bytes)
+                if(!ok && getenv("ZQW_DEBUG_COMBO"))
+                {
+                    size_t k = 0;
+
+                    while(k < a.b.size() && k < b.b.size() && a.b[k] == b.b[k])
+                        ++k;
+
+                    al_trace("zqw CMBO debug: record %d v%d: newcombo %s, canonical differs at %d (%d vs %d bytes): %02x vs %02x\n",
+                             i, v, same_combo(c, gc) ? "same" : "differs", (int)k, (int)a.b.size(), (int)b.b.size(),
+                             k < a.b.size() ? a.b[k] : 0, k < b.b.size() ? b.b[k] : 0);
+                }
+            }
+            else if(getenv("ZQW_DEBUG_COMBO"))
+                al_trace("zqw CMBO debug: record %d v%d: %s\n", i, v, enc ? "doesn't read back" : "can't encode");
+
+            // Bytes the reader doesn't see (a value an old load fix replaces, say) are kept as the
+            // original record had them, so a record encoded again changes only what was edited.
+            if(ok && have_raw && e.b.size() == raw.size() && e.b != raw)
+            {
+                Out want;
+                q30_canon(x, want);
+
+                for(size_t k = 0; k < e.b.size(); ++k)
+                {
+                    if(e.b[k] == raw[k])
+                        continue;
+
+                    const byte mine = e.b[k];
+                    e.b[k] = raw[k];
+                    newcombo tc;
+                    Q30Combo tx;
+                    size_t te = 0;
+                    bool same = read_combo_255x(e.b, 0, v, &te, tc, tx) && te == e.b.size() && same_combo(c, tc);
+
+                    if(same)
+                    {
+                        Out got;
+                        q30_canon(tx, got);
+                        same = got.b == want.b;
+                    }
+
+                    if(!same)
+                        e.b[k] = mine;
+                }
+            }
+
+            if(ok && !exact_differs(ID_COMBOS, i, unchanged, e.b, body, start, end))
+                o.pn(&e.b[0], e.b.size());
+            else if(refuse(ID_COMBOS, i, unchanged, "can't be held in this version"))
+                return ERR_CANT_HOLD;
+            else
+                o.copy(body, start, end);
+
+            continue;
+        }
 
         if(v <= 32)
         {
@@ -851,6 +2002,199 @@ int write_combos_255(PACKFILE *f, const ZqPartContext &ctx)
 }
 
 ZqWriterRegistration g_reg_combos_255(ID_COMBOS, write_combos_255, "combos, 2.55/3.0 versions 7-73");
+
+// ---- a quest made in 2.55, saved as 3.0 (zqn_255.h) -----------------------------------------
+//
+// Each combo of the quest's own-version section read as 3.0's readcombos reads it (the reader
+// ZQuest loads 2.55 combos with: the newer part holds 3.0's conversions for the section's
+// version, update_combo), then written as 3.0's version 73 (the groups a combo has, weapon data
+// as its version 5). 3.0 writes the combos up to the last one with a tile (count_combos).
+
+int zqn255_combos(PACKFILE *f, const ZqNewerContext &ctx)
+{
+    if(!zqn255_source(ctx) || !ctx.src_part || ctx.target != ZQ_NEWER_30 || ctx.src_version < 7 || ctx.src_version > 72)
+        return ZQW_UNSUPPORTED;
+
+    Zqn255Section s;
+
+    if(!zqn255_section(ctx, s))
+        return 2;
+
+    const word v = s.version;
+    const std::vector<byte> &body = s.data;
+    In in(body, 0);
+    const int count = in.g16();
+    size_t pos = 2;
+    std::vector<std::vector<byte> > recs;
+    int used = 0;
+    std::vector<byte> rules;
+
+    if(!zqn255_rules_loaded(ctx.target, rules))
+        return 2;
+
+    const bool edit_combo_0 = (rules[230 >> 3] >> (230 & 7)) & 1;     // qr_ALLOW_EDITING_COMBO_0
+    bool items_read = false;
+    std::vector<Zqn255ItemWeapon> items;
+
+    for(int i = 0; i < count; ++i)
+    {
+        size_t end = pos;
+        newcombo c;
+        Q30Combo x;
+
+        if(!read_combo_255x(body, pos, v, &end, c, x))
+        {
+            zqw_last_error = "a combo of its combo section couldn't be read";
+            return 2;
+        }
+
+        std::vector<byte> raw(body.begin() + pos, body.begin() + end);
+        pos = end;
+
+        if(i >= MAXCOMBOS)      // read past and dropped by the loader
+            continue;
+
+        const dword tile = raw_tile(raw, v);
+
+        // readcombo_loop before version 55: a liftable combo's thrown weapon is its parent
+        // item's when that's a bomb, else one that breaks when it lands (and on solid ground with
+        // the combo's flag); it falls, and glows as the combo said
+        if(v >= 33 && v < 55 && !raw.empty() && (raw[0] & 0x40))   // CHAS_LIFT
+        {
+            if(!items_read)
+            {
+                items_read = true;
+
+                if(!zqn255_items_loaded(ctx.target, items))
+                    items.clear();
+            }
+
+            Q30WeaponData &w = x.lift_weap;
+            const long ptype = x.lift_parent_item < items.size() ? items[x.lift_parent_item].type : 66;  // itype_misc
+
+            if(ptype == 27 || ptype == 28)  // itype_bomb, itype_sbomb
+            {
+                const byte glow = w.light_rads[0];
+                const Zqn255Weapon &d = items[x.lift_parent_item].wd;
+                w.flags = d.flags;
+                w.moveflags = d.moveflags;
+                w.wflags = d.wflags;
+
+                for(int q = 0; q < 5; ++q)
+                {
+                    w.burnsprs[q] = d.burnsprs[q];
+                    w.light_rads[q] = d.light_rads[q];
+                    w.light_offsets[q] = d.light_offsets[q];
+                }
+
+                w.glow_shape = d.glow;
+                w.override_flags = d.override_flags;
+                w.tilew = d.tilew; w.tileh = d.tileh; w.hxsz = d.hxsz; w.hysz = d.hysz; w.hzsz = d.hzsz;
+                w.hxofs = d.hxofs; w.hyofs = d.hyofs; w.xofs = d.xofs; w.yofs = d.yofs;
+                w.step = d.step;
+                w.unblockable = d.unblockable;
+                w.timeout = d.timeout;
+                w.imitate_weapon = d.imitate;
+                w.default_defense = d.defdef;
+                w.lift_level = d.lift_level;
+                w.lift_time = d.lift_time;
+                w.lift_height = d.lift_height;
+                w.script = d.sc.script;
+
+                for(int q = 0; q < 8; ++q)
+                    w.initd[q] = d.sc.args[q];
+
+                w.pierce_count = d.pierce;
+                w.bounce_mult = d.bounce_mult;
+                w.bounce_add = d.bounce_add;
+                w.viewport_suspend_range = d.vp_suspend;
+                w.viewport_despawn_range = d.vp_despawn;
+
+                if(!(w.wflags & 0x200))     // WFLAG_UPDATE_IGNITE_SPRITE
+                {
+                    w.flags |= 1;           // wdata_glow_rad
+                    w.light_rads[0] = glow;
+                }
+            }
+            else
+            {
+                w.wflags |= 2;              // WFLAG_BREAK_WHEN_LANDING
+                w.flags |= 1;               // wdata_glow_rad
+            }
+
+            w.moveflags |= 3;               // move_obeys_grav | move_can_pitfall
+
+            if(x.liftflags & 0x40)          // LF_BREAKONSOLID
+                w.wflags |= 4;              // WFLAG_BREAK_ON_SOLID
+        }
+
+        // after the combos (readcombos_old, readcombos): water before version 16 does 4 damage,
+        // and combo 0 is plain unless the quest lets it be edited
+        if(v < 16 && x.type == 3)      // cWATER
+            x.attributes[0] = 4 * 10000;
+
+        if(i == 0 && !edit_combo_0)
+        {
+            x.walk = 0xF0;
+            x.type = 0;
+            x.flag = 0;
+            c.walk = 0;
+            c.type = 0;
+            c.flag = 0;
+        }
+
+        // 3.0's writecombo_loop writes the basic group only for a tile, flip, walkability other
+        // than 0xF0, type or CSet: a combo with nothing but a map flag loses the flag
+        if(!tile && !c.flip && x.walk == 0xF0 && !x.type && !c.csets)
+        {
+            x.flag = 0;
+            c.flag = 0;
+        }
+
+        Out e;
+
+        if(!encode_grouped(e, 73, c, x, tile, 0, 5))
+        {
+            char why[96];
+            snprintf(why, sizeof(why), "combo %d can't be written as 3.0's version 73", i);
+            zqw_last_error = why;
+            return 2;
+        }
+
+        recs.push_back(e.b);
+
+        if(tile)
+            used = i + 1;
+    }
+
+    if(pos != body.size())
+    {
+        zqw_last_error = "its combo section has bytes past its last combo";
+        return 2;
+    }
+
+    Out o;
+    o.p16((word)used);
+    // ZQN255_CMBO_TRACE=<file> (tests only): where each combo starts in the section's data
+    const char *trace = getenv("ZQN255_CMBO_TRACE");
+    FILE *tf = trace && *trace ? fopen(trace, "w") : NULL;
+
+    for(int i = 0; i < used; ++i)
+    {
+        if(tf)
+            fprintf(tf, "%d %d\n", i, (int)o.b.size());
+
+        o.pn(recs[i].empty() ? NULL : &recs[i][0], recs[i].size());
+    }
+
+    if(tf)
+        fclose(tf);
+
+    std::vector<byte> none;
+    return zqn255_emit(f, ID_COMBOS, 73, 73, none, o.b);
+}
+
+ZqNewerRegistration g_reg_combos_255_30(ID_COMBOS, zqn255_combos, "2.55 combos as 3.0");
 
 // ---- CMBA: combo aliases, every version -------------------------------------------------
 //
@@ -999,3 +2343,12 @@ int write_aliases(PACKFILE *f, const ZqPartContext &ctx)
 ZqWriterRegistration g_reg_aliases(ID_COMBOALIASES, write_aliases, "combo aliases, all sectioned versions");
 
 } // namespace
+
+// The combo editor (zq_combo_editor.cpp): whether two newer parts hold the same.
+bool zq255_q30_same(const Q30Combo &a, const Q30Combo &b)
+{
+    Out x, y;
+    q30_canon(a, x);
+    q30_canon(b, y);
+    return x.b == y.b;
+}

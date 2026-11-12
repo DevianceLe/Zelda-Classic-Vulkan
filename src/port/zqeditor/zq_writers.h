@@ -61,6 +61,16 @@ struct ZqLoadHookRegistration
 };
 void zq_writers_note_loaded();      // zq_sections.cpp calls this; it runs those functions
 
+// Newer data that ZQuest edits but 2.53's writers don't hold (the 2.55/3.0 store): each
+// section's area adds it to that section's fingerprint, so an edit to it counts as a change
+// and the section goes through its writer. ZqStoreHashRegistration combos(ID_COMBOS, hash_fn);
+struct ZqStoreHashRegistration
+{
+    ZqStoreHashRegistration(dword id, void (*fn)(uint64_t *h));
+};
+void zq_hash_store(dword id, uint64_t *h);     // zq_sections.cpp calls this for each fingerprint
+void zq_hash_add(uint64_t *h, const void *data, size_t n);   // FNV-1a, as the fingerprints use
+
 // When true, writers encode every record from ZQuest's data, as if all of it had changed,
 // instead of copying unchanged records: -qst-roundtrip-check uses it to test that code.
 extern bool zqw_force_serialize;
@@ -128,6 +138,14 @@ struct ZqNewerRegistration
 // Saves the open quest as the target version. 0: saved. 2: some sections can't be written in
 // that version yet (why lists them). Anything else: failed (why says what).
 int zq_save_newer(const char *filename, int target, std::string &why);
+
+// A write-only file that appends what is written to it to *out.
+PACKFILE *zq_open_vector_sink(std::vector<byte> *out);
+
+// The part as a save in the quest's own version would write it now, after its id: its writer's
+// bytes when it changed (or is written on every save), its kept bytes otherwise. False when that
+// save couldn't write it (zqw_last_error may say why).
+bool zq_own_part_bytes(const ZqQuestPart &p, std::vector<byte> &out);
 
 // all_parts: every part that has a writer goes through it, changed or not (for the checks).
 int zq_save_own_format_ex(const char *filename, bool encode, bool all_parts, std::string &why);

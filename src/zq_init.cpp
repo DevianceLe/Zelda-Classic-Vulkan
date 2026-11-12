@@ -35,9 +35,21 @@ extern char *item_string[];
 extern const char *itype_names[];
 
 extern int doInit(zinitdata *zinit);
+bool zq_edit_init_newer(bool *shown);  // port/zqeditor/zq_record_editor.cpp
+bool zq255_quest_is_newer();
 
 int onInit()
 {
+    // A 2.55 or 3.0 Nightly quest's init data gets the editor for its own version.
+    if(zq255_quest_is_newer())
+    {
+        bool shown = false;
+        zq_edit_init_newer(&shown);
+
+        if(shown)
+            return D_O_K;
+    }
+
     char init_title[80];
     sprintf(init_title, "Initialization Data");
     init_dlg[0].dp=init_title;

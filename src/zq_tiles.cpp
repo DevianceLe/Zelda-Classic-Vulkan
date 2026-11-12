@@ -454,6 +454,8 @@ void go_combos()
     
     for(int i=0; i<MAXCOMBOS; i++)
         *(di++) = *(si++);
+
+    zq255_combos_undo_note();
 }
 
 void comeback_combos()
@@ -463,6 +465,8 @@ void comeback_combos()
     
     for(int i=0; i<MAXCOMBOS; i++)
         *(di++) = *(si++);
+
+    zq255_combos_undo_restore();
 }
 
 void little_x(BITMAP *dest, int x, int y, int c, int s)
@@ -7647,6 +7651,7 @@ void copy_combos(int &tile,int &tile2,int &copy,int &copycnt, bool masscopy)
             if(tile+t < MAXCOMBOS)
             {
                 combobuf[tile+t]=combobuf[copy+t];
+                zq255_combo_copy(tile+t, copy+t);
             }
         }
         
@@ -7662,6 +7667,7 @@ void copy_combos(int &tile,int &tile2,int &copy,int &copycnt, bool masscopy)
         do
         {
             combobuf[dest]=combobuf[src];
+            zq255_combo_copy(dest, src);
             ++src;
             ++dest;
             
@@ -7703,7 +7709,9 @@ void move_combos(int &tile,int &tile2,int &copy,int &copycnt)
         if(tile+t < MAXCOMBOS)
         {
             combobuf[tile+t]=combobuf[copy+t];
+            zq255_combo_copy(tile+t, copy+t);
             clear_combo(copy+t);
+            zq255_combo_clear(copy+t);
         }
     }
     
@@ -10490,6 +10498,7 @@ int combo_screen(int pg, int tl)
                     for(int i=0; i<copycnt; i++)
                     {
                         zc_swap(combobuf[copy+i],combobuf[tile+i]);
+                        zq255_combo_swap(copy+i, tile+i);
                     }
                     
                     saved=false;
@@ -10618,6 +10627,7 @@ int combo_screen(int pg, int tl)
                     for(int i=zc_min(tile,tile2); i<=zc_max(tile,tile2); i++)
                     {
                         clear_combo(i);
+                        zq255_combo_clear(i);
                     }
                     
                     tile=tile2=zc_min(tile,tile2);
@@ -10908,6 +10918,7 @@ REDRAW:
                     for(int i=0; i<copycnt; i++)
                     {
                         zc_swap(combobuf[copy+i],combobuf[tile+i]);
+                        zq255_combo_swap(copy+i, tile+i);
                     }
                     
                     saved=false;
@@ -10934,7 +10945,10 @@ REDRAW:
                     go_combos();
                     
                     for(int i=zc_min(tile,tile2); i<=zc_max(tile,tile2); i++)
+                    {
                         clear_combo(i);
+                        zq255_combo_clear(i);
+                    }
                         
                     tile=tile2=zc_min(tile,tile2);
                     redraw=true;
@@ -11268,6 +11282,8 @@ int onCmb_dlg_r()
 
 static ListData combotype_list(combotypelist, &font);
 
+bool zq_edit_combo_newer(int c, int cs);   // port/zqeditor/zq_combo_editor.cpp
+
 bool edit_combo(int c,bool freshen,int cs)
 {
     combo_dlg[0].dp2=lfont;
@@ -11279,6 +11295,22 @@ bool edit_combo(int c,bool freshen,int cs)
     
     reset_combo_animations();
     reset_combo_animations2();
+    
+    // A 2.55 or 3.0 Nightly quest's combos have far more than 2.53's dialog shows: they get
+    // the editor for their own version.
+    if(zq255_quest_is_newer())
+    {
+        bool ok = zq_edit_combo_newer(c, cs);
+        
+        if(freshen)
+        {
+            refresh(rALL);
+        }
+        
+        setup_combo_animations();
+        setup_combo_animations2();
+        return ok;
+    }
     
     curr_combo = combobuf[c];
     

@@ -9155,11 +9155,13 @@ bool q30_unsafe_ground(int x, int y)
 
 // ---- switch hook ---------------------------------------------------------------------
 // Upstream's switch (HeroClass::doSwitchHook and the switch part of HeroClass::animate,
-// the hook head in weapon::animate and onhit, enemy::defend's edSWITCH). When the tip
-// reaches a switchable combo or an enemy, Link is held for the switch's length and he
-// and the target change places half-way through. The hook head goes when the switch
-// starts (the head's code in weapons.cpp ends it then); its handle and chain follow on
-// the next frame. Hooked combos are not drawn flickering or rising, only Link is.
+// the hook head in weapon::animate and onhit, enemy::defend's edSWITCH, trigger_switchhookblock
+// for FFCs, the switch hook's item grab). When the tip reaches a switchable combo, an enemy,
+// a grabbable item or an FFC showing a switch-hook block, Link is held for the switch's length
+// and he and the target change places half-way through. The hook (head, handle, chain) stays
+// out, held still, until the switch ends; with an enemy, item or FFC it turns round at the
+// swap. Link, the hook and a switched enemy or item flicker or rise with the switch's style
+// (sprite.cpp's q30_sprite_switch_hook); combos don't, as upstream's don't.
 
 static const int Q30_ITYPE_SWITCHHOOK = 274;
 enum { SWSTYLE_POOF, SWSTYLE_FLICKER, SWSTYLE_RISE };
@@ -9185,7 +9187,9 @@ struct Q30Switch
     int cost_item;          // paid at the swap ("Cost on Swap"), or -1
     int64_t enemy_uid;      // the enemy being switched, or 0
     int ex, ey;             // where that enemy is held
-    bool cleanup;           // the hook's handle and chain are still out
+    int64_t item_uid;       // the item sprite being switched, or 0
+    int ix, iy;             // where it is held
+    int ffc;                // the FFC being switched, or -1
 };
 
 static Q30Switch g_sw;
@@ -9194,7 +9198,7 @@ static int g_sw_pending_cost = -1;
 static void sw_clear()
 {
     memset(&g_sw, 0, sizeof(g_sw));
-    g_sw.target = g_sw.item = g_sw.cost_item = -1;
+    g_sw.target = g_sw.item = g_sw.cost_item = g_sw.ffc = -1;
 }
 
 // ZC_SW_DEBUG: logs each switch and each block it puts down
@@ -9556,8 +9560,8 @@ void q30_test_list_features()
 
     for(int i = 0; i < MAXITEMS; ++i)
         if(q30_item_family(i) == Q30_ITYPE_SWITCHHOOK || q30_item_family(i) == Q30_ITYPE_LIFTGLOVE)
-            al_trace("test: feature item %d family %ld level %d flags 0x%lx\n", i, q30_item_family(i), (int)itemsbuf[i].fam_type,
-                     (unsigned long)q30_item_flags(i));
+            al_trace("test: feature item %d family %ld level %d flags 0x%lx style %ld\n", i, q30_item_family(i), (int)itemsbuf[i].fam_type,
+                     (unsigned long)q30_item_flags(i), (long)itemsbuf[i].misc5);
 
     for(int dm = 0; dm < MAXDMAPS; ++dm)
     {
@@ -9573,6 +9577,8 @@ void q30_test_list_features()
                 continue;
 
             int found[3] = { -1, -1, -1 };
+            const mapscr *lms[3] = { &m, NULL, NULL };
+            std::vector<int> hooks;
 
             for(int layer = 0; layer < 3; ++layer)     // the screen and its layers 1 and 2
             {
@@ -9584,6 +9590,7 @@ void q30_test_list_features()
                         continue;
 
                     lm = &TheMaps[(m.layermap[layer - 1] - 1) * MAPSCRS + m.layerscreen[layer - 1]];
+                    lms[layer] = lm;
                 }
 
                 for(int p = 0; p < 176; ++p)
@@ -9595,16 +9602,53 @@ void q30_test_list_features()
 
                     if(found[0] < 0 && (c->liftflags & 1)) found[0] = p;
                     if(found[1] < 0 && c->type == Q30C_TORCH) found[1] = p;
-                    if(found[2] < 0 && c->type == Q30C_SWITCHHOOK) found[2] = p;
+                    if(c->type == Q30C_SWITCHHOOK) hooks.push_back(p);
                 }
             }
+
+            // a switch-hook block with open floor beside it, and the way Link faces it from there
+            int face = -1, stand = -1;
+
+            for(size_t h = 0; h < hooks.size() && face < 0; ++h)
+            {
+                const int p = hooks[h], r = p / 16, c = p % 16;
+                const int nr[4] = { r + 1, r - 1, r, r }, nc[4] = { c, c, c + 1, c - 1 };   // Link faces up, down, left, right
+
+                for(int d = 0; d < 4 && face < 0; ++d)
+                {
+                    if(nr[d] < 1 || nr[d] > 9 || nc[d] < 1 || nc[d] > 14)
+                        continue;
+
+                    const int np = nr[d] * 16 + nc[d];
+                    bool open = true;
+
+                    for(int layer = 0; layer < 3 && open; ++layer)
+                        if(lms[layer] && ((combobuf[lms[layer]->data[np]].walk & 0xF) || combobuf[lms[layer]->data[np]].type != cNONE))
+                            open = false;
+
+                    if(open)
+                    {
+                        face = d;
+                        stand = np;
+                        found[2] = p;
+                    }
+                }
+            }
+
+            static const char *const faces[4] = { "up", "down", "left", "right" };
 
             for(int k = 0; k < 3; ++k)
                 if(found[k] >= 0 && shown[k] < 6)
                 {
                     ++shown[k];
-                    al_trace("test: feature %s: ZC_TEST_START=%d,%d,%d,%d (combo at %d,%d)\n", names[k], dm, s - DMaps[dm].xoff,
-                             (found[k] % 16) * 16, (found[k] / 16) * 16 + 16, (found[k] % 16) * 16, (found[k] / 16) * 16);
+
+                    if(k == 2)
+                        al_trace("test: feature %s: ZC_TEST_START=%d,%d,%d,%d face %s (combo at %d,%d, %d on the screen)\n", names[k], dm,
+                                 s - DMaps[dm].xoff, (stand % 16) * 16, (stand / 16) * 16, faces[face], (found[k] % 16) * 16, (found[k] / 16) * 16,
+                                 (int)hooks.size());
+                    else
+                        al_trace("test: feature %s: ZC_TEST_START=%d,%d,%d,%d (combo at %d,%d)\n", names[k], dm, s - DMaps[dm].xoff,
+                                 (found[k] % 16) * 16, (found[k] / 16) * 16 + 16, (found[k] % 16) * 16, (found[k] / 16) * 16);
                 }
         }
     }
@@ -10347,10 +10391,15 @@ static bool sw_unswitchable(const enemy *e)
     return false;
 }
 
-// doSwitchHook: freeze Link and start the clock; the target is a combo position or an enemy.
-static void sw_start(int style, int item, int target, enemy *e)
+// doSwitchHook: freeze Link and start the clock; the target is a combo position, an enemy, an
+// item sprite or an FFC.
+static void sw_start(int style, int item, int target, enemy *e, sprite *it = NULL, int ffc = -1)
 {
     int cost = (item >= 0 && g_sw_pending_cost == item) ? item : -1;
+
+    if(const char *ts = getenv("ZC_SW_STYLE"))  // test runs: another style than the item's
+        style = atoi(ts);
+
     sw_clear();
     g_sw_pending_cost = -1;
     g_sw.active = true;
@@ -10358,13 +10407,20 @@ static void sw_start(int style, int item, int target, enemy *e)
     g_sw.item = item;
     g_sw.cost_item = cost;
     g_sw.target = target;
-    g_sw.cleanup = true;
+    g_sw.ffc = ffc;
 
     if(e)
     {
         g_sw.enemy_uid = e->getUID();
         g_sw.ex = int(e->x);
         g_sw.ey = int(e->y);
+    }
+
+    if(it)
+    {
+        g_sw.item_uid = it->getUID();
+        g_sw.ix = int(it->x);
+        g_sw.iy = int(it->y);
     }
 
     int player = sw_link_pos();
@@ -10385,6 +10441,10 @@ static void sw_start(int style, int item, int target, enemy *e)
 
             if(!hookable(c))
                 continue;
+
+            if(sw_debug())
+                al_trace("swdbg layer %d target cid %d type %d usrflags 0x%lx minlevel %d level %d player cid %d\n", q, ts->data[target], c->type,
+                         (unsigned long)c->usrflags, a_int(c->attributes[8]), level, ps->data[player]);
 
             if(c->type == Q30C_SWITCHHOOK)
             {
@@ -10437,6 +10497,10 @@ static void sw_start(int style, int item, int target, enemy *e)
             q30_add_sprite_deco((target & 15) * 16, (target >> 4) * 16, spr, g_sw.maxtime, false);
         else if(e)
             q30_add_sprite_deco(int(e->x), int(e->y), spr, g_sw.maxtime, false);
+        else if(it)
+            q30_add_sprite_deco(int(it->x), int(it->y), spr, g_sw.maxtime, false);
+        else if(ffc >= 0)
+            q30_add_sprite_deco((int)(tmpscr[0].ffx[ffc] / 10000), (int)(tmpscr[0].ffy[ffc] / 10000), spr, g_sw.maxtime, false);
 
         break;
     }
@@ -10637,6 +10701,60 @@ static void sw_swap_layer(int q, int target, int player, int lx, int ly)
     }
 }
 
+// The item being switched, put where the switch holds it. A flying fairy follows its guide
+// enemy each frame, so the guide goes there too (upstream's movefairynew2 after the swap).
+static void sw_place_item(sprite *s)
+{
+    item *it = (item *)s;
+    it->x = g_sw.ix;
+    it->y = g_sw.iy;
+
+    if(itemsbuf[it->id].family == itype_fairy && itemsbuf[it->id].misc3)
+        movefairy2(it->x, it->y, it->misc);
+}
+
+// After Link and an object changed places (Link came from tx, ty): the hook turns round so
+// it still runs from Link's hand to the object, as upstream's switch does.
+static void sw_shift_hook(int tx, int ty)
+{
+    weapon *w = (weapon *)Lwpns.spr(Lwpns.idFirst(wHookshot));
+    weapon *hw = (weapon *)Lwpns.spr(Lwpns.idFirst(wHSHandle));
+
+    if(!w || !hw)
+        return;
+
+    const int lx = int(Link.getX()), ly = int(Link.getY());
+    int dx = lx - tx, dy = ly - ty;
+
+    if(sw_debug())
+        al_trace("swdbg shift: Link %d,%d -> %d,%d, head %d,%d dir %d, handle %d,%d\n", tx, ty, lx, ly, int(w->x), int(w->y), w->dir,
+                 int(hw->x), int(hw->y));
+
+    if(w->dir < 4)
+    {
+        if(w->dir & 2)
+            dx = 0;
+        else
+            dy = 0;
+    }
+
+    w->x = hw->x + dx;
+    w->y = hw->y + dy;
+    w->dir = oppositeDir[w->dir & 7];
+    const int hflip = w->dir > 3 ? 3 : ((w->dir & 2) ? 1 : 2);
+    w->flip ^= hflip;
+    hw->x = lx - (int(hw->x) - tx);
+    hw->y = ly - (int(hw->y) - ty);
+    hw->dir = oppositeDir[hw->dir & 7];
+    hw->flip ^= hflip;
+
+    for(int j = 0; j < chainlinks.Count(); ++j)
+    {
+        chainlinks.spr(j)->x += dx;
+        chainlinks.spr(j)->y += dy;
+    }
+}
+
 // The half-way point: Link and the target change places.
 static void sw_swap()
 {
@@ -10665,10 +10783,11 @@ static void sw_swap()
         if(g_sw.cost_item >= 0)
             paymagiccost(g_sw.cost_item);
 
-        Link.setX((target & 15) * 16);
-        Link.setY((target >> 4) * 16);
+        Link.x = (target & 15) * 16;     // x and y themselves: setX/setY would drag the hook along
+        Link.y = (target >> 4) * 16;
         Link.dir = oppositeDir[Link.dir & 7];
         g_sw.target = player;
+        sw_shift_hook(lx, ly);
 
         if(getenv("ZC_EVENTLOG"))
             al_trace("q30 switch hook: swapped combo %d with Link at %d,%d; Link now %d,%d\n", target, lx, ly,
@@ -10688,8 +10807,8 @@ static void sw_swap()
             paymagiccost(g_sw.cost_item);
 
         int lx = int(Link.getX()), ly = int(Link.getY());
-        Link.setX(int(e->x));
-        Link.setY(int(e->y));
+        Link.x = int(e->x);
+        Link.y = int(e->y);
         Link.dir = oppositeDir[Link.dir & 7];
         e->x = lx;
         e->y = ly;
@@ -10698,6 +10817,44 @@ static void sw_swap()
 
         if(e->dir >= 0 && e->dir < 8 && (e->dir == Link.dir || e->dir == oppositeDir[Link.dir]))
             e->dir = oppositeDir[e->dir];
+
+        sw_shift_hook(lx, ly);
+    }
+    else if(g_sw.item_uid)
+    {
+        sprite *it = items.getByUID(g_sw.item_uid);
+
+        if(!it)
+        {
+            sw_end();
+            return;
+        }
+
+        if(g_sw.cost_item >= 0)
+            paymagiccost(g_sw.cost_item);
+
+        int lx = int(Link.getX()), ly = int(Link.getY());
+        Link.x = int(it->x);
+        Link.y = int(it->y);
+        Link.dir = oppositeDir[Link.dir & 7];
+        g_sw.ix = lx;
+        g_sw.iy = ly;
+        sw_place_item(it);
+        sw_shift_hook(lx, ly);
+    }
+    else if(g_sw.ffc >= 0 && g_sw.ffc < MAXFFCS && tmpscr[0].ffdata[g_sw.ffc])
+    {
+        if(g_sw.cost_item >= 0)
+            paymagiccost(g_sw.cost_item);
+
+        const int f = g_sw.ffc;
+        int lx = int(Link.getX()), ly = int(Link.getY());
+        Link.x = (int)(tmpscr[0].ffx[f] / 10000);
+        Link.y = (int)(tmpscr[0].ffy[f] / 10000);
+        Link.dir = oppositeDir[Link.dir & 7];
+        tmpscr[0].ffx[f] = lx * 10000;
+        tmpscr[0].ffy[f] = ly * 10000;
+        sw_shift_hook(lx, ly);
     }
 
     q30_drop_lift();
@@ -10709,21 +10866,16 @@ void q30_switchhook_tick()
     if(!g_sw.active)
         return;
 
-    if(g_sw.cleanup)
+    // The hook (head, handle, chain) stays out, drawn with Link, until the switch ends
+    // (sw_end's reset_hookshot takes it away), as upstream's does.
+
+    if(g_sw.item_uid)
     {
-        // the hook's handle and chain: removed here, outside the weapons' own loop
-        g_sw.cleanup = false;
-        int h = Lwpns.idFirst(wHSHandle);
+        // the hooked item is held where it is
+        sprite *it = items.getByUID(g_sw.item_uid);
 
-        if(h >= 0)
-            Lwpns.del(h);
-
-        h = Lwpns.idFirst(wHookshot);
-
-        if(h >= 0)
-            Lwpns.del(h);
-
-        chainlinks.clear();
+        if(it)
+            sw_place_item(it);
     }
 
     if(g_sw.enemy_uid)
@@ -10749,19 +10901,59 @@ void q30_switchhook_tick()
         sw_end();
 }
 
-// The hook's tip, before it moves this frame: a switchable combo starts the switch. Returns
-// true if the head should end this frame (weapons.cpp then removes it).
-bool q30_switchhook_frame(weapon *w)
+static bool switch_weapon_check(weapon *w);
+
+// The hook's tip, before it moves this frame: a switchable combo, a grabbable item or an FFC
+// showing a switch-hook block starts the switch. Returns 0 to carry on, 1 if the head should
+// end this frame (weapons.cpp then removes it), 2 while a switch holds it still.
+int q30_switchhook_frame(weapon *w)
 {
     if(!q30_active() || w->parentitem < 0 || q30_item_family(w->parentitem) != Q30_ITYPE_SWITCHHOOK || w->misc != 0)
-        return false;
+        return 0;
 
     if(g_sw.active)
-        return true;
+    {
+        w->step = 0;
+        return 2;
+    }
 
     // an enemy the head is already on (its first frame skips the check at the end of its animate)
     if(switch_weapon_check(w))
-        return true;
+    {
+        w->step = 0;
+        return 2;
+    }
+
+    const int pitem = w->parentitem;
+
+    // an item it can grab (upstream: the same items a hookshot would drag), switched with Link
+    for(int j = 0; j < items.Count(); ++j)
+    {
+        item *it = (item *)items.spr(j);
+
+        if(!it->hit(w))
+            continue;
+
+        const bool key = itemsbuf[it->id].family == itype_key || itemsbuf[it->id].family == itype_lkey;
+        const bool grab = ((it->pickup & ipTIMER) && it->clk2 >= 32)
+                          || ((q30_item_flag(pitem, ITEM_FLAG4) || (it->pickup & Q30_IP_CANGRAB) || (key && q30_item_flag(pitem, Q30_ITEM_FLAG7)))
+                              && it->PriceIndex < 0 && !(it->pickup & ipDUMMY));
+
+        if(!grab)
+            continue;
+
+        it->clk2 = 256;     // half the time a timed item lasts: it doesn't vanish mid-switch
+        sw_start((int)itemsbuf[pitem].misc5, pitem, -1, NULL, it);
+
+        if(item_usesound2(pitem))
+            sfx(item_usesound2(pitem), pan(int(w->x)));
+        else if(g_misc_sfx[MSFX_SWITCHED_SND])
+            sfx(g_misc_sfx[MSFX_SWITCHED_SND], pan(int(w->x)));
+
+        stop_sfx(itemsbuf[pitem].usesound);
+        w->step = 0;
+        return 2;
+    }
 
     int wx = int(w->x), wy = int(w->y), tx, ty;
 
@@ -10774,7 +10966,29 @@ bool q30_switchhook_frame(weapon *w)
     }
 
     if(tx < 0 || ty < 0 || tx > 255 || ty > 175)
-        return false;
+        return 0;
+
+    // an FFC showing a switch-hook block (upstream trigger_switchhookblock on an FFC): Link and
+    // the FFC change places
+    for(int i = 0; i < MAXFFCS; ++i)
+    {
+        if(!tmpscr[0].ffdata[i] || !ffc_at(i, tx, ty))
+            continue;
+
+        const Q30Combo *c = h_combo(H(i));
+
+        if(!c || c->type != Q30C_SWITCHHOOK)
+            continue;
+
+        sw_start((int)itemsbuf[pitem].misc5, pitem, -1, NULL, NULL, i);
+
+        if(item_usesound2(pitem))
+            sfx(item_usesound2(pitem), pan(wx));
+
+        stop_sfx(itemsbuf[pitem].usesound);
+        w->step = 0;
+        return 2;
+    }
 
     int target = ((ty >> 4) << 4) + (tx >> 4);
     bool found = false;
@@ -10786,24 +11000,64 @@ bool q30_switchhook_frame(weapon *w)
     }
 
     if(!found)
-        return false;
+        return 0;
 
     int player = sw_link_pos();
 
     if(player < 0 || player == target)
+        return 1;       // on its own square: the head ends (its end lets Link go)
+
+    sw_start((int)itemsbuf[pitem].misc5, pitem, target, NULL);
+
+    if(item_usesound2(pitem))
+        sfx(item_usesound2(pitem), pan(wx));
+
+    stop_sfx(itemsbuf[pitem].usesound);
+    w->step = 0;
+    return 2;
+}
+
+bool q30_switchhook_held(const weapon *w)
+{
+    return g_sw.active && w && (w->id == wHookshot || w->id == wHSHandle);
+}
+
+// sprite.cpp's q30_sprite_switch_hook: the hook (head, handle, chain), the enemy and the item
+// being switched flicker or rise as Link does (upstream's sprite::draw for switch_hooked).
+static int switch_sprite(const sprite *s)
+{
+    if(!g_sw.active || g_sw.style == SWSTYLE_POOF)
+        return 0;
+
+    const long uid = const_cast<sprite *>(s)->getUID();     // (2.53's getUID isn't const)
+    bool part = (g_sw.enemy_uid && uid == g_sw.enemy_uid) || (g_sw.item_uid && uid == g_sw.item_uid)
+                || s == Lwpns.spr(Lwpns.idFirst(wHookshot)) || s == Lwpns.spr(Lwpns.idFirst(wHSHandle));
+
+    for(int j = 0; !part && j < chainlinks.Count(); ++j)
+        part = s == chainlinks.spr(j);
+
+    if(!part)
+        return 0;
+
+    if(g_sw.style == SWSTYLE_FLICKER)
+        return q30_switchhook_hide_link() ? -1 : 0;
+
+    return q30_switchhook_rise();
+}
+
+// (declared here, at file scope: a block-scope extern inside the unnamed namespace below would
+// name a variable of that namespace with GCC and Clang)
+extern int (*q30_sprite_switch_hook)(const sprite *);
+
+namespace
+{
+struct InstallSwitchSpriteHook
+{
+    InstallSwitchSpriteHook()
     {
-        Link.reset_hookshot();
-        return true;
+        q30_sprite_switch_hook = switch_sprite;
     }
-
-    int item = w->parentitem;
-    sw_start((int)itemsbuf[item].misc5, item, target, NULL);
-
-    if(item_usesound2(item))
-        sfx(item_usesound2(item), pan(wx));
-
-    stop_sfx(itemsbuf[item].usesound);
-    return true;
+} install_switch_sprite_hook;
 }
 
 // How each player weapon meets an enemy's defenses: upstream's weaponToDefence, as the
@@ -10871,6 +11125,9 @@ static bool switch_weapon_check(weapon *w)
 
         int d = guy_defense(e->id & 0xFFF, slot);
 
+        if(sw_debug())
+            al_trace("swdbg enemy %d (family %d) hit by %d, defense %d\n", e->id & 0xFFF, e->family, w->id, d);
+
         if(d == FILE_edSWITCH_DEF)
         {
             if(sw_unswitchable(e))
@@ -10884,7 +11141,7 @@ static bool switch_weapon_check(weapon *w)
             if(head)
             {
                 stop_sfx(itemsbuf[w->parentitem].usesound);
-                w->dead = 0;
+                w->step = 0;    // the head stays on the enemy through the switch
             }
 
             return true;
@@ -10929,7 +11186,7 @@ static bool switch_weapon_check(weapon *w)
             sfx(g_misc_sfx[MSFX_SWITCHED_SND], pan(int(w->x)));
 
         stop_sfx(itemsbuf[item].usesound);
-        w->dead = 0;
+        w->step = 0;            // the head stays on the enemy through the switch
         return true;
     }
 
