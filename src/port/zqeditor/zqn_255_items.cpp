@@ -1,7 +1,9 @@
 // Saving a quest made in 2.55 as 3.0 Nightly (zqn_255.h): the items (ITEM).
 //
 // Each item read with the tape (zq_tape_item) the way 3.0's read_single_item_old (versions
-// before 67) and read_single_item (67-70) read it:
+// before 67) and read_single_item (67-71; 71 is 3.0's own, which early 3.0 Nightlies wrote with a
+// 2.55 header: read and written again like the rest, so its weapon data comes out in 3.0's
+// newest data version, its level 0 items as level 1, and its default items off the end) read it:
 // - before version 63 the item's weapon fields (imitated weapon, default defence, InitD, hit
 //   box, script, size overrides, burning sprites, light radii, movement) go into its weapon
 //   data; from 63 the weapon data is its own block;
@@ -552,7 +554,7 @@ void update_item(Item &it, int s)
 // section these take (none set), 1: read, 2: refused (zqw_last_error says why).
 int read_items(const ZqNewerContext &ctx, std::vector<Item> &items)
 {
-    if(!zqn255_source(ctx) || !ctx.src_part || ctx.src_version < 45 || ctx.src_version > 70 || ctx.target != ZQ_NEWER_30)
+    if(!zqn255_source(ctx) || !ctx.src_part || ctx.src_version < 45 || ctx.src_version > 71 || ctx.target != ZQ_NEWER_30)
         return 0;
 
     Zqn255Section s;
@@ -564,7 +566,9 @@ int read_items(const ZqNewerContext &ctx, std::vector<Item> &items)
     Zqn255In r(s.data);
     const int count = r.u16();
 
-    if(count > 512 || (v < 67 && s.data.size() < 2 + 64 * (size_t)count))
+    // 3.0's readers take up to MAXITEMS, 1024 items (Mystical Harps, a 3.0 prerelease's version
+    // 71 section, has 616)
+    if(count > 1024 || (v < 67 && s.data.size() < 2 + 64 * (size_t)count))
     {
         zqw_last_error = "its items aren't laid out as expected";
         return 2;
@@ -651,6 +655,167 @@ int write_items(PACKFILE *f, const ZqNewerContext &ctx)
 }
 
 ZqNewerRegistration g_reg_items(ID_ITEMS, write_items, "2.55 items as 3.0");
+
+// ---- 2.55.17 --------------------------------------------------------------------------------
+//
+// 2.55.17's readitems for versions 45 to 59, then writeitems (version 59, all 256 items): each
+// item laid out again as version 59 (the tape's rebuild), with the reader's conversions for its
+// version: no second use sound before 49 (a mirror's warp effect and sound split from the first
+// before 50), and its update loop (a raft's speed before 46, no pickup flags before 47, a candle's
+// step speed before 51, a shield blocking in front before 52, the second costs before 53, the
+// flippers' dive button before 54, the spin and quake scrolls' charge sounds before 55, the fire
+// items' strength flags before 56; level 0 becomes 1). What a version doesn't store is 0, as
+// 2.55.17's default items hold it (memset, then default_items, whose newer fields are 0). Names
+// are read up to their end (strncat), zeros after.
+void update_item_255(Tape &t, int s)
+{
+    const long family = (long)t.get("family");
+
+    if(s < 50 && family == IT_MIRROR)
+    {
+        zqn255_tape_set(t, "misc2", t.get("misc1"));
+        zqn255_tape_set(t, "usesound2", t.get("usesound"));
+    }
+
+    if(s < 46 && family == IT_RAFT)
+        zqn255_tape_set(t, "misc1", 1);
+
+    if(s < 47)
+        zqn255_tape_set(t, "pickupflag", 0);
+
+    if(s < 51 && family == IT_CANDLE)
+        zqn255_tape_set(t, "misc4", 50);
+
+    if(s < 52 && family == IT_SHIELD)
+        zqn255_tape_set(t, "flags", (dword)t.get("flags") | IF_FLAG1);
+
+    if(s < 53)
+    {
+        long ctr = CR_NONE, amount = 0;
+
+        switch(family)
+        {
+        case IT_ARROW: ctr = CR_ARROWS; amount = 1; break;
+        case IT_BOMB: ctr = CR_BOMBS; amount = 1; break;
+        case IT_SBOMB: ctr = CR_SBOMBS; amount = 1; break;
+        }
+
+        zqn255_tape_set(t, "costctr1", ctr);
+        zqn255_tape_set(t, "cost1", amount);
+        zqn255_tape_set(t, "costtimer1", 0);
+    }
+
+    if(s < 54 && family == IT_FLIPPERS)
+        zqn255_tape_set(t, "misc3", INT_BTN_A_);
+
+    if(s < 55)
+    {
+        if(family == IT_SPINSCROLL || family == IT_QUAKESCROLL)
+            zqn255_tape_set(t, "usesound2", WAV_ZN1CHARGE_);
+        else if(family == IT_SPINSCROLL2 || family == IT_QUAKESCROLL2)
+            zqn255_tape_set(t, "usesound2", WAV_ZN1CHARGE2_);
+    }
+
+    if(s < 56)
+    {
+        dword flags = (dword)t.get("flags");
+
+        switch(family)
+        {
+        case IT_DIVINEFIRE:
+            flags &= ~(IF_FLAG9 | IF_FLAG10);    // made in 2.55 or later: neither strong nor magic
+            flags |= IF_FLAG11;
+            break;
+
+        case IT_CANDLE:
+            if(t.get("fam_type") > 1) flags |= IF_FLAG9; else flags &= ~IF_FLAG9;
+            flags &= ~(IF_FLAG10 | IF_FLAG11);
+            break;
+
+        case IT_BOOK:
+            flags |= IF_FLAG9 | IF_FLAG10;
+            flags &= ~IF_FLAG11;
+            break;
+        }
+
+        zqn255_tape_set(t, "flags", flags);
+    }
+
+    if(t.get("fam_type") == 0)
+        zqn255_tape_set(t, "fam_type", 1);
+}
+
+int write_items_255(PACKFILE *f, const ZqNewerContext &ctx)
+{
+    if(!zqn255_source(ctx) || !ctx.src_part || ctx.src_version < 45 || ctx.src_version > 59 || ctx.target != ZQ_NEWER_255)
+        return ZQW_UNSUPPORTED;
+
+    Zqn255Section s;
+
+    if(!zqn255_section(ctx, s))
+        return 2;
+
+    const int v = s.version;
+    const int ITEMS = 256;
+    Zqn255In r(s.data);
+
+    // 2.55 writes all 256 items; another count would leave the rest to 2.55.17's default items
+    if(r.u16() != ITEMS || s.data.size() < 2 + 64 * (size_t)ITEMS)
+    {
+        zqw_last_error = "its items aren't laid out as expected (2.55.17 needs all 256)";
+        return 2;
+    }
+
+    Zqn255Out o;
+    o.w(ITEMS);
+
+    for(int i = 0; i < ITEMS; ++i)
+    {
+        char nm[64];
+        memcpy(nm, &s.data[2 + 64 * (size_t)i], 64);
+        nm[63] = 0;
+        const size_t k = strlen(nm);
+        memset(nm + k, 0, 64 - k);
+        o.put(nm, 64);
+    }
+
+    size_t at = 2 + 64 * (size_t)ITEMS;
+
+    for(int i = 0; i < ITEMS; ++i)
+    {
+        Tape tape;
+        TapeParser p(&s.data[0], s.data.size(), at, &tape);
+
+        if(!zq_tape_item(p, v) || p.bad)
+        {
+            zqw_last_error = "an item of its item section couldn't be read";
+            return 2;
+        }
+
+        at = p.pos;
+        update_item_255(tape, v);
+        std::vector<byte> rec;
+
+        if(!zqn255_tape_rebuild(zq_tape_item, tape, 59, rec))
+        {
+            zqw_last_error = "an item couldn't be laid out as 2.55.17's version 59";
+            return 2;
+        }
+
+        o.put(rec);
+    }
+
+    if(at != s.data.size())
+    {
+        zqw_last_error = "its item section has bytes past its last item";
+        return 2;
+    }
+
+    std::vector<byte> none;
+    return zqn255_emit(f, ID_ITEMS, 59, 15, none, o.b);
+}
+
+ZqNewerRegistration g_reg_items_255(ID_ITEMS, write_items_255, "2.55 items as 2.55.17");
 
 } // namespace
 

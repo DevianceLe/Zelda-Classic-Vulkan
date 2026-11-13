@@ -581,6 +581,22 @@ void read_new(const TapeIndex &t, int v, Init &z, bool lttp_collision)
         z.global_scripts = raw_of(t, "global_scripts");
         z.hero_scripts = raw_of(t, "hero_scripts");
     }
+
+    // the viewport (3.0's own versions 51 and 52, from 3.0 prereleases)
+    if(v >= 51)
+    {
+        z.vp[0] = t.get("vf.deadzone_w");
+        z.vp[1] = t.get("vf.deadzone_h");
+    }
+
+    if(v >= 52)
+    {
+        z.vp[2] = t.get("vf.lookahead_x");
+        z.vp[3] = t.get("vf.lookahead_y");
+        z.vp_lookahead_speed = t.get("vf.lookahead_speed");
+        z.vp_recenter_speed = t.get("vf.recenter_speed");
+        z.vp_recenter_delay = t.get("vf.recenter_delay");
+    }
 }
 
 // A script slot's configuration without its script: 8 InitD values, no instance values.
@@ -606,7 +622,7 @@ void put_raw_or_empty(Zqn255Out &o, const std::vector<byte> &raw, int size_bytes
 
 int write_init(PACKFILE *f, const ZqNewerContext &ctx)
 {
-    if(!zqn255_source(ctx) || !ctx.src_part || ctx.src_version < 19 || ctx.src_version > 51 || ctx.target != ZQ_NEWER_30)
+    if(!zqn255_source(ctx) || !ctx.src_part || ctx.src_version < 19 || ctx.src_version > 52 || ctx.target != ZQ_NEWER_30)
         return ZQW_UNSUPPORTED;
 
     Zqn255Section s;
@@ -795,5 +811,180 @@ int write_init(PACKFILE *f, const ZqNewerContext &ctx)
 }
 
 ZqNewerRegistration g_reg_init(ID_INITDATA, write_init, "2.55 init data as 3.0");
+
+// ---- 2.55.17 --------------------------------------------------------------------------------
+//
+// 2.55.17's readinitdata reads versions before 37 with the same readinitdata_old as 3.0 (read_old
+// above), and the newer layout (37) as read_new does; the rest of its load does the same to the
+// init data (Link's swimming speed, the old "continue at full life" rule). Its zinitdata keeps
+// the levels' items as four bit arrays (maps, compasses, boss keys, McGuffins) and the messages'
+// "more" icon, and writeinitdata writes its version 38: the newer layout with the sprite flicker
+// settings at the end.
+int write_init_255(PACKFILE *f, const ZqNewerContext &ctx)
+{
+    if(!zqn255_source(ctx) || !ctx.src_part || ctx.src_version < 19 || ctx.src_version > 37 || ctx.target != ZQ_NEWER_255)
+        return ZQW_UNSUPPORTED;
+
+    Zqn255Section s;
+
+    if(!zqn255_section(ctx, s))
+        return 2;
+
+    const int v = s.version;
+    Tape tape;
+    TapeParser p(s.data.empty() ? NULL : &s.data[0], s.data.size(), 0, &tape);
+
+    if(!zq_tape_init(p, v) || p.bad || p.pos != s.data.size())
+    {
+        zqw_last_error = "its init data isn't laid out as expected";
+        return 2;
+    }
+
+    const TapeIndex t(tape);
+    Zqn255Section rules;
+    bool contfull = false;
+
+    if(other_section(ctx.target, ID_RULES, rules) && rules.data.size() >= 100)
+        contfull = bit_of(rules.data, QR_CONTFULL_DEP);
+
+    Init z;
+    std::string why;
+
+    if(v < 37 ? !read_old(t, v, z, why) : (read_new(t, v, z, false), false))
+    {
+        zqw_last_error = why;
+        return 2;
+    }
+
+    // Link's sprites: the swimming speed, and for init data older than 34 the newer movement
+    Zqn255Section link;
+
+    if(other_section(ctx.target, ID_LINKSPRITES, link) && link.version > 4)
+    {
+        const size_t at = 168 + 6 + 2 * (size_t)(link.version > 6 ? 3 : 2) * 6 + 48;
+
+        if(at < link.data.size())
+            z.swim_speed = link.data[at];
+    }
+
+    if(v < 34)
+    {
+        const bool fast = z.swim_speed > 60;
+        z.swim_mult = fast ? 2 : 1;
+        z.swim_div = fast ? 3 : 2;
+    }
+
+    if(contfull)
+    {
+        set_bit_in(z.flags, 0, true);
+        z.cont_heart = 100;
+        z.counter[CR_LIFE] = z.mcounter[CR_LIFE];
+    }
+
+    if(!zq_batch_load)
+    {
+        int map = Map.getCurrMap(), scr = Map.getCurrScr();
+
+        if(map_count > 0 && map > map_count - 1)
+            map = map_count - 1;
+
+        z.last_map = map;
+        z.last_screen = scr > 135 ? 135 : scr;
+    }
+
+    // the "more" icon (from version 18 its Y can be an offset)
+    const long more_x = t.get("msg_more_x"), more_y = t.get("msg_more_y");
+    const long more_offset = t.find("msg_more_is_offset") ? t.get("msg_more_is_offset") : 0;
+
+    Zqn255Out o;
+    std::vector<byte> items = z.items;
+    items.resize(256 / 8, 0);
+    o.put(&items[0], 256 / 8);
+
+    // the levels' items as bit arrays, 8 levels to the byte, the four arrays interleaved
+    for(int q = 0; q < NUM_LEVELS / 8; ++q)
+    {
+        static const word li[4] = { LI_MAP, LI_COMPASS, LI_BOSSKEY, LI_MCGUFFIN };
+
+        for(int w = 0; w < 4; ++w)
+        {
+            byte b = 0;
+
+            for(int j = 0; j < 8; ++j)
+                if(z.litems[q * 8 + j] & li[w])
+                    b |= (byte)(1 << j);
+
+            o.c(b);
+        }
+    }
+
+    put_bounded(o, 2, NUM_LEVELS, z.level_keys, 1);
+    o.c(MAX_COUNTERS);
+
+    for(int q = 0; q < MAX_COUNTERS; ++q)
+        o.w(z.counter[q]);
+
+    for(int q = 0; q < MAX_COUNTERS; ++q)
+        o.w(z.mcounter[q]);
+
+    o.c(z.bomb_ratio);
+    o.c(z.hcp);
+    o.c(z.hcp_per_hc);
+    o.w(z.cont_heart);
+    o.c(z.hp_per_heart);
+    o.c(z.magic_per_block);
+    o.c(z.hero_dmg);
+    o.c(z.ene_dmg);
+    o.c(z.dither_type);
+    o.c(z.dither_arg);
+    o.c(z.dither_percent);
+    o.c(z.def_lightrad);
+    o.c(z.transdark_percent);
+    o.c(z.darkcol);
+
+    for(int q = 0; q < 8; ++q)
+        o.l(z.ss[q]);
+
+    put_bits(o, z.flags);
+    o.c(z.last_map);
+    o.c(z.last_screen);
+    o.c(more_x);
+    o.c(more_y);
+    o.c(more_offset);
+    o.c(z.msg_speed);
+    o.l(z.gravity);
+    o.l(z.swimgravity);
+    o.w(z.terminalv);
+    o.c(z.swim_speed);
+    o.c(z.swim_mult);
+    o.c(z.swim_div);
+    o.w(z.sideswim_up);
+    o.w(z.sideswim_side);
+    o.w(z.sideswim_down);
+    o.l(z.exit_water_jump);
+    o.w(z.hero_step);
+    o.c(z.anim_style);
+    o.c(z.jump_threshold);
+    o.l(z.bunny_ltm);
+    o.w(z.start_dmap);
+    o.w(z.subscr_speed);
+    o.c(z.switchhook);
+    o.c(z.magic_drain);
+    o.l(z.shove_offset);
+    put_raw_or_empty(o, z.gen_doscript, 2, 65535);
+    put_raw_or_empty(o, z.gen_exitstate, 2, 512);
+    put_raw_or_empty(o, z.gen_reloadstate, 2, 512);
+    put_raw_or_empty(o, z.gen_initd, 2, 512);
+    put_raw_or_empty(o, z.gen_eventstate, 2, 512);
+    put_raw_or_empty(o, z.gen_data, 2, 512);
+    put_raw_or_empty(o, z.screen_data, 4, 255 * 136);
+    o.c(z.flicker_speed);
+    o.c(z.flicker_color);
+    o.c(z.flicker_transp);
+    std::vector<byte> none;
+    return zqn255_emit(f, ID_INITDATA, 38, 15, none, o.b);
+}
+
+ZqNewerRegistration g_reg_init_255(ID_INITDATA, write_init_255, "2.55 init data as 2.55.17");
 
 } // namespace

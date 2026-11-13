@@ -1919,7 +1919,7 @@ enum
     ZASM30_ZCLASS_GLOBALIZE = 982, ZASM30_OBJ_OWN_CLASS = 991, ZASM30_ZCLASS_MARK_TYPE = 1133,
     ZASM30_SUBV2 = 949, ZASM30_DIVV2 = 950, ZASM30_WRITEPODSTRING = 974, ZASM30_WRITEPODARRAY = 975,
     ZASM30_MAXVARG = 1034, ZASM30_MINVARG = 1035, ZASM30_CHOOSEVARG = 1036, ZASM30_PUSHVARGV = 1037, ZASM30_PUSHVARGR = 1038,
-    ZASM30_PRINTFVARG = 1039, ZASM30_SPRINTFVARG = 1040, ZASM30_WAITFRAMESR = 1042, ZASM30_LOAD_FFC_2 = 1048, ZASM30_COMBO_AT = 1049,
+    ZASM30_PRINTFVARG = 1039, ZASM30_SPRINTFVARG = 1040, ZASM30_WAITFRAMESR = 1042, ZASM30_LOAD_FFC_2 = 1048, ZASM30_COMBO_AT = 1049, ZASM30_COMBO_ADJUST = 1050,
     ZASM30_PEEK = 1064, ZASM30_PEEKATV = 1065, ZASM30_PUSHARGSR = 1099, ZASM30_PUSHARGSV = 1100, ZASM30_WRAPRADIANS = 1103,
     ZASM30_WRAPDEGREES = 1104, ZASM30_CALLFUNC = 1105, ZASM30_RETURNFUNC = 1106, ZASM30_SETCMP = 1107, ZASM30_GOTOCMP = 1108,
     ZASM30_LOAD = 1116, ZASM30_STORE = 1117, ZASM30_STOREV = 1118,
@@ -1964,8 +1964,11 @@ struct Zasm30Frame
     // Screen->DrawOrigin and DrawOriginTarget: upstream keeps them per script (raw DRAW_ORIGIN_*
     // and a sprite uid); set back to DEFAULT when the script starts.
     long draw_origin, draw_origin_target;
+    // The screen of the FFC the script last named (REFFFC; ri->ffcref holds its slot): -1 for the
+    // current screen, else another screen of a 3.0 scrolling region (q30_scripts_region.h).
+    int ffc_screen;
 
-    Zasm30Frame() { sp = 0; thiskey = thiskey2 = switchkey = 0; waitframes = 0; draw_origin = draw_origin_target = 0; memset(inst, 0, sizeof(inst)); memset(refs, 0, sizeof(refs)); }
+    Zasm30Frame() { sp = 0; thiskey = thiskey2 = switchkey = 0; waitframes = 0; draw_origin = draw_origin_target = 0; ffc_screen = -1; memset(inst, 0, sizeof(inst)); memset(refs, 0, sizeof(refs)); }
 };
 
 // Everything one running script owns, for the script types 2.53 has no storage for.
@@ -1991,6 +1994,16 @@ static long zasm30_cmp_op1 = 0, zasm30_cmp_op2 = 0;
 static long zasm30_extra_gd[ZASM30_GD_LAST - 255];
 static Zasm30Frame zasm30_frames[35];
 static Zasm30Frame *zasm30_cur_frame = &zasm30_frames[33];
+// The 32 FFC scripts' frames, behind a pointer so each screen of a 3.0 scrolling region can keep
+// its own (q30_scripts_region.h); zasm30_frames[0..31] aren't used.
+static Zasm30Frame *zasm30_ffc_frames = NULL;
+static Zasm30Frame &zasm30_ffc_frame(int i)
+{
+    if(!zasm30_ffc_frames)
+        zasm30_ffc_frames = new Zasm30Frame[32];
+
+    return zasm30_ffc_frames[i];
+}
 static Zasm30Instance *zasm30_cur_inst = NULL;
 static std::map<std::pair<int,long>, Zasm30Instance*> zasm30_instances;
 static long zasm30_run_key = 0;   // the sprite uid, combo position etc. the next run_script is for
@@ -2018,6 +2031,15 @@ static void zasm30_log_once(const char *kind, long id);
 static bool zasm30_family_get(const long arg, long &ret);
 static bool zasm30_family_set(const long arg, const long value);
 void zasm30_capture_draw_origin(int j);    // q30_scripts_cmds.h: a queued command's Screen->DrawOrigin
+// 3.0 scrolling regions: FFCs named across the region (q30_scripts_region.h)
+static bool zasm30_region_ffc_get(const long arg, long &ret);
+static bool zasm30_region_ffc_set(const long arg, long value);
+static void zasm30_select_ffc(long value);
+static long zasm30_selected_ffc_ref();
+static long zasm30_load_ffc(long id);
+static long zasm30_load_ffc_at(long screen, long index);
+static void zasm30_ffc_this(int i);
+static int zasm30_script_screen();
 long zasm30_ffscript_version = 0; // the quest's script format version (0 for a 2.53 quest)
 static refInfo zasm30_screen_ri;
 static bool zasm30_screen_done = true;
@@ -2065,6 +2087,14 @@ static Zasm30Object *zasm30_object(long id)
 // left to zasm30_collect, and 2.53 quests run no instances, so this stays NULL for them.
 static Zasm30Instance *zasm30_array_inst[Z30_LOCALRAM_SIZE];
 
+// OwnArray() and DestroyArray() in a 2.55 quest's scripts (upstream 3.0's ArrayOwner specOwned and
+// specCleared): the DEALLOCATEMEMR at the end of the array's scope then leaves the array alone, so
+// an owned array lives on (until DestroyArray() or its owner's end) and a destroyed one isn't freed
+// twice. Without it, Tales of Murdoch's enemy HP script lost each enemy's array as the function that
+// made it returned, and made a new one every frame. Only those two commands set them, so they stay
+// false for 2.53 quests; a new allocation clears them, as upstream's reown does.
+static bool zasm30_array_owned[MAX_ZCARRAY_SIZE], zasm30_array_destroyed[MAX_ZCARRAY_SIZE];
+
 // 3.0 scripts can have empty arrays (a class's `Layer list[0];`, later grown by ArrayPush or
 // ResizeArray), which upstream marks valid. A local array slot of size 0 is free in 2.53's
 // scheme, so the empty ones of newer quests are marked here. 2.53 quests never set it.
@@ -2078,6 +2108,7 @@ static void zasm30_free_instance_arrays(const Zasm30Instance *in)
             continue;
 
         zasm30_array_inst[p] = NULL;
+        zasm30_array_owned[p] = zasm30_array_destroyed[p] = false;
 
         if(localRAM[p].Size() != 0 || zasm30_empty_array[p])
         {
@@ -2169,6 +2200,7 @@ static void zasm30_begin(long inits)
     f.saved_vargs.clear();
     f.thiskey = f.thiskey2 = f.switchkey = 0;
     f.waitframes = 0;
+    f.ffc_screen = -1;
     memset(f.inst, 0, sizeof(f.inst));
     memset(f.refs, 0, sizeof(f.refs));
 
@@ -2349,6 +2381,10 @@ void zasm30_clear_heap()
     zasm30_heap_next = Z30_HEAP_FIRST;
     zasm30_objects.clear();
     zasm30_free_objects.clear();
+
+    // the local arrays go too (initZScriptArrayRAM): no OwnArray()/DestroyArray() marks are left
+    memset(zasm30_array_owned, 0, sizeof(zasm30_array_owned));
+    memset(zasm30_array_destroyed, 0, sizeof(zasm30_array_destroyed));
 }
 
 void clear_ffc_stack(const byte i)
@@ -2635,7 +2671,7 @@ public:
     
     static INLINE int checkItemID(const long ID, const char * const str)
     {
-        return checkBounds(ID, 0, ITEMCNT-1, str);
+        return checkBounds(ID, 0, q30_items_end()-1, str);     // (ITEMCNT, or a 2.55/3.0 quest's items past 255)
     }
     
     static INLINE int checkWeaponID(const long ID, const char * const str)
@@ -2953,6 +2989,19 @@ class ArrayH : public SH
 {
 public:
 
+    // Whether getArray would find an array for this pointer, without logging an error (newer
+    // quests' IsValidArray()).
+    static bool isValid(const long ptr)
+    {
+        if(ptr <= 0)
+            return false;
+
+        if(ptr >= MAX_ZCARRAY_SIZE && !(ptr >= Z30_HEAP_FIRST && ptr < Z30_LOCALRAM_SIZE))
+            return (dword)(ptr - MAX_ZCARRAY_SIZE) < game->globalRAM.size();
+
+        return localRAM[ptr].Size() != 0 || zasm30_empty_array[ptr];
+    }
+
     //Returns a reference to the correct array based on pointer passed
     static ZScriptArray& getArray(const long ptr)
     {
@@ -3200,6 +3249,8 @@ void deallocateArray(const long ptrval)
 
     if(ptrval<=0 || ptrval >= MAX_ZCARRAY_SIZE)
         Z_scripterrlog("Script tried to deallocate memory at invalid address %ld\n", ptrval);
+    else if(zasm30_array_owned[ptrval] || zasm30_array_destroyed[ptrval])
+        return;     // 2.55 quests: OwnArray() or DestroyArray() was called on it (upstream skips it too)
     else
     {
         arrayOwner[ptrval] = 255;
@@ -3367,9 +3418,47 @@ static int old_npc_jump(fix fall)
     return fixtoi((-fall / fix(100.0)).v) * 10000;
 }
 
+// Screen->ComboD[] and the other Screen->Combo*[] arrays: in a 3.0 scrolling region the index is a
+// combo position across the region (upstream's rpos), which may be on another screen of it. The
+// screen it is on comes back and *pos becomes the position there; *current says whether that is
+// the current screen (tmpscr). An index past the region is left as it is, for the bounds check to
+// report. Anywhere else this is tmpscr and the index unchanged.
+static mapscr *zasm30_combo_screen(int *pos, bool *current)
+{
+    *current = true;
+
+    if(!q30_region_on())
+        return tmpscr;
+
+    int p = *pos;
+    mapscr *m = q30_region_rpos_screen(*pos, 0, &p, current);
+
+    if(!m)
+    {
+        *current = true;
+        return tmpscr;
+    }
+
+    *pos = p;
+    return m;
+}
+
+// Hero->Item[] and Game->Item[] in a 2.55/3.0 quest: an index past the quest's own items (up to
+// upstream's 1024, the size of its item array) keeps a flag of its own, which is no item, instead
+// of being bounded onto the quest's last item. 2.53 quests bound or index as before.
+static bool zasm30_item_flag_index(long id)
+{
+    return zasm30_ffscript_version && id >= q30_items_end();
+}
+
 long get_register(const long arg)
 {
     long ret = 0;
+
+    // 3.0 scrolling regions: an FFC's X and Y are region pixels and its screen may be another of
+    // the region (q30_scripts_region.h); not for 2.53 quests
+    if(zasm30_ffscript_version >= 26 && zasm30_region_ffc_get(arg, ret))
+        return ret;
     
     switch(arg)
     {
@@ -3487,12 +3576,13 @@ long get_register(const long arg)
     
 ///----------------------------------------------------------------------------------------------------//
 //Link's Variables
+    // (positions in a 3.0 scrolling region are region pixels: q30_region_origin_x/y, else 0)
     case LINKX:
-        ret = long(Link.getX()) * 10000;
+        ret = (long(Link.getX()) + q30_region_origin_x()) * 10000;
         break;
         
     case LINKY:
-        ret = long(Link.getY()) * 10000;
+        ret = (long(Link.getY()) + q30_region_origin_y()) * 10000;
         break;
         
     case LINKZ:
@@ -3536,11 +3626,11 @@ long get_register(const long arg)
         ret = (int)(Link.getHeldItem())*10000;
         break;
         
-    case LINKITEMD:
-        if(zasm30_ffscript_version && ri->d[0]/10000 >= MAXITEMS)     // 2.55/3.0: items 256 and up
+    case LINKITEMD:     // (q30_items_end: MAXITEMS, or a 2.55/3.0 quest's items past 255 too)
+        if(zasm30_item_flag_index(ri->d[0]/10000))     // past them: its own flag (false past 1023)
             ret = q30_high_item_owned(ri->d[0]/10000) ? 10000 : 0;
         else
-            ret = game->item[vbound(ri->d[0]/10000, 0, MAXITEMS-1)] ? 10000 : 0;
+            ret = game->get_item(vbound(ri->d[0]/10000, 0, q30_items_end()-1)) ? 10000 : 0;
         break;
         
     case LINKEQUIP:
@@ -3561,13 +3651,21 @@ long get_register(const long arg)
         ret = (int)(Link.scriptcoldet)*10000;
         break;
         
+    // (region pixels in a 3.0 scrolling region while a ladder is out; 0, 0 is "no ladder" in both
+    // engines, so it stays 0, 0 there)
     case LINKLADDERX:
-        ret=(int)(Link.getLadderX())*10000;
-        break;
+    {
+        const int lx = Link.getLadderX(), ly = Link.getLadderY();
+        ret = (lx || ly) ? (lx + q30_region_origin_x())*10000 : 0;
+    }
+    break;
         
     case LINKLADDERY:
-        ret=(int)(Link.getLadderY())*10000;
-        break;
+    {
+        const int lx = Link.getLadderX(), ly = Link.getLadderY();
+        ret = (lx || ly) ? (ly + q30_region_origin_y())*10000 : 0;
+    }
+    break;
         
     case LINKSWORDJINX:
         ret = (int)(Link.getSwordClk())*10000;
@@ -3809,7 +3907,7 @@ long get_register(const long arg)
     case ITEMX:
         if(0!=(s=checkItem(ri->itemref)))
         {
-            ret=((int)((item*)(s))->x)*10000;
+            ret=((int)((item*)(s))->x + q30_region_origin_x())*10000;
         }
         
         break;
@@ -3817,7 +3915,7 @@ long get_register(const long arg)
     case ITEMY:
         if(0!=(s=checkItem(ri->itemref)))
         {
-            ret=((int)((item*)(s))->y)*10000;
+            ret=((int)((item*)(s))->y + q30_region_origin_y())*10000;
         }
         
         break;
@@ -4205,11 +4303,20 @@ long get_register(const long arg)
 		ret = (long(GuyH::getNPC()->member) * 10000); \
 }
 
+    // (GET_NPC_VAR_FIX, in region pixels in a 3.0 scrolling region)
     case NPCX:
-        GET_NPC_VAR_FIX(x, "npc->X") break;
+        if(GuyH::loadNPC(ri->guyref, "npc->X") != SH::_NoError)
+            ret = -10000;
+        else
+            ret = (long(GuyH::getNPC()->x) + q30_region_origin_x()) * 10000;
+        break;
         
     case NPCY:
-        GET_NPC_VAR_FIX(y, "npc->Y") break;
+        if(GuyH::loadNPC(ri->guyref, "npc->Y") != SH::_NoError)
+            ret = -10000;
+        else
+            ret = (long(GuyH::getNPC()->y) + q30_region_origin_y()) * 10000;
+        break;
         
     case NPCZ:
         GET_NPC_VAR_FIX(z, "npc->Z") break;
@@ -4301,13 +4408,13 @@ long get_register(const long arg)
 //LWeapon Variables
     case LWPNX:
         if(0!=(s=checkLWpn(ri->lwpn,"X")))
-            ret=((int)((weapon*)(s))->x)*10000;
+            ret=((int)((weapon*)(s))->x + q30_region_origin_x())*10000;
             
         break;
         
     case LWPNY:
         if(0!=(s=checkLWpn(ri->lwpn,"Y")))
-            ret=((int)((weapon*)(s))->y)*10000;
+            ret=((int)((weapon*)(s))->y + q30_region_origin_y())*10000;
             
         break;
         
@@ -4527,13 +4634,13 @@ long get_register(const long arg)
 //EWeapon Variables
     case EWPNX:
         if(0!=(s=checkEWpn(ri->ewpn, "X")))
-            ret=((int)((weapon*)(s))->x)*10000;
+            ret=((int)((weapon*)(s))->x + q30_region_origin_x())*10000;
             
         break;
         
     case EWPNY:
         if(0!=(s=checkEWpn(ri->ewpn, "Y")))
-            ret=((int)((weapon*)(s))->y)*10000;
+            ret=((int)((weapon*)(s))->y + q30_region_origin_y())*10000;
             
         break;
         
@@ -4821,7 +4928,12 @@ long get_register(const long arg)
         break;
         
     case GAMEITEMSD:
-        ret=(game->item[(ri->d[0])/10000] ? 10000 : 0);
+        if(zasm30_item_flag_index((ri->d[0])/10000))   // 2.55/3.0, past the quest's items: its own flag
+            ret=(q30_high_item_owned((ri->d[0])/10000) ? 10000 : 0);
+        else if(q30_items_end() > MAXITEMS)  // a 2.55/3.0 quest with items past 255
+            ret=(game->get_item(vbound((ri->d[0])/10000, 0, q30_items_end()-1)) ? 10000 : 0);
+        else
+            ret=(game->item[(ri->d[0])/10000] ? 10000 : 0);
         break;
         
     case GAMELITEMSD:
@@ -4877,8 +4989,10 @@ long get_register(const long arg)
         ret=(1+currmap)*10000;
         break;
         
+    // (in a 3.0 scrolling region the region's top-left screen, as upstream's cur_screen, which
+    // its scripts add region pixels to; currscr anywhere else)
     case CURSCR:
-        ret=currscr*10000;
+        ret=q30_region_origin()*10000;
         break;
         
     case GETMIDI:
@@ -4887,8 +5001,9 @@ long get_register(const long arg)
         
     case CURDSCR:
     {
-        int di = (get_currscr()-DMaps[get_currdmap()].xoff);
-        ret=(DMaps[get_currdmap()].type==dmOVERW ? currscr : di)*10000;
+        const int cs = q30_region_origin();
+        int di = (cs-DMaps[get_currdmap()].xoff);
+        ret=(DMaps[get_currdmap()].type==dmOVERW ? cs : di)*10000;
     }
     break;
     
@@ -4981,13 +5096,16 @@ long get_register(const long arg)
     
 ///----------------------------------------------------------------------------------------------------//
 //Screen->ComboX
+// (in a 3.0 scrolling region the index is across the region: zasm30_combo_screen)
 #define GET_COMBO_VAR(member, str) \
 { \
 int pos = ri->d[0] / 10000; \
+bool cur; \
+mapscr *cs = zasm30_combo_screen(&pos, &cur); \
 if(BC::checkComboPos(pos, str) != SH::_NoError) \
     ret = -10000; \
 else \
-    ret = tmpscr->member[pos]*10000; \
+    ret = cs->member[pos]*10000; \
 }
 
     case COMBODD:
@@ -5002,10 +5120,12 @@ else \
 #define GET_COMBO_VAR_BUF(member, str) \
 { \
     int pos = ri->d[0] / 10000; \
+    bool cur; \
+    mapscr *cs = zasm30_combo_screen(&pos, &cur); \
     if(BC::checkComboPos(pos, str) != SH::_NoError) \
         ret = -10000; \
     else \
-        ret = combobuf[tmpscr->data[pos]].member * 10000; \
+        ret = combobuf[cs->data[pos]].member * 10000; \
 }
         
     case COMBOTD:
@@ -5017,11 +5137,13 @@ else \
     case COMBOSD:
     {
         int pos = ri->d[0] / 10000;
+        bool cur;
+        mapscr *cs = zasm30_combo_screen(&pos, &cur);
         
         if(BC::checkComboPos(pos, "Screen->ComboS") != SH::_NoError)
             ret = -10000;
         else
-            ret = (combobuf[tmpscr->data[pos]].walk & 0xF) * 10000;
+            ret = (combobuf[cs->data[pos]].walk & 0xF) * 10000;
     }
     break;
     
@@ -5210,11 +5332,11 @@ else \
         break;
         
     case PUSHBLOCKX:
-        ret = blockmoving ? int(mblock2.x)*10000 : -10000;
+        ret = blockmoving ? (int(mblock2.x) + q30_region_origin_x())*10000 : -10000;
         break;
         
     case PUSHBLOCKY:
-        ret = blockmoving ? int(mblock2.y)*10000 : -10000;
+        ret = blockmoving ? (int(mblock2.y) + q30_region_origin_y())*10000 : -10000;
         break;
         
     case PUSHBLOCKCOMBO:
@@ -5236,7 +5358,8 @@ else \
 ///----------------------------------------------------------------------------------------------------//
 //Misc./Internal
     case REFFFC:
-        ret = zasm30_ffscript_version >= 26 ? 0x7FF00000L + ri->ffcref : ri->ffcref * 10000;
+        // (3.0: upstream's sprite id, across the region in a scrolling region)
+        ret = zasm30_ffscript_version >= 26 ? zasm30_selected_ffc_ref() : ri->ffcref * 10000;
         break;
         
     // A failed Load/Create leaves LONG_MAX here. A 3.0 script gets 0 (NULL) instead, as upstream
@@ -5336,6 +5459,9 @@ static bool zasm30_bad_combo(const long value)
 
 void set_register(const long arg, const long value)
 {
+    // 3.0 scrolling regions (as in get_register)
+    if(zasm30_ffscript_version >= 26 && zasm30_region_ffc_set(arg, value))
+        return;
 
     switch(arg)
     {
@@ -5463,12 +5589,13 @@ void set_register(const long arg, const long value)
         
 ///----------------------------------------------------------------------------------------------------//
 //Link's Variables
+    // (positions in a 3.0 scrolling region are region pixels: the current screen's offset comes off)
     case LINKX:
-        Link.setX(value/10000);
+        Link.setX(value/10000 - q30_region_origin_x());
         break;
         
     case LINKY:
-        Link.setY(value/10000);
+        Link.setY(value/10000 - q30_region_origin_y());
         break;
         
     case LINKZ:
@@ -5513,17 +5640,17 @@ void set_register(const long arg, const long value)
         break;
         
     case LINKHELD:
-        Link.setHeldItem(vbound(value/10000,0,MAXITEMS-1));
+        Link.setHeldItem(vbound(value/10000,0,q30_items_end()-1));
         break;
         
     case LINKITEMD:
-        if(zasm30_ffscript_version && ri->d[0]/10000 >= MAXITEMS)     // 2.55/3.0: items 256 and up
+        if(zasm30_item_flag_index(ri->d[0]/10000))     // 2.55/3.0, past the quest's items: its own flag
         {
             q30_set_high_item_owned(ri->d[0]/10000, value != 0);
             break;
         }
         {
-           int itemID=vbound(ri->d[0]/10000,0,MAXITEMS-1);
+           int itemID=vbound(ri->d[0]/10000,0,q30_items_end()-1);    // (a 2.55/3.0 quest's items past 255 too)
             
             // If the Cane of Byrna is being removed, cancel its effect.
             if(value==0 && itemID==current_item_id(itype_cbyrna))
@@ -5532,7 +5659,7 @@ void set_register(const long arg, const long value)
             bool settrue = ( value != 0 );
 		    
 	    //Sanity check to prevent setting the item if the value would be the same. -Z
-	    if ( game->item[itemID] != settrue ) game->set_item(itemID,(value != 0));
+	    if ( game->get_item(itemID) != settrue ) game->set_item(itemID,(value != 0));
                     
             //resetItems(game); - Is this really necessary? ~Joe123
             if((get_bit(quest_rules,qr_OVERWORLDTUNIC) != 0) || (currscr<128 || dlevel)) ringcolor(false);
@@ -5806,7 +5933,7 @@ void set_register(const long arg, const long value)
     case ITEMX:
         if(0!=(s=checkItem(ri->itemref)))
         {
-            (s->x)=(fix)(value/10000);
+            (s->x)=(fix)(value/10000 - q30_region_origin_x());
             
             // Move the Fairy enemy as well.
             if(itemsbuf[((item*)(s))->id].family==itype_fairy && itemsbuf[((item*)(s))->id].misc3)
@@ -5818,7 +5945,7 @@ void set_register(const long arg, const long value)
     case ITEMY:
         if(0!=(s=checkItem(ri->itemref)))
         {
-            (s->y)=(fix)(value/10000);
+            (s->y)=(fix)(value/10000 - q30_region_origin_y());
             
             // Move the Fairy enemy as well.
             if(itemsbuf[((item*)(s))->id].family==itype_fairy && itemsbuf[((item*)(s))->id].misc3)
@@ -6157,13 +6284,13 @@ void set_register(const long arg, const long value)
 //LWeapon Variables
     case LWPNX:
         if(0!=(s=checkLWpn(ri->lwpn,"X")))
-            ((weapon*)s)->x=(fix)(value/10000);
+            ((weapon*)s)->x=(fix)(value/10000 - q30_region_origin_x());
             
         break;
         
     case LWPNY:
         if(0!=(s=checkLWpn(ri->lwpn,"Y")))
-            ((weapon*)s)->y=(fix)(value/10000);
+            ((weapon*)s)->y=(fix)(value/10000 - q30_region_origin_y());
             
         break;
         
@@ -6378,13 +6505,13 @@ void set_register(const long arg, const long value)
 //EWeapon Variables
     case EWPNX:
         if(0!=(s=checkEWpn(ri->ewpn,"X")))
-            ((weapon*)s)->x=(fix)(value/10000);
+            ((weapon*)s)->x=(fix)(value/10000 - q30_region_origin_x());
             
         break;
         
     case EWPNY:
         if(0!=(s=checkEWpn(ri->ewpn,"Y")))
-            ((weapon*)s)->y=(fix)(value/10000);
+            ((weapon*)s)->y=(fix)(value/10000 - q30_region_origin_y());
             
         break;
         
@@ -6603,10 +6730,12 @@ void set_register(const long arg, const long value)
     {
         if(GuyH::loadNPC(ri->guyref, "npc->X") == SH::_NoError)
         {
-            GuyH::getNPC()->x = fix(value / 10000);
+            // (region pixels in a 3.0 scrolling region: the current screen's offset comes off)
+            const long nx = value / 10000 - q30_region_origin_x();
+            GuyH::getNPC()->x = fix(nx);
             
             if(GuyH::hasLink())
-                Link.setX(fix(value / 10000));
+                Link.setX(fix(nx));
         }
     }
     break;
@@ -6615,12 +6744,13 @@ void set_register(const long arg, const long value)
     {
         if(GuyH::loadNPC(ri->guyref, "npc->Y") == SH::_NoError)
         {
+            const long ny = value / 10000 - q30_region_origin_y();
             fix oldy = GuyH::getNPC()->y;
-            GuyH::getNPC()->y = fix(value / 10000);
-            GuyH::getNPC()->floor_y += ((value / 10000) - oldy);
+            GuyH::getNPC()->y = fix(ny);
+            GuyH::getNPC()->floor_y += (ny - oldy);
             
             if(GuyH::hasLink())
-                Link.setY(fix(value / 10000));
+                Link.setY(fix(ny));
         }
     }
     break;
@@ -7056,15 +7186,20 @@ if(GuyH::loadNPC(ri->guyref, str) == SH::_NoError) \
     
 ///----------------------------------------------------------------------------------------------------//
 //Screen->ComboX
+    // (in a 3.0 scrolling region the index is across the region: zasm30_combo_screen. Another
+    // screen of the region changes as it is drawn and walked on; the enemies 2.53 starts or stops
+    // with a combo, fireball statues and spinning tiles, only come from the current screen)
     case COMBODD:
     {
         int pos = (ri->d[0])/10000;
+        bool cur;
+        mapscr *cs = zasm30_combo_screen(&pos, &cur);
         
         if(pos >= 0 && pos < 176 && !zasm30_bad_combo(value))
         {
-            screen_combo_modify_preroutine(tmpscr,pos);
-            tmpscr->data[pos]=(value/10000);
-            screen_combo_modify_postroutine(tmpscr,pos);
+            if(cur) screen_combo_modify_preroutine(tmpscr,pos);
+            cs->data[pos]=(value/10000);
+            if(cur) screen_combo_modify_postroutine(tmpscr,pos);
         }
     }
     break;
@@ -7072,12 +7207,14 @@ if(GuyH::loadNPC(ri->guyref, str) == SH::_NoError) \
     case COMBOCD:
     {
         int pos = (ri->d[0])/10000;
+        bool cur;
+        mapscr *cs = zasm30_combo_screen(&pos, &cur);
         
         if(pos >= 0 && pos < 176)
         {
-            screen_combo_modify_preroutine(tmpscr,pos);
-            tmpscr->cset[pos]=(value/10000)&15;
-            screen_combo_modify_postroutine(tmpscr,pos);
+            if(cur) screen_combo_modify_preroutine(tmpscr,pos);
+            cs->cset[pos]=(value/10000)&15;
+            if(cur) screen_combo_modify_postroutine(tmpscr,pos);
         }
     }
     break;
@@ -7085,32 +7222,41 @@ if(GuyH::loadNPC(ri->guyref, str) == SH::_NoError) \
     case COMBOFD:
     {
         int pos = (ri->d[0])/10000;
+        bool cur;
+        mapscr *cs = zasm30_combo_screen(&pos, &cur);
         
         if(pos >= 0 && pos < 176)
-            tmpscr->sflag[pos]=(value/10000);
+            cs->sflag[pos]=(value/10000);
     }
     break;
     
     case COMBOTD:
     {
         int pos = (ri->d[0])/10000;
+        bool cur;
+        mapscr *cs = zasm30_combo_screen(&pos, &cur);
         
         if(pos >= 0 && pos < 176)
         {
+            // (the combo at pos, which in a scrolling region may be on another screen of it; the
+            // type is the combo's, so the current screen's instances of it are pre/post-processed
+            // either way, as upstream's screen_combo_modify_pre/post(cid). cs is tmpscr for 2.53)
+            const word cid = cs->data[pos];
+
             // Preprocess each instance of the combo on the screen
             for(int i = 0; i < 176; i++)
             {
-                if(tmpscr->data[i] == tmpscr->data[pos])
+                if(tmpscr->data[i] == cid)
                 {
                     screen_combo_modify_preroutine(tmpscr,i);
                 }
             }
             
-            combobuf[tmpscr->data[pos]].type=value/10000;
+            combobuf[cid].type=value/10000;
             
             for(int i = 0; i < 176; i++)
             {
-                if(tmpscr->data[i] == tmpscr->data[pos])
+                if(tmpscr->data[i] == cid)
                 {
                     screen_combo_modify_postroutine(tmpscr,i);
                 }
@@ -7122,18 +7268,22 @@ if(GuyH::loadNPC(ri->guyref, str) == SH::_NoError) \
     case COMBOID:
     {
         int pos = (ri->d[0])/10000;
+        bool cur;
+        mapscr *cs = zasm30_combo_screen(&pos, &cur);
         
         if(pos >= 0 && pos < 176)
-            combobuf[tmpscr->data[pos]].flag=value/10000;
+            combobuf[cs->data[pos]].flag=value/10000;
     }
     break;
     
     case COMBOSD:
     {
         int pos = (ri->d[0])/10000;
+        bool cur;
+        mapscr *cs = zasm30_combo_screen(&pos, &cur);
         
         if(pos >= 0 && pos < 176)
-            combobuf[tmpscr->data[pos]].walk=(value/10000)&15;
+            combobuf[cs->data[pos]].walk=(value/10000)&15;
     }
     break;
     
@@ -7371,7 +7521,12 @@ case COMBODDM:
         break;
         
     case REFFFC:
-        ri->ffcref = (value >= 0x7FF00000L) ? (byte)(value - 0x7FF00000L) : (byte)(value / 10000);
+        // a 3.0 script names an FFC by its sprite id, which in a scrolling region can be one of
+        // another screen of it; NULL (0) is no FFC there, as upstream (q30_scripts_region.h)
+        if(zasm30_ffscript_version >= 26)
+            zasm30_select_ffc(value);
+        else
+            ri->ffcref = (value >= 0x7FF00000L) ? (byte)(value - 0x7FF00000L) : (byte)(value / 10000);
         break;
         
     case REFITEM:
@@ -7516,6 +7671,7 @@ void do_allocatemem(const bool v, const bool local, const byte i)
             arrayOwner[ptrval]=i;
             // A 2.55 sprite, item, DMap or generic script's array goes when its instance does.
             zasm30_array_inst[ptrval] = (zasm30_cur_inst && curscript != zasm30_stream) ? zasm30_cur_inst : NULL;
+            zasm30_array_owned[ptrval] = zasm30_array_destroyed[ptrval] = false;
         }
     }
     else
@@ -7943,19 +8099,25 @@ void do_rshift(const bool v)
 ///----------------------------------------------------------------------------------------------------//
 //Gameplay functions
 
+// Link->Warp and PitWarp write side warp A of the screen Link is on, which LinkClass::animate
+// then takes. In a 3.0 scrolling region an FFC or screen script of another screen of it can be
+// running, with that screen standing in for the current one (tmpscr): q30_region_hero_scr is
+// then Link's own screen, as upstream's hero_scr. Anywhere else, and in 2.53 quests, it is tmpscr.
 void do_warp(bool v)
 {
-    tmpscr->sidewarpdmap[0] = SH::get_arg(sarg1, v) / 10000;
-    tmpscr->sidewarpscr[0]  = SH::get_arg(sarg2, v) / 10000;
-    tmpscr->sidewarptype[0] = wtIWARP;
+    mapscr *hero_scr = q30_region_hero_scr();
+    hero_scr->sidewarpdmap[0] = SH::get_arg(sarg1, v) / 10000;
+    hero_scr->sidewarpscr[0]  = SH::get_arg(sarg2, v) / 10000;
+    hero_scr->sidewarptype[0] = wtIWARP;
     Link.ffwarp = true;
 }
 
 void do_pitwarp(bool v)
 {
-    tmpscr->sidewarpdmap[0] = SH::get_arg(sarg1, v) / 10000;
-    tmpscr->sidewarpscr[0]  = SH::get_arg(sarg2, v) / 10000;
-    tmpscr->sidewarptype[0] = wtIWARP;
+    mapscr *hero_scr = q30_region_hero_scr();
+    hero_scr->sidewarpdmap[0] = SH::get_arg(sarg1, v) / 10000;
+    hero_scr->sidewarpscr[0]  = SH::get_arg(sarg2, v) / 10000;
+    hero_scr->sidewarptype[0] = wtIWARP;
     Link.ffwarp = true;
     Link.ffpit = true;
 }
@@ -8019,8 +8181,9 @@ void do_selectweapon(bool v, bool Abtn)
 
 void do_issolid()
 {
-    int x = int(ri->d[0] / 10000);
-    int y = int(ri->d[1] / 10000);
+    // (region pixels in a 3.0 scrolling region; _walkflag looks into the screen they are on)
+    int x = int(ri->d[0] / 10000) - q30_region_origin_x();
+    int y = int(ri->d[1] / 10000) - q30_region_origin_y();
     
     set_register(sarg1, (_walkflag(x, y, 1) ? 10000 : 0));
 }
@@ -8448,12 +8611,12 @@ void do_createitem(const bool v)
     if(items.Count() < 1)
     {
         ri->itemref = LONG_MAX;
-        Z_scripterrlog("Couldn't create item \"%s\", screen item limit reached\n", item_string[ID]);
+        Z_scripterrlog("Couldn't create item \"%s\", screen item limit reached\n", q30_item_name(ID));
     }
     else
     {
         ri->itemref = items.spr(items.Count() - 1)->getUID();
-        Z_eventlog("Script created item \"%s\" with UID = %ld\n", item_string[ID], ri->itemref);
+        Z_eventlog("Script created item \"%s\" with UID = %ld\n", q30_item_name(ID), ri->itemref);
     }
 }
 
@@ -9024,7 +9187,7 @@ void do_getitemname()
 {
     long arrayptr = get_register(sarg1) / 10000;
     
-    if(ArrayH::setArray(arrayptr, item_string[ri->idata]) == SH::_Overflow)
+    if(ArrayH::setArray(arrayptr, q30_item_name(ri->idata)) == SH::_Overflow)    // (any item of a 2.55/3.0 quest)
         Z_scripterrlog("Array supplied to 'itemdata->GetName' not large enough\n");
 }
 
@@ -9415,6 +9578,7 @@ static void zasm30_mark_script(const refInfo &r, const long *stack_base, const Z
 
 static void zasm30_mark_stacks(std::vector<long> &work);
 static void zasm30_mark_engine(std::vector<long> &work);   // q30_scripts_cmds.h
+static void zasm30_mark_region_states(std::vector<long> &work);    // q30_scripts_region.h
 static long zasm30_own_sprite_uid(long type);              // q30_scripts_cmds.h
 
 static void zasm30_collect()
@@ -9438,7 +9602,7 @@ static void zasm30_collect()
     for(int i = 0; i < 32; ++i)
     {
         if(tmpscr->ffscript[i])
-            zasm30_mark_script(ffcScriptData[i], ffc_stack[i], zasm30_frames[i], work);
+            zasm30_mark_script(ffcScriptData[i], ffc_stack[i], zasm30_ffc_frame(i), work);
 
         for(int n = 0; n < 16; ++n)
             zasm30_mark(ffmisc[i][n], work);
@@ -9473,6 +9637,7 @@ static void zasm30_collect()
 
     zasm30_mark_stacks(work);
     zasm30_mark_engine(work);
+    zasm30_mark_region_states(work);    // the scripts of a scrolling region's other screens
 
     while(!work.empty())
     {
@@ -9705,7 +9870,7 @@ int run_script(const byte type, const word script, const byte i)
     case SCRIPT_FFC:
     {
         ri = &(ffcScriptData[i]);
-        zasm30_cur_frame = &zasm30_frames[i];
+        zasm30_cur_frame = &zasm30_ffc_frame(i);
 
         curscript = ffscripts[script];
         stack = &(ffc_stack[i]);
@@ -9714,6 +9879,11 @@ int run_script(const byte type, const word script, const byte i)
         {
             memcpy(ri->d, tmpscr->initd[i], 8 * sizeof(long));
             memcpy(ri->a, tmpscr->inita[i], 2 * sizeof(long));
+
+            if(zasm30_trace_on)     // diagnostics (newer quests): which FFC starts, with what
+                al_trace("q30: ffc %d script %d starts at %ld,%ld with InitD %ld %ld %ld %ld %ld %ld %ld %ld\n", (int)i, (int)script,
+                         (long)(tmpscr->ffx[i] / 10000), (long)(tmpscr->ffy[i] / 10000), (long)ri->d[0], (long)ri->d[1], (long)ri->d[2],
+                         (long)ri->d[3], (long)ri->d[4], (long)ri->d[5], (long)ri->d[6], (long)ri->d[7]);
         }
         
         ri->ffcref = i; //'this' pointer
@@ -9859,6 +10029,16 @@ int run_script(const byte type, const word script, const byte i)
         zasm30_frame().draw_origin = zasm30_frame().draw_origin_target = 0;
 
     zasm30_setup_frame(type);
+
+    // A 3.0 FFC script's `this` (instance variable 0, SCR0) is its FFC, set on every run as
+    // upstream's set_script_this_ref does; it was left 0, which named FFC 1, so every script's
+    // this->X, this->Flags[] and so on went to the screen's first FFC (Mystical Harps' KeyFFC
+    // never hid the key it later drops, and its Red Koopas stood still). Scripts compiled before
+    // version 26 name FFCs by index * 10000. (Not for 2.53 quests.)
+    if(type == SCRIPT_FFC && zasm30_ffscript_version >= 26)
+        zasm30_ffc_this(i);
+    else if(type == SCRIPT_FFC && zasm30_wide)
+        zasm30_frame().inst[0] = i * 10000L;
 
     if(zasm30_trace_on)
         zasm30_trace_run(type, script, (long)i);
@@ -11477,8 +11657,9 @@ int run_script(const byte type, const word script, const byte i)
         {
             long id = get_register(sarg1) / 10000 - 1;
 
+            // (in a 3.0 scrolling region the IDs go across it: q30_scripts_region.h)
             if(zasm30_ffscript_version >= 26)
-                set_register(sarg1, (id >= 0 && id < MAXFFCS) ? 0x7FF00000L + id : 0);
+                set_register(sarg1, zasm30_load_ffc(id));
             else
                 set_register(sarg1, get_register(sarg1) - 10000);
             break;
@@ -11486,10 +11667,10 @@ int run_script(const byte type, const word script, const byte i)
 
         case ZASM30_LOAD_FFC_2:
         {
-            long id = get_register(sarg2) / 10000 - 1;
-
+            // Screen->LoadFFC(screen, index): upstream's index is 0-based, on a screen of the
+            // region (the current screen outside one)
             if(zasm30_ffscript_version >= 26)
-                set_register(sarg1, (id >= 0 && id < MAXFFCS) ? 0x7FF00000L + id : 0);
+                set_register(sarg1, zasm30_load_ffc_at(get_register(sarg1) / 10000, get_register(sarg2) / 10000));
             else
                 set_register(sarg1, get_register(sarg2) - 10000);
             break;
@@ -11497,9 +11678,39 @@ int run_script(const byte type, const word script, const byte i)
 
         case ZASM30_COMBO_AT:
         {
+            // ComboAt(x, y): in a scrolling region x, y are region pixels and the answer is a
+            // combo position across the region (upstream's COMBOPOS_REGION, clamped into it)
+            if(q30_region_on())
+            {
+                set_register(sarg1, q30_region_rpos_at(get_register(sarg1) / 10000, get_register(sarg2) / 10000) * 10000);
+                break;
+            }
+
             long x = vbound(get_register(sarg1) / 10000, 0, 255);
             long y = vbound(get_register(sarg2) / 10000, 0, 175);
             set_register(sarg1, COMBOPOS(x, y) * 10000);
+            break;
+        }
+
+        case ZASM30_COMBO_ADJUST:
+        {
+            // ComboAdjust(pos, x, y): the combo position x, y pixels from pos, clamped into the
+            // region (the screen outside one); -1 for a pos that isn't one (upstream's COMBO_ADJUST)
+            const long rpos = get_register(sarg1) / 10000;
+
+            if(rpos < 0 || rpos >= q30_region_num_rpos())
+            {
+                set_register(sarg1, -1);
+                break;
+            }
+
+            // (its third argument isn't kept with the instruction; the binding always passes it
+            // in D0: "COMBO_ADJUST D2 D1 D0")
+            int x, y;
+            q30_region_rpos_xy(rpos, &x, &y);
+            x += get_register(sarg2) / 10000;
+            y += ri->d[0] / 10000;
+            set_register(sarg1, q30_region_rpos_at(x, y) * 10000);
             break;
         }
 
@@ -11766,17 +11977,10 @@ static void zasm30_run_screen_script()
 
 static void zasm30_apply_pending_warp();
 
-int ffscript_engine(const bool preload)
+// The current screen's FFC scripts (ffscript_engine: in a 3.0 scrolling region, each screen of it
+// in turn).
+static void zasm30_run_ffc_scripts(int preload)
 {
-    if(preload)
-        q30_throw_generic_event(Z30EV_FFC_PRELOAD);    // newer quests' generic scripts (upstream)
-
-    if(!preload)
-    {
-        zasm30_apply_pending_warp();
-        zasm30_run_screen_script();
-    }
-
     for(byte i = 0; i < MAXFFCS; i++)
     {
         if(tmpscr->ffscript[i] == 0)
@@ -11791,6 +11995,30 @@ int ffscript_engine(const bool preload)
         ZScriptVersion::RunScript(SCRIPT_FFC, tmpscr->ffscript[i], i);
         tmpscr->initialized[i] = true;
     }
+}
+
+static void zasm30_run_screen_script_here(int)
+{
+    zasm30_run_screen_script();
+}
+
+int ffscript_engine(const bool preload)
+{
+    if(preload)
+        q30_throw_generic_event(Z30EV_FFC_PRELOAD);    // newer quests' generic scripts (upstream)
+
+    // In a 3.0 scrolling region every screen of it runs its screen script, then every screen its
+    // FFC scripts, as upstream (q30_regions.h); anywhere else, the current screen as before.
+    if(!preload)
+    {
+        zasm30_apply_pending_warp();
+
+        if(!q30_region_each_screen(Q30_EACH_SCREEN_SCRIPT, zasm30_run_screen_script_here, 0))
+            zasm30_run_screen_script();
+    }
+
+    if(!q30_region_each_screen(preload ? Q30_EACH_FFC_PRELOAD : Q30_EACH_FFC_SCRIPTS, zasm30_run_ffc_scripts, preload))
+        zasm30_run_ffc_scripts(preload);
     
     return 0;
 }
@@ -11841,3 +12069,4 @@ void FFScript::ZScriptConsolePrint(int attributes,const char *format,...)
 #include "port/game/q30_scripts_engine.h"
 #include "port/game/q30_scripts_regs.h"
 #include "port/game/q30_scripts_cmds.h"
+#include "port/game/q30_scripts_region.h"

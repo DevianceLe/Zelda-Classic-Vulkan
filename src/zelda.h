@@ -194,7 +194,11 @@ extern int colordepth;
 extern int db;
 extern int detail_int[10];                                  //temporary holder for things you want to detail
 extern zinitdata  zinit;
+#ifdef ZC_PLAYER_BUILD
+extern int lens_hint_item[Q30_MAXITEMS][2];                 //aclk, aframe (any item of a 2.55/3.0 quest)
+#else
 extern int lens_hint_item[MAXITEMS][2];                     //aclk, aframe
+#endif
 extern int lens_hint_weapon[MAXWPNS][5];                    //aclk, aframe, dir, x, y
 extern int strike_hint_counter;
 extern int strike_hint_timer;

@@ -45,6 +45,9 @@ char *guy_string[eMAXGUYS];
 extern byte emulation_patches[emuLAST];
 extern word quest_header_zelda_version;
 extern word quest_header_zelda_build;
+extern int q255_header_build;           // q255_basic.cpp: a 2.55/3.0 quest's header build
+
+bool q30_enemy_death_event(long uid);   // newer quests' ENEMY_DEATH generic script event (below)
 
 // Quests saved by 1.92 or 2.10 (behaviour checked in the 1.92 b114 and 2.10 sources).
 static bool quest_192_210()
@@ -432,6 +435,44 @@ enemy::enemy(fix X,fix Y,int Id,int Clk) : sprite()
 
 enemy::~enemy() {}
 
+// A 3.0 scrolling region's hand-off (LinkClass::q30_region_handoff) moved this enemy by dx, dy
+// into the next screen's coordinates: the floor a jumping enemy lands on (Vires, Pols Voices,
+// Tektites with the Z axis rule put y back on it each frame) and last frame's place (the walking
+// animation) go with it. Upstream keeps every position in region coordinates, so nothing there
+// needs this. Never called for a 2.53 quest.
+void enemy::q30_region_shift(int dx, int dy)
+{
+    floor_y += dy;
+    ox += dx;
+    oy += dy;
+}
+
+void eTektite::q30_region_shift(int dx, int dy)
+{
+    enemy::q30_region_shift(dx, dy);
+    old_y += dy;
+}
+
+// (a trap goes back to where it waited)
+void eTrap::q30_region_shift(int dx, int dy)
+{
+    enemy::q30_region_shift(dx, dy);
+    ox += dx;
+    oy += dy;
+}
+
+// (a Lanmola's segments follow the places its head has been)
+void eBaseLanmola::q30_region_shift(int dx, int dy)
+{
+    enemy::q30_region_shift(dx, dy);
+
+    for(std::list<std::pair<std::pair<fix, fix>, int> >::iterator it = prevState.begin(); it != prevState.end(); ++it)
+    {
+        it->first.first += dx;
+        it->first.second += dy;
+    }
+}
+
 // Supplemental animation code that all derived classes should call
 // as a return value for animate().
 // Handles the death animation and returns true when enemy is finished.
@@ -528,7 +569,7 @@ bool enemy::animate(int index)
     if(ceiling && z<=0)
         ceiling = false;
         
-    if(!dying && hp<=0)
+    if(!dying && hp<=0 && q30_enemy_death_event(getUID()))
     {
         if(itemguy && (hasitem&2)!=0)
         {
@@ -660,15 +701,52 @@ void enemy::move(fix s)
 
 void q30_enemy_killed(long uid); // an enemy that held a screen state died
 
+// 2.55/3.0 quests: the ENEMY_DEATH generic script event as an enemy's HP runs out (upstream
+// enemy::death_event): a script that clears Game->EventData[0] keeps it from dying this frame.
+// True (it dies) when no script listens, and always for 2.53 quests.
+bool q30_enemy_death_event(long uid)
+{
+    if(!q30_generic_listening(Z30EV_ENEMY_DEATH))
+        return true;
+
+    long ev[2] = { 10000L, uid };
+    q30_throw_generic_event(Z30EV_ENEMY_DEATH, ev, 2);
+    return ev[0] != 0;
+}
+
 void enemy::leave_item()
 {
     q30_enemy_killed(getUID());
     int drop_item = select_dropitem(item_set, x, y);
     
-    if(drop_item!=-1&&((itemsbuf[drop_item].family!=itype_fairy)||!m_walkflag(x,y,0)))
+    // 2.55/3.0 quests: the ENEMY_DROP_ITEM_1 generic script event (upstream enemy::leave_item):
+    // a script may change the item (-1 none, -2 draws again) or the drop set it is drawn from.
+    if(q30_generic_listening(Z30EV_ENEMY_DROP_ITEM_1))
     {
-        if(extend >= 3) items.add(new item(x+(txsz-1)*8,y+(tysz-1)*8,(fix)0,drop_item,ipBIGRANGE+ipTIMER,0));
-        else items.add(new item(x,y,(fix)0,drop_item,ipBIGRANGE+ipTIMER,0));
+        long ev[3] = { getUID(), drop_item * 10000L, item_set * 10000L };
+        q30_throw_generic_event(Z30EV_ENEMY_DROP_ITEM_1, ev, 3);
+        drop_item = vbound(int(ev[1] / 10000), -2, q30_items_end());
+
+        if(drop_item == -2)
+            drop_item = select_dropitem(int(ev[2] / 10000), x, y);
+
+        if(drop_item >= q30_items_end())    // past the quest's items: no drop
+            drop_item = -1;
+    }
+
+    if(drop_item>=0&&((itemsbuf[drop_item].family!=itype_fairy)||!m_walkflag(x,y,0)))
+    {
+        item *drop = (extend >= 3) ? new item(x+(txsz-1)*8,y+(tysz-1)*8,(fix)0,drop_item,ipBIGRANGE+ipTIMER,0)
+                                   : new item(x,y,(fix)0,drop_item,ipBIGRANGE+ipTIMER,0);
+        const long drop_uid = drop->getUID();
+        items.add(drop);
+
+        // and ENEMY_DROP_ITEM_2 once the item is there: the enemy and the item
+        if(q30_generic_listening(Z30EV_ENEMY_DROP_ITEM_2))
+        {
+            long ev[2] = { getUID(), drop_uid };
+            q30_throw_generic_event(Z30EV_ENEMY_DROP_ITEM_2, ev, 2);
+        }
     }
 }
 
@@ -1131,6 +1209,67 @@ int enemy::defenditemclass(int wpnId, int *power)
     return def;
 }
 
+// The defence defenditemclass() looks up for a weapon type, or -1 for none.
+int enemy::edef_of(int wpnId)
+{
+    switch(wpnId)
+    {
+    case wBrang:        return edefBRANG;
+    case wHookshot:     return edefHOOKSHOT;
+    case wBomb:         return edefBOMB;
+    case wSBomb:        return edefSBOMB;
+    case wArrow:        return edefARROW;
+    case wFire:         return edefFIRE;
+    case wWand:         return edefWAND;
+    case wMagic:        return edefMAGIC;
+    case wHammer:       return edefHAMMER;
+    case wSword:        return edefSWORD;
+    case wBeam:         return edefBEAM;
+    case wRefBeam:      return edefREFBEAM;
+    case wRefMagic:     return edefREFMAGIC;
+    case wRefFireball:  return edefREFBALL;
+    case wRefRock:      return edefREFROCK;
+    case wStomp:        return edefSTOMP;
+    case wCByrna:       return edefBYRNA;
+    }
+
+    return (wpnId>=wScript1 && wpnId<=wScript10) ? edefSCRIPT : -1;
+}
+
+// 2.55/3.0 quests (upstream enemy::defendNewInt): ENEMY_HIT1 comes before the defence, and its
+// script may change the damage, the defence, the weapon type or cancel the hit; ENEMY_HIT2
+// comes after a defence that lets damage through, and may change the damage or cancel it.
+// Game->EventData: damage, defence, unblockable, weapon type, nullify, the enemy, the weapon.
+int enemy::q30_defend_events(int wpnId, int *power, int edef, weapon *w)
+{
+    if(!q30_generic_listening(Z30EV_ENEMY_HIT1) && !q30_generic_listening(Z30EV_ENEMY_HIT2))
+        return edef >= 0 ? defend(wpnId, power, edef) : -1;
+
+    const long uid = getUID(), wuid = w ? w->getUID() : 0;
+    long ev[7] = { *power * 10000L, edef * 10000L, 0, wpnId * 10000L, 0, uid, wuid };
+    q30_throw_generic_event(Z30EV_ENEMY_HIT1, ev, 7);
+    *power = int(ev[0] / 10000);
+    edef = int(ev[1] / 10000);
+    wpnId = int(ev[3] / 10000);
+
+    if(ev[4])
+        return 0;
+
+    const int ret = (edef >= 0 && edef < edefLAST) ? defend(wpnId, power, edef) : -1;
+
+    if(ret < 0)
+    {
+        long ev2[7] = { *power * 10000L, edef * 10000L, 0, wpnId * 10000L, 0, uid, wuid };
+        q30_throw_generic_event(Z30EV_ENEMY_HIT2, ev2, 7);
+        *power = int(ev2[0] / 10000);
+
+        if(ev2[4])
+            return 0;
+    }
+
+    return ret;
+}
+
 // take damage or ignore it
 // -1: damage (if any) dealt
 // 1: blocked
@@ -1329,7 +1468,7 @@ int enemy::takehit(weapon *w)
         
     case wBrang:
     {
-        int def = defend(wpnId, &power, edefBRANG);
+        int def = q30_defend_events(wpnId, &power, edefBRANG, w);     // defend(), with newer quests' hit events
         
         if(def >= 0) return def;
         
@@ -1357,7 +1496,7 @@ int enemy::takehit(weapon *w)
     
     case wHookshot:
     {
-        int def = defend(wpnId, &power, edefHOOKSHOT);
+        int def = q30_defend_events(wpnId, &power, edefHOOKSHOT, w);  // defend(), with newer quests' hit events
         
         if(def >= 0) return def;
         
@@ -1402,9 +1541,10 @@ int enemy::takehit(weapon *w)
 fsparkle:
 
     default:
-        // Work out the defenses!
+        // Work out the defenses! (newer quests: between the ENEMY_HIT generic script events)
     {
-        int def = defenditemclass(wpnId, &power);
+        int def = (q30_generic_listening(Z30EV_ENEMY_HIT1) || q30_generic_listening(Z30EV_ENEMY_HIT2))
+                  ? q30_defend_events(wpnId, &power, edef_of(wpnId), w) : defenditemclass(wpnId, &power);
         
         if(def >= 0)
             return def;
@@ -6543,7 +6683,7 @@ bool eStalfos::animate(int index)
             {
             case e7tEATITEMS:
             {
-                for(int i=0; i<MAXITEMS; i++)
+                for(int i=0; i<q30_items_end(); i++)
                 {
                     if(itemsbuf[i].flags&ITEM_EDIBLE)
                         game->set_item(i, false);
@@ -8569,7 +8709,8 @@ int eGohma::takehit(weapon *w)
     int power = w->power;
     int wpnx = w->x;
     int wpnDir = w->dir;
-    int def = defenditemclass(wpnId, &power);
+    int def = (q30_generic_listening(Z30EV_ENEMY_HIT1) || q30_generic_listening(Z30EV_ENEMY_HIT2))
+              ? q30_defend_events(wpnId, &power, edef_of(wpnId), w) : defenditemclass(wpnId, &power);
     
     if(def < 0)
     {
@@ -9027,14 +9168,16 @@ void eGanon::draw_guts(BITMAP *dest)
 {
     int c = zc_min(clk>>3,8);
     tile = clk<24 ? 74 : 75;
-    overtile16(dest,tile,x+8,y+c+playing_field_offset,9,0);
-    overtile16(dest,tile,x+8,y+16-c+playing_field_offset,9,0);
-    overtile16(dest,tile,x+c,y+8+playing_field_offset,9,0);
-    overtile16(dest,tile,x+16-c,y+8+playing_field_offset,9,0);
-    overtile16(dest,tile,x+c,y+c+playing_field_offset,9,0);
-    overtile16(dest,tile,x+16-c,y+c+playing_field_offset,9,0);
-    overtile16(dest,tile,x+c,y+16-c+playing_field_offset,9,0);
-    overtile16(dest,tile,x+16-c,y+16-c+playing_field_offset,9,0);
+    // (through a 3.0 scrolling region's camera, as sprite::draw; 0 otherwise)
+    const int x = int(this->x) - q30_draw_cam_x, pfo = playing_field_offset - q30_draw_cam_y;
+    overtile16(dest,tile,x+8,y+c+pfo,9,0);
+    overtile16(dest,tile,x+8,y+16-c+pfo,9,0);
+    overtile16(dest,tile,x+c,y+8+pfo,9,0);
+    overtile16(dest,tile,x+16-c,y+8+pfo,9,0);
+    overtile16(dest,tile,x+c,y+c+pfo,9,0);
+    overtile16(dest,tile,x+16-c,y+c+pfo,9,0);
+    overtile16(dest,tile,x+c,y+16-c+pfo,9,0);
+    overtile16(dest,tile,x+16-c,y+16-c+pfo,9,0);
 }
 
 void eGanon::draw_flash(BITMAP *dest)
@@ -9042,14 +9185,16 @@ void eGanon::draw_flash(BITMAP *dest)
 
     int c = clk-(clk>>2);
     cs = (frame&3)+6;
-    overtile16(dest,194,x+8,y+8-clk+playing_field_offset,cs,0);
-    overtile16(dest,194,x+8,y+8+clk+playing_field_offset,cs,2);
-    overtile16(dest,195,x+8-clk,y+8+playing_field_offset,cs,0);
-    overtile16(dest,195,x+8+clk,y+8+playing_field_offset,cs,1);
-    overtile16(dest,196,x+8-c,y+8-c+playing_field_offset,cs,0);
-    overtile16(dest,196,x+8+c,y+8-c+playing_field_offset,cs,1);
-    overtile16(dest,196,x+8-c,y+8+c+playing_field_offset,cs,2);
-    overtile16(dest,196,x+8+c,y+8+c+playing_field_offset,cs,3);
+    // (through a 3.0 scrolling region's camera, as sprite::draw; 0 otherwise)
+    const int x = int(this->x) - q30_draw_cam_x, pfo = playing_field_offset - q30_draw_cam_y;
+    overtile16(dest,194,x+8,y+8-clk+pfo,cs,0);
+    overtile16(dest,194,x+8,y+8+clk+pfo,cs,2);
+    overtile16(dest,195,x+8-clk,y+8+pfo,cs,0);
+    overtile16(dest,195,x+8+clk,y+8+pfo,cs,1);
+    overtile16(dest,196,x+8-c,y+8-c+pfo,cs,0);
+    overtile16(dest,196,x+8+c,y+8-c+pfo,cs,1);
+    overtile16(dest,196,x+8-c,y+8+c+pfo,cs,2);
+    overtile16(dest,196,x+8+c,y+8+c+pfo,cs,3);
 }
 
 void getBigTri(int id2)
@@ -10589,21 +10734,24 @@ void esGleeok::draw(BITMAP *dest)
     case 0:                                                 //neck
         if(!dont_draw())
         {
+            // (through a 3.0 scrolling region's camera, as sprite::draw; 0 otherwise)
+            const int camx = q30_draw_cam_x, pfo = playing_field_offset - q30_draw_cam_y;
+
             for(int i=1; i<dmisc5; i++)                              //draw the neck
             {
                 if(get_bit(quest_rules,qr_NEWENEMYTILES))
                 {
                     if((tmpscr->flags3&fINVISROOM)&& !(current_item(itype_amulet)))
-                        overtilecloaked16(dest,necktile+(i*dmisc7),nx[i]-4,ny[i]+playing_field_offset,0);
+                        overtilecloaked16(dest,necktile+(i*dmisc7),nx[i]-4-camx,ny[i]+pfo,0);
                     else
-                        overtile16(dest,necktile+(i*dmisc7),nx[i]-4,ny[i]+playing_field_offset,cs,0);
+                        overtile16(dest,necktile+(i*dmisc7),nx[i]-4-camx,ny[i]+pfo,cs,0);
                 }
                 else
                 {
                     if((tmpscr->flags3&fINVISROOM)&& !(current_item(itype_amulet)))
-                        overtilecloaked16(dest,necktile,nx[i]-4,ny[i]+playing_field_offset,0);
+                        overtilecloaked16(dest,necktile,nx[i]-4-camx,ny[i]+pfo,0);
                     else
-                        overtile16(dest,necktile,nx[i]-4,ny[i]+playing_field_offset,cs,0);
+                        overtile16(dest,necktile,nx[i]-4-camx,ny[i]+pfo,cs,0);
                 }
             }
         }
@@ -11776,7 +11924,29 @@ int addenemy(int x,int y,int z,int id,int clk)
         }
         
     default:
+        // 2.55/3.0 quests: the Script 01-20 and Friendly 01-10 enemy families (43-72), which do
+        // nothing of their own and are built as upstream's eScript and eFriendly are, the same
+        // way as eOther; a friendly one starts with no hitbox. Not with the rule that turns them
+        // off (qr_SCRIPT_FRIENDLY_ENEMY_TYPES), which upstream's loader also sets for quests saved
+        // by 2.55 builds before 46.
+        if(quest_header_zelda_version >= 0x255 && guysbuf[id&0xFFF].family >= 43 && guysbuf[id&0xFFF].family <= 72
+           && !q30_quest_rule(Q30_QR_SCRIPT_FRIENDLY_ENEMY_TYPES)
+           && !(quest_header_zelda_version == 0x255 && q255_header_build < 46))
+        {
+            e = new eOther((fix)x,(fix)y,id,clk);
     
+            if(guysbuf[id&0xFFF].family >= 63)
+                e->hyofs = -32768;
+
+            break;
+        }
+
+        // diagnostics (newer quests): an enemy no class is made for, which upstream's addenemy
+        // refuses too (a "None" family one whose attribute 10 isn't 1, say)
+        if(quest_header_zelda_version >= 0x255 && getenv("ZC_Q30_TRACE"))
+            al_trace("q30: addenemy makes nothing for enemy %d (family %d, attribute 10 = %ld)\n", id&0xFFF,
+                     (int)guysbuf[id&0xFFF].family, (long)guysbuf[id&0xFFF].misc10);
+
         return 0;
     }
     
@@ -12237,11 +12407,11 @@ void loadguys()
 
 void loaditem()
 {
-    byte Item = 0;
+    int Item = 0;   // (2.53 kept it in a byte; the catchall below still is, for 2.53 quests)
     
     if(currscr<128)
     {
-        Item=tmpscr->item;
+        Item=mapscr_item(tmpscr);   // (256 and up in a 2.55/3.0 quest)
 
         if((!getmapflag(mITEM) || q30_item_returns()) && (tmpscr->hasitem != 0))
         {
@@ -12264,7 +12434,7 @@ void loaditem()
         if((!getmapflag() || q30_below_returns(1)) && tmpscr[1].room==rSP_ITEM
                 && (currscr==128 || !get_bit(quest_rules,qr_ITEMSINPASSAGEWAYS)))
         {
-            Item=tmpscr[1].catchall;
+            Item=q30_active() ? tmpscr[1].catchall : (byte)tmpscr[1].catchall;    // (a newer quest's items past 255)
             
             if(Item)
                 items.add(new item((fix)tmpscr->itemx,
@@ -13359,7 +13529,8 @@ void setupscreen()
         
         for(int i=0; i<count; i++)
         {
-            additem((i<<step)+base, 89, QMisc.shop[tmpscr[t].catchall].item[i], ipHOLDUP+ipFADE+(tmpscr[t].room == rTAKEONE ? ipONETIME2 : ipCHECK));
+            // (q30_shop_item: QMisc's byte, or a 2.55/3.0 quest's item of 256 and up)
+            additem((i<<step)+base, 89, q30_shop_item(tmpscr[t].catchall, i), ipHOLDUP+ipFADE+(tmpscr[t].room == rTAKEONE ? ipONETIME2 : ipCHECK));
             ((item*)items.spr(items.Count()-1))->PriceIndex = i;
             
             if(tmpscr[t].room != rTAKEONE)
@@ -13610,7 +13781,7 @@ bool parsemsgcode()
     {
         int it = (int)grab_next_argument();
         
-        if(it<MAXITEMS && game->item[it])
+        if(it<q30_items_end() && game->get_item(it))     // (a 2.55/3.0 quest's items past 255 too)
             goto switched;
             
         (void)grab_next_argument();
@@ -14211,6 +14382,20 @@ void check_collisions()
                             if((((item*)items.spr(j))->pickup & ipTIMER && ((item*)items.spr(j))->clk2 >= 32)
                                     || (q30_take_any(q30_take, q30_pitem, (item*)items.spr(j)) && !priced && !(((item*)items.spr(j))->pickup & ipDUMMY)))
                             {
+                                // 2.55/3.0 quests: COLLECT_ITEM as the boomerang or hookshot takes
+                                // the item to drag (upstream: how 3, ranged drag; the weapon), and
+                                // a script may stop it
+                                if(q30_generic_listening(Z30EV_COLLECT_ITEM))
+                                {
+                                    item *it = (item*)items.spr(j);
+                                    const long it_uid = it->getUID();
+                                    long ev[8] = { it->id * 10000L, it->pickup * 10000L, 0, 0, 0, it_uid, 3 * 10000L, w->getUID() };
+                                    q30_throw_generic_event(Z30EV_COLLECT_ITEM, ev, 8);
+
+                                    if(ev[4] || j >= items.Count() || items.spr(j)->getUID() != it_uid)
+                                        continue;   // nullified (or a script moved the items)
+                                }
+
                                 if(w->id == wBrang)
                                 {
                                     w->onhit(false);
@@ -14352,7 +14537,7 @@ void roaming_item()
             return;                                               //eSHOOTFBALL are alive but enemies from the list
         }                                                       //are not. Defer to LinkClass::checkspecial().
         
-        int Item=tmpscr->item;
+        int Item=mapscr_item(tmpscr);   // (256 and up in a 2.55/3.0 quest)
         
         hasitem &= ~4;
 

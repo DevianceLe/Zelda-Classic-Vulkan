@@ -61,6 +61,7 @@
 #endif
 
 #include "ffscript.h"
+#include "port/game/q30_regions.h" // 3.0 scrolling regions' camera (draw_lens_over): 0 for 2.53 quests
 #ifdef ZC_PORT
 #include "zcport/video_settings.h" // zplayer: Settings > Video Settings
 #if !defined(__SWITCH__)
@@ -1679,6 +1680,10 @@ int black_opening_x,black_opening_y;
 int black_opening_shape;
 static PALETTE tempblackpal;    // bosFADEBLACK: the palette it fades from and puts back
 
+// ffscript.cpp: 2.55/3.0 quests' scripts get one frame before the engine holds the game for an
+// opening, closing, zap or fade (upstream's warpScriptCheck). Nothing for 2.53 quests.
+void q30_warp_script_check();
+
 // bosFADEBLACK (upstream black_fade): every colour but the engine's last ones, fadeamnt darker
 static void black_fade(int fadeamnt)
 {
@@ -1755,6 +1760,8 @@ void close_black_opening(int x, int y, bool wait)
 
     if(wait)
     {
+        q30_warp_script_check();    // 2.55/3.0 quests' scripts get a frame first (nothing for 2.53)
+
         for(int i=0; i<66; i++)
         {
             draw_screen(tmpscr);
@@ -1796,6 +1803,8 @@ void open_black_opening(int x, int y, bool wait)
 
     if(wait)
     {
+        q30_warp_script_check();    // 2.55/3.0 quests' scripts get a frame first (nothing for 2.53)
+
         for(int i=0; i<66; i++)
         {
             draw_screen(tmpscr);
@@ -1903,8 +1912,13 @@ void black_opening(BITMAP *dest,int x,int y,int a,int max_a)
 
 //----------------------------------------------------------------
 
+bool q30_high_item_disabled(int item);       // q30_triggers.cpp: items 256 and up the DMap disables
+
 bool item_disabled(int item)                 //is this item disabled?
 {
+    if(item >= MAXITEMS)                     // a 2.55/3.0 quest's items 256 and up
+        return q30_high_item_disabled(item);
+
     return (item>=0 && game->items_off[item] != 0);
 }
 
@@ -2100,9 +2114,11 @@ bool has_item(int item_type, int it)                        //does Link possess 
 
 
 int q30_bunny_clock();              // q30_triggers.cpp: the 2.55/3.0 bunny form
+int q30_items_end();                // q30_triggers.cpp: past 255 for a 2.55/3.0 quest with more items
 bool q30_bunny_allows(int itemid);
 bool q30_below_returns(int tmp = 0);    // q30_triggers.cpp: 2.55/3.0 fBELOWRETURN
 bool q30_lens_does(int what);           // q30_triggers.cpp: the lens's 2.55 flags, or the rules
+bool q30_msg_blit(BITMAP *dest, int dy, int h);    // q30_msg.cpp: 2.55/3.0 strings, translucent ones too
 
 int current_item(int item_type, bool checkenabled)           //item currently being used
 {
@@ -2181,7 +2197,7 @@ int current_item(int item_type, bool checkenabled)           //item currently be
         {
             maxid = -1;
 
-            for(int i=0; i<MAXITEMS; i++)
+            for(int i=0; i<q30_items_end(); i++)
             {
                 if(game->get_item(i) && itemsbuf[i].family==item_type && !(checkenabled && item_disabled(i)) && q30_bunny_allows(i)
                    && (maxid == -1 || itemsbuf[i].fam_type > itemsbuf[maxid].fam_type))
@@ -2240,7 +2256,7 @@ int current_item_id(int itemtype, bool checkmagic)
     int result = -1;
     int highestlevel = -1;
     
-    for(int i=0; i<MAXITEMS; i++)
+    for(int i=0; i<q30_items_end(); i++)     // (MAXITEMS for 2.53 quests)
     {
         if(game->get_item(i) && itemsbuf[i].family==itemtype && !item_disabled(i))
         {
@@ -3392,7 +3408,10 @@ void draw_lens_over()
         last_width=width;
     }
     
-    masked_blit(lens_scr, framebuf, 288-(LinkX()+8), 240-playing_field_offset-(LinkY()+8), 0, playing_field_offset, 256, zc_field_h());
+    // (centred on Link where a 3.0 scrolling region's camera shows him; 0, 0 otherwise)
+    int camx, camy;
+    q30_region_camera(0, 0, &camx, &camy);
+    masked_blit(lens_scr, framebuf, 288-(LinkX()+8-camx), 240-playing_field_offset-(LinkY()+8-camy), 0, playing_field_offset, 256, zc_field_h());
     q30_draw_script_layer(framebuf, Q30_SPLAYER_LENS_OVER);    // newer quests' scripts (upstream)
 }
 
@@ -3594,7 +3613,9 @@ void updatescr(bool allowwavy)
         
     if(!(msgdisplaybuf->clip) && Playing && msgpos && !screenscrolling)
     {
-        masked_blit(msgdisplaybuf,framebuf,0,0,0,playing_field_offset,256,zc_field_h());
+        // 2.55/3.0: the string's parts as upstream draws them, translucent ones too (q30_msg.cpp)
+        if(!q30_msg_blit(framebuf, playing_field_offset, zc_field_h()))
+            masked_blit(msgdisplaybuf,framebuf,0,0,0,playing_field_offset,256,zc_field_h());
     }
     
     /*
@@ -4755,6 +4776,7 @@ void zapout()
 
 void zapin()
 {
+    q30_warp_script_check();    // 2.55/3.0 quests' scripts get a frame first (nothing for 2.53)
     draw_screen(tmpscr);
     set_clip_rect(scrollbuf, 0, 0, scrollbuf->w, scrollbuf->h);
     put_passive_subscr(framebuf,&QMisc,0,passive_subscreen_offset,false,sspUP);
@@ -4912,6 +4934,7 @@ void blackscr(int fcnt,bool showsubscr)
 {
     reset_pal_cycling();
     script_drawing_commands.Clear();
+    q30_warp_script_check();    // 2.55/3.0 quests' scripts get a frame first (nothing for 2.53)
     
     while(fcnt>0)
     {
@@ -4953,6 +4976,8 @@ void openscreen()
     
     int x=128;
     
+    q30_warp_script_check();    // 2.55/3.0 quests' scripts get a frame first (nothing for 2.53)
+
     for(int i=0; i<80; i++)
     {
         draw_screen(tmpscr);

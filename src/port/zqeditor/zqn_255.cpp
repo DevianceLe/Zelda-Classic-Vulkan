@@ -145,7 +145,8 @@ void zqn255_tape_set(Tape &t, const char *key, int64_t value)
 bool zqn255_tape_rebuild(bool (*schema)(TapeParser &, int), const Tape &src, int v, std::vector<byte> &out)
 {
     Tape t;
-    TapeParser p(&src, &t);
+    const TapeIndex index(src);     // a whole section's tape can hold many thousands of fields
+    TapeParser p(&src, &t, &index);
 
     if(!schema(p, v) || p.bad)
         return false;
@@ -178,6 +179,10 @@ struct SameData
 // - FAVS v4: favorites with modes and the editor's positions.
 // - DMAP v27 (3.0): v28 only adds a field the writer leaves at its default.
 // - MISC v21 (3.0): v22/v23 hold nothing a v21 section lacks.
+// - 3.0's own newest versions, which early 3.0 Nightlies wrote with a 2.55 header: MIDI v5, SFX
+//   v9 and AMUS v1 are read and written by 3.0 as they are. (WPN v9 and ITEM v71 are laid out
+//   again by their converters, zqn_255_sprites.cpp and zqn_255_items.cpp: 3.0's loader drops
+//   their empty entries off the end, and gives the items' weapon data its newest data version.)
 const SameData g_same[] =
 {
     { ID_ICONS, 10, 10 },
@@ -188,11 +193,15 @@ const SameData g_same[] =
     { ID_LINKSPRITES, 16, 16 },
     { ID_FAVORITES, 4, 4 },
     { ID_CHEATS, 1, 1 },
-    // 2.55.17 only: sections already at its newest version
-    { ID_DMAPS, 21, 0 },
-    { ID_ITEMS, 59, 0 },
-    { ID_MAPS, 30, 0 },
-    { ID_COMBOS, 45, 0 },
+    // 3.0 only: sections already at its newest version
+    { ID_MIDIS, 0, 5 },
+    { ID_SFX, 0, 9 },
+    { ID_ADVMUSIC_, 0, 1 },
+    // 2.55.17 only: sections already at its newest version (DMaps: zqn_255_dmaps.cpp lays even
+    // version 21 out again, for the subscreen numbers and the zeroed region bytes; items:
+    // zqn_255_items.cpp, for the names' leftover bytes and the level 0 fix; combos: zqw_combos.cpp,
+    // for the cuttables' trigger fix of quests from before 2.55.14; maps: zqn_255_maps.cpp, whose
+    // screens' groups go by 2.55.17's tests)
     { ID_INITDATA, 38, 0 },
     { ID_GUYS, 48, 0 },
     { ID_SUBSCREEN, 12, 0 },
@@ -559,10 +568,9 @@ ZqNewerRegistration g_reg_tiles(ID_TILES, write_same_data, "2.55 tiles");
 ZqNewerRegistration g_reg_link(ID_LINKSPRITES, write_same_data, "2.55 Link sprites");
 ZqNewerRegistration g_reg_favs(ID_FAVORITES, write_same_data, "2.55 favorites");
 ZqNewerRegistration g_reg_cheats(ID_CHEATS, write_same_data, "2.55 cheats");
-ZqNewerRegistration g_reg_dmaps_255(ID_DMAPS, write_same_data, "2.55.17 DMaps as they are");
-ZqNewerRegistration g_reg_items_255(ID_ITEMS, write_same_data, "2.55.17 items as they are");
-ZqNewerRegistration g_reg_maps_255(ID_MAPS, write_same_data, "2.55.17 maps as they are");
-ZqNewerRegistration g_reg_combos_255(ID_COMBOS, write_same_data, "2.55.17 combos as they are");
+ZqNewerRegistration g_reg_midis_30(ID_MIDIS, write_same_data, "3.0 tunes as they are");
+ZqNewerRegistration g_reg_sfx_30(ID_SFX, write_same_data, "3.0 sounds as they are");
+ZqNewerRegistration g_reg_amus_30(ID_ADVMUSIC_, write_same_data, "3.0 advanced music as it is");
 ZqNewerRegistration g_reg_init_255(ID_INITDATA, write_same_data, "2.55.17 init data as it is");
 ZqNewerRegistration g_reg_guys_255(ID_GUYS, write_same_data, "2.55.17 enemies as they are");
 ZqNewerRegistration g_reg_subs_255(ID_SUBSCREEN, write_same_data, "2.55.17 subscreens as they are");

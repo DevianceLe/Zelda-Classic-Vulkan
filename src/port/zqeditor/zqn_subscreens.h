@@ -24,9 +24,19 @@ bool zqn_old_subscreens_30(const std::vector<unsigned char> &data, int version, 
                            std::vector<int> &dm_passive, std::vector<std::vector<unsigned char> > &active,
                            std::vector<std::vector<unsigned char> > &passive);
 
+// The same for either target (ZQ_NEWER_255: 2.55.17's read_old_subscreens and load_old, which
+// convert the old groups the same way; each subscreen as 2.55.17 writes it, SUBS version 12).
+bool zqn_old_subscreens(int target, const std::vector<unsigned char> &data, int version, std::vector<int> &dm_active,
+                        std::vector<int> &dm_passive, std::vector<std::vector<unsigned char> > &active,
+                        std::vector<std::vector<unsigned char> > &passive);
+
 // setupsubscreens for 3.0, with the init data's subscreen style (mode): the two default active
 // and passive subscreens as 3.0 writes them.
 void zqn_default_subscreens_30(int mode, std::vector<std::vector<unsigned char> > &active,
                                std::vector<std::vector<unsigned char> > &passive);
+
+// The same for either target (2.55.17's setupsubscreens, with its own default object lists).
+void zqn_default_subscreens(int target, int mode, std::vector<std::vector<unsigned char> > &active,
+                            std::vector<std::vector<unsigned char> > &passive);
 
 #endif

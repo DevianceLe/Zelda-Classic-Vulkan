@@ -78,6 +78,10 @@ enum { ssfZELDA, ssfSS1, ssfSS2, ssfSS3, ssfSS4, ssfZTIME, ssfSMALL, ssfSMALLPRO
        ssfDSPHANTOM, ssfDSPHANTOMP, ssfMAX
      };
 
+// The player's 2.55/3.0 subscreens: a font 2.53 has no ssf number for is Q30_SSF_FONTS plus
+// upstream's font id (q255_init.cpp sub_font), drawn with that font (ss_font).
+enum { Q30_SSF_FONTS = 1000, Q30_FONT_COUNT = 101 };
+
 // subscreen color types
 enum { ssctSYSTEM=0xFE, ssctMISC=0xFF };
 

@@ -2116,6 +2116,7 @@ static void z30_msg_set(long id, const std::string &text)
     memcpy(MsgStrings[id].s, out.data(), out.size());
     MsgStrings[id].s[out.size()] = 0;
     q30_set_msg_long_text((int)id, NULL);     // the quest's longer text no longer applies
+    q30_msg_set_text((int)id, text, !binary); // the message engine's copy, whole (q30_msg.cpp)
 }
 
 // ---- solidity on a screen other than the current one ----------------------------------------------
@@ -2506,13 +2507,16 @@ static void zasm30_warp_ex(const int *a)
             warp_type = by_effect[effect];
     }
 
-    tmpscr->sidewarpdmap[0] = dmap;
-    tmpscr->sidewarpscr[0] = screen;
-    tmpscr->sidewarptype[0] = warp_type;
+    // (side warp A of Link's screen: in a 3.0 scrolling region the script may be another screen's,
+    // standing in for the current one, as in do_warp)
+    mapscr *hero_scr = q30_region_hero_scr();
+    hero_scr->sidewarpdmap[0] = dmap;
+    hero_scr->sidewarpscr[0] = screen;
+    hero_scr->sidewarptype[0] = warp_type;
 
     if(x < 0)
     {
-        tmpscr->warpreturnc = (tmpscr->warpreturnc & ~(3 << 8)) | ((y & 3) << 8);
+        hero_scr->warpreturnc = (hero_scr->warpreturnc & ~(3 << 8)) | ((y & 3) << 8);
         zasm30_warp_pending = false;
     }
     else
@@ -2540,6 +2544,37 @@ static void zasm30_apply_pending_warp()
 
     if(zasm30_warp_dir >= 0 && zasm30_warp_dir < 4)
         Link.setDir(zasm30_warp_dir);
+}
+
+// For the message engine (q30_msg.cpp). A string's Warp command: upstream's
+// FFCore.warp_player(wtIWARP, dmap, scr, x, y, effect, sound, 0, 0), as WarpEx does it here
+// (x -1: the return square y), Link facing up afterwards.
+bool q30_msg_script_warp(int dmap, int scr, int x, int y, int effect, int sound)
+{
+    int args[10] = { wtIWARP, dmap, scr, x, y, effect, sound, 0, up, 0 };
+    zasm30_warp_ex(args);
+    return true;
+}
+
+// A string's RunFrozenGenericScript: the script's own InitD, or the ones the string gives
+// (count of them, the rest 0) for this run only.
+bool q30_msg_run_generic_frozen(int script, const long *initd, int count)
+{
+    if(script < 1 || script >= Q30_GENERIC_SLOTS)
+        return false;
+
+    long saved[8];
+    memcpy(saved, zasm30_generic[script].initd, sizeof(saved));
+
+    if(count > 0)
+    {
+        memset(zasm30_generic[script].initd, 0, sizeof(saved));
+        memcpy(zasm30_generic[script].initd, initd, sizeof(long) * (count > 8 ? 8 : count));
+    }
+
+    const bool ok = z30_run_generic_frozen((word)script);
+    memcpy(zasm30_generic[script].initd, saved, sizeof(saved));
+    return ok;
 }
 
 static bool zasm30_command(word cmd)
@@ -3050,25 +3085,51 @@ static bool zasm30_command(word cmd)
 
     // -- arrays and strings -------------------------------------------------------------------
     case Z30C_ISVALIDARRAY:
-    {
-        ZScriptArray &a = ArrayH::getArray(get_register(sarg1) / 10000);
-        set_register(sarg1, (&a != &INVALIDARRAY) ? 10000 : 0);
+        // upstream's do_isvalidarray only answers: an invalid pointer is no script error. Logging
+        // one made a script that checks every enemy's array each frame (Tales of Murdoch) write
+        // millions of lines and run five times slower.
+        set_register(sarg1, ArrayH::isValid(get_register(sarg1) / 10000) ? 10000 : 0);
         return true;
-    }
     case Z30C_OWNARRAYR:
     {
         // OwnArray(): the array now belongs to the script that asked, so it goes when that
-        // script's instance does (never, for a global or FFC script). Arrays a 3.0 script made
-        // are the collector's.
+        // script's instance does (never, for a global or FFC script), and the end of its scope no
+        // longer frees it (upstream 3.0 sets specOwned). Arrays a 3.0 script made are the
+        // collector's.
         const long p = get_register(sarg1) / 10000;
 
         if(curscript != zasm30_stream && p > 0 && p < MAX_ZCARRAY_SIZE && localRAM[p].Size() != 0)
+        {
             zasm30_array_inst[p] = zasm30_cur_inst;
+            zasm30_array_owned[p] = true;
+            zasm30_array_destroyed[p] = false;
+        }
 
         return true;
     }
     case Z30C_DESTROYARRAYR:
+    {
+        // DestroyArray() in scripts made before 3.0's array collector (upstream do_destroy_array):
+        // a local array goes now, and the end of its scope then leaves it alone; global arrays are
+        // ignored. A 3.0 script's arrays are the collector's (upstream refuses there).
+        const long p = get_register(sarg1) / 10000;
+
+        if(curscript == zasm30_stream || (p >= MAX_ZCARRAY_SIZE && p < MAX_ZCARRAY_SIZE * 2))
+            return true;
+
+        if(p > 0 && p < MAX_ZCARRAY_SIZE && (localRAM[p].Size() != 0 || zasm30_empty_array[p]))
+        {
+            localRAM[p].Clear();
+            zasm30_empty_array[p] = false;
+            arrayOwner[p] = 255;
+            zasm30_array_inst[p] = NULL;
+            zasm30_array_destroyed[p] = true;
+        }
+        else
+            Z_scripterrlog("Tried to 'DestroyArray()' an invalid array '%ld'\n", p);
+
         return true;
+    }
     case Z30C_BITMAPOWN:
     case Z30C_FILEOWN:
     case Z30C_DIRECTORYOWN:
@@ -3483,13 +3544,13 @@ static bool zasm30_command(word cmd)
 
         if(q30_items_keep_running())
         {
-            if(unsigned(itemid) < MAXITEMS)
+            if(unsigned(itemid) < unsigned(q30_items_end()))
                 zasm30_item_run_command(itemid, mode);
 
             return true;
         }
 
-        if(unsigned(itemid) < MAXITEMS && mode != 0 && itemsbuf[itemid].script)
+        if(unsigned(itemid) < unsigned(q30_items_end()) && mode != 0 && itemsbuf[itemid].script)
         {
             // Run it now; a script called from a script is one frame deep anyway here.
             refInfo *r = ri;
@@ -3500,7 +3561,7 @@ static bool zasm30_command(word cmd)
             long *sp = zasm30_wide_sp;
             long lim = zasm30_stack_limit;
             long a1 = sarg1, a2 = sarg2;
-            ZScriptVersion::RunScript(SCRIPT_ITEM, itemsbuf[itemid].script, itemid & 0xFF);
+            ZScriptVersion::RunScript(SCRIPT_ITEM, itemsbuf[itemid].script, itemid & 0xFFF);     // (items 256 and up too)
             ri = r;
             curscript = c;
             stack = st;
@@ -3569,8 +3630,8 @@ static bool zasm30_command(word cmd)
 
         if(!m)
             set_register(sarg1, 10000);
-        else if(m == tmpscr)
-            set_register(sarg1, _walkflag(x, y, 1) ? 10000 : 0);
+        else if(m == tmpscr)    // (a temp screen's x, y are region pixels in a scrolling region)
+            set_register(sarg1, _walkflag(x - q30_region_origin_x(), y - q30_region_origin_y(), 1) ? 10000 : 0);
         else
             set_register(sarg1, z30_mapdata_solid(m, x, y) ? 10000 : 0);
         return true;
@@ -3578,7 +3639,18 @@ static bool zasm30_command(word cmd)
 
     case Z30C_SCRTRIGGERCOMBO:
     {
-        const int layer = get_register(sarg1) / 10000, pos = get_register(sarg2) / 10000;
+        // (in a scrolling region pos is a combo position across it; only the current screen's
+        // combos have triggers running here)
+        const int layer = get_register(sarg1) / 10000;
+        int pos = get_register(sarg2) / 10000;
+        bool current = true;
+
+        if(q30_region_on() && (!q30_region_rpos_screen(pos, 0, &pos, &current) || !current))
+        {
+            set_register(sarg1, 0);
+            return true;
+        }
+
         set_register(sarg1, q30_trigger_combo_at(layer, pos, 0) ? 10000 : 0);
         return true;
     }
@@ -4057,7 +4129,7 @@ static bool zasm30_command(word cmd)
         const long id = ri->idata;
         const long ptr = get_register(sarg1) / 10000;
 
-        if(id < 0 || id >= MAXITEMS)
+        if(id < 0 || id >= q30_items_end())
             return true;
 
         if(cmd == Z30C_ITEMSETDISPLAYNAME)

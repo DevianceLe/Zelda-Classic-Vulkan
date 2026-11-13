@@ -9,6 +9,9 @@
 #include "q255.h"
 #include "q30.h"
 #include "zsys.h"
+#ifdef ZC_PLAYER_BUILD
+#include "q30_triggers.h"
+#endif
 
 extern const char *skip_text[];
 extern dmap *DMaps;
@@ -46,6 +49,11 @@ bool q255_keep_for_editor = false;  // see q255.h; the port's ZQuest sets it
 PACKFILE *open_quest_file(int *open_error, const char *filename, char *deletefilename, bool compressed, bool encrypted, bool show_progress);
 int readheader(PACKFILE *f, zquestheader *Header, bool keepdata);
 int readitemdropsets(PACKFILE *f, int version, word build, bool keepdata); // qst.h's declaration doesn't match
+
+#ifdef ZC_PLAYER_BUILD
+void q30_high_items_survey();   // link.cpp: ZC_Q30_ITEMDUMP (declared out here: inside the
+                                // unnamed namespace below it would name a function of its own)
+#endif
 
 namespace
 {
@@ -406,11 +414,13 @@ void dump_loaded_data()
         for(int i = 0; i < 4; ++i)
             al_trace("dump: warp %d tile dmap %d scr %d type %d | side dmap %d scr %d type %d\n", i, m.tilewarpdmap[i], m.tilewarpscr[i], m.tilewarptype[i],
                      m.sidewarpdmap[i], m.sidewarpscr[i], m.sidewarptype[i]);
-        al_trace("dump: sidewarpindex %d\n", m.sidewarpindex);
+        al_trace("dump: sidewarpindex %d item %d hasitem %d at %d,%d catchall %d enemyflags %x\n", m.sidewarpindex, mapscr_item(&m), m.hasitem,
+                 m.itemx, m.itemy, m.catchall, m.enemyflags);
         for(int i = 0; i < 32; ++i)
             if(m.ffscript[i] || m.ffdata[i])
-                al_trace("dump: ffc %d data %d script %d flags %lx x %ld y %ld vx %ld vy %ld ax %ld ay %ld delay %d link %d combo type %d\n", i, m.ffdata[i], m.ffscript[i], (unsigned long)m.ffflags[i],
-                         (long)m.ffx[i], (long)m.ffy[i], (long)m.ffxdelta[i], (long)m.ffydelta[i], (long)m.ffxdelta2[i], (long)m.ffydelta2[i], m.ffdelay[i], m.fflink[i], combobuf[m.ffdata[i]].type);
+                al_trace("dump: ffc %d data %d script %d flags %lx x %ld y %ld vx %ld vy %ld ax %ld ay %ld delay %d link %d combo type %d initd %ld %ld %ld %ld %ld %ld %ld %ld\n", i, m.ffdata[i], m.ffscript[i], (unsigned long)m.ffflags[i],
+                         (long)m.ffx[i], (long)m.ffy[i], (long)m.ffxdelta[i], (long)m.ffydelta[i], (long)m.ffxdelta2[i], (long)m.ffydelta2[i], m.ffdelay[i], m.fflink[i], combobuf[m.ffdata[i]].type,
+                         m.initd[i][0], m.initd[i][1], m.initd[i][2], m.initd[i][3], m.initd[i][4], m.initd[i][5], m.initd[i][6], m.initd[i][7]);
 
         {
             std::map<int, int> kinds;
@@ -458,10 +468,74 @@ void dump_loaded_data()
             for(int k = 0; k < 32; ++k)
                 if(m.ffscript[k] && strlen(ffcs) < 100)
                     sprintf(ffcs + strlen(ffcs), " %d", m.ffscript[k]);
-            al_trace("strscr map %d scr %d: str %d timed %d flags3 %x side0 dmap %d scr %d type %d | ffc%s\n", i / MAPSCRS, i % MAPSCRS, m.str, m.timedwarptics, m.flags3,
+            al_trace("strscr map %d scr %d: str %d room %d guy %d timed %d flags3 %x side0 dmap %d scr %d type %d | ffc%s | dmaps", i / MAPSCRS, i % MAPSCRS, m.str, m.room, m.guy, m.timedwarptics, m.flags3,
                      m.sidewarpdmap[0], m.sidewarpscr[0], m.sidewarptype[0], ffcs);
+            for(int d = 0, shown = 0; d < MAXDMAPS && shown < 4; ++d)
+            {
+                const int sc = (i % MAPSCRS) - DMaps[d].xoff;
+                if(DMaps[d].map == i / MAPSCRS && sc >= 0 && sc < 128 && ((DMaps[d].type & dmfTYPE) == dmOVERW || ((i % MAPSCRS) & 15) - DMaps[d].xoff < 8))
+                {
+                    al_trace(" %d(scr %d)", d, sc);
+                    ++shown;
+                }
+            }
+            al_trace("\n");
         }
     }
+
+#ifdef ZC_PLAYER_BUILD
+    // ZC_Q255_DUMP_FINDSTR="a,b,...": the screens whose FFC InitD or placed combos (attributes,
+    // trigger strings) name one of these strings, to find where a quest shows a string.
+    if(const char *find = getenv("ZC_Q255_DUMP_FINDSTR"))
+    {
+        std::vector<long> want;
+        for(const char *p = find; *p; )
+        {
+            want.push_back(atol(p));
+            const char *c = strchr(p, ',');
+            if(!c) break;
+            p = c + 1;
+        }
+        std::map<int, std::string> hits;    // combo id -> why
+        for(int cid = 0; cid < MAXCOMBOS; ++cid)
+        {
+            const Q30Combo *c = q30_combo(cid);
+            if(!c) continue;
+            for(size_t w = 0; w < want.size(); ++w)
+            {
+                for(int a = 0; a < 24; ++a)
+                    if(c->attributes[a] == want[w] * 10000)
+                        hits[cid] += "attr";
+                for(size_t t = 0; t < c->triggers.size(); ++t)
+                    if(c->triggers[t].trig_msgstr == want[w] || c->triggers[t].fail_msgstr == want[w])
+                        hits[cid] += "trig";
+            }
+        }
+        for(size_t n = 0; n < TheMaps.size(); ++n)
+        {
+            const mapscr &m = TheMaps[n];
+            if(!(m.valid & mVALID)) continue;
+            for(int i = 0; i < 32; ++i)
+                for(int j = 0; j < 8 && m.ffscript[i]; ++j)
+                    for(size_t w = 0; w < want.size(); ++w)
+                        if(m.initd[i][j] == want[w] * 10000)
+                        {
+                            al_trace("findstr %ld: map %d scr %d ffc %d (script %d) D%d at %ld,%ld; dmaps:", want[w], (int)(n / MAPSCRS), (int)(n % MAPSCRS), i, m.ffscript[i], j,
+                                     (long)m.ffx[i] / 10000, (long)m.ffy[i] / 10000);
+                            for(int d = 0; d < MAXDMAPS; ++d)
+                            {
+                                const int sc = (int)(n % MAPSCRS) - DMaps[d].xoff;
+                                if(DMaps[d].map == (int)(n / MAPSCRS) && sc >= 0 && sc < 128 && ((DMaps[d].type & dmfTYPE) == dmOVERW || ((n % MAPSCRS) & 15) - DMaps[d].xoff < 8))
+                                    al_trace(" %d(scr %d)", d, sc);
+                            }
+                            al_trace("\n");
+                        }
+            for(size_t p = 0; p < m.data.size(); ++p)
+                if(hits.count(m.data[p]))
+                    al_trace("findstr: map %d scr %d pos %d combo %d (%s)\n", (int)(n / MAPSCRS), (int)(n % MAPSCRS), (int)p, (int)m.data[p], hits[m.data[p]].c_str());
+        }
+    }
+#endif
 
     const char *chain = getenv("ZC_Q255_DUMP_CHAIN");
     for(int i = 0; chain && i < atoi(chain); ++i)
@@ -752,6 +826,10 @@ int read_sections_and_dump(PACKFILE *f, zquestheader *header, miscQdata *misc, z
     report_tile_use();
     if(ret == 0 && keepall)
         dump_loaded_data();
+#ifdef ZC_PLAYER_BUILD
+    if(ret == 0 && keepall)
+        q30_high_items_survey();
+#endif
     return ret;
 }
 

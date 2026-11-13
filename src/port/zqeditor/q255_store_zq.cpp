@@ -374,6 +374,11 @@ void q30_set_item_box(int xofs, int yofs, int w, int h)
     zq255.item_box[3] = h;
 }
 
+// (the camera's follow settings and the lights' wave: ZQuest's own init data and DMap readers
+// keep them)
+void q30_set_viewport_follow(int, bool, int, int, int, int, long, long, int) {}
+void q30_set_light_wave(int, int) {}
+
 void q30_set_light_init(int dith_type, int dith_arg, int dith_perc, int light_rad, int trans_perc, int dark_color)
 {
     zq255.light_init_set = true;
@@ -406,6 +411,9 @@ void q30_set_msg_wrap_extra(int str, int extra) { zq255.msg_wrap_extra[str] = ex
 void q30_clear_msg_layouts() {}                         // the player's (string margins and "more" icon as drawn)
 void q30_set_msg_layout(int, int, int, const int *, bool, int, int, int, int) {}   // (the same)
 void q30_set_msg_long_text(int, const char *) {}        // (the same: never called while keeping for the editor)
+void q30_msg_clear_strings() {}                         // the player's (its message engine's strings)
+void q30_msg_set_rules(bool, bool) {}                   // (the same)
+void q30_msg_set_string(int, const Q30MsgStr &) {}      // (the same)
 
 void q30_set_dmap_script(int dmap, int kind, word script, const long *initd)
 {

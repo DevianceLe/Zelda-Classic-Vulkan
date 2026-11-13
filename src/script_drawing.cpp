@@ -2328,6 +2328,7 @@ void do_drawlayerr(BITMAP *bmp, int *sdci, int xoffset, int yoffset, bool isOffS
     {
         // 2.55/3.0 quests (upstream do_drawlayerr): editor-only combos are skipped, and a
         // "transparent" combo flips between see-through and solid; whole combos are drawn.
+        // (The view sits at vx0, vy0 on a scrolling region's canvas, as for 2.53 below.)
         for(int i(0); i < 176; ++i)
         {
             const int x2 = ((i&15)<<4) + x1;
@@ -2336,7 +2337,8 @@ void do_drawlayerr(BITMAP *bmp, int *sdci, int xoffset, int yoffset, bool isOffS
             if(combo_editor_only(l.data[i]))
                 continue;
 
-            if(x2 > -16 && x2 < maxX && y2 > -16 && y2 < maxY)   //in clipping rect
+            // (the view's clipping rect, which on a scrolling region's canvas isn't at 0, 0)
+            if(x2 > vx0-16 && x2 < maxX+vx0 && y2 > vy0-16 && y2 < maxY+vy0)   //in clipping rect
             {
                 if((opacity < 128) != combo_transparent(l.data[i]))
                     overcomboblocktranslucent(b, x2, y2, l.data[i], l.cset[i], 1, 1, 128);

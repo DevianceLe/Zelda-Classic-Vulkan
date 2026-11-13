@@ -8,14 +8,16 @@
 // - warp rings are counted up to 16 (count_warprings), though 9 are held: past the ninth it
 //   reads the palette cycles that follow the rings in upstream's miscQdata, which the palettes
 //   section sets (the cycles at the end of CSET);
+// - the script values' names (v9) are written as stored by 2.55.17 and as zeros by 3.0;
 // - older versions' missing parts take readmisc's defaults: no shop strings (v8), no script
-//   values (v9; 3.0 writes their names as zeros), last-compiled -1 (v11), no misc sprites (v12),
+//   values (v9), last-compiled -1 (v11), no misc sprites (v12),
 //   cleared bottle types and shops (v13), the default misc sounds (v14, 15, 16), no save menus
 //   (v17); bytes become words where the newer versions widened them (shop items v20, misc
 //   sprites v21, misc sounds and save menu sounds v19).
 // - save menus older than version 23 (a MIDI number for music before v18, byte sounds before v19,
 //   a bare script before v22, no option offsets, shadows or texts before v23) aren't converted
-//   yet: such a quest is refused; none in the pack has any.
+//   yet: such a quest is refused; none in the pack has any. Version 23's (3.0's own, which early
+//   3.0 Nightlies wrote with a 2.55 header) are written as they are.
 
 #include "precompiled.h" //always first
 
@@ -108,7 +110,7 @@ bool palette_cycles(int target, byte *cycles /* 256*3*3 */)
 
 int write_misc(PACKFILE *f, const ZqNewerContext &ctx)
 {
-    if(!zqn255_source(ctx) || !ctx.src_part || ctx.src_version < 7 || ctx.src_version > 22)
+    if(!zqn255_source(ctx) || !ctx.src_part || ctx.src_version < 7 || ctx.src_version > 23)
         return ZQW_UNSUPPORTED;
 
     const bool t30 = ctx.target == ZQ_NEWER_30;
@@ -247,13 +249,14 @@ int write_misc(PACKFILE *f, const ZqNewerContext &ctx)
 
     long questmisc[32];
     memset(questmisc, 0, sizeof(questmisc));
+    std::vector<byte> questmisc_names((size_t)32 * 128, 0);
 
     if(v >= 9)
     {
         for(int q = 0; q < 32; ++q)
             questmisc[q] = r.s32();
 
-        r.skip(32 * 128);
+        questmisc_names = r.bytes(32 * 128);
     }
 
     long last_compiled = v >= 11 ? r.s32() : -1;
@@ -328,7 +331,7 @@ int write_misc(PACKFILE *f, const ZqNewerContext &ctx)
         size_t at = r.pos;
         int count = r.u8();
 
-        if(count > 0)
+        if(count > 0 && v < 23)
         {
             zqw_last_error = "it has save menus from before 3.0's version 23 (not converted yet)";
             return 2;
@@ -442,7 +445,10 @@ int write_misc(PACKFILE *f, const ZqNewerContext &ctx)
     for(int q = 0; q < 32; ++q)
         o.l(questmisc[q]);
 
-    o.zeros(32 * 128);
+    if(t30)
+        o.zeros(32 * 128);
+    else
+        o.put(questmisc_names);     // 2.55.17 keeps the names (questmisc_strings) as read
     o.l(last_compiled);
 
     for(int q = 0; q < SPRMAX; ++q)
@@ -483,3 +489,43 @@ int write_misc(PACKFILE *f, const ZqNewerContext &ctx)
 ZqNewerRegistration g_reg_misc(ID_MISC, write_misc, "2.55 misc data");
 
 } // namespace
+
+bool zqn255_last_compiled(long &value)
+{
+    // readmisc up to the field: shops, infos, warp rings, triforce, end string, shop strings
+    // (v8), script values and their names (v9), then the field (v11; -1 before)
+    value = -1;
+    ZqNewerContext c;
+    c.target = ZQ_NEWER_30;
+    c.src_zelda_version = 0x255;
+    c.src_build = 0;
+    c.src_part = zq_find_part(ID_MISC);
+    c.src_version = c.src_cversion = 0;
+
+    if(!c.src_part)
+        return true;
+
+    zq_part_versions(*c.src_part, &c.src_version, &c.src_cversion);
+    Zqn255Section s;
+
+    if(!zqn255_section(c, s))
+        return false;
+
+    const int v = s.version;
+
+    if(v < 11)
+        return true;
+
+    Zqn255In r(s.data);
+    const int shops = r.u16();
+    r.skip((size_t)shops * (32 + (v >= 20 ? 6 : 3) + 6 + 3));
+    const int infos = r.u16();
+    r.skip((size_t)infos * (32 + 6 + 6));
+    const int rings = r.u16();
+    r.skip((size_t)rings * (18 + 9 + 1));
+    r.skip(8 + 2);
+    r.skip((size_t)shops * 6);
+    r.skip(32 * 4 + 32 * 128);
+    value = r.s32();
+    return !r.bad;
+}

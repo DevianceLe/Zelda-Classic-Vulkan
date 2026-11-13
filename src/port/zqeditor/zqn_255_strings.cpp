@@ -12,6 +12,10 @@
 //   to the screen or with y an offset), as its init data reader does for init data older than
 //   version 49; no scroll icons (sprite 0xFFFF, anchor 7), scroll speeds of 1, no advance or
 //   close sound, and the string's own sound for the menu cursor.
+//
+// Version 13 (3.0's own, which early 3.0 Nightlies wrote with a 2.55 header) holds all of that
+// already; 3.0 keeps it as it is, but for the "more" icon, which init data older than 49 still
+// sets for every string.
 
 #include "precompiled.h" //always first
 
@@ -34,6 +38,7 @@ struct MoreIcon
 {
     int x, y;
     bool offset;
+    bool from_init;     // init data older than version 49 sets every string's icon
 };
 
 // The more icon from the quest's init data (its own-version section, as now).
@@ -42,6 +47,7 @@ bool more_icon(int target, MoreIcon &m)
     m.x = 224;
     m.y = 64;
     m.offset = false;
+    m.from_init = false;
     ZqNewerContext ic;
     ic.target = target;
     ic.src_zelda_version = 0x255;
@@ -70,6 +76,7 @@ bool more_icon(int target, MoreIcon &m)
     m.x = (int)t.get("msg_more_x", 224);
     m.y = (int)t.get("msg_more_y", 64);
     m.offset = t.get("msg_more_is_offset", 0) != 0;
+    m.from_init = true;
     return true;
 }
 
@@ -88,10 +95,10 @@ std::string c_text(const TapeField *f)
 
 int write_strings(PACKFILE *f, const ZqNewerContext &ctx)
 {
-    if(!zqn255_source(ctx) || !ctx.src_part || ctx.src_version < 5 || ctx.src_version > 12)
-        return ZQW_UNSUPPORTED;
-
     const bool t30 = ctx.target == ZQ_NEWER_30;
+
+    if(!zqn255_source(ctx) || !ctx.src_part || ctx.src_version < 5 || ctx.src_version > (t30 ? 13 : 12))
+        return ZQW_UNSUPPORTED;
 
     if(!t30 && ctx.src_version > 10)
         return ZQW_UNSUPPORTED;
@@ -120,6 +127,38 @@ int write_strings(PACKFILE *f, const ZqNewerContext &ctx)
 
     const int v = s.version;
     const int count = (int)t.get("count");
+
+    if(v >= 13)
+    {
+        // 3.0's own layout: as it is, with the init data's "more" icon when that sets it
+        if(more.from_init)
+        {
+            const TapeIndex mx(t);
+            char key[48];
+
+            for(int i = 0; i < count; ++i)
+            {
+#define SET(name, val) do { snprintf(key, sizeof(key), "msg%d." name, i); \
+                            if(const TapeField *fld = mx.find(key)) const_cast<TapeField *>(fld)->value = (val); } while(0)
+                SET("icon_more_sprite", 43);    // iwMore
+                SET("icon_more_anchor", more.offset ? 10 : 9);
+                SET("icon_more_x", more.x);
+                SET("icon_more_y", more.y < 160 ? more.y : 160);
+#undef SET
+            }
+        }
+
+        std::vector<byte> data, none;
+
+        if(!zqn255_tape_rebuild(zq_tape_strings, t, 13, data))
+        {
+            zqw_last_error = "its strings couldn't be laid out again";
+            return 2;
+        }
+
+        return zqn255_emit(f, ID_STRINGS, 13, 13, none, data);
+    }
+
     const TapeIndex ix(t);
     Zqn255Out o;
     o.w(count);

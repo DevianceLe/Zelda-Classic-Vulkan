@@ -87,8 +87,8 @@ const Q30ScriptRef *q30_guy_script(int guy) { return zasm30_get_ref(zasm30_guy_s
 void q30_set_guy_weapon_script(int guy, word script, const long *initd) { zasm30_put_ref(zasm30_guy_weapon_scripts, guy, script, initd); }
 const Q30ScriptRef *q30_guy_weapon_script(int guy) { return zasm30_get_ref(zasm30_guy_weapon_scripts, guy); }
 
-static bool zasm30_item_passive[MAXITEMS];  // upstream's item_passive_script; the reader fills it
-static byte zasm30_item_doscript[MAXITEMS]; // upstream's data.doscript, for an item's own script
+static bool zasm30_item_passive[Q30_MAX_ITEMS];  // upstream's item_passive_script; the reader fills it
+static byte zasm30_item_doscript[Q30_MAX_ITEMS]; // upstream's data.doscript, for an item's own script
 
 void q30_clear_item_scripts()
 {
@@ -99,7 +99,7 @@ void q30_clear_item_scripts()
 
 void q30_set_item_passive_script(int id, bool on)
 {
-    if(id >= 0 && id < MAXITEMS)
+    if(id >= 0 && id < Q30_MAX_ITEMS)
         zasm30_item_passive[id] = on;
 }
 
@@ -112,6 +112,7 @@ const Q30ScriptRef *q30_item_weapon_script(int item) { return zasm30_get_ref(zas
 
 Zasm30Generic zasm30_generic[Q30_GENERIC_SLOTS];
 static int zasm30_max_generic = 0;
+static std::vector<int> zasm30_generic_coded;  // the slots that hold a script (zasm30_count_generic)
 int zasm30_genscript_timing = Z30T_START_FRAME;
 static int zasm30_generic_frozen_depth = 0;
 
@@ -350,8 +351,10 @@ static void zasm30_generic_passive(int timing)
             zasm30_generic_passive(zasm30_genscript_timing);
     }
 
-    for(int q = 1; q <= zasm30_max_generic; ++q)
+    // Only the slots that hold a script: a quest has 511, and this runs some 40 times a frame.
+    for(size_t n = 0; n < zasm30_generic_coded.size(); ++n)
     {
+        const int q = zasm30_generic_coded[n];
         Zasm30Generic &g = zasm30_generic[q];
 
         if(!g.run || !q30_generic_scripts[q] || g.waitevent)
@@ -372,11 +375,16 @@ static void zasm30_generic_passive(int timing)
 static void zasm30_count_generic()
 {
     zasm30_max_generic = 0;
+    zasm30_generic_coded.clear();
 
     for(int q = 1; q < Q30_GENERIC_SLOTS; ++q)
     {
         if(q30_generic_scripts[q])
             zasm30_max_generic = q;
+
+        // a slot with no script never runs (zasm30_prepare_type refuses it)
+        if(q30_generic_scripts[q] && q30_generic_scripts[q][0].command != 0xFFFF)
+            zasm30_generic_coded.push_back(q);
     }
 }
 
@@ -537,6 +545,12 @@ static void zasm30_setup_frame(byte type)
 {
     Zasm30Frame &f = zasm30_frame();
     f.refs[Z30REF_SCREEN] = currscr * 10000;
+
+    // An FFC script's `this`, instance variable 0 (SCR0) in 3.0 scripts, is its own FFC as REFFFC
+    // reads it (upstream's set_script_this_ref(ri->ffcref()) on every run). Left at 0 it made
+    // every 3.0 FFC script act on FFC 1: the VulturPeak cart made FFC 1 solid, not itself.
+    if(type == SCRIPT_FFC && zasm30_ffscript_version)
+        f.inst[0] = zasm30_ffscript_version >= 26 ? 0x7FF00000L + ri->ffcref : ri->ffcref * 10000;
 }
 
 // The script ran off its end, or quit.
@@ -681,7 +695,7 @@ static void zasm30_item_run(int id)
 
 bool q30_item_script_busy(int id)
 {
-    return id >= 0 && id < MAXITEMS && q30_items_keep_running() && zasm30_item_doscript[id] != 0;
+    return id >= 0 && id < q30_items_end() && q30_items_keep_running() && zasm30_item_doscript[id] != 0;
 }
 
 // The player used the item.
@@ -704,10 +718,12 @@ static bool zasm30_item_passive_outranked(int id)
            && current_item(itemsbuf[id].family) > itemsbuf[id].fam_type;
 }
 
-// The Hero just got the item.
-void q30_passive_item_script(int id)
+// The Hero just got the item. run false is upstream's passiveitem_script(id, false), what its
+// resetItems asks for: the script is set to start but doesn't run yet (a new game's
+// zasm30_items_init, or in play the item engine's next turn, starts it).
+void q30_passive_item_script(int id, bool run)
 {
-    if(id < 0 || id >= MAXITEMS || !itemsbuf[id].script || !zasm30_item_passive[id] || !q30_items_keep_running())
+    if(id < 0 || id >= q30_items_end() || !itemsbuf[id].script || !zasm30_item_passive[id] || !q30_items_keep_running())
         return;
 
     zasm30_drop_instance(SCRIPT_ITEM, id);
@@ -719,7 +735,17 @@ void q30_passive_item_script(int id)
     }
 
     zasm30_item_doscript[id] = 1;
-    zasm30_item_run(id);
+
+    if(run)
+        zasm30_item_run(id);
+    else if(getenv("ZC_Q30_TRACE"))
+        al_trace("q30: item %d's passive script %d waits for the item engine (a starting item)\n", id, (int)itemsbuf[id].script);
+}
+
+// whether the Hero owning the item runs a passive script (ZC_Q30_ITEMDUMP's survey)
+bool q30_item_has_passive_script(int id)
+{
+    return id >= 0 && id < q30_items_end() && itemsbuf[id].script && zasm30_item_passive[id] && q30_items_keep_running();
 }
 
 // itemdata->RunScript(mode).
@@ -746,7 +772,7 @@ static void zasm30_item_engine(bool waitdraw)
     if(!q30_items_keep_running())
         return;
 
-    for(int q = 0; q < MAXITEMS; ++q)
+    for(int q = 0; q < q30_items_end(); ++q)
     {
         const word script = itemsbuf[q].script;
         byte &state = zasm30_item_doscript[q];
@@ -802,7 +828,7 @@ void q30_item_scripts_tick(bool waitdraw)
 // A new or continued game.
 static void zasm30_items_init()
 {
-    for(int q = 0; q < MAXITEMS; ++q)
+    for(int q = 0; q < q30_items_end(); ++q)
     {
         zasm30_drop_instance(SCRIPT_ITEM, q);
         zasm30_item_doscript[q] = (zasm30_item_passive[q] && itemsbuf[q].script && game->get_item(q)) ? 1 : 0;
@@ -1167,11 +1193,10 @@ void q30_run_passive_subscreen()
 static std::vector<word> zasm30_combo_cache;
 static int zasm30_combo_cache_screen = -1;
 
-void q30_run_combo_scripts(bool waitdraw)
+// The current screen's combo scripts (q30_run_combo_scripts: in a 3.0 scrolling region, each
+// screen of it in turn, with its own instances).
+static void zasm30_combo_scripts_here(int waitdraw)
 {
-    if(!zasm30_ffscript_version)
-        return;
-
     const int screen_id = currmap * MAPSCRS + currscr;
 
     if(zasm30_combo_cache.size() != 7 * 176 || zasm30_combo_cache_screen != screen_id)
@@ -1229,9 +1254,20 @@ void q30_run_combo_scripts(bool waitdraw)
     }
 }
 
-void q30_run_ffc_waitdraw()
+void q30_run_combo_scripts(bool waitdraw)
 {
-    if(!zasm30_ffscript_version || !zasm30_ffc_waitdraw)
+    if(!zasm30_ffscript_version)
+        return;
+
+    if(!q30_region_each_screen(waitdraw ? Q30_EACH_COMBO_WAITDRAW : Q30_EACH_COMBO_SCRIPTS, zasm30_combo_scripts_here, waitdraw))
+        zasm30_combo_scripts_here(waitdraw);
+}
+
+// The second half of the current screen's FFC scripts that called Waitdraw (in a 3.0 scrolling
+// region, each screen of it in turn).
+static void zasm30_ffc_waitdraw_here(int)
+{
+    if(!zasm30_ffc_waitdraw)
         return;
 
     for(byte i = 0; i < MAXFFCS; i++)
@@ -1244,6 +1280,15 @@ void q30_run_ffc_waitdraw()
     }
 
     zasm30_ffc_waitdraw = 0;
+}
+
+void q30_run_ffc_waitdraw()
+{
+    if(!zasm30_ffscript_version)
+        return;
+
+    if(!q30_region_each_screen(Q30_EACH_FFC_WAITDRAW, zasm30_ffc_waitdraw_here, 0))
+        zasm30_ffc_waitdraw_here(0);
 }
 
 void q30_run_screen_waitdraw() {}
@@ -1300,6 +1345,76 @@ void q30_run_waitdraw_scripts()
     zasm30_generic_passive(Z30T_POST_LWPN_WAITDRAW);
     q30_run_itemsprite_scripts(true);
     zasm30_generic_passive(Z30T_POST_ITEMSPRITE_WAITDRAW);
+}
+
+// Set while init_game or cont_game opens the screen before the global script is set up for the
+// game (quests with the old Init timing, and continues): q30_warp_script_check then runs nothing.
+bool q30_warp_scripts_held = false;
+
+// How many times q30_warp_script_check has run the global script: init_game sees whether the
+// opening gave it its first frame.
+int q30_warp_global_runs = 0;
+
+// Upstream's FFScript::warpScriptCheck, for newer quests. Before the engine holds the game for a
+// screen's opening wipe, a warp's fade or zap, or the frame before a tile warp, "Scripts Draw
+// During Warps" (qr_SCRIPTDRAWSINWARPS) runs the global, item, hero, DMap and passive subscreen
+// scripts for one frame and then their Waitdraw halves, so what they set up and draw is there
+// through it: at a game start Mystical Harps' HUD, A item and mermaid Ariana show through the
+// opening, as upstream, not only once it ends. Without that rule, "Passive Subscreen Script Runs
+// When Game Is Frozen" runs the passive subscreen script alone. (Upstream also runs a preload
+// screen script here; this engine doesn't keep that flag.) Nothing for 2.53 quests.
+// qr_SCRIPTDRAWSINWARPS (rule 165). Upstream switches it off for 2.55 quests older than build 44
+// as it reads them (the same block that clears qr_ITEMSCRIPTSKEEPRUNNING, q30_items_keep_running).
+static bool q30_scripts_draw_in_warps()
+{
+    return q30_quest_rule(165) && !(quest_header_zelda_version == 0x255 && quest_header_zelda_build < 44);
+}
+
+void q30_warp_script_check()
+{
+    // (and never from inside a running script: they don't nest here)
+    if(!zasm30_ffscript_version || q30_warp_scripts_held || zasm30_run_depth > 0)
+        return;
+
+    const Q30ScriptRef *passive = q30_dmap_script(currdmap, q30_dmap_passive_subscreen);
+
+    if(q30_scripts_draw_in_warps())     // (runWarpScripts(false), then (true))
+    {
+        if(g_doscript)
+        {
+            ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_GAME);
+            ++q30_warp_global_runs;
+        }
+
+        zasm30_item_engine(false);
+        zasm30_run_hero(2);         // the hero's active script alone (no FakeZ step: not a frame)
+        q30_run_dmap_active();
+        q30_run_passive_subscreen();
+
+        if(global_wait)
+        {
+            ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_GAME);
+            global_wait = false;
+        }
+
+        zasm30_item_engine(true);
+
+        if(q30_hero_scripts[2] && q30_hero_scripts[2][0].command != 0xFFFF)
+            zasm30_run_waitdraw_half(SCRIPT_LINK, 2, 2);
+
+        const Q30ScriptRef *dmap = q30_dmap_script(currdmap, q30_dmap_active);
+        if(dmap)
+            zasm30_run_waitdraw_half(SCRIPT_DMAP, dmap->script, 0);
+        if(passive)
+            zasm30_run_waitdraw_half(SCRIPT_PASSIVESUB, passive->script, 0);
+    }
+    else if(q30_quest_rule(684))    // qr_PASSIVE_SUBSCRIPT_RUNS_WHEN_GAME_IS_FROZEN
+    {
+        q30_run_passive_subscreen();
+
+        if(passive)
+            zasm30_run_waitdraw_half(SCRIPT_PASSIVESUB, passive->script, 0);
+    }
 }
 
 void q30_run_onlaunch()

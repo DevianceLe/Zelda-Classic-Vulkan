@@ -2929,6 +2929,16 @@ void putxnum(BITMAP *dest,int x,int y,int num,FONT *tempfont,int color,int shado
 item *Bitem = NULL, *Aitem = NULL;
 int   Bid = 0, Aid = 0;
 
+// Where a subscreen draws an item sprite: at the spot, with no draw offsets (upstream's putitem3
+// clears both, and a newer quest's item can have its own; 2.53's x offset is 0 already).
+static inline void sub_item_place(sprite *s)
+{
+    s->yofs = 0;
+#ifdef ZC_PLAYER_BUILD
+    s->xofs = 0;
+#endif
+}
+
 #ifdef ZC_PLAYER_BUILD
 // The X and Y buttons of newer quests.
 extern int Xwpn, Ywpn;
@@ -2952,7 +2962,7 @@ static void update_extra_button_item(item *&it, int &id, int wpn)
             it->dummy_bool[0]=true;
 
         id = wpn;
-        it->yofs = 0;
+        sub_item_place(it);
         it->pickup |= ipDUMMY;
     }
 }
@@ -3015,7 +3025,7 @@ void update_subscr_items()
             if(Bitem != NULL)
             {
                 Bid = Bwpn;
-                Bitem->yofs = 0;
+                sub_item_place(Bitem);
                 Bitem->pickup |= ipDUMMY;
             }
         }
@@ -3049,7 +3059,7 @@ void update_subscr_items()
             if(Aitem != NULL)
             {
                 Aid = Awpn;
-                Aitem->yofs = 0;
+                sub_item_place(Aitem);
                 Aitem->pickup |= ipDUMMY;
             }
         }
@@ -3152,7 +3162,7 @@ void subscreenitem(BITMAP *dest, int x, int y, int itemtype)
             {
                 Sitems.spr(i)->x = x;
                 Sitems.spr(i)->y = y;
-                Sitems.spr(i)->yofs=0;
+                sub_item_place(Sitems.spr(i));
                 
                 if(displaysubscreenitem(itemtype, d))
                 {
@@ -3180,7 +3190,7 @@ void subscreenitem(BITMAP *dest, int x, int y, int itemtype)
         
         Sitems.spr(overridecheck)->x = x;
         Sitems.spr(overridecheck)->y = y;
-        Sitems.spr(overridecheck)->yofs=0;
+        sub_item_place(Sitems.spr(overridecheck));
         Sitems.spr(overridecheck)->draw(dest);
     }
 }
@@ -3255,7 +3265,7 @@ static void q30_subscreen_item_draw(BITMAP *dest, int x, int y, int id)
 
     Sitems.spr(found)->x = x;
     Sitems.spr(found)->y = y;
-    Sitems.spr(found)->yofs = 0;
+    sub_item_place(Sitems.spr(found));
     Sitems.spr(found)->draw(dest);
 }
 #endif
@@ -3420,10 +3430,20 @@ int subscreen_cset(miscQdata *misc,int c1, int c2)
     return ret;
 }
 
+#ifdef ZC_PLAYER_BUILD
+FONT *get_zc_font(int index);   // script_drawing.cpp: upstream's font ids, 3.0's own fonts too
+#endif
+
 FONT *ss_font(int fontnum)
 {
     FONT *tempfont;
     
+#ifdef ZC_PLAYER_BUILD
+    // 2.55/3.0: a font with no ssf number of 2.53's, by upstream's font id (sub_font)
+    if(fontnum >= Q30_SSF_FONTS && fontnum < Q30_SSF_FONTS + Q30_FONT_COUNT && q30_active())
+        return get_zc_font(fontnum - Q30_SSF_FONTS);
+#endif
+
     switch(fontnum)
     {
     case ssfSMALL:
@@ -3835,7 +3855,11 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
                     break;
                     
                 char itemname[140]="";
+#ifdef ZC_PLAYER_BUILD
+                snprintf(itemname, sizeof(itemname), "%s", q30_item_name(itemid));     // (256 and up too)
+#else
                 sprintf(itemname, "%s", item_string[itemid]);
+#endif
                 
                 switch(itemsbuf[itemid].family)
                 {
@@ -3845,7 +3869,11 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
                         if(current_item_id(itype_bow))
                         {
                             bool hasarrows=((get_bit(quest_rules,qr_TRUEARROWS)&&(game==NULL || game->get_arrows()))||(!get_bit(quest_rules,qr_TRUEARROWS)&&(game==NULL || game->get_rupies())));
+#ifdef ZC_PLAYER_BUILD
+                            snprintf(itemname, sizeof(itemname), "%s%s%s", q30_item_name(current_item_id(itype_bow)), hasarrows?" & ":"",hasarrows?q30_item_name(Bitem->id):"");
+#else
                             sprintf(itemname, "%s%s%s", item_string[current_item_id(itype_bow)], hasarrows?" & ":"",hasarrows?item_string[Bitem->id]:"");
+#endif
                             /*switch (current_item_power(itype_bow))
                             {
                               case 1:

@@ -20,7 +20,9 @@
 struct mapscr;
 
 bool q30_region_on();               // the current screen is in a scrolling region
-void q30_region_screen_loaded();    // after loadscr(0): the region of currscr
+// After loadscr(0): the region of currscr. destdmap is the DMap loadscr loaded it for (-1: the
+// current one); during a scroll into another DMap currdmap is still the old one.
+void q30_region_screen_loaded(int destdmap = -1);
 void q30_region_forget();           // a quest was loaded or a game ended
 
 int q30_region_origin();            // the region's top-left screen (currscr when not in one)
@@ -32,11 +34,41 @@ int q30_region_screens_high();
 int q30_region_offset_x();          // the current screen's top-left in region pixels
 int q30_region_offset_y();
 
-// The camera for Link at local (lx, ly): its top-left relative to the current screen's top-left
-// (both 0 outside regions), and in region pixels (Viewport->X / Y; during a scroll, the scroll's
-// view in the new region's pixels).
+// ---- what scripts see in a scrolling region ----------------------------------------------------
+//
+// Upstream keeps every sprite of a scrolling region in region-wide coordinates, so its scripts
+// read and write positions in them (Hero->X/Y, npc / lweapon / eweapon / item X/Y, combo
+// positions, Screen->DrawOrigin REGION). This engine keeps them local to the current screen, so
+// the script registers convert: a read adds the current screen's offset in the region, a write
+// takes it off. Outside a scrolling region (and in every 2.53 quest) the offset is 0.
+//
+// The current screen's pixel offset from its region's top-left screen; 0 outside a region.
+int q30_region_origin_x();
+int q30_region_origin_y();
+
+// Combo positions across the region (upstream's rpos): the screen's index in the region, row by
+// row, times 176, plus the position on that screen. Outside a region they are 0..175 as before.
+int q30_region_num_rpos();                      // 176 times the region's screens
+int q30_region_rpos_at(int x, int y);           // the combo at region pixel (x, y), clamped into the region (ComboAt)
+void q30_region_rpos_xy(int rpos, int *x, int *y);  // that combo's top-left in region pixels
+int q30_region_rpos_of_pos(int pos);            // a position on the current screen as an rpos
+// The screen an rpos is on, as layer `layer` (0 the screen, 1-6 its layers): tmpscr / tmpscr2 for
+// the current screen, else the region's copy of the other screen (NULL for a layer it doesn't
+// use); *pos gets the position on it. NULL also for an rpos past the region. *current says
+// whether it is the current screen (whose combos the 2.53 code around them may also act on).
+mapscr *q30_region_rpos_screen(int rpos, int layer, int *pos, bool *current);
+// The region screen a point in current-screen pixels is on (currscr outside a region).
+int q30_region_screen_at(int lx, int ly);
+
+// The camera: its top-left relative to the current screen's top-left (both 0 outside regions;
+// lx, ly are unused, the camera follows Link by itself), and in region pixels (Viewport->X / Y;
+// during a scroll, the scroll's view in the new region's pixels).
 void q30_region_camera(int lx, int ly, int *cam_x, int *cam_y);
 void q30_region_viewport(int *vx, int *vy);
+// Once a frame from the game loop, after Link moved: the camera follows him (upstream's
+// tick_viewport_follow: dead zone, lookahead and recentering, from init data or the DMap).
+// Nothing for 2.53 quests.
+void q30_region_tick_camera();
 
 // draw_screen's layers below the sprites. With the camera off this screen's grid they are drawn
 // on a canvas of the screens around this one: q30_region_lower_begin returns it (else scrollbuf)
@@ -58,6 +90,20 @@ void q30_draw_view_origin(BITMAP *bmp, int *x, int *y);
 // draw_screen: a layer above the sprites (do_layer types 2-5, -1, -4) of the current screen and
 // of the other screens in view, through the camera.
 void q30_region_upper_layer(BITMAP *bmp, int type, mapscr *this_screen, bool drawprimitives);
+
+// The screens the camera shows, for what is drawn over them all (dark rooms): the current screen
+// first (tmpscr and its layers, live), then the region's other screens in view, or within extra
+// pixels of the view (upstream lights a dark room from torches up to 128 pixels outside it).
+// ox, oy: each screen's top-left relative to the current screen's. Outside regions (and while a
+// scroll runs) only the current screen. Returns how many (at most Q30_VIEW_SCREENS).
+struct Q30ViewScreen
+{
+    int ox, oy;
+    const mapscr *base;
+    const mapscr *layers;       // its 6 layers (valid 0: none)
+};
+enum { Q30_VIEW_SCREENS = 25 };
+int q30_region_view_screens(Q30ViewScreen *out, int extra);
 
 // The offset sprites and script drawings get while draw_screen draws above the lower layers
 // (both 0 when no camera is in use).
@@ -102,6 +148,69 @@ bool q30_region_restore_screen_state();     // false: a screen not visited yet i
 
 // Each frame: the other screens of the region the camera shows load their enemies (once a stay).
 void q30_region_load_enemies_in_view();
+
+// ---- every screen of a region live: FFCs and scripts (q30_regions.cpp) ----------------
+//
+// Upstream loads all the screens of a scrolling region when Link enters it, and runs all their
+// FFCs (movement, scripts, changers, solidity, drawing) and their screen and combo scripts every
+// frame; walking over a border inside the region restarts nothing. This engine has one live
+// screen (tmpscr, tmpscr2, ffcScriptData and the script engine's FFC, screen and combo script
+// state, the trigger state). So each other screen of the region gets a slot of its own, loaded
+// as loadscr loads a screen when Link enters the region, which keeps that state while Link is
+// elsewhere in the region:
+//   - q30_region_each_screen: each frame, every screen of the region runs a part of the frame
+//     (its screen script, its FFC scripts, its FFCs' movement, its combos' cycling and trigger
+//     timers, its combo scripts, Waitdraw halves), row by row from the top-left as upstream does.
+//     A screen that isn't the current one stands in for it while it runs: its slot and the
+//     globals change places, currscr is it, and Link and the sprites are moved into its
+//     coordinates, so scripts see what they see on it.
+//   - the hand-off (LinkClass::q30_region_handoff): the next screen's slot comes in and the
+//     current screen goes to a slot; nothing is loaded again (q30_region_go_live).
+// Every FFC of the region is drawn where it is; solid ones stop Link and the combo types of the
+// others act where they are (MAPFFCOMBO). Nothing here runs for 2.53 quests or outside regions.
+
+// what a screen of the region runs in q30_region_each_screen
+enum
+{
+    Q30_EACH_SCREEN_SCRIPT, Q30_EACH_FFC_SCRIPTS, Q30_EACH_FFC_PRELOAD, Q30_EACH_FFC_MOVE,
+    Q30_EACH_COMBO_SCRIPTS, Q30_EACH_FFC_WAITDRAW, Q30_EACH_COMBO_WAITDRAW,
+    Q30_EACH_COMBO_CYCLE    // combos cycling, and (another screen) its combo triggers' timers
+};
+
+// Runs fn(arg) for every screen of the region that has something to do for `what` (the current
+// screen always), each standing in for the current one in turn. False when not in a region with
+// live screens: the caller runs fn itself, for the current screen, as before.
+bool q30_region_each_screen(int what, void (*fn)(int), int arg);
+
+// While a screen of the region loads beside the current one (loadscr: no screen-change events,
+// no FFC arrays freed, its own trigger setup).
+bool q30_region_loading_other();
+
+// The screen Link is on (upstream's hero_scr), for what a script does to Link through his
+// screen: Hero->Warp, PitWarp and WarpEx write its side warp A. While another screen of the
+// region stands in for the current one to run its scripts, tmpscr is that screen and Link's
+// waits in a slot: this is the slot's. Any other time (and always in 2.53 quests) it is tmpscr.
+mapscr *q30_region_hero_scr();
+
+// The hand-off to region screen `scr` when the region's screens are live: its slot becomes the
+// current screen (currscr, tmpscr, its FFCs and scripts as they are), the current screen goes to
+// a slot. Link and the sprites aren't moved. False: no live slot for it (load it as before).
+bool q30_region_go_live(int scr);
+
+// FFCs across the region, for scripts (q30_scripts_region.h). An FFC's ID there is upstream's:
+// (its screen's index in the region, row by row) * 128 + its slot + 1; its X and Y are region
+// pixels. Outside a region every screen is the current one at index 0.
+int q30_region_screen_index(int scr);       // -1: not a screen of the region
+int q30_region_index_screen(int index);     // -1: no such screen in the region
+void q30_region_screen_pixels(int scr, int *x, int *y);    // its top-left in region pixels
+mapscr *q30_region_ffc_table(int scr);      // its FFCs: tmpscr for the current one; NULL if none
+void *q30_region_screen_scripts(int scr);   // its slot's script state (NULL for the current one)
+
+// Solid FFCs of the region's other screens over the points walkflag tests (cnt of them, 8 apart).
+bool q30_region_ffc_solid_at(int x, int y, int cnt);
+// MAPFFCOMBO: the combo of an FFC of the region's other screens covering a point of the current
+// screen (as ffcIsAt tests it), so their combo types hurt, block weapons and so on there; 0: none.
+int q30_region_ffcombo_at(int x, int y);
 
 // ---- scrolling between screens (LinkClass::scrollscr) in a 2.55 / 3.0 quest -----------------
 //
@@ -153,6 +262,11 @@ void q30_scroll_view(int sx, int sy);
 // do_layer of those screens, at the offsets the old (tempscreen 3) or new (2) screen is drawn at.
 bool q30_scroll_blit_lower(BITMAP *scrollbuf, BITMAP *framebuf, int sx, int sy);
 void q30_scroll_layer(BITMAP *bmp, int type, bool new_screen, int x, int y, bool scrolling);
+// What a scroll's view shows at (sx, sy), for dark rooms: the old screen (tmpscr[1], tmpscr3), the
+// new one (tmpscr, tmpscr2) and the screens beside them the view leans over, each with its
+// top-left on the view; *vx, *vy the view's top-left from the new screen's, *lx, *ly Link's on the
+// view. 0 when no 2.55/3.0 scroll runs.
+int q30_scroll_view_screens(Q30ViewScreen *out, int sx, int sy, int *vx, int *vy, int *lx, int *ly);
 void q30_scroll_end();              // the scroll ended: the new region's camera, no Scrolling data
 
 #endif

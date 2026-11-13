@@ -38,6 +38,8 @@
 #include "mem_debug.h"
 #include "port/game/q30_triggers.h"
 #include "port/game/q30_regions.h"
+bool q30_msg_blit(BITMAP *dest, int dy, int h);    // q30_msg.cpp: 2.55/3.0 strings, translucent ones too
+bool q30_msg_blit_screen(BITMAP *dest, int dy, int h, bool after_subscreen);  // ... at their draw layer
 
 
 #define EPSILON 0.01 // Define your own tolerance
@@ -202,8 +204,9 @@ int MAPFFCOMBO(int x,int y)
         if(ffcIsAt(i, x, y))
             return tmpscr->ffdata[i];
     }
-    
-    return 0;
+
+    // a 3.0 scrolling region: an FFC of another screen of it may be here (q30_regions.h); 0 else
+    return q30_region_ffcombo_at(x, y);
 }
 
 int MAPCSET(int x,int y)
@@ -357,6 +360,13 @@ const char *screenstate_string[15] =
     "Boss Locked Chests", "Secrets", "Visited"
 };
 
+// The event log's name for a state flag ("<Unknown>" for none, or past the 15 named ones)
+static const char *screenstate_name(int flag)
+{
+    const int i = flag > 0 ? (int)log2((float)flag) : -1;
+    return (i >= 0 && i < 15) ? screenstate_string[i] : "<Unknown>";
+}
+
 void eventlog_mapflag_line(word* g, word flag, int ss_s_index)
 {
     if((*g)&flag)
@@ -400,7 +410,7 @@ void setmapflag(int mi2, int flag)
     game->maps[mi2] |= flag;
     Z_eventlog("%s's State was set: %s\n",
                mi2 != (currmap*MAPSCRSNORMAL)+homescr ? buf : "Current screen",
-               flag>0 ? screenstate_string[(int)log2((float)flag)] : "<Unknown>");
+               screenstate_name(flag));
                
     if(flag==mSECRET||flag==mITEM||flag==mBELOW||flag==mLOCKBLOCK||
             flag==mBOSSLOCKBLOCK||flag==mCHEST||flag==mBOSSCHEST||flag==mLOCKEDCHEST)
@@ -462,7 +472,7 @@ void unsetmapflag(int mi2, int flag, bool anyflag)
     
     Z_eventlog("%s's State was unset: %s\n",
                mi2 != (currmap*MAPSCRSNORMAL)+homescr ? buf : "Current screen",
-               flag>0 ? screenstate_string[(int)log2((float)flag)] : "<Unknown>");
+               screenstate_name(flag));
                
     if(flag==mSECRET||flag==mITEM||flag==mBELOW||flag==mLOCKBLOCK||
             flag==mBOSSLOCKBLOCK||flag==mCHEST||flag==mBOSSCHEST||flag==mLOCKEDCHEST)
@@ -535,15 +545,16 @@ int WARPCODE(int dmap,int scr,int dw)
     return (QMisc.warp[ring].dmap[index] << 8) + QMisc.warp[ring].scr[index];
 }
 
+static int newdata[176];
+static int newcset[176];
+static int newdata2[176];
+static int newcset2[176];
+static bool restartanim[MAXCOMBOS];
+static bool restartanim2[MAXCOMBOS];
+static void update_screen_combo_cycling(int);
+
 void update_combo_cycling()
 {
-    int x,y;
-    static int newdata[176];
-    static int newcset[176];
-    static int newdata2[176];
-    static int newcset2[176];
-    static bool restartanim[MAXCOMBOS];
-    static bool restartanim2[MAXCOMBOS];
     static bool initialized=false;
     
     // Just a simple bit of optimization
@@ -561,6 +572,37 @@ void update_combo_cycling()
         memset(restartanim2, 0, MAXCOMBOS);
         initialized=true;
     }
+
+    // In a 3.0 scrolling region the combos of every screen of it cycle (q30_regions.h); anywhere
+    // else this screen's, as before. The animations they restart restart once, below.
+    if(!q30_region_each_screen(Q30_EACH_COMBO_CYCLE, update_screen_combo_cycling, 0))
+        update_screen_combo_cycling(0);
+
+    for(int i=0; i<MAXCOMBOS; i++)
+    {
+        if(restartanim[i])
+        {
+            combobuf[i].tile = animated_combo_table[i][1];
+            animated_combo_table4[animated_combo_table[i][0]][1]=0;
+            restartanim[i]=false;
+        }
+
+        if(restartanim2[i])
+        {
+            combobuf[i].tile = animated_combo_table2[i][1];
+            animated_combo_table4[animated_combo_table[i][0]][1]=0;
+            restartanim2[i]=false;
+        }
+    }
+
+    q30_trig_update();
+}
+
+// The current screen's combos (its layers' with qr_CMBCYCLELAYERS) and FFCs that finished their
+// animation change to their next combo.
+static void update_screen_combo_cycling(int)
+{
+    int x,y;
     
     for(int i=0; i<176; i++)
     {
@@ -762,25 +804,6 @@ void update_combo_cycling()
             }
         }
     }
-    
-    for(int i=0; i<MAXCOMBOS; i++)
-    {
-        if(restartanim[i])
-        {
-            combobuf[i].tile = animated_combo_table[i][1];
-            animated_combo_table4[animated_combo_table[i][0]][1]=0;
-            restartanim[i]=false;
-        }
-        
-        if(restartanim2[i])
-        {
-            combobuf[i].tile = animated_combo_table2[i][1];
-            animated_combo_table4[animated_combo_table[i][0]][1]=0;
-            restartanim2[i]=false;
-        }
-    }
-
-    q30_trig_update();
 }
 
 bool iswater_type(int type)
@@ -1808,9 +1831,27 @@ bool findentrance(int x, int y, int flag, bool setflag)
     return true;
 }
 
+static void update_ffc_movement(int);
+
 void update_freeform_combos()
 {
     ffscript_engine(false);
+
+    // In a 3.0 scrolling region the FFCs of every screen of it move (q30_regions.h); anywhere
+    // else this screen's, as before.
+    if(!q30_region_each_screen(Q30_EACH_FFC_MOVE, update_ffc_movement, 0))
+        update_ffc_movement(0);
+}
+
+// The current screen's FFCs move, meet changers, and wrap or go when they are 32 pixels past the
+// screen (in a 3.0 scrolling region, past the region: q30_region_bounds is the screen elsewhere).
+static void update_ffc_movement(int)
+{
+    int bl, bt, br, bb;
+    q30_region_bounds(&bl, &bt, &br, &bb);
+    const long wrap_l = (bl - 32) * 10000L, wrap_t = (bt - 32) * 10000L;
+    const long wrap_r = (br + 32) * 10000L, wrap_b = (bb + 32) * 10000L;
+    const long gone_l = (bl - 64) * 10000L, gone_t = (bt - 64) * 10000L;
     
     for(int i=0; i<32; i++)
     {
@@ -1949,17 +1990,17 @@ void update_freeform_combos()
         
         // Check if the FFC's off the side of the screen
         
-        // Left
-        if(tmpscr->ffx[i]<-320000)
+        // Left (wrap_l is -320000 on a screen of its own; gone_l -640000, wrap_r 2880000)
+        if(tmpscr->ffx[i]<wrap_l)
         {
             if(tmpscr->flags6&fWRAPAROUNDFF)
             {
-                tmpscr->ffx[i] = 2880000+(tmpscr->ffx[i]+320000);
+                tmpscr->ffx[i] = wrap_r+(tmpscr->ffx[i]-wrap_l);
                 ffprvy[i] = tmpscr->ffy[i];
                 ffposx[i]=-1000; // Re-enable previous changer
                 ffposy[i]=-1000;
             }
-            else if(tmpscr->ffx[i]<-640000)
+            else if(tmpscr->ffx[i]<gone_l)
             {
                 tmpscr->ffdata[i]=0;
                 tmpscr->ffflags[i]&=~ffCARRYOVER;
@@ -1967,11 +2008,11 @@ void update_freeform_combos()
         }
         
         // Right
-        else if(tmpscr->ffx[i]>=2880000)
+        else if(tmpscr->ffx[i]>=wrap_r)
         {
             if(tmpscr->flags6&fWRAPAROUNDFF)
             {
-                tmpscr->ffx[i] = tmpscr->ffx[i]-2880000-320000;
+                tmpscr->ffx[i] = tmpscr->ffx[i]-wrap_r+wrap_l;
                 ffprvy[i] = tmpscr->ffy[i];
                 ffposx[i]=-1000;
                 ffposy[i]=-1000;
@@ -1983,17 +2024,17 @@ void update_freeform_combos()
             }
         }
         
-        // Top
-        if(tmpscr->ffy[i]<-320000)
+        // Top (wrap_t -320000, gone_t -640000, wrap_b 2080000)
+        if(tmpscr->ffy[i]<wrap_t)
         {
             if(tmpscr->flags6&fWRAPAROUNDFF)
             {
-                tmpscr->ffy[i] = 2080000+(tmpscr->ffy[i]+320000);
+                tmpscr->ffy[i] = wrap_b+(tmpscr->ffy[i]-wrap_t);
                 ffprvx[i] = tmpscr->ffx[i];
                 ffposx[i]=-1000;
                 ffposy[i]=-1000;
             }
-            else if(tmpscr->ffy[i]<-640000)
+            else if(tmpscr->ffy[i]<gone_t)
             {
                 tmpscr->ffdata[i]=0;
                 tmpscr->ffflags[i]&=~ffCARRYOVER;
@@ -2001,11 +2042,11 @@ void update_freeform_combos()
         }
         
         // Bottom
-        else if(tmpscr->ffy[i]>=2080000)
+        else if(tmpscr->ffy[i]>=wrap_b)
         {
             if(tmpscr->flags6&fWRAPAROUNDFF)
             {
-                tmpscr->ffy[i] = tmpscr->ffy[i]-2080000-320000;
+                tmpscr->ffy[i] = tmpscr->ffy[i]-wrap_b+wrap_t;
                 ffprvy[i] = tmpscr->ffy[i];
                 ffposx[i]=-1000;
                 ffposy[i]=-1000;
@@ -3402,8 +3443,6 @@ void draw_screen(mapscr* this_screen, bool showlink)
     
     set_clip_rect(framebuf,draw_screen_clip_rect_x1,draw_screen_clip_rect_y1,draw_screen_clip_rect_x2,draw_screen_clip_rect_y2);
     blit(temp_buf, framebuf, 0, 0, 0, 0, 256, zc_view_h);
-    q30_draw_beams(framebuf);
-    q30_draw_darkness(framebuf);
     q30_draw_lift(framebuf);
     
     //6b. Draw the subscreen, without clipping
@@ -3464,6 +3503,14 @@ void draw_screen(mapscr* this_screen, bool showlink)
             items.spr(i)->draw(framebuf);
     q30_draw_script_layer(framebuf, Q30_SPLAYER_FAIRYITEM_DRAW);
 
+    // 2.55/3.0 light beams: over the flying sprites, under layers 5 and 6 (upstream's order).
+    // Kept to the playing field: a scrolling region's camera can shift them up past its top,
+    // where they would land on the passive subscreen (upstream's beam bitmap is the view alone).
+    set_clip_rect(framebuf,draw_screen_clip_rect_x1,zc_max(draw_screen_clip_rect_y1,playing_field_offset),
+                  draw_screen_clip_rect_x2,zc_min(draw_screen_clip_rect_y2,playing_field_offset+175));
+    q30_draw_beams(framebuf);
+    set_clip_rect(framebuf,0,0,256,zc_view_h);
+
     //8. Blit framebuf onto temp_buf
     
     masked_blit(framebuf, temp_buf, 0, 0, 0, 0, 256, zc_view_h);
@@ -3505,8 +3552,11 @@ void draw_screen(mapscr* this_screen, bool showlink)
     
     set_clip_rect(framebuf,draw_screen_clip_rect_x1,draw_screen_clip_rect_y1,draw_screen_clip_rect_x2,draw_screen_clip_rect_y2);
     blit(temp_buf, framebuf, 0, 0, 0, 0, 256, zc_view_h);
-    
-    
+
+    // 2.55/3.0 new dark rooms: over every layer up to 6 and the sprites above them, as upstream
+    // draws them (under the message text and the subscreen here)
+    q30_draw_darkness(framebuf);
+
     //11. Draw some text on framebuf
     q30_region_end_sprites();   // the playfield is done; text and the subscreen don't move
 
@@ -3515,8 +3565,12 @@ void draw_screen(mapscr* this_screen, bool showlink)
     
     if(!(msgdisplaybuf->clip))
     {
-        masked_blit(msgdisplaybuf,framebuf,0,0,0,playing_field_offset,256,zc_field_h());
-        masked_blit(msgdisplaybuf,scrollbuf,0,0,0,playing_field_offset,256,zc_field_h());
+        // 2.55/3.0: the string's parts as upstream draws them, translucent ones too, here when its
+        // draw layer goes under the subscreen (q30_msg.cpp)
+        if(!q30_msg_blit_screen(framebuf, playing_field_offset, zc_field_h(), false))
+            masked_blit(msgdisplaybuf,framebuf,0,0,0,playing_field_offset,256,zc_field_h());
+        if(!q30_msg_blit(scrollbuf, playing_field_offset, zc_field_h()))
+            masked_blit(msgdisplaybuf,scrollbuf,0,0,0,playing_field_offset,256,zc_field_h());
     }
     
     //12. Draw the subscreen, without clipping
@@ -3528,6 +3582,10 @@ void draw_screen(mapscr* this_screen, bool showlink)
         // Draw primitives over subscren
         do_primitives(framebuf, 7, this_screen, 0, playing_field_offset); //Layer '7' appears above subscreen if quest rule is set
     }
+    
+    // 2.55/3.0: layer 6 and 7 strings over the subscreen and layer 7's drawing, as upstream
+    // (q30_msg.cpp; nothing for 2.53 quests)
+    q30_msg_blit_screen(framebuf, playing_field_offset, zc_field_h(), true);
     
     set_clip_rect(scrollbuf, 0, 0, scrollbuf->w, scrollbuf->h);
 }
@@ -4018,7 +4076,12 @@ void openshutters()
 
 void loadscr(int tmp,int destdmap, int scr,int ldir,bool overlay=false)
 {
-    if(tmp==0)
+    // 3.0 scrolling regions: another screen of the region loading beside the current one, as it
+    // stands in for it (q30_regions.h). That is no change of screen: no events, no FFC arrays
+    // freed, and its own trigger setup. Never for 2.53 quests.
+    const bool region_other = tmp==0 && q30_region_loading_other();
+
+    if(tmp==0 && !region_other)
     {
         q30_clear_secrets_note();
         q30_screen_change_events(false);    // 2.55+ generic scripts: DMap, level, screen changes
@@ -4095,7 +4158,7 @@ void loadscr(int tmp,int destdmap, int scr,int ldir,bool overlay=false)
     if(tmp==0)
     {
         // Before loading new FFCs, deallocate the arrays used by those that aren't carrying over
-        for(long i = 1; i < MAX_ZCARRAY_SIZE; i++)
+        for(long i = 1; i < MAX_ZCARRAY_SIZE && !region_other; i++)
         {
             if(arrayOwner[i]<32 && (!(ffscr.ffflags[arrayOwner[i]]&ffCARRYOVER) || ffscr.flags5&fNOFFCARRYOVER))
                 deallocateArray(i);
@@ -4328,10 +4391,12 @@ void loadscr(int tmp,int destdmap, int scr,int ldir,bool overlay=false)
         }
     }
 
-    if(tmp==0)
+    if(tmp==0 && region_other)
+        q30_trig_screen_load_other();   // (its own trigger state, swapped in)
+    else if(tmp==0)
     {
         q30_trig_screen_load();
-        q30_region_screen_loaded();     // 3.0 scrolling regions: which one this screen is in
+        q30_region_screen_loaded(destdmap); // 3.0 scrolling regions: which one this screen is in
         q30_screen_change_events(true); // 2.55+ generic scripts: CHANGE_SCREEN
     }
 }

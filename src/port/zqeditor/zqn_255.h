@@ -44,6 +44,11 @@ int zqn255_emit(PACKFILE *f, dword id, word version, word cversion, const std::v
 // The quest rules (100 bytes) as the target holds them after loading the quest (zqn_255_rules).
 bool zqn255_rules_loaded(int target, std::vector<byte> &rules);
 
+// The version of the scripts' compiler that last compiled the quest, as its misc data stores it
+// (zscript_last_compiled_version; -1 when the section is older than version 11 or missing).
+// False when the misc data can't be read (zqn_255_misc.cpp).
+bool zqn255_last_compiled(long &value);
+
 struct Zqn255Script
 {
     word script;

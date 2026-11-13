@@ -28,7 +28,7 @@
 // DMAP v24+: map_subscreen, floor
 // DMAP v26+: disabled item bits past item 255
 // DMAP v27+: inst_init maps of the four DMap scripts
-// DMAP v28+: viewport_follow
+// (DMAP v28+ viewport_follow goes to the scrolling regions' camera, q30_set_viewport_follow)
 //
 // Narrowed to what 2.53 can hold:
 // minimap/largemap tiles: 32 bits in the file from v11, and only NEWMAXTILES exist; out of range becomes 0 (no map graphic)
@@ -586,8 +586,13 @@ static void read_screen_new(Q255Section &s, mapscr *t, int screen, const word *a
         t->room = read_room(s.getc(), t);
         t->catchall = s.igetw();
 
-        // these two rooms use it as an item id, which reaches 1023 now
+        // these two rooms use it as an item id, which reaches 1023 now (the player has room for
+        // every one of them, ZQuest for 2.53's)
+#ifdef ZC_PLAYER_BUILD
+        if((t->room == rSP_ITEM || t->room == rGRUMBLE) && t->catchall >= Q30_MAXITEMS)
+#else
         if((t->room == rSP_ITEM || t->room == rGRUMBLE) && t->catchall >= MAXITEMS)
+#endif
             t->catchall = 0;
     }
 
@@ -600,6 +605,10 @@ static void read_screen_new(Q255Section &s, mapscr *t, int screen, const word *a
 
         if(item < MAXITEMS)
             t->item = (byte)item;
+#ifdef ZC_PLAYER_BUILD
+        else if(item < Q30_MAXITEMS)
+            set_mapscr_item(t, item);   // 256 and up: kept beside item (mapscr_item)
+#endif
         else
         {
             t->item = 0;
@@ -1074,8 +1083,9 @@ static void blank_dmap(dmap &d)
 }
 
 // p_getbitstr: a word size, and if it isn't 0 a "pairs" byte, a word count and
-// the bytes, with a word index in front of each one when pairs is set.
-static void read_disabled_items(Q255Section &s, dmap &d)
+// the bytes, with a word index in front of each one when pairs is set. index: the DMap's
+// number when it's kept (the player keeps its disabled items past 255 too), -1 otherwise.
+static void read_disabled_items(Q255Section &s, dmap &d, int index_kept)
 {
     if(!s.igetw())
         return;
@@ -1094,6 +1104,10 @@ static void read_disabled_items(Q255Section &s, dmap &d)
 
             if(item < MAXITEMS && (bits & (1 << b)))
                 d.disableditems[item] = 1;
+#ifdef ZC_PLAYER_BUILD
+            else if(item < Q30_MAXITEMS && (bits & (1 << b)) && index_kept >= 0)
+                q30_set_dmap_item_disabled(index_kept, item);
+#endif
         }
     }
 }
@@ -1190,7 +1204,7 @@ static void read_dmap(Q255Section &s, dmap &d, int index)
     d.passive_subscreen = s.getc();
 
     if(s.version >= 26)
-        read_disabled_items(s, d);
+        read_disabled_items(s, d, keep ? index : -1);
     else
     {
         byte di[32];
@@ -1294,8 +1308,21 @@ static void read_dmap(Q255Section &s, dmap &d, int index)
     if(s.version > 22 && (d.flags & DMF_CUSTOM_GRAVITY))
         s.skip(4 + 4);  // dmap_gravity, dmap_terminal_v
 
+    // A DMap's own camera follow settings for scrolling regions (q30_regions.cpp); without them
+    // it uses init data's.
     if(s.version >= 28 && (d.flags & DMF_CUSTOM_VIEWPORT_FOLLOW))
-        s.skip(4 + 4 + 4 + 2);  // viewport_follow
+    {
+        const int deadzone_w = s.getc(), deadzone_h = s.getc();
+        const int lookahead_x = (signed char)s.getc(), lookahead_y = (signed char)s.getc();
+        const long lookahead_speed = s.igetl_s(), recenter_speed = s.igetl_s();
+        const int recenter_delay = s.igetw();
+
+        if(keep && !s.failed)
+            q30_set_viewport_follow(index, true, deadzone_w, deadzone_h, lookahead_x, lookahead_y, lookahead_speed, recenter_speed,
+                                    recenter_delay);
+    }
+    else if(keep && !s.failed)
+        q30_set_viewport_follow(index, false, 0, 0, 0, 0, 10000, 0, 30);
 
     int floor = 0;
 
@@ -1342,6 +1369,10 @@ int q255_editor_read_dmap(Q255Section &s, dmap *d)
     return s.failed ? qe_invalid : 0;
 }
 
+// The DMAP section's version, for the player's message engine: upstream's Header->is_z3 (a
+// 3.0 quest of the scrolling-regions era) is a DMAP section of version 22 or later.
+int q255_dmaps_version = 0;
+
 int q255_read_dmaps(Q255Section &s)
 {
     if(s.version < 9 || s.version > 28)
@@ -1349,7 +1380,11 @@ int q255_read_dmaps(Q255Section &s)
 
     if(s.keep)
     {
+        q255_dmaps_version = s.version;
         q30_audio_clear_dmaps();
+#ifdef ZC_PLAYER_BUILD
+        q30_set_dmap_item_disabled(-1, 0);
+#endif
         g_dmap_scripts.clear();
         g_dmap_extras.clear();
 
@@ -1357,6 +1392,7 @@ int q255_read_dmaps(Q255Section &s)
         {
             blank_dmap(DMaps[i]);
             DMaps[i].type |= dmCAVE;
+            q30_set_viewport_follow(i, false, 0, 0, 0, 0, 10000, 0, 30);   // (init data's camera)
         }
     }
 

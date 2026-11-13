@@ -18,6 +18,14 @@
 //   them (convert_new below).
 // When a DMap is written, a number past its list's end becomes 0 (-1 for the map subscreen,
 // validate_subscreens), so the DMap writer must use the same lists (zqn255_dmap_subscreens).
+//
+// 2.55.17 holds three lists (no map subscreens) and writes SUBS version 12. It loads the same
+// sections the same way: the old format through the same conversion in its own layout
+// (zqn_old_subscreens), the default subscreens from its own lists (zqn_default_subscreens), and the
+// new format (versions 8-12) as ZCSubscreen::read reads it (convert_new_255): what a version lacks
+// takes the reader's value (no compatibility flags before 11; a counter's second colours are its
+// first ones before 12), and ZCSubscreen::write writes only the first page of a subscreen that
+// isn't an active one, and a default button position past the last page as none (0xFF).
 
 #include "precompiled.h" //always first
 
@@ -796,7 +804,128 @@ bool convert_new(const Bytes &data, int v, std::vector<Bytes> lists[4], std::str
 struct Held
 {
     std::vector<Bytes> lists[4];        // active, passive, overlay, map
+    Bytes section;                      // 2.55.17 from the new format: the whole section's data
+                                        // (lists then hold the right number of empty entries)
 };
+
+// A field's value, through an index of the tape (added when the tape doesn't have it).
+struct TapeSetter
+{
+    const TapeIndex &ix;
+    std::vector<TapeField> &added;
+
+    TapeSetter(const TapeIndex &index, std::vector<TapeField> &more) : ix(index), added(more) {}
+
+    void set(const char *key, int64_t value)
+    {
+        if(const TapeField *f = ix.find(key))
+            const_cast<TapeField *>(f)->value = value;
+        else
+        {
+            TapeField x;
+            x.key = key;
+            x.value = value;
+            added.push_back(x);
+        }
+    }
+};
+
+// The new format (versions 8-12) as 2.55.17 reads it, written as its version 12 (see the top).
+bool convert_new_255(const Bytes &data, int v, Held &h, std::string &why)
+{
+    if(v < 8 || v > 12)
+    {
+        why = "its subscreens are in a version 2.55.17 doesn't read";
+        return false;
+    }
+
+    Tape t;
+    TapeParser p(data.empty() ? NULL : &data[0], data.size(), 0, &t);
+
+    if(!zq_tape_subscreens(p, v) || p.bad || p.pos != data.size())
+    {
+        why = "its subscreens aren't laid out as expected";
+        return false;
+    }
+
+    std::vector<TapeField> added;       // fields this version doesn't hold, set for version 12
+    char k[96], k2[96];
+
+    {
+        const TapeIndex ix(t);
+        TapeSetter set(ix, added);
+        static const char *const btn[4] = { "A", "B", "X", "Y" };
+        static const char *const colors[3] = { "c_text", "c_shadow", "c_bg" };
+        const int W_COUNTER_ = 9, W_BTNCOUNTER_ = 26;
+        int sub = 0;
+
+        for(int l = 0; l < 3; ++l)
+        {
+            snprintf(k, sizeof(k), "list%d", l);
+            const int count = (int)ix.get(k);
+            h.lists[l].assign(count, Bytes());
+
+            for(int q = 0; q < count; ++q, ++sub)
+            {
+                snprintf(k, sizeof(k), "s%d.kind", sub);
+                const bool active = ix.get(k) == 0;
+                snprintf(k, sizeof(k), "s%d.pages", sub);
+                int pages = (int)ix.get(k);
+
+                if(active)
+                {
+                    for(int b = 0; b < 4; ++b)
+                    {
+                        snprintf(k2, sizeof(k2), "s%d.default_%s", sub, btn[b]);
+
+                        if((ix.get(k2) & 0xFF) >= pages)
+                            set.set(k2, 0xFF);
+                    }
+                }
+                else if(pages > 1)
+                {
+                    pages = 1;
+                    set.set(k, 1);
+                }
+
+                for(int pg = 0; pg < pages && v < 12; ++pg)
+                {
+                    snprintf(k, sizeof(k), "s%d.p%d.widgets", sub, pg);
+                    const int widgets = (int)ix.get(k);
+
+                    for(int w = 0; w < widgets; ++w)
+                    {
+                        snprintf(k, sizeof(k), "s%d.p%d.w%d.type", sub, pg, w);
+                        const int64_t ty = ix.get(k);
+
+                        if(ty != W_COUNTER_ && ty != W_BTNCOUNTER_)
+                            continue;
+
+                        for(int c = 0; c < 3; ++c)
+                        {
+                            snprintf(k, sizeof(k), "s%d.p%d.w%d.%s_type", sub, pg, w, colors[c]);
+                            snprintf(k2, sizeof(k2), "s%d.p%d.w%d.%s2_type", sub, pg, w, colors[c]);
+                            set.set(k2, ix.get(k));
+                            snprintf(k, sizeof(k), "s%d.p%d.w%d.%s", sub, pg, w, colors[c]);
+                            snprintf(k2, sizeof(k2), "s%d.p%d.w%d.%s2", sub, pg, w, colors[c]);
+                            set.set(k2, ix.get(k));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    t.f.insert(t.f.end(), added.begin(), added.end());
+
+    if(!zqn255_tape_rebuild(zq_tape_subscreens, t, 12, h.section))
+    {
+        why = "its subscreens couldn't be laid out as 2.55.17's version 12";
+        return false;
+    }
+
+    return true;
+}
 
 // readinitdata: the subscreen style init data older than version 37 stores (ssdtMAX otherwise,
 // and with no init data, which leaves the subscreens alone).
@@ -863,12 +992,14 @@ bool stored_dmaps(std::vector<Zqn255DmapSubs> &dm)
 }
 
 // The lists 3.0 holds after loading the quest. dm: every DMap as the DMAP section stores it on the
-// way in, with its numbers as 3.0 writes them on the way out.
+// way in, with its numbers as 3.0 writes them on the way out. 2.55.17 loads the subscreens the same
+// way (the same lists, in its own layout, without the map subscreens), so its DMaps' numbers come
+// from here too (target ZQ_NEWER_255; the map subscreen number is then -1).
 bool held_lists(int target, std::vector<Zqn255DmapSubs> &dm, Held &h, std::string &why)
 {
-    if(target != ZQ_NEWER_30 || dm.size() != (size_t)MAXDMAPS)
+    if((target != ZQ_NEWER_30 && target != ZQ_NEWER_255) || dm.size() != (size_t)MAXDMAPS)
     {
-        why = "the DMaps' subscreens are only worked out for 3.0";
+        why = "the DMaps' subscreens are only worked out for 3.0 and 2.55.17";
         return false;
     }
 
@@ -918,7 +1049,7 @@ bool held_lists(int target, std::vector<Zqn255DmapSubs> &dm, Held &h, std::strin
 
         if(s.version >= 8 && s.version <= 21)
         {
-            if(!convert_new(s.data, s.version, h.lists, why))
+            if(target == ZQ_NEWER_255 ? !convert_new_255(s.data, s.version, h, why) : !convert_new(s.data, s.version, h.lists, why))
                 return false;
         }
         else if(s.version >= 6 && s.version <= 7)
@@ -932,9 +1063,9 @@ bool held_lists(int target, std::vector<Zqn255DmapSubs> &dm, Held &h, std::strin
                 pas[i] = dm[i].passive & 0xFF;
             }
 
-            if(!zqn_old_subscreens_30(s.data, s.version, act, pas, h.lists[0], h.lists[1]))
+            if(!zqn_old_subscreens(target, s.data, s.version, act, pas, h.lists[0], h.lists[1]))
             {
-                why = "its old-format subscreens don't read the way 3.0 reads them";
+                why = "its old-format subscreens don't read the way upstream reads them";
                 return false;
             }
 
@@ -951,7 +1082,7 @@ bool held_lists(int target, std::vector<Zqn255DmapSubs> &dm, Held &h, std::strin
         }
     }
     else if(init_sets)
-        zqn_default_subscreens_30(mode, h.lists[0], h.lists[1]);
+        zqn_default_subscreens(target, mode, h.lists[0], h.lists[1]);
 
     // validate_subscreens, as each DMap is written
     const size_t na = h.lists[0].size(), np = h.lists[1].size(), no = h.lists[2].size(), nm = h.lists[3].size();
@@ -1052,11 +1183,66 @@ int write_subscreens(PACKFILE *f, const ZqNewerContext &ctx)
 
 ZqNewerRegistration g_reg_subscreens(ID_SUBSCREEN, write_subscreens, "2.55 subscreens as 3.0");
 
+// 2.55.17: the lists as it holds them (held_lists), written as its version 12 (writesubscreens:
+// each of the three lists' counts as a byte, and that many of its subscreens). Version 12 itself
+// is taken as it is (zqn_255.cpp).
+int write_subscreens_255(PACKFILE *f, const ZqNewerContext &ctx)
+{
+    if(!zqn255_source(ctx) || ctx.target != ZQ_NEWER_255)
+        return ZQW_UNSUPPORTED;
+
+    if(ctx.src_part && (ctx.src_version < 6 || ctx.src_version > 11))
+        return ZQW_UNSUPPORTED;
+
+    std::vector<Zqn255DmapSubs> dm;
+
+    if(!stored_dmaps(dm))
+    {
+        zqw_last_error = "its DMaps (their subscreens) aren't laid out as expected";
+        return 2;
+    }
+
+    Held h;
+    std::string why;
+
+    if(!held_lists(ctx.target, dm, h, why))
+    {
+        zqw_last_error = why;
+        return 2;
+    }
+
+    if(!h.lists[3].empty())
+    {
+        zqw_last_error = "it has map subscreens, which 2.55.17 doesn't have";
+        return 2;
+    }
+
+    std::vector<byte> none;
+
+    if(!h.section.empty())
+        return zqn255_emit(f, ID_SUBSCREEN, 12, 3, none, h.section);
+
+    Zqn255Out o;
+
+    for(int l = 0; l < 3; ++l)
+    {
+        const size_t n = h.lists[l].size() & 0xFF;
+        o.c((int64_t)n);
+
+        for(size_t q = 0; q < n; ++q)
+            o.put(h.lists[l][q]);
+    }
+
+    return zqn255_emit(f, ID_SUBSCREEN, 12, 3, none, o.b);
+}
+
+ZqNewerRegistration g_reg_subscreens_255(ID_SUBSCREEN, write_subscreens_255, "2.55 subscreens as 2.55.17");
+
 } // namespace
 
 bool zqn255_dmap_subscreens(int target, std::vector<Zqn255DmapSubs> &dmaps)
 {
-    if(zq_quest_file.zelda_version < 0x255 || target != ZQ_NEWER_30 || dmaps.size() != (size_t)MAXDMAPS)
+    if(zq_quest_file.zelda_version < 0x255 || (target != ZQ_NEWER_30 && target != ZQ_NEWER_255) || dmaps.size() != (size_t)MAXDMAPS)
         return false;
 
     Held h;

@@ -1,4 +1,4 @@
-# ZC Vulkan 2.53.444.7-PRE
+# ZC Vulkan 2.53.444.7
 
 [![Build](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml/badge.svg)](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml)
 

@@ -136,8 +136,14 @@ struct ZqNewerRegistration
 };
 
 // Saves the open quest as the target version. 0: saved. 2: some sections can't be written in
-// that version yet (why lists them). Anything else: failed (why says what).
+// that version yet (why lists them). 8: a quest made in 2.55 or later holds parts newer than the
+// target holds (why lists them; it is never written older). Anything else: failed (why says what).
 int zq_save_newer(const char *filename, int target, std::string &why);
+
+// Whether saving the open quest (made in 2.55 or later) as the target would bring some of its
+// parts up to newer versions: some part is older than the target's newest and none is newer.
+// A quest made in a 3.0 prerelease is then still offered 3.0 Nightly (it is a newer version).
+bool zq_newer_upgrades(int target);
 
 // A write-only file that appends what is written to it to *out.
 PACKFILE *zq_open_vector_sink(std::vector<byte> *out);

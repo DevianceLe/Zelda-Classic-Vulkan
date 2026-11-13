@@ -32,6 +32,7 @@
 #include "zqn_doors.h"
 #include "zqn_music.h"
 #include "zqn_rules.h"
+#include "zqn_255.h"
 
 extern zquestheader header;
 extern DoorComboSet *DoorComboSets;
@@ -262,9 +263,29 @@ int zqn_header(PACKFILE *f, const ZqNewerContext &ctx)
 
     // The quest's version and minimum version (the 9 bytes old headers have, in 16-byte
     // fields), title and author, each as a string: upstream's save has zeros after its end
-    // where the original file often had leftovers of older text.
-    o.cfield(header.version, 9, 16);
-    o.cfield(header.minver, 9, 16);
+    // where the original file often had leftovers of older text. Headers from version 8 (2.55
+    // and 3.0 quests) hold 16 bytes of each, of which ZQuest's own header keeps only the first 8
+    // characters: those come from the quest's own-version header (which carries any edit).
+    char version[17], minver[17];
+    memset(version, 0, sizeof(version));
+    memset(minver, 0, sizeof(minver));
+    memcpy(version, header.version, sizeof(header.version) < 16 ? sizeof(header.version) : 16);
+    memcpy(minver, header.minver, sizeof(header.minver) < 16 ? sizeof(header.minver) : 16);
+    size_t vlen = sizeof(header.version) < 16 ? sizeof(header.version) : 16;
+    std::vector<byte> own;
+
+    // the header part: the 31-byte id string, then the section (id, version, cversion, size,
+    // then the data: program version, build, password hash, internal, quest number, version...)
+    if(ctx.src_zelda_version >= 0x255 && ctx.src_part && zq_own_part_bytes(*ctx.src_part, own) && own.size() >= 43 + 54 &&
+       !memcmp(&own[31], "HDR ", 4) && (own[35] | (own[36] << 8)) >= 8)
+    {
+        memcpy(version, &own[43 + 22], 16);
+        memcpy(minver, &own[43 + 38], 16);
+        vlen = 16;
+    }
+
+    o.cfield(version, vlen, 16);
+    o.cfield(minver, vlen, 16);
     o.cfield(header.title, 64, 65);
     o.cfield(header.author, 64, 65);
     o.c(header.use_keyfile);

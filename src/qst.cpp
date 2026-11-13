@@ -1293,13 +1293,19 @@ int get_qst_buffers()
     // fixed by ensuring there's actually itemdata there.
     // If you change this, be sure to update del_qst_buffers, too.
     
-    memrequested+=(sizeof(itemdata)*(MAXITEMS+1));
-    Z_message("Allocating item buffer (%s)... ", byte_conversion2(sizeof(itemdata)*(MAXITEMS+1),memrequested,-1,-1));
-    
-    if((itemsbuf=(itemdata*)zc_malloc(sizeof(itemdata)*(MAXITEMS+1)))==NULL)
+#ifdef ZC_PLAYER_BUILD
+    // the player keeps room for a 2.55/3.0 quest's items past 2.53's 256 (q30_set_high_item)
+    const int item_slots = Q30_MAXITEMS;
+#else
+    const int item_slots = MAXITEMS;
+#endif
+    memrequested+=(sizeof(itemdata)*(item_slots+1));
+    Z_message("Allocating item buffer (%s)... ", byte_conversion2(sizeof(itemdata)*(item_slots+1),memrequested,-1,-1));
+
+    if((itemsbuf=(itemdata*)zc_malloc(sizeof(itemdata)*(item_slots+1)))==NULL)
         return 0;
         
-    memset(itemsbuf,0,sizeof(itemdata)*(MAXITEMS+1));
+    memset(itemsbuf,0,sizeof(itemdata)*(item_slots+1));
     itemsbuf++;
     Z_message("OK\n");                                        // Allocating item buffer...
     

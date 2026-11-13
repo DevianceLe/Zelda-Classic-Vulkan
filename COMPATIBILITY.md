@@ -45,14 +45,16 @@ The final run was stopped before its last 11 quests. Their results are from the 
 - `Game->IncrementQuest`, which a 2.53.1 script uses to go straight on to the next numbered quest.
 - A script-moved viewport, and saving global script variables past 255. No quest in this collection needs the second one.
 - Quests made in ZC 1.00 and 1.50 can't be opened. None are in this collection.
-- Editing the features only 2.55 and 3.0 Nightly have, and a 2.55 script compiler. ZQuest opens these quests and saves them in their own version, but its menus edit only what 2.53 has. ZQuest on Linux and macOS is new and has hardly been tried.
-- Saving a 2.55 quest as 3.0 Nightly. Quests made in 2.53.1 or older can be saved as 2.55.17 or 3.0 Nightly (see [ZQuest](#zquest)).
+- A 2.55 script compiler: ZQuest can't compile ZScript for 2.55 and 3.0 Nightly quests yet. ZQuest on Linux and macOS is new and has hardly been tried.
 
 **Built, but tried in only a few quests**
 
 - Slopes: tried in Link's Grand Adventure 3 Remastered and Novel Ruins Gaiden. Enemies on slopes and moving slopes haven't been seen working.
 - Bottles and bottle shops: tried in Link's Journey North, The Deep and Mystical Harps. Saving and reloading bottle contents hasn't been tried.
-- Switch hook: tried in Face Hunt, Cambria, Infinite Quest and Jack's Quest. The hook's chain disappears while the switch happens, switched combos and enemies don't flicker or rise, and switching with FFCs isn't done.
+- Switch hook: tried in Face Hunt (blocks, items and enemies, in the instant, rise and flicker styles), Cambria, Infinite Quest and Jack's Quest. Switching with FFCs and grabbing flying fairies haven't been played.
+- Scrolling regions (3.0's z3 scrolling): tried in Mystical Harps (VulturPeak and its cart, Hyrule's Outlands, the temple, dark dungeon regions), compared with ZC 3.0's own player. A dark room reached through a scroll and the lens inside a region haven't been seen in play.
+- Items numbered 256 and up: tried in Mystical Harps (pickups, drops, the special item rooms, the subscreen) and Tranquil Expression. Shops selling them, and messages that give them, haven't been seen in a quest.
+- 3.0 messages (scrolling text, portraits, shadows, icons, control codes) and the fonts 2.55 and 3.0 added: tried in Tranquil Expression and Mystical Harps.
 - Push blocks falling into pits: tried in Colossal Tower.
 - Subscreens with more than one page, their page-turn animations and 3.0 widget conditions: tried in Tales of Zelsteria, Tales of Murdoch and Tranquil Expression. Pages that a script turns (barato's card game) haven't been played through, and the B and A items set on a later page haven't been checked after saving and reloading.
 - The Moon Pearl and bunny form: tried in Kirby's Castle Epic. The magic mirror: tried in Link's Rise 2 DX; its portal and mirror-continue DMaps haven't been seen in a quest yet.
@@ -69,6 +71,10 @@ The final run was stopped before its last 11 quests. Their results are from the 
 - Push blocks on layers, scripts running through screen scrolls, passive item scripts, and secret-screen rules
 
 **Known bugs**
+
+- Mystical Harps: the cloud layer sits a little off, dark rooms are brown where ZC 3.0's are black, and the "GAME OVER" text is missing.
+- A 3.0 quest's starting B item can differ from ZC 3.0's: the 1st Quest Master and Hero Mode remakes start with B empty where 3.0 puts the bomb there.
+- ZQuest's Save As leaves out the editor names a quest keeps in a separate `.zinfo` file.
 
 - On Windows, SDL's HIDAPI controller drivers were seen writing over the game's memory while listing devices. That code is inside SDL, so on Windows the game now leaves it off: Xbox, PlayStation, Switch Pro, 8BitDo and most other pads go through Windows' own controller drivers instead, with SDL's built-in button layouts. Pads that only work through HIDAPI (a Switch Pro Controller on USB, GameCube adapters, the Steam Controller) need **Settings > Controls > Extra Pad Support** turned on, which brings the risk back. That has not yet been tried with a real controller.
 - Gamepads read in one layout, and the D-pad always moves; a pad the game doesn't know is set up once in **Settings > Controls > Gamepad Setup**. This was tested with SDL's virtual pads (an unknown PlayStation-style adapter and a standard pad), not yet with a real controller.
@@ -98,14 +104,16 @@ ZQuest (on Windows; new and hardly tried on Linux and macOS) opens quests made i
 
 A rule a newer version always resets (rule 157 in 2.50 quests) can't be changed in a save as that version; ZQuest says so and saves nothing.
 
+2.55 and 3.0 Nightly quests are edited with their own version's features: combos, items, enemies, DMaps, screens, init data, quest rules, misc data, strings and subscreens. On 2.53.444.7, all 85 quests in this collection made in 2.55 save as 2.55.17 and as 3.0 Nightly identical to the real ZC's own conversion, apart from the header and ZInfo of the two whose editor names are kept in a separate file. The 8 3.0 Nightly prerelease quests save as 3.0 Nightly.
+
 ## Played by hand
 
 **2.55 and 3.0 Nightly quests, in the player**
 
 | Quest | Format | What has been played |
 |---|---|---|
-| Mystical Harps (T.L.O.Z. IV) | 3.0 Nightly | Intro, title, new game, first areas, walking, scrolling and swimming, with its full music folder |
-| Tranquil Expression | 3.0 Nightly | Full opening, title, house scene and dialogue, item screen |
+| Mystical Harps (T.L.O.Z. IV) | 3.0 Nightly | Intro, title, new game, first areas, walking, scrolling and swimming, with its full music folder; scrolling regions (VulturPeak and its cart, Hyrule's Outlands, dark dungeon regions), the temple and items past 255, compared screen by screen with ZC 3.0's own player |
+| Tranquil Expression | 3.0 Nightly | Full opening with its act cards, title, house scene and dialogue, item screen |
 | Herald of Calamity (Demo) | 2.55 | Title, gameplay, script-driven enemies, combat, item screen, save and reload |
 | Cambria: The Lost Worlds | 2.55 | Opening |
 | Shadow Knight | 2.55 | Opening |

@@ -1260,6 +1260,13 @@ bool zqn_old_subscreens_30(const std::vector<byte> &data, int version, std::vect
                            std::vector<int> &dm_passive, std::vector<std::vector<byte> > &active,
                            std::vector<std::vector<byte> > &passive)
 {
+    return zqn_old_subscreens(ZQ_NEWER_30, data, version, dm_active, dm_passive, active, passive);
+}
+
+bool zqn_old_subscreens(int target, const std::vector<byte> &data, int version, std::vector<int> &dm_active,
+                        std::vector<int> &dm_passive, std::vector<std::vector<byte> > &active,
+                        std::vector<std::vector<byte> > &passive)
+{
     if(version < 6 || version > 7 || (int)dm_active.size() != MAXDMAPS || (int)dm_passive.size() != MAXDMAPS)
         return false;
 
@@ -1287,14 +1294,14 @@ bool zqn_old_subscreens_30(const std::vector<byte> &data, int version, std::vect
     for(size_t i = 0; i < l.active.size(); ++i)
     {
         Buf b;
-        write_sub(b, ZQ_NEWER_30, l.active[i]);
+        write_sub(b, target, l.active[i]);
         active.push_back(b.b);
     }
 
     for(size_t i = 0; i < l.passive.size(); ++i)
     {
         Buf b;
-        write_sub(b, ZQ_NEWER_30, l.passive[i]);
+        write_sub(b, target, l.passive[i]);
         passive.push_back(b.b);
     }
 
@@ -1303,22 +1310,28 @@ bool zqn_old_subscreens_30(const std::vector<byte> &data, int version, std::vect
 
 void zqn_default_subscreens_30(int mode, std::vector<std::vector<byte> > &active, std::vector<std::vector<byte> > &passive)
 {
+    zqn_default_subscreens(ZQ_NEWER_30, mode, active, passive);
+}
+
+void zqn_default_subscreens(int target, int mode, std::vector<std::vector<byte> > &active,
+                            std::vector<std::vector<byte> > &passive)
+{
     Lists l;
-    from_defaults(ZQ_NEWER_30, mode, l);
+    from_defaults(target, mode, l);
     active.clear();
     passive.clear();
 
     for(size_t i = 0; i < l.active.size(); ++i)
     {
         Buf b;
-        write_sub(b, ZQ_NEWER_30, l.active[i]);
+        write_sub(b, target, l.active[i]);
         active.push_back(b.b);
     }
 
     for(size_t i = 0; i < l.passive.size(); ++i)
     {
         Buf b;
-        write_sub(b, ZQ_NEWER_30, l.passive[i]);
+        write_sub(b, target, l.passive[i]);
         passive.push_back(b.b);
     }
 }

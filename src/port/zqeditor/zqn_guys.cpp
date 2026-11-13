@@ -2406,7 +2406,8 @@ void convert_255_record(UGuy &g, const UCtx &c, const TapeIndex &t)
 
 int zqn255_guys(PACKFILE *f, const ZqNewerContext &ctx)
 {
-    if(!zqn255_source(ctx) || !ctx.src_part || ctx.src_version < 41 || ctx.src_version > 59 || ctx.target != ZQ_NEWER_30)
+    // (version 60, 3.0's own, from 3.0 prereleases: read and written again the same way)
+    if(!zqn255_source(ctx) || !ctx.src_part || ctx.src_version < 41 || ctx.src_version > 60 || ctx.target != ZQ_NEWER_30)
         return ZQW_UNSUPPORTED;
 
     Zqn255Section s;

@@ -221,7 +221,7 @@ int64_t TapeParser::num(const char *key, const char *label, int width, bool sign
 
     if(src)
     {
-        const TapeField *from = src->find(key);
+        const TapeField *from = src_find(key);
         x.value = from ? from->value : dflt;
         t->f.push_back(x);
         return x.value;
@@ -263,7 +263,7 @@ TapeField *TapeParser::take_raw(const char *key, const char *label, int kind, si
 
     if(src)
     {
-        const TapeField *from = src->find(key);
+        const TapeField *from = src_find(key);
 
         if(from && (from->bytes.size() == len || kind == TK_CSTR || kind == TK_WSTR || kind == TK_LSTR || kind == TK_BITSTR ||
                     kind == TK_NLIST))
@@ -361,7 +361,7 @@ void TapeParser::raw(const char *key, const char *label, void (*walk)(TapeParser
 {
     if(src)
     {
-        const TapeField *from = src->find(key);
+        const TapeField *from = src_find(key);
         TapeField *f = take_raw(key, label, TK_BLOB, from ? from->bytes.size() : empty_len);
         (void)f;
         return;
@@ -2429,7 +2429,7 @@ bool zq_tape_init(TapeParser &p, int v)
     }
 
     // Some z3 builds wrote only the region mapping byte at v40; nothing else follows it there.
-    const bool z3_region = v == 40 && (p.src ? p.src->find("region_only") != NULL : p.left() == 1);
+    const bool z3_region = v == 40 && (p.src ? p.src_find("region_only") != NULL : p.left() == 1);
 
     if(z3_region)
     {

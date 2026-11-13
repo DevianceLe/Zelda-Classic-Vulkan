@@ -88,4 +88,75 @@ itemdata &q30_itemsbuf(int id);
 // q30_audio.cpp
 int q30_read_advmusic(Q255Section &s);
 
+// q30_msg.cpp: the message engine of 2.55/3.0 quests (a port of upstream's message_string.cpp).
+// The reader keeps each string as upstream does (core/msgstr.h MsgStr) beside MsgStrings.
+enum
+{
+    Q30_STRINGFLAG_FULLTILE = 0x10, Q30_STRINGFLAG_TRANS_BG = 0x20, Q30_STRINGFLAG_TRANS_FG = 0x40,
+    Q30_STRINGFLAG_NOFREEZE = 0x80
+};
+
+struct Q30MsgIcon
+{
+    short sprite;       // -1: none
+    byte anchor;        // upstream's message_anchor (up, down, left, right, l_up, r_up, l_down,
+                        // r_down, center, screen, screen_y_offset)
+    short x, y;
+
+    Q30MsgIcon() : sprite(-1), anchor(7), x(0), y(0) {}
+};
+
+struct Q30MsgStr
+{
+    std::string text;       // as the file holds it
+    bool ascii;             // STR v11+: the ascii encoding; older ones the binary one
+    word nextstring;
+    long tile;
+    byte cset;
+    bool trans;
+    byte font;
+    short x, y;
+    word w, h;              // as upstream sizes the box (MsgStrings keeps them 16 smaller)
+    word sfx, adv_sfx, menu_move_sfx, menu_close_sfx;
+    byte vspace, hspace, stringflags;
+    short margins[4];       // up, down, left, right
+    long portrait_tile;
+    byte portrait_cset, portrait_x, portrait_y, portrait_tw, portrait_th;
+    byte shadow_type, shadow_color, drawlayer;
+    Q30MsgIcon icons[3];    // "more", scroll up, scroll down (STR v13+)
+    byte active_scroll_speed, passive_scroll_speed;
+
+    // upstream's init_msgstr
+    Q30MsgStr() : ascii(false), nextstring(0), tile(0), cset(0), trans(false), font(0), x(24), y(32), w(26 * 8), h(5 * 8),
+        sfx(18), adv_sfx(0), menu_move_sfx(18), menu_close_sfx(0), vspace(0), hspace(0), stringflags(0), portrait_tile(0),
+        portrait_cset(0), portrait_x(0), portrait_y(0), portrait_tw(1), portrait_th(1), shadow_type(0), shadow_color(0),
+        drawlayer(6), active_scroll_speed(1), passive_scroll_speed(1)
+    {
+        margins[0] = 8; margins[1] = 0; margins[2] = 8; margins[3] = 8;
+    }
+};
+
+void q30_msg_clear_strings();
+// qr_STRING_FRAME_OLD_WIDTH_HEIGHT and qr_OLD_STRING_EDITOR_MARGINS as readrules and the string
+// reader set them for older quests
+void q30_msg_set_rules(bool old_frame, bool old_margins);
+void q30_msg_set_string(int str, const Q30MsgStr &s);
+void q30_msg_set_text(int str, const std::string &text, bool ascii);    // a script set the text
+// The game's side (zelda.cpp): true for newer quests, whose strings run here.
+bool q30_msg_engine();
+void q30_msg_do_new(int str);           // donewmsg
+void q30_msg_dismiss();                 // dismissmsg
+void q30_msg_run();                     // putmsg, then the string onto msgdisplaybuf
+void q30_msg_draw_icons();              // the "more" and scroll icons
+void q30_msg_clear_display();
+void q30_msg_init();                    // as a game starts
+bool q30_msg_nofreeze();                // the string doesn't freeze the game (its NOFREEZE flag)
+int q30_msg_layer();
+// The string onto dest at row dy (h rows), its frame and text translucent when the string says;
+// false for 2.53 quests, which draw msgdisplaybuf as before.
+bool q30_msg_blit(struct BITMAP *dest, int dy, int h);
+// draw_screen's draws of it: before the passive subscreen, or after it and layer 7's drawing,
+// as the string's draw layer says; false for 2.53 quests
+bool q30_msg_blit_screen(struct BITMAP *dest, int dy, int h, bool after_subscreen);
+
 #endif

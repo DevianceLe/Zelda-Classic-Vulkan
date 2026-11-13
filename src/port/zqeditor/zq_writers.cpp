@@ -14,7 +14,9 @@
 #include "zq_writers.h"
 #include "zq_q255.h"
 #include "zq_tile_refs.h"
+#include "zqn_255.h"
 
+#include <algorithm>
 #include <map>
 #include <string>
 #include <vector>
@@ -1027,6 +1029,24 @@ std::string id_name(dword id)
     return s;
 }
 
+// The parts of the open quest that a newer version has but the target's files don't have at
+// all (3.0's music objects, AMUS, in a quest saved as 2.55.17): the target can't hold them.
+std::vector<dword> parts_target_lacks(int target)
+{
+    std::vector<dword> order = newer_order(target), all = newer_order(ZQ_NEWER_30), lacks;
+
+    for(size_t i = 0; i < zq_quest_file.parts.size(); ++i)
+    {
+        const dword id = zq_quest_file.parts[i].id;
+
+        if(std::find(all.begin(), all.end(), id) != all.end() && std::find(order.begin(), order.end(), id) == order.end() &&
+           std::find(lacks.begin(), lacks.end(), id) == lacks.end())
+            lacks.push_back(id);
+    }
+
+    return lacks;
+}
+
 ZqNewerContext newer_context(dword id, int target)
 {
     ZqNewerContext c;
@@ -1252,6 +1272,37 @@ const char *zq_newer_target_name(int target)
     return target == ZQ_NEWER_255 ? "2.55.17" : "3.0 Nightly";
 }
 
+bool zq_newer_upgrades(int target)
+{
+    if(zq_quest_file.zelda_version < 0x255)
+        return false;
+
+    // a part the target has no place for at all: never written older either
+    if(!parts_target_lacks(target).empty())
+        return false;
+
+    std::vector<dword> order = newer_order(target);
+    bool older = false;
+
+    for(size_t i = 0; i < order.size(); ++i)
+    {
+        const ZqQuestPart *p = zq_find_part(order[i]);
+        word v = 0, cv = 0, newest = 0, newest_cv = 0;
+        zqn255_newest(order[i], target, &newest, &newest_cv);
+
+        if(!p || !newest || !zq_part_versions(*p, &v, &cv))
+            continue;
+
+        if(v > newest)
+            return false;
+
+        if(v < newest)
+            older = true;
+    }
+
+    return older;
+}
+
 int zq_save_newer(const char *filename, int target, std::string &why)
 {
     std::vector<dword> order = newer_order(target);
@@ -1292,6 +1343,40 @@ int zq_save_newer(const char *filename, int target, std::string &why)
 
         if(rc != ZQW_OK)
             missing.push_back(id_name(order[i]) + (zqw_last_error.empty() ? std::string("") : " (" + zqw_last_error + ")"));
+    }
+
+    // A quest made in 2.55 or later whose parts are newer than the target holds (a 3.0 Nightly's,
+    // saved as 2.55.17) is never written older: that isn't a converter still to be written.
+    if(zq_quest_file.zelda_version >= 0x255)
+    {
+        std::vector<std::string> too_new;
+
+        for(size_t i = 0; i < order.size(); ++i)
+        {
+            const ZqQuestPart *p = zq_find_part(order[i]);
+            word v = 0, cv = 0, newest = 0, newest_cv = 0;
+
+            zqn255_newest(order[i], target, &newest, &newest_cv);
+
+            if(p && zq_part_versions(*p, &v, &cv) && newest && v > newest)
+                too_new.push_back(id_name(order[i]));
+        }
+
+        // parts the target's files have no place for (AMUS as 2.55.17): they would be dropped
+        std::vector<dword> lacks = parts_target_lacks(target);
+
+        for(size_t i = 0; i < lacks.size(); ++i)
+            too_new.push_back(id_name(lacks[i]));
+
+        if(!too_new.empty())
+        {
+            why = std::string("It holds parts in versions newer than ") + zq_newer_target_name(target) + " holds: ";
+
+            for(size_t i = 0; i < too_new.size(); ++i)
+                why += (i ? ", " : "") + too_new[i];
+
+            return 8;
+        }
     }
 
     if(!missing.empty())

@@ -1,3 +1,42 @@
+## What's new in 2.53.444.7
+
+**3.0 quests: scrolling regions and Mystical Harps**
+
+- **Scrolling regions** (3.0's "z3 scrolling"): in a region the camera follows Link instead of the screen changing at every edge. Every screen of the region is live: its enemies, items and FFCs move, run their scripts and block Link, nothing restarts when you cross an inner border, and the camera eases along as in 3.0. Darkness, light beams and the lens follow the camera, and screens you've been to show their opened secrets and chests
+- Scripts see positions across the whole region, as in 3.0: Link, enemies, weapons, items, combos, FFCs, lights and `Screen->DrawOrigin`. In Mystical Harps the VulturPeak cart now stops Link where it should, and the rolling pins roll instead of flying off
+- 2.55/3.0 quests that show the playing field's bottom 8 rows get the 232-row picture
+- Script drawing as in 3.0: the script layers, draw origins and generic scripts (the temple's sky), the subscreen counters past 32, and Mystical Harps' HUD, A item and mermaid show through the opening
+- An FFC script's `this` is its own FFC (it was always the screen's first): keys hidden by a script stay hidden, and Red Koopas walk
+- Generic script events fire (game start, screen and DMap changes, hits, item pickups, enemy drops), and scripts run during warps and openings when the quest asks for it
+
+**Items past 255**
+
+- Items numbered 256 and up are real items (up to 1024; Mystical Harps has 616): you can pick them up and get them from enemies and special item rooms, and they show on the subscreen. Subscreen item slots follow 3.0's rules
+- Items with their own size (wide or tall tiles, hit boxes, draw offsets) draw as in 3.0, and a 3.0 quest's items use 3.0's hit boxes (Mystical Harps no longer hands you the Quakes-Rod at the start of the cave)
+
+**Messages and fonts**
+
+- 2.55/3.0 messages as in 3.0: scrolling text, shadows, portraits, the more and scroll icons, translucency, and the message control codes (menus, screen states, warps, items, sounds)
+- The 70 fonts 2.55 and 3.0 added are built in, so quests that use them show their own lettering (3.0's "Allegro" font shows as the default font)
+
+**Speed and fixes**
+
+- Tales of Murdoch, Passage Through Time and Destiny of the Oracles run at full speed again. A script error repeated every frame is written to the log at most once every 5 seconds, with a count
+- Newer quests start in 3.0's order: Init, the hero's script, onLaunch and generic scripts run before the screen opens (Tranquil Expression's act cards appear)
+- The DMap intro, the ending and scrolling clear the message box as 3.0 does
+
+**ZQuest**
+
+- **2.55 and 3.0 quests are edited with their own version's features**: combos (tabs for animation, attributes, flags, triggers, lifting and script), items, enemies, DMaps, screens, init data, quest rules (all of them, with upstream's help text), misc data, strings and subscreens
+- **Save As 3.0 Nightly** for quests made in 2.55, and **Save As 2.55.17** for every quest made in an earlier 2.55 build, converted as upstream converts them: all 85 such quests in the PureZC collection come out byte for byte as upstream's own conversion (except the two whose names upstream keeps in a separate file). 3.0 Nightly prerelease quests save as 3.0
+- A cleared message gets the default settings and a pasted one its source's; saving runs each part's writer once
+
+**Switch hook** (2.55/3.0 quests): switching places with blocks, items, enemies and FFCs, in the instant, rise and flicker styles
+
+**Tested:** 2.53 quests are unchanged: the 1st, 2nd and 5th quest and Dreams re-save byte for byte, and the recorded 1st Quest run plays the same on Windows and Linux (all 2,478 frames). All 93 2.55 and 3.0 Nightly quests in the PureZC collection load, tour without a crash and save back unchanged from ZQuest. Mystical Harps, Tranquil Expression and the others were compared screen by screen with ZC 3.0's own player. Windows 32-bit and 64-bit and Linux build.
+
+**Not done yet:** in Mystical Harps the cloud layer sits a little off, dark rooms are brown where 3.0's are black, and the "GAME OVER" text is missing; a 3.0 quest's starting B item can differ from 3.0's (the bomb in the 1st Quest Master/Hero Mode remakes); ZQuest's Save As doesn't carry names kept in a separate `.zinfo` file.
+
 ## 2.53.444.6.1
 
 **Gamepads just work**

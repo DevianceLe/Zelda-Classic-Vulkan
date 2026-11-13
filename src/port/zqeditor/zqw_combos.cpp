@@ -823,9 +823,9 @@ void put_script_config(Out &o, word script, const long *initd, const std::vector
         o.p16(0);
 }
 
-bool weapon_blank(const Q30WeaponData &d)
+// d's fields all equal z's (data_version aside)
+bool weapon_same(const Q30WeaponData &d, const Q30WeaponData &z)
 {
-    static const Q30WeaponData z;
     return d.flags == z.flags && d.moveflags == z.moveflags && d.wflags == z.wflags &&
            !memcmp(d.burnsprs, z.burnsprs, sizeof(z.burnsprs)) && !memcmp(d.light_rads, z.light_rads, sizeof(z.light_rads)) &&
            !memcmp(d.light_offsets, z.light_offsets, sizeof(z.light_offsets)) && d.glow_shape == z.glow_shape &&
@@ -837,6 +837,31 @@ bool weapon_blank(const Q30WeaponData &d)
            d.script == z.script && !memcmp(d.initd, z.initd, sizeof(z.initd)) && d.pierce_count == z.pierce_count &&
            d.bounce_mult == z.bounce_mult && d.bounce_add == z.bounce_add &&
            d.viewport_suspend_range == z.viewport_suspend_range && d.viewport_despawn_range == z.viewport_despawn_range;
+}
+
+bool weapon_blank(const Q30WeaponData &d)
+{
+    static const Q30WeaponData z;
+    return weapon_same(d, z);
+}
+
+// 3.0's weapon_data::def_lifting_data: what a combo's lift weapon data is when nothing set it
+// (it falls and pitfalls, breaks when it lands, glows), which 3.0's writecombo_loop counts as
+// blank (is_blank_lifting).
+bool weapon_blank_lifting(const Q30WeaponData &d)
+{
+    static Q30WeaponData z;
+    static bool made = false;
+
+    if(!made)
+    {
+        z.moveflags |= 3;           // move_obeys_grav | move_can_pitfall
+        z.wflags |= 2;              // WFLAG_BREAK_WHEN_LANDING
+        z.flags |= 1;               // wdata_glow_rad
+        made = true;
+    }
+
+    return weapon_same(d, z);
 }
 
 // read_weapon_data's format, in data version wv
@@ -1104,8 +1129,11 @@ void put_trigger(Out &o, word v, const Q30Trigger &t)
 }
 
 // The fields a combo of the v33+ format would have groups for (upstream's writecombo_loop,
-// with the tile and flag also counting for BASIC so they are never dropped).
-word combo_groups(word v, const newcombo &c, const Q30Combo &x, dword tile)
+// with the tile and flag also counting for BASIC so they are never dropped). lift_rule_30: the
+// lift weapon data counts as 3.0's writecombo_loop counts it (blank when it is the lifting
+// default, or when the file had none: data_version -1 and the plain default, which 3.0 holds as
+// the lifting default); otherwise any data that isn't the plain default makes a lift group.
+word combo_groups(word v, const newcombo &c, const Q30Combo &x, dword tile, bool lift_rule_30 = false)
 {
     word has = 0;
 
@@ -1133,9 +1161,13 @@ word combo_groups(word v, const newcombo &c, const Q30Combo &x, dword tile)
     if(tile || c.flip || x.walk != 0xF0 || x.type || x.flag || c.csets)
         has |= CHAS_BASIC;
 
+    const bool lift_weap_set = lift_rule_30 ?
+        !((x.lift_weap.data_version < 0 && weapon_blank(x.lift_weap)) || weapon_blank_lifting(x.lift_weap)) :
+        !weapon_blank(x.lift_weap);
+
     if(x.liftcmb || x.liftcs || x.liftdmg || x.liftlvl || x.liftitm || x.liftflags || x.liftgfx || x.liftsprite ||
        x.liftsfx || x.liftundercmb || x.liftundercs || x.liftbreaksprite != -1 || x.liftbreaksfx || x.lifthei != 8 ||
-       x.lifttime != 16 || x.lift_parent_item || !weapon_blank(x.lift_weap))
+       x.lifttime != 16 || x.lift_parent_item || lift_weap_set)
         has |= CHAS_LIFT;
 
     if(x.speed_mult != 1 || x.speed_div != 1 || x.speed_add || x.sfx_appear || x.sfx_disappear || x.sfx_loop ||
@@ -1154,9 +1186,10 @@ word combo_groups(word v, const newcombo &c, const Q30Combo &x, dword tile)
 // A v33+ record. keep_has: the groups the original had, which stay (an absent group and a
 // present one at its defaults read the same). weap_version: the weapon data version to use
 // where the combo has none of its own (another combo's in the same section, or -1: none known).
-bool encode_grouped(Out &o, word v, const newcombo &c, const Q30Combo &x, dword tile, word keep_has, int weap_version)
+bool encode_grouped(Out &o, word v, const newcombo &c, const Q30Combo &x, dword tile, word keep_has, int weap_version,
+                    bool lift_rule_30 = false)
 {
-    word has = (word)(keep_has | combo_groups(v, c, x, tile));
+    word has = (word)(keep_has | combo_groups(v, c, x, tile, lift_rule_30));
 
     if(v < 55)
     {
@@ -2012,7 +2045,8 @@ ZqWriterRegistration g_reg_combos_255(ID_COMBOS, write_combos_255, "combos, 2.55
 
 int zqn255_combos(PACKFILE *f, const ZqNewerContext &ctx)
 {
-    if(!zqn255_source(ctx) || !ctx.src_part || ctx.target != ZQ_NEWER_30 || ctx.src_version < 7 || ctx.src_version > 72)
+    // (version 73, 3.0's own, from 3.0 prereleases: read and written again the same way)
+    if(!zqn255_source(ctx) || !ctx.src_part || ctx.target != ZQ_NEWER_30 || ctx.src_version < 7 || ctx.src_version > 73)
         return ZQW_UNSUPPORTED;
 
     Zqn255Section s;
@@ -2151,9 +2185,17 @@ int zqn255_combos(PACKFILE *f, const ZqNewerContext &ctx)
             c.flag = 0;
         }
 
+        // weapon data read from the file (version 55 on) goes out in 3.0's own weapon data
+        // version, as write_weap_data writes it
+        if(x.lift_weap.data_version >= 0)
+            x.lift_weap.data_version = 5;
+
+        if(x.misc_weap.data_version >= 0)
+            x.misc_weap.data_version = 5;
+
         Out e;
 
-        if(!encode_grouped(e, 73, c, x, tile, 0, 5))
+        if(!encode_grouped(e, 73, c, x, tile, 0, 5, true))
         {
             char why[96];
             snprintf(why, sizeof(why), "combo %d can't be written as 3.0's version 73", i);
@@ -2195,6 +2237,127 @@ int zqn255_combos(PACKFILE *f, const ZqNewerContext &ctx)
 }
 
 ZqNewerRegistration g_reg_combos_255_30(ID_COMBOS, zqn255_combos, "2.55 combos as 3.0");
+
+// ---- a quest made in an older 2.55 build, saved as 2.55.17 (zqn_255.h) -------------------------
+//
+// 2.55.17 reads versions 7-32 with readcombos_old and 33-45 with readcombo_loop, with the same load
+// fixes the reader ZQuest loads 2.55 combos with applies for those versions (update_combo, the
+// cuttables' CMBTYPEFX for quests from before 2.55.14, ...), except the landing sound 3.0 gives
+// water (2.55.17's combos have none); then water before version 16 does 4 damage and combo 0 is
+// plain unless the quest lets it be edited. Its writecombo_loop writes version 45 with the groups
+// that hold anything: the basic group only for a tile, flip, walkability other than 0xF0, type or
+// CSet (a combo with nothing but a map flag loses the flag) and the trigger group only when some
+// trigger field isn't at its default. Combos up to the last one with a tile (count_combos).
+
+int zqn255_17_combos(PACKFILE *f, const ZqNewerContext &ctx)
+{
+    if(!zqn255_source(ctx) || !ctx.src_part || ctx.target != ZQ_NEWER_255 || ctx.src_version < 7 || ctx.src_version > 45)
+        return ZQW_UNSUPPORTED;
+
+    Zqn255Section s;
+
+    if(!zqn255_section(ctx, s))
+        return 2;
+
+    const word v = s.version;
+    const std::vector<byte> &body = s.data;
+    In in(body, 0);
+    const int count = in.g16();
+    size_t pos = 2;
+    std::vector<std::vector<byte> > recs;
+    int used = 0;
+    std::vector<byte> rules;
+
+    if(!zqn255_rules_loaded(ctx.target, rules))
+        return 2;
+
+    const bool edit_combo_0 = (rules[230 >> 3] >> (230 & 7)) & 1;     // qr_ALLOW_EDITING_COMBO_0
+    Out blank_trigger;
+    put_trigger(blank_trigger, 45, Q30Trigger());
+
+    for(int i = 0; i < count; ++i)
+    {
+        size_t end = pos;
+        newcombo c;
+        Q30Combo x;
+
+        if(!read_combo_255x(body, pos, v, &end, c, x))
+        {
+            zqw_last_error = "a combo of its combo section couldn't be read";
+            return 2;
+        }
+
+        std::vector<byte> raw(body.begin() + pos, body.begin() + end);
+        pos = end;
+
+        if(i >= MAXCOMBOS)      // read past and dropped by the loader
+            continue;
+
+        const dword tile = raw_tile(raw, v);
+        x.sfx_landing = 0;      // 3.0's water splash (v<49): 2.55.17 has no landing sound
+
+        if(v < 16 && x.type == 3)      // cWATER
+            x.attributes[0] = 4 * 10000;
+
+        if(i == 0 && !edit_combo_0)
+        {
+            x.walk = 0xF0;
+            x.type = 0;
+            x.flag = 0;
+            c.walk = 0;
+            c.type = 0;
+            c.flag = 0;
+        }
+
+        if(!tile && !c.flip && x.walk == 0xF0 && !x.type && !c.csets)
+        {
+            x.flag = 0;
+            c.flag = 0;
+        }
+
+        // a trigger at its defaults (with no ONLYGENTRIG) isn't written
+        if(x.triggers.size() == 1 && !x.only_gentrig)
+        {
+            Out t;
+            put_trigger(t, 45, x.triggers[0]);
+
+            if(t.b == blank_trigger.b)
+                x.triggers.clear();
+        }
+
+        Out e;
+
+        if(!encode_grouped(e, 45, c, x, tile, 0, -1))
+        {
+            char why[96];
+            snprintf(why, sizeof(why), "combo %d can't be written as 2.55.17's version 45", i);
+            zqw_last_error = why;
+            return 2;
+        }
+
+        recs.push_back(e.b);
+
+        if(tile)
+            used = i + 1;
+    }
+
+    if(pos != body.size())
+    {
+        zqw_last_error = "its combo section has bytes past its last combo";
+        return 2;
+    }
+
+    Out o;
+    o.p16((word)used);
+
+    for(int i = 0; i < used; ++i)
+        o.pn(recs[i].empty() ? NULL : &recs[i][0], recs[i].size());
+
+    std::vector<byte> none;
+    return zqn255_emit(f, ID_COMBOS, 45, 1, none, o.b);
+}
+
+ZqNewerRegistration g_reg_combos_255_17(ID_COMBOS, zqn255_17_combos, "2.55 combos as 2.55.17");
 
 // ---- CMBA: combo aliases, every version -------------------------------------------------
 //

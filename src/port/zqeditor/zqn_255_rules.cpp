@@ -5,11 +5,17 @@
 // zq_rules_upstream, generated from both versions' readrules (zq_rule_names.cpp), does the
 // same to the 100 stored bytes. The target then saves them with its own compat rule version
 // (65 in 2.55.17, 122 in 3.0), every update decided; 3.0's version 18 adds the compiler settings
-// (a settings version of 1, then none: a 2.55 quest has none).
+// (a settings version of 1, then the settings: a 2.55 quest has none).
+//
+// Early 3.0 Nightlies wrote quests with a 2.55 header and a version 18 section already: the 100
+// bytes, then their compiler settings (a version; from version 1 a count, then each setting's id
+// and value), which 3.0's readrules keeps in a map (one value per id, in id order). Those are
+// written as 3.0 holds them; 2.55.17 can't take version 18 (never written older).
 
 #include "precompiled.h" //always first
 
 #include <string.h>
+#include <map>
 #include <vector>
 
 #include "zdefs.h"
@@ -125,13 +131,15 @@ bool hide_bottom_pixels(const char *title)
 // 2 when the section isn't one these take (then nothing is set).
 int upstream_rules(const ZqNewerContext &ctx, Zqn255Section &s, std::vector<byte> &rules)
 {
-    if(!zqn255_source(ctx) || !ctx.src_part || ctx.src_version < 15 || ctx.src_version > 17)
+    const int newest = ctx.target == ZQ_NEWER_30 ? 18 : 17;
+
+    if(!zqn255_source(ctx) || !ctx.src_part || ctx.src_version < 15 || ctx.src_version > newest)
         return 2;
 
     if(!zqn255_section(ctx, s))
         return 0;
 
-    if(s.data.size() != 100)
+    if(s.version < 18 ? s.data.size() != 100 : s.data.size() < 104)
     {
         zqw_last_error = "its rules aren't laid out as expected";
         return 0;
@@ -152,7 +160,7 @@ int upstream_rules(const ZqNewerContext &ctx, Zqn255Section &s, std::vector<byte
     q.author = author;
     q.s_version = s.version;
     q.compat = s.extra.size() == 4 ? (unsigned long)(s.extra[0] | (s.extra[1] << 8) | (s.extra[2] << 16) | ((unsigned long)s.extra[3] << 24)) : 0;
-    rules = s.data;
+    rules.assign(s.data.begin(), s.data.begin() + 100);
     zq_rules_upstream(t30, &rules[0], q);
 
     // what the script reader (readffscript) and the combo reader set
@@ -197,10 +205,44 @@ int write_rules(PACKFILE *f, const ZqNewerContext &ctx)
 
     if(t30)
     {
+        // version 18's compiler settings, as readrules keeps them (a map: the last value read for
+        // an id, in id order)
+        std::map<word, dword> settings;
+
+        if(s.version >= 18)
+        {
+            Zqn255In r(s.data, 100);
+            const dword setting_version = r.u32();
+
+            if(setting_version > 0)
+            {
+                const int n = r.u16();
+
+                for(int q = 0; q < n && !r.bad; ++q)
+                {
+                    const word id = r.u16();
+                    settings[id] = r.u32();
+                }
+            }
+
+            if(!r.at_end())
+            {
+                zqw_last_error = "its rules' compiler settings aren't laid out as expected";
+                return 2;
+            }
+        }
+
         Zqn255Out o;
         o.put(rules);
         o.l(1);     // V_COMPILESETTING
-        o.w(0);     // no settings
+        o.w((int64_t)settings.size());
+
+        for(std::map<word, dword>::const_iterator it = settings.begin(); it != settings.end(); ++it)
+        {
+            o.w(it->first);
+            o.l(it->second);
+        }
+
         return zqn255_emit(f, ID_RULES, 18, 18, compat.b, o.b);
     }
 

@@ -756,13 +756,16 @@ static int zq_choose_version()
         up.push_back(ZQV_253);
     if(!is30 && !is25517)
         up.push_back(ZQV_255);
-    if(!is30)
+    // a quest made in a 3.0 prerelease whose parts are older than 3.0 Nightly's: still newer
+    if(!is30 || zq_newer_upgrades(ZQ_NEWER_30))
         up.push_back(ZQV_30);
 
     if(up.empty())
         return ZQV_OWN;
 
-    std::string own = "As " + (made.empty() ? std::string("its own version") : made);
+    // a long version (a 3.0 prerelease's "3.0.0-prerelease.211+2026-08-09") would push the other
+    // buttons out of the dialog: the line above names it
+    std::string own = "As " + ((made.empty() || made.size() > 20) ? std::string("its own version") : made);
     std::string line = "It was made in " + (made.empty() ? std::string("an unknown version") : made) + ".";
     int c = jwin_alert3("Save Quest As", "Which version of ZC should this file be for?", line.c_str(), NULL,
                         own.c_str(), "As a newer version", "Cancel", 0, 0, 0, lfont);
@@ -962,7 +965,8 @@ int onSaveAs()
 
             if(r != 0)
             {
-                std::string line1 = std::string("This quest can't be saved as ") + zq_newer_target_name(target) + " yet.";
+                // 8: parts newer than the target holds, which no converter will ever write older
+                std::string line1 = std::string("This quest can't be saved as ") + zq_newer_target_name(target) + (r == 8 ? "." : " yet.");
                 jwin_alert("ZQuest", line1.c_str(), why.c_str(), "Nothing was saved.", "O&K", NULL, 'k', 0, lfont);
                 return D_O_K;
             }

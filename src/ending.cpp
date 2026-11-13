@@ -33,6 +33,8 @@
 #include <fstream>
  
 extern byte linear_quest_loading; 
+bool q30_msg_engine();          // q30_msg.cpp: 2.55/3.0 strings
+void q30_msg_clear_display();
 extern LinkClass   Link;
 extern sprite_list  guys, items, Ewpns, Lwpns, Sitems, chainlinks, decorations;
 
@@ -265,6 +267,10 @@ void ending()
     }
     
     clear_bitmap(msgdisplaybuf);
+
+    if(q30_msg_engine())
+        q30_msg_clear_display();    // 2.55/3.0: the string's own display buffers (upstream clear_display_bmps)
+
     draw_screen(tmpscr);
     advanceframe(true);
     

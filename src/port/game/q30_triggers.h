@@ -259,7 +259,9 @@ bool q30_trigger_combo_at(int layer, int pos, int idx);     // Screen->TriggerCo
 bool q30_items_keep_running();
 bool q30_item_script_busy(int id);          // true: it's still running, so using the item does nothing
 void q30_use_item_script(int id);           // the player used the item (2.53's behaviour without the rule)
-void q30_passive_item_script(int id);       // the Hero got an item with a passive script
+void q30_passive_item_script(int id, bool run = true);    // the Hero got an item with a passive script
+                                            // (run false: it starts on the item engine's turn)
+bool q30_item_has_passive_script(int id);   // the item has one, and the rule keeps it running
 void q30_item_scripts_tick(bool waitdraw);  // a frame of the scrolling loop
 void q30_set_item_passive_script(int id, bool on);  // for the quest reader
 // Hands the table the combo; takes ownership.
@@ -278,16 +280,34 @@ enum { Q30_MAX_COUNTERS = 107 };
 enum { Q30_SSC_COUNTER = 1000 };
 long q30_hi_counter(gamedata *g, int c, int kind);
 void q30_set_hi_counter(gamedata *g, int c, int kind, long value);
-// Items 256 and up (upstream has 512): whether the game's Link owns them, kept in the save.
-// False and nothing for older quests.
-enum { Q30_MAX_ITEMS = 512 };
+// Items 256 and up (upstream has 1024; the player's itemsbuf holds them all, zdefs.h): whether
+// the game's Link owns them, kept in the save. False and nothing for older quests.
+enum { Q30_MAX_ITEMS = Q30_MAXITEMS };
 bool q30_high_item_owned(int id);
 void q30_set_high_item_owned(int id, bool owned);
+// One past the last item number the loaded quest can use: MAXITEMS for 2.53 quests (and newer
+// ones with no more items), up to Q30_MAX_ITEMS for a 2.55/3.0 quest with more. Loops over
+// every item (an item class's best, the item to upgrade to) go this far.
+int q30_items_end();
+void q30_set_items_end(int count);  // the item reader: how many items the quest has
+// The name of any item (item_string below 256, the quest's own for 256 and up).
+const char *q30_item_name(int id);
+// Items' own sprite sizes (upstream's overrideFLAGS; v: hxofs, hyofs, hxsz, hysz, hzsz, xofs,
+// yofs, tile width, tile height), from the item reader (item -1 clears them all), and their use
+// on an item sprite (item::item; in_place for putitem's, which has no playing field offset).
+void q30_set_item_size(int item, dword flags, const long *v);
+void q30_item_apply_size(sprite *s, int item, bool in_place);
+// A DMap's disabled items past 255 (the DMap reader; dmap -1 clears them all), and whether the
+// current DMap disables such an item (item_disabled).
+void q30_set_dmap_item_disabled(int dmap, int item);
+bool q30_high_item_disabled(int item);
 
 // upstream's rule numbers (qrs.h) the game code reads
 enum Q30QuestRuleId
 {
+    Q30_QR_SCRIPT_FRIENDLY_ENEMY_TYPES = 170,
     Q30_QR_SIDEVIEWLADDER_FACEUP = 178,
+    Q30_QR_CHECKSCRIPTWEAPONOFFSCREENCLIP = 192,
     Q30_QR_BUSHESONLAYERS1AND2 = 198,
     Q30_QR_NEW_HERO_MOVEMENT = 199,
     Q30_QR_DISABLE_4WAY_GRIDLOCK = 200,
@@ -320,6 +340,7 @@ enum Q30QuestRuleId
     Q30_QR_BROKEN_PUSHBLOCK_TOP_HALF_SOLIDS = 442,
     Q30_QR_BROKEN_PUSHBLOCK_FLAG_CLONING = 443,
     Q30_QR_CONVEYORS_ALL_LAYERS = 434,
+    Q30_QR_WEAPON_BETTER_SCREEN_EDGE_HITBOX = 478,
     Q30_QR_WEAPONS_EXTRA_DEATH_FRAME = 664
 };
 
@@ -342,6 +363,9 @@ void q30_trig_update();
 // A new screen just became tmpscr / is being left (trigger timers, ScreenLoad triggers).
 void q30_trig_screen_load();
 void q30_trig_screen_unload();
+// A scrolling region's other screen, as drawn before Link goes on it (q30_regions.cpp): the combo
+// changes its exstates, ex doors and combo position states made (mi: its map index).
+void q30_trig_display_states(int mi, mapscr *base, mapscr *layers);
 // Quest-side hooks; these keep their state here.
 void q30_note_item_exstate(long uid, int exstate);
 void q30_note_enemy_exstate(long uid, int exstate);
@@ -387,6 +411,9 @@ bool q30_item_flag(int item, dword bit);    // q30_item_flags(item) & bit, false
 // button counters read the counter of a cost that has an amount (-1 none)
 void q30_set_item_cost(int item, int ctr0, int amt0, int ctr1, int amt1);  // -1 clears
 int q30_item_cost_counter(int item, int which);
+// whether Link can pay both of the item's costs, from any counter (upstream's checkmagiccost
+// without its timers; the player only)
+bool q30_item_costs_payable(int item);
 // rules that became item flags in 2.55: the item's flag for 2.55/3.0 quests, the rule for 2.53
 bool q30_slash_flip(int itemid);            // qr_SLASHFLIPFIX
 bool q30_quick_sword(int itemid);           // qr_QUICKSWORD (the sword or wand in use)
@@ -399,6 +426,9 @@ void q30_item_pickup_info(int item, long *pickup, int *mode, int *pstring, int *
 bool q30_item_pickup_string(int sprite_item, int item, bool held, int shop_pstr = 0);
 void q30_set_shop_string(int shop, int slot, int str);     // readers; shop -1 clears
 int q30_shop_string(int shop, int slot);    // 0 for 2.53 quests
+// A shop's item (QMisc.shop's byte, or a 2.55/3.0 quest's item of 256 and up the reader kept).
+void q30_set_shop_item(int shop, int slot, int id);       // readers (player only); shop -1 clears
+int q30_shop_item(int shop, int slot);
 void q30_item_pickup_secrets(int pickup);   // checkitems: ipSECRETS triggers the screen's secrets
 int q30_item_secret_flag();                 // Q30_IP_SECRETS for a screen item when the screen says so
 bool q30_item_returns();                    // the screen's item comes back though taken (fITEMRETURN)
@@ -465,6 +495,8 @@ int q30_startwpn(int itemid);               // -1: not handled, 2: the bug net, 
 void q30_thrown_frame(weapon *w);
 void q30_draw_lift(BITMAP *dest);
 void q30_draw_darkness(BITMAP *dest);
+// The same through a scroll (LinkClass::scrollscr, its view at sx, sy): the old and new screens.
+void q30_draw_scroll_darkness(BITMAP *dest, int sx, int sy);
 void q30_cutscene_flags(const Q30Combo *c);
 void q30_cutscene_clear();
 void q30_cutscene_input();                  // call after the control state is read
@@ -541,6 +573,9 @@ void q30_throw_generic_event(int event, long *data, int count);    // Game->Even
 void q30_throw_generic_event(int event);
 void q30_generic_time_exit(int state);      // ends or restarts the generic scripts set to on this
 void q30_screen_change_events(bool loaded); // loadscr: DMap, level and screen changes
+// Link's drowning ends in a 2.55/3.0 quest: PLAYER_DROWN, then the damage and invincibility it
+// costs (none for a pit's fall played as a drowning). False for 2.53 quests.
+bool q30_player_drown_end(int *damage, int *inv_timer);
 bool q30_no_active_subscreen();
 int q30_hero_cset_base(int normal);
 bool q30_hero_immortal();
@@ -612,5 +647,18 @@ void q30_set_exstate(int mi, int bit, bool on);
 bool q30_get_xdoor(int mi, int dir, int ind);
 void q30_set_xdoor(int mi, int dir, int ind, bool on);
 byte &q30_pos_state(int mi, int key);
+
+// 3.0 scrolling regions (q30_regions.h): each screen of a region keeps its own trigger state;
+// q30_trig_state_swap swaps one with the current screen's. q30_trig_screen_load_other: another
+// screen of the region loaded beside the current one, standing in for it (its timers start from
+// its combos, its ScreenLoad triggers run; the current screen's slopes and effects stay).
+void *q30_trig_state_new();
+void q30_trig_state_swap(void *state);
+void q30_trig_state_delete(void *state);
+void q30_trig_screen_load_other();
+// Each frame for another screen of the region standing in: its combos' timers, shooters and
+// crumbling floors (q30_trig_screen_busy: whether it has any, its base and its 6 layers).
+void q30_trig_update_other();
+bool q30_trig_screen_busy(const mapscr *base, const mapscr *layers);
 
 #endif

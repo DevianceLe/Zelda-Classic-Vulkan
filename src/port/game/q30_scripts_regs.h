@@ -60,7 +60,13 @@ struct Z30Sprite
     sprite *s;
     int kind;
     int ffc;
+    int ffc_screen;     // the FFC's screen: -1 the current one, else another of a scrolling region
 };
+
+// 3.0 scrolling regions: FFCs named across the region (q30_scripts_region.h)
+static bool zasm30_ffc_from_ref(long ref, int *screen, int *index);
+static bool zasm30_region_ffc_sprite_get(const long arg, long &ret, const Z30Sprite &r);
+static bool zasm30_region_ffc_sprite_set(const long arg, long value, const Z30Sprite &r);
 
 static Z30Sprite z30_sprite(long uid)
 {
@@ -68,11 +74,12 @@ static Z30Sprite z30_sprite(long uid)
     r.s = NULL;
     r.kind = Z30S_NONE;
     r.ffc = -1;
+    r.ffc_screen = -1;
 
     if(uid >= Z30_FFC_BASE)
     {
-        r.ffc = uid - Z30_FFC_BASE;
-        if(r.ffc >= 0 && r.ffc < MAXFFCS)
+        // its slot, and in a scrolling region its screen (IDs go across the region there)
+        if(zasm30_ffc_from_ref(uid, &r.ffc_screen, &r.ffc))
             r.kind = Z30S_FFC;
         return r;
     }
@@ -124,14 +131,38 @@ static bool zasm30_sprite_read(const long arg, long &ret, const Z30Sprite &r)
     switch(arg)
     {
     case Z30R_SPRITE_SPAWN_SCREEN:
-    case Z30R_SPRITE_CURRENT_SCREEN: ret = currscr * 10000; return true;
+    {
+        // the screen a sprite came from (upstream's screen_spawned): in a scrolling region the
+        // screen it was tagged with, and the region's top-left screen for the Hero; else currscr
+        int scr = currscr;
+
+        if(r.kind == Z30S_HERO)
+            scr = q30_region_origin();
+        else if(s && q30_region_sprite_screen(s->getUID()) >= 0)
+            scr = q30_region_sprite_screen(s->getUID());
+
+        ret = scr * 10000;
+        return true;
+    }
+    case Z30R_SPRITE_CURRENT_SCREEN:
+        // the region screen under the sprite's centre (upstream's current_screen; the Hero's is
+        // x + 8, y + 8); currscr outside a region
+        if(!s)
+            ret = currscr * 10000;
+        else if(r.kind == Z30S_HERO)
+            ret = q30_region_screen_at(int(s->x) + 8, int(s->y) + 8) * 10000;
+        else
+            ret = q30_region_screen_at(int(s->x) + s->hxofs + s->hxsz / 2, int(s->y) + s->hyofs + s->hysz / 2) * 10000;
+        return true;
+    // Positions in a scrolling region are region pixels (q30_region_origin_x/y; 0 elsewhere).
+    // FFCs keep theirs as they are here (see the FFC position code).
     case Z30R_SPRITE_X:
         if(isffc) ret = tmpscr->ffx[f];
-        else ret = z30_fixreg(s->x, false);
+        else ret = z30_fixreg(s->x, false) + q30_region_origin_x() * 10000L;
         return true;
     case Z30R_SPRITE_Y:
         if(isffc) ret = tmpscr->ffy[f];
-        else ret = z30_fixreg(s->y, false);
+        else ret = z30_fixreg(s->y, false) + q30_region_origin_y() * 10000L;
         return true;
     case Z30R_SPRITE_Z:
         if(isffc) ret = 0;
@@ -243,6 +274,10 @@ static bool zasm30_sprite_get(const long arg, long &ret)
 {
     Z30Sprite r = z30_sprite(Z30_REF(SPRITE));
 
+    // an FFC in a 3.0 scrolling region: its screen's table, its X and Y in region pixels
+    if(r.kind == Z30S_FFC && q30_region_on())
+        return zasm30_region_ffc_sprite_get(arg, ret, r);
+
     if(r.kind != Z30S_NONE)
         return zasm30_sprite_read(arg, ret, r);
 
@@ -254,14 +289,26 @@ static bool zasm30_sprite_get(const long arg, long &ret)
     return true;
 }
 
+static bool zasm30_sprite_write(const long arg, const long value, const Z30Sprite &r);
+
 static bool zasm30_sprite_set(const long arg, const long value)
 {
     Z30Sprite r = z30_sprite(Z30_REF(SPRITE));
-    sprite *s = r.s;
 
     if(r.kind == Z30S_NONE)
         return z30_is_sprite_register(arg);
 
+    // an FFC in a 3.0 scrolling region: its screen's table, its X and Y in region pixels
+    if(r.kind == Z30S_FFC && q30_region_on())
+        return zasm30_region_ffc_sprite_set(arg, value, r);
+
+    return zasm30_sprite_write(arg, value, r);
+}
+
+// A sprite register written on the sprite r names.
+static bool zasm30_sprite_write(const long arg, const long value, const Z30Sprite &r)
+{
+    sprite *s = r.s;
     const bool isffc = r.kind == Z30S_FFC;
     const bool ishero = r.kind == Z30S_HERO;
     const int f = r.ffc;
@@ -271,19 +318,22 @@ static bool zasm30_sprite_set(const long arg, const long value)
     {
     case Z30R_SPRITE_SPAWN_SCREEN:
     case Z30R_SPRITE_CURRENT_SCREEN: return true;
+    // (region pixels in a scrolling region: the current screen's offset comes off)
     case Z30R_SPRITE_X:
         if(isffc) tmpscr->ffx[f] = value;
-        else if(ishero) Link.setX(value / 10000);
-        else s->x = fix(value / 10000);
+        else if(ishero) Link.setX(value / 10000 - q30_region_origin_x());
+        else s->x = fix(value / 10000 - q30_region_origin_x());
         return true;
     case Z30R_SPRITE_Y:
         if(isffc) tmpscr->ffy[f] = value;
-        else if(ishero) Link.setY(value / 10000);
+        else if(ishero) Link.setY(value / 10000 - q30_region_origin_y());
         else
         {
+            const fix ny = fix(value / 10000 - q30_region_origin_y());
+
             if(r.kind == Z30S_NPC)
-                ((enemy *)s)->floor_y += fix(value / 10000) - s->y;
-            s->y = fix(value / 10000);
+                ((enemy *)s)->floor_y += ny - s->y;
+            s->y = ny;
         }
         return true;
     case Z30R_SPRITE_Z:
@@ -437,6 +487,28 @@ static mapscr *z30_mapdata(long ref)
 
     const long index = ref - 1;
     return index < (long)TheMaps.size() ? &TheMaps[index] : NULL;
+}
+
+// The screen holding combo n of mapdata `ref` (->ComboD[] and the other combo arrays), with n
+// made the position on it; NULL: no such combo. A Game->LoadTempScreen(layer) mapdata covers the
+// whole scrolling region, as upstream's (TemporaryCurrentRegion), so in one its index is a combo
+// position across the region (q30_region_rpos_screen); any other mapdata is 0..175.
+static mapscr *z30_mapdata_combo(long ref, long &n)
+{
+    if(ref > 0 && (ref & Z30_MAPDATA_TMP) && q30_region_on())
+    {
+        int pos;
+        bool current;
+        mapscr *m = q30_region_rpos_screen((int)n, (int)(ref & 0xFFFF), &pos, &current);
+
+        if(m)
+            n = pos;
+
+        return m && n < (long)m->data.size() ? m : NULL;
+    }
+
+    mapscr *m = z30_mapdata(ref);
+    return (m && n >= 0 && n < 176) ? m : NULL;
 }
 
 // 3.0 combo data kept by the combo reader; NULL when the quest gave this combo none.
@@ -685,7 +757,7 @@ std::string q30_item_shown_name(int id)
     std::string s = z30_item_display_name(id);
 
     if(s.empty())
-        return (id >= 0 && id < ITEMCNT) ? std::string(item_string[id]) : std::string();
+        return (id >= 0 && id < q30_items_end()) ? std::string(q30_item_name(id)) : std::string();
 
     // "%s" is a bottle's contents ("Empty" when it holds nothing; q30_triggers.cpp), else nothing
     const std::string contents = q30_bottle_contents_name(id);
@@ -1107,18 +1179,19 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
         return true;
     }
 
-    // Combo script position
+    // Combo script position (a combo of the current screen; in a scrolling region, as the
+    // region's combo position and pixels, q30_regions.h)
     case Z30R_COMBOPOSR:
-        ret = (Z30_REF(COMBOPOS) & 0xFFFF) * 10000;
+        ret = q30_region_rpos_of_pos(Z30_REF(COMBOPOS) & 0xFFFF) * 10000;
         return true;
     case Z30R_COMBOLAYERR:
         ret = (Z30_REF(COMBOPOS) >> 16) * 10000;
         return true;
     case Z30R_COMBOXR:
-        ret = ((Z30_REF(COMBOPOS) & 0xFFFF) % 16) * 16 * 10000;
+        ret = (((Z30_REF(COMBOPOS) & 0xFFFF) % 16) * 16 + q30_region_origin_x()) * 10000;
         return true;
     case Z30R_COMBOYR:
-        ret = ((Z30_REF(COMBOPOS) & 0xFFFF) & 0xF0) * 10000;
+        ret = (((Z30_REF(COMBOPOS) & 0xFFFF) & 0xF0) + q30_region_origin_y()) * 10000;
         return true;
 
     // combodata->
@@ -1172,7 +1245,7 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     }
 
     // Screen->
-    case Z30R_SCREENDATAITEM: ret = tmpscr->hasitem ? tmpscr->item * 10000 : -10000; return true;
+    case Z30R_SCREENDATAITEM: ret = tmpscr->hasitem ? mapscr_item(tmpscr) * 10000 : -10000; return true;
     case Z30R_SCREENDATAHASITEM: ret = tmpscr->hasitem * 10000; return true;
     case Z30R_SCREENDATASTRING: ret = tmpscr->str * 10000; return true;
     case Z30R_SCREENDATAENEMY: ret = (Z30_INDEX >= 0 && Z30_INDEX < 10) ? tmpscr->enemy[Z30_INDEX] * 10000 : 0; return true;
@@ -1207,7 +1280,8 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_SCREENINITD:
     {
         ret = 0;
-        const int index = currmap * MAPSCRS + currscr;
+        // (a global or generic script in a scrolling region reads the region's top-left screen's)
+        const int index = currmap * MAPSCRS + zasm30_script_screen();
         if(Z30_INDEX >= 0 && Z30_INDEX < 8)
         {
             std::map<int, Zasm30ScreenScript>::const_iterator it = zasm30_screen_scripts.find(index);
@@ -1251,11 +1325,11 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_MAPDATACOMBOTD:
     case Z30R_MAPDATACOMBOID:
     {
-        mapscr *m = z30_mapdata(Z30_REF(MAPDATA));
         long n = Z30_INDEX;
+        mapscr *m = z30_mapdata_combo(Z30_REF(MAPDATA), n);    // (across a scrolling region: z30_mapdata_combo)
         ret = -10000;
 
-        if(m && n >= 0 && n < 176)
+        if(m)
         {
             switch(arg)
             {
@@ -1394,9 +1468,11 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_MUSICUPDATECOND: ret = zasm30_store_get(arg, 0, 0) * 10000; return true;
     case Z30R_GAMEASUBYOFF: ret = zasm30_store_get(arg, 0, 0) * 10000; return true;
     case Z30R_FFRULE: ret = (Z30_INDEX >= 0 && Z30_INDEX < QUESTRULES_SIZE * 8) ? (get_bit(quest_rules, Z30_INDEX) ? 10000 : 0) : 0; return true;
-    case Z30R_FFCID: ret = (ri->ffcref + 1) * 10000; return true;
+    // (in a 3.0 scrolling region an FFC's ID goes across the region, 128 to a screen as upstream's:
+    // q30_scripts_region.h; outside one, its slot + 1)
+    case Z30R_FFCID: ret = (zasm30_selected_ffc_ref() - Z30_FFC_BASE + 1) * 10000; return true;
     case Z30R_FFCLAYER: ret = zasm30_store_get(arg, ri->ffcref, 0) * 10000; return true;
-    case Z30R_MAX_FFC_ID: ret = MAXFFCS * 10000; return true;
+    case Z30R_MAX_FFC_ID: ret = (q30_region_on() ? q30_region_screens_wide() * q30_region_screens_high() * 128 : MAXFFCS) * 10000; return true;
     case Z30R_DISTANCE:
     {
         double x = Z30_D(6) / 10000.0 - Z30_D(1) / 10000.0;
@@ -1641,8 +1717,8 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     // mapdata->
     case Z30R_MAPDATACOMBOSD:
     {
-        mapscr *m = z30_mapdata_now();
-        const long n = Z30_INDEX;
+        long n = Z30_INDEX;
+        mapscr *m = z30_mapdata_combo(Z30_REF(MAPDATA), n);
         ret = -10000;
         if(m && n >= 0 && n < (long)m->data.size() && m->data[n] < MAXCOMBOS)
             ret = (combobuf[m->data[n]].walk & 0xF) * 10000;
@@ -1738,7 +1814,7 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_MAPDATACOLOUR: { mapscr *m = z30_mapdata_now(); ret = m ? m->color * 10000 : -10000; return true; }
     case Z30R_MAPDATASTRING: { mapscr *m = z30_mapdata_now(); ret = m ? m->str * 10000 : -10000; return true; }
     case Z30R_MAPDATAROOM: { mapscr *m = z30_mapdata_now(); ret = m ? m->room * 10000 : -10000; return true; }
-    case Z30R_MAPDATAITEM: { mapscr *m = z30_mapdata_now(); ret = (m && m->hasitem) ? m->item * 10000 : -10000; return true; }
+    case Z30R_MAPDATAITEM: { mapscr *m = z30_mapdata_now(); ret = (m && m->hasitem) ? mapscr_item(m) * 10000 : -10000; return true; }
     case Z30R_MAPDATAFLAGS:
     {
         mapscr *m = z30_mapdata_now();
@@ -1927,7 +2003,7 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_IDATAATTRIB:
     {
         ret = -10000;
-        if(unsigned(ri->idata) < MAXITEMS && Z30_INDEX >= 0 && Z30_INDEX < 10)
+        if(unsigned(ri->idata) < unsigned(q30_items_end()) && Z30_INDEX >= 0 && Z30_INDEX < 10)
         {
             const itemdata &it = Q30_IDATA(ri->idata);
             const long values[10] = { it.misc1, it.misc2, it.misc3, it.misc4, it.misc5, it.misc6, it.misc7, it.misc8, it.misc9, it.misc10 };
@@ -1936,7 +2012,7 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
         return true;
     }
     case Z30R_IDATAMINHEARTS:
-        ret = unsigned(ri->idata) < MAXITEMS ? Q30_IDATA(ri->idata).pickup_hearts * 10000 : -10000;
+        ret = unsigned(ri->idata) < unsigned(q30_items_end()) ? Q30_IDATA(ri->idata).pickup_hearts * 10000 : -10000;
         return true;
 
     // paldata->
@@ -2139,8 +2215,8 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     // Screen->
     case Z30R_SCREENDATAITEM:
     {
-        int v = vbound(value / 10000, -1, MAXITEMS - 1);
-        if(v > -1) tmpscr->item = v;
+        int v = vbound(value / 10000, -1, q30_items_end() - 1);
+        if(v > -1) set_mapscr_item(tmpscr, v);     // (256 and up too)
         tmpscr->hasitem = v > -1;
         return true;
     }
@@ -2196,7 +2272,7 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     }
     case Z30R_SCREENINITD:
     {
-        const int index = currmap * MAPSCRS + currscr;
+        const int index = currmap * MAPSCRS + zasm30_script_screen();
         if(Z30_INDEX >= 0 && Z30_INDEX < 8)
         {
             std::map<int, Zasm30ScreenScript>::iterator it = zasm30_screen_scripts.find(index);
@@ -2237,10 +2313,10 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     case Z30R_MAPDATACOMBOTD:
     case Z30R_MAPDATACOMBOID:
     {
-        mapscr *m = z30_mapdata(Z30_REF(MAPDATA));
         long n = Z30_INDEX;
+        mapscr *m = z30_mapdata_combo(Z30_REF(MAPDATA), n);    // (across a scrolling region: z30_mapdata_combo)
 
-        if(m && n >= 0 && n < 176)
+        if(m)
         {
             switch(arg)
             {
@@ -2615,7 +2691,7 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     {
         const Q30Combo *c = q30_combo(Z30_REF(COMBODATA));
         if(c && !c->triggers.empty())
-            const_cast<Q30Combo *>(c)->triggers[0].spawnitem = vbound(value / 10000, -(MAXITEMDROPSETS - 1), MAXITEMS - 1);
+            const_cast<Q30Combo *>(c)->triggers[0].spawnitem = vbound(value / 10000, -(MAXITEMDROPSETS - 1), q30_items_end() - 1);
         return true;
     }
     case Z30R_COMBODTRIGGERFLAGS2:
@@ -2642,8 +2718,8 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     // mapdata->
     case Z30R_MAPDATACOMBOSD:
     {
-        mapscr *m = z30_mapdata_now();
-        const long n = Z30_INDEX;
+        long n = Z30_INDEX;
+        mapscr *m = z30_mapdata_combo(Z30_REF(MAPDATA), n);
         if(m && n >= 0 && n < (long)m->data.size() && m->data[n] < MAXCOMBOS)
         {
             newcombo &c = combobuf[m->data[n]];
@@ -2771,8 +2847,8 @@ static bool zasm30_set_register_inner(const long arg, const long value)
         mapscr *m = z30_mapdata_now();
         if(m)
         {
-            const int v = vbound(value / 10000, -1, MAXITEMS - 1);
-            if(v > -1) m->item = v;
+            const int v = vbound(value / 10000, -1, q30_items_end() - 1);
+            if(v > -1) set_mapscr_item(m, v);
             m->hasitem = v > -1;
         }
         return true;
@@ -2933,7 +3009,7 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     }
     case Z30R_IDATAATTRIB:
     {
-        if(unsigned(ri->idata) < MAXITEMS && Z30_INDEX >= 0 && Z30_INDEX < 10)
+        if(unsigned(ri->idata) < unsigned(q30_items_end()) && Z30_INDEX >= 0 && Z30_INDEX < 10)
         {
             itemdata &it = Q30_IDATA(ri->idata);
             long *fields[10] = { &it.misc1, &it.misc2, &it.misc3, &it.misc4, &it.misc5, &it.misc6, &it.misc7, &it.misc8, &it.misc9, &it.misc10 };
@@ -2942,7 +3018,7 @@ static bool zasm30_set_register_inner(const long arg, const long value)
         return true;
     }
     case Z30R_IDATAMINHEARTS:
-        if(unsigned(ri->idata) < MAXITEMS)
+        if(unsigned(ri->idata) < unsigned(q30_items_end()))
             Q30_IDATA(ri->idata).pickup_hearts = (byte)vbound(value / 10000, 0, 255);
         return true;
 

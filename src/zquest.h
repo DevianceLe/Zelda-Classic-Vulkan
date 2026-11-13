@@ -107,7 +107,11 @@ extern int tooltip_timer, tooltip_maxtimer;
 extern bool canfill;                                        //to prevent double-filling (which stops undos)
 extern bool resize_mouse_pos;                               //for eyeball combos
 
+#ifdef ZC_PLAYER_BUILD
+extern int lens_hint_item[Q30_MAXITEMS][2];                 //aclk, aframe (the player's, zelda.h)
+#else
 extern int lens_hint_item[MAXITEMS][2];                     //aclk, aframe
+#endif
 extern int lens_hint_weapon[MAXWPNS][5];                    //aclk, aframe, dir, x, y
 //extern int mode, switch_mode, orig_mode;
 extern RGB_MAP rgb_table;

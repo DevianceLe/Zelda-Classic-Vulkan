@@ -18,6 +18,7 @@
 
 #include <string.h>
 #include <set>
+#include <algorithm>
 #include <stdio.h>
 
 #include "link.h"
@@ -896,7 +897,7 @@ int LinkClass::weaponattackpower()
 // Must only be called once per frame!
 void LinkClass::positionSword(weapon *w, int itemid)
 {
-    itemid=vbound(itemid, 0, MAXITEMS-1);
+    itemid=vbound(itemid, 0, q30_items_end()-1);
     // Place a sword weapon at the right spot.
     int wy=1;
     int wx=1;
@@ -1277,7 +1278,7 @@ attack:
         */
         int itype = (attack==wFire ? itype_candle : attack==wCByrna ? itype_cbyrna : attack==wWand ? itype_wand : attack==wHammer ? itype_hammer : itype_sword);
         int itemid = (directWpn>-1 && itemsbuf[directWpn].family==itype) ? directWpn : current_item_id(itype);
-        itemid=vbound(itemid, 0, MAXITEMS-1);
+        itemid=vbound(itemid, 0, q30_items_end()-1);
         
         if(attackclk>4||(attack==wSword&&game->get_canslash()))
         {
@@ -2066,7 +2067,7 @@ void LinkClass::checkstab()
     // The return of Spaghetti Code Constants!
     int itype = (attack==wWand ? itype_wand : itype_sword);
     int itemid = (directWpn>-1 && itemsbuf[directWpn].family==itype) ? directWpn : current_item_id(itype);
-    itemid = vbound(itemid, 0, MAXITEMS-1);
+    itemid = vbound(itemid, 0, q30_items_end()-1);
     
     // The sword offsets aren't based on anything other than what felt about right
     // compared to the NES game and what mostly kept it from hitting things that
@@ -2215,6 +2216,27 @@ void LinkClass::checkstab()
                     {
                         int pickup = ((item*)items.spr(j))->pickup;
                         
+                        // 2.55/3.0 quests: COLLECT_ITEM for an item the sword, wand or hammer
+                        // touches (upstream HeroClass::checkstab: how 1, melee; the weapon). A
+                        // script may change the item taken and its pickup flags, or cancel it.
+                        if(q30_generic_listening(Z30EV_COLLECT_ITEM))
+                        {
+                            const long it_uid = items.spr(j)->getUID();
+                            long ev[8] = { items.spr(j)->id * 10000L, pickup * 10000L, 0, 0, 0, it_uid, 1 * 10000L, w->getUID() };
+                            q30_throw_generic_event(Z30EV_COLLECT_ITEM, ev, 8);
+
+                            if(ev[4])
+                                continue;
+
+                            if((j = q30_sprite_index(items, j, it_uid)) < 0)
+                                break;      // a script removed the item
+
+                            if(ev[0] / 10000 >= 0 && ev[0] / 10000 < q30_items_end())
+                                items.spr(j)->id = ev[0] / 10000;   // the item taken (the sprite goes below)
+
+                            pickup = (pickup & (ipCHECK|ipDUMMY)) | (ev[1] / 10000);
+                        }
+
                         if(pickup&ipONETIME) // set mITEM for one-time-only items
                             setmapflag(mITEM);
                         else if(pickup&ipONETIME2) // set mBELOW flag for other one-time-only items
@@ -3227,7 +3249,7 @@ void LinkClass::checkhit()
         const int q30_fire_item = ((weapon*)(Lwpns.spr(i)))->parentitem;
         const bool fireproof = q30_active()
             ? ((q30_fire_item < 0 && get_bit(quest_rules,qr_FIREPROOFLINK)) ||
-               (q30_fire_item >= 0 && q30_fire_item < MAXITEMS &&
+               (q30_fire_item >= 0 && q30_fire_item < q30_items_end() &&
                 (itemsbuf[q30_fire_item].family==itype_candle || itemsbuf[q30_fire_item].family==itype_book) &&
                 q30_item_flag(q30_fire_item, ITEM_FLAG3)))
             : get_bit(quest_rules,qr_FIREPROOFLINK) != 0;
@@ -3284,7 +3306,7 @@ void LinkClass::checkhit()
             {
                 int itemid = ((weapon*)s)->parentitem>-1 ? ((weapon*)s)->parentitem :
                              directWpn>-1 ? directWpn : current_item_id(s->id==wHookshot ? itype_hookshot : itype_brang);
-                itemid = vbound(itemid, 0, MAXITEMS-1);
+                itemid = vbound(itemid, 0, q30_items_end()-1);
                 
                 for(int j=0; j<Ewpns.Count(); j++)
                 {
@@ -4458,12 +4480,26 @@ bool LinkClass::animate(int)
         if(--drownclk==0)
         {
             action=none;
+            int q30_damage = 0, q30_inv = 0;
+            const bool q30_drown = q30_player_drown_end(&q30_damage, &q30_inv);
             x=entry_x;
             y=entry_y;
             warpx=x;
             warpy=y;
-            hclk=48;
-            game->set_life(zc_max(game->get_life()-(HP_PER_HEART/4),0));
+
+            if(q30_drown)
+            {
+                // 2.55/3.0 quests (upstream): after the PLAYER_DROWN generic script event, the
+                // water combo sets the damage and the invincibility; a pit's fall played as a
+                // drowning took its damage already
+                hclk=q30_inv;
+                game->set_life(vbound(game->get_life()-q30_damage,0,game->get_maxlife()));
+            }
+            else
+            {
+                hclk=48;
+                game->set_life(zc_max(game->get_life()-(HP_PER_HEART/4),0));
+            }
         }
         
         break;
@@ -8570,7 +8606,7 @@ void LinkClass::q30_slopes_begin()
             {
                 int id = atoi(p);
 
-                if(id > 0 && id < MAXITEMS)
+                if(id > 0 && id < q30_items_end())
                     getitem(id, true);
 
                 while(*p && *p != ',')
@@ -8592,7 +8628,7 @@ void LinkClass::q30_slopes_begin()
         int bslot = 0, btype = 0, did = 0, dx = 0, dy = 0;
 
         if(const char *gd = getenv("ZC_TEST_DROP"))     // "id,x,y": an item on the ground
-            if(sscanf(gd, "%d,%d,%d", &did, &dx, &dy) == 3 && did > 0 && did < MAXITEMS)
+            if(sscanf(gd, "%d,%d,%d", &did, &dx, &dy) == 3 && did > 0 && did < q30_items_end())
                 additem(dx, dy, did, 0);
 
         if(const char *gs = getenv("ZC_TEST_BOTTLE"))
@@ -9368,7 +9404,8 @@ static bool q30_ffc_solid_at(int wx, int wy, int cnt)
         }
     }
 
-    return false;
+    // a 3.0 scrolling region: the solid FFCs of its other screens, wherever they are
+    return q30_region_ffc_solid_at(wx, wy, cnt);
 }
 
 LinkClass::WalkflagInfo LinkClass::walkflag(int wx,int wy,int cnt,byte d2)
@@ -11251,7 +11288,7 @@ void LinkClass::checkspecial()
         // item (not one that waits for the secrets: 2.55/3.0's hasitem 8)
         if(hasitem&(4|2|1))
         {
-            int Item=tmpscr->item;
+            int Item=mapscr_item(tmpscr);   // (256 and up in a 2.55/3.0 quest)
 
             //if(getmapflag())
             //  Item=0;
@@ -11327,7 +11364,7 @@ void LinkClass::checkspecial()
     // 2.55/3.0 (fSECRETITEM): the screen's item appears once its secrets have been triggered
     if((hasitem&8) && q30_secrets_triggered())
     {
-        int Item=tmpscr->item;
+        int Item=mapscr_item(tmpscr);   // (256 and up in a 2.55/3.0 quest)
 
         if((!getmapflag(mITEM) || q30_item_returns()) && (tmpscr->hasitem != 0))
         {
@@ -12132,6 +12169,7 @@ void LinkClass::checkspecial2(int *ls)
         bool opening = (tmpscr[t].tilewarptype[index]<=wtPASS && !(DMaps[currdmap].flags&dmfCAVES && tmpscr[t].tilewarptype[index]==wtCAVE)
                         ? false : COOLSCROLL);
                         
+        q30_warp_script_check();    // 2.55/3.0 quests' scripts get this frame too (upstream)
         draw_screen(tmpscr);
         advanceframe(true);
         
@@ -12153,6 +12191,7 @@ void LinkClass::checkspecial2(int *ls)
     {
         if(!skippedaframe)
         {
+            q30_warp_script_check();    // 2.55/3.0 quests' scripts get this frame too (upstream)
             draw_screen(tmpscr);
             advanceframe(true);
         }
@@ -12182,6 +12221,7 @@ void LinkClass::checkspecial2(int *ls)
     {
         if(!skippedaframe)
         {
+            q30_warp_script_check();    // 2.55/3.0 quests' scripts get this frame too (upstream)
             draw_screen(tmpscr);
             advanceframe(true);
         }
@@ -12225,6 +12265,7 @@ void LinkClass::checkspecial2(int *ls)
     {
         if(!skippedaframe && (tmpscr[t].tilewarptype[index]!=wtNOWARP))
         {
+            q30_warp_script_check();    // 2.55/3.0 quests' scripts get this frame too (upstream)
             draw_screen(tmpscr);
             advanceframe(true);
         }
@@ -15219,7 +15260,10 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
         q30_scroll_layer(framebuf, 4, true, tx, ty, false);
         q30_scroll_layer(framebuf, -4, true, tx, ty, true);
         q30_scroll_layer(framebuf, 5, true, tx, ty, false);
-        
+
+        // 2.55/3.0 new dark rooms over both screens (nothing for 2.53 quests)
+        q30_draw_scroll_darkness(framebuf, sx, sy);
+
         if(msgdisplaybuf->clip == 0)
             masked_blit(msgdisplaybuf, framebuf, tx2, ty2, 0, playing_field_offset, 256, zc_field_h());
             
@@ -15240,6 +15284,9 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
     
     clear_bitmap(msgdisplaybuf);
     set_clip_state(msgdisplaybuf, 1);
+
+    if(q30_msg_engine())
+        q30_msg_clear_display();    // 2.55/3.0: the string's own display buffers (upstream clear_display_bmps)
     
     //Move link to the other side of the screen if scrolling's not turned on
     if(get_bit(quest_rules, qr_NOSCROLL))
@@ -15837,7 +15884,7 @@ int Bweapon(int pos)
     if(family==-1)
         return 0;
         
-    for(int j=0; j<MAXITEMS; j++)
+    for(int j=0; j<q30_items_end(); j++)
     {
         // Find the item that matches this subscreen object.
         if(itemsbuf[j].family==family && j == current_item_id(family,false) && !item_disabled(j))
@@ -15997,7 +16044,7 @@ int q30_forced_awpn = -1, q30_forced_bwpn = -1;
 
 void q30_set_ab_item(bool a, int val)
 {
-    if(val < -1 || val >= MAXITEMS)
+    if(val < -1 || val >= q30_items_end())
     {
         al_trace("Tried to write an invalid item ID to Hero->Item%c: %d\n", a ? 'A' : 'B', val);
         return;
@@ -16022,7 +16069,7 @@ void q30_set_ab_item(bool a, int val)
         directItem = keep;
     }
 
-    if(val >= 0)
+    if(val >= 0 && val < MAXITEMS)  // (items_off holds 2.53's 256; items past it aren't in it)
         game->items_off[val] = 0;
 
     (a ? q30_forced_awpn : q30_forced_bwpn) = val;
@@ -16334,7 +16381,7 @@ void dospecialmoney(int index)
         }
         
         //also give Link an actual Bomb item
-        for(int i=0; i<MAXITEMS; i++)
+        for(int i=0; i<q30_items_end(); i++)
         {
             if(itemsbuf[i].family == itype_bomb && itemsbuf[i].fam_type == 1)
                 getitem(i, true);
@@ -16408,57 +16455,145 @@ void dospecialmoney(int index)
     }
 }
 
-// A 2.55/3.0 quest's starting items numbered 256 and up, which 2.53's itemsbuf and save can't
-// hold (q30_high_item): at a new game they add to counters as getitem does (a wallet's max
-// rupees, a heart container's life), as resetItems gives the others. They aren't owned in
-// the save, so Link->Item[], the subscreen and item use still don't see them.
-void q30_give_init_high_items()
+// ZC_Q30_ITEMDUMP=1: where a newer quest uses its items 256 and up (screens, special item rooms,
+// shops, drop sets, subscreen slots), those items, and screens placing items that have their own
+// sprite sizes, logged as the quest loads (q255_core.cpp)
+void q30_high_items_survey()
+{
+    if(!getenv("ZC_Q30_ITEMDUMP") || quest_header_zelda_version < 0x255)
+        return;
+
+    al_trace("q30 itemdump: items end %d\n", q30_items_end());
+
+    // items with a passive script; a starting one's resetItems leaves to start with the game
+    // (q30_getitem_starting)
+    for(int id = 0; id < q30_items_end(); ++id)
+    {
+        const std::vector<int> &high = q30_init_high_items();
+        const bool starting = id < MAXITEMS ? zinit.items[id] != 0 : std::find(high.begin(), high.end(), id) != high.end();
+
+        if(q30_item_has_passive_script(id))
+            al_trace("q30 itemdump: passive script item %d '%s' script %d%s\n", id, q30_item_name(id), (int)itemsbuf[id].script,
+                     (starting && (itemsbuf[id].flags & ITEM_GAMEDATA)) ? " (a starting item)" : "");
+    }
+
+    for(int id = MAXITEMS; id < q30_items_end(); ++id)
+    {
+        const itemdata &it = itemsbuf[id];
+        long pickup = 0;
+        int mode = 0, pstr = 0, psf = 0;
+        q30_item_pickup_info(id, &pickup, &mode, &pstr, &psf);
+
+        if(q30_item_name(id)[0] || it.tile)
+            al_trace("q30 itemdump: item %d '%s' family %ld level %d flags %x counter %d amount %x setmax %d max %d script %d collect %d pstring %d tile %ld\n",
+                     id, q30_item_name(id), q30_item_family(id), it.fam_type, it.flags, (int)it.count, it.amount, it.setmax, it.max,
+                     it.script, it.collect_script, pstr, (long)it.tile);
+    }
+
+    for(size_t n = 0; n < TheMaps.size(); ++n)
+    {
+        const mapscr &m = TheMaps[n];
+
+        if(!(m.valid & mVALID))
+            continue;
+
+        if(m.hasitem && mapscr_item(&m) >= MAXITEMS)
+            al_trace("q30 itemdump: map %d screen 0x%02X item %d hasitem %d\n", (int)(n / MAPSCRS) + 1, (int)(n % MAPSCRS), mapscr_item(&m), m.hasitem);
+
+        bool q30_item_has_size(int item);   // q30_triggers.cpp
+
+        if(m.hasitem && q30_item_has_size(mapscr_item(&m)))
+        {
+            int dm = 0;     // a DMap showing that map, to start a test there
+
+            while(dm < MAXDMAPS - 1 && DMaps[dm].map != (int)(n / MAPSCRS))
+                ++dm;
+
+            al_trace("q30 itemdump: map %d screen 0x%02X sized item %d at %d,%d (dmap %d xoff %d)\n", (int)(n / MAPSCRS) + 1, (int)(n % MAPSCRS),
+                     mapscr_item(&m), m.itemx, m.itemy, dm, DMaps[dm].xoff);
+        }
+
+        if((m.room == rSP_ITEM || m.room == rGRUMBLE) && m.catchall >= MAXITEMS)
+            al_trace("q30 itemdump: map %d screen 0x%02X room %d item %d\n", (int)(n / MAPSCRS) + 1, (int)(n % MAPSCRS), m.room, m.catchall);
+    }
+
+    for(int s = 0; s < 256; ++s)
+        for(int j = 0; j < 3; ++j)
+            if(q30_shop_item(s, j) >= MAXITEMS)
+                al_trace("q30 itemdump: shop %d slot %d item %d price %d\n", s, j, q30_shop_item(s, j), QMisc.shop[s].price[j]);
+
+    for(int d = 0; d < MAXITEMDROPSETS; ++d)
+        for(int j = 0; j < 10; ++j)
+            if(item_drop_sets[d].item[j] >= MAXITEMS && item_drop_sets[d].chance[j + 1])
+                al_trace("q30 itemdump: dropset %d slot %d item %d chance %d\n", d, j, item_drop_sets[d].item[j], item_drop_sets[d].chance[j + 1]);
+
+    for(int n = 0; n < MAXCUSTOMSUBSCREENS; ++n)
+        for(int m = 0; m < MAXSUBSCREENITEMS && custom_subscreen[n].objects[m].type; ++m)
+        {
+            const subscreen_object &o = custom_subscreen[n].objects[m];
+
+            if(o.type == ssoCURRENTITEM && o.d8 > MAXITEMS)
+                al_trace("q30 itemdump: subscreen %d object %d slot item %d\n", n, m, o.d8 - 1);
+
+            // a slot naming a bomb or super bomb item (q30_subscreen_item's check_bomb), with the
+            // rules that decide when it shows
+            if(o.type == ssoCURRENTITEM && o.d8 > 0 && o.d8 <= q30_items_end() &&
+               (q30_item_family(o.d8 - 1) == itype_bomb || q30_item_family(o.d8 - 1) == itype_sbomb))
+                al_trace("q30 itemdump: subscreen %d object %d bomb slot item %d at %d,%d (broken ammo costs %d, never disable ammo %d)\n",
+                         n, m, o.d8 - 1, o.x, o.y, q30_compat_rule(433) ? 1 : 0, q30_quest_rule(161) ? 1 : 0);
+            else if((o.type == ssoCOUNTER || o.type == ssoCOUNTERS) && o.d10 >= MAXITEMS)
+                al_trace("q30 itemdump: subscreen %d object %d counter infinite item %d\n", n, m, o.d10);
+        }
+}
+
+// resetItems (init.cpp) gives the starting items through here: getitem(id, true), but a 2.55/3.0
+// item's passive script doesn't run yet, as upstream's resetItems asks getitem(id, true, false).
+// A new game's zasm30_items_init starts it with the game (in play, the item engine's next turn),
+// once the script RAM is set up. Only that item waits: the items a starting bundle hands over
+// run theirs, as upstream's bundle asks getitem(id, true, true). 2.53 quests run no passive
+// scripts, so for them this is getitem(id, true).
+static bool q30_starting_item = false;     // read and cleared as getitem starts
+
+void q30_getitem_starting(int id)
+{
+    q30_starting_item = true;
+    getitem(id, true);
+    q30_starting_item = false;
+}
+
+// A 2.55/3.0 quest's items numbered 256 and up at a new game (resetItems, init.cpp), as
+// upstream's resetItems treats every item: a starting one that sets the game's data is got
+// (getitem: its counters, its class's lower levels), every other one isn't owned.
+void q30_reset_high_items(gamedata *g)
 {
     const std::vector<int> &ids = q30_init_high_items();
 
-    for(size_t i = 0; i < ids.size(); ++i)
+    for(int id = MAXITEMS; id < q30_items_end(); ++id)
     {
-        int family = 0;
-        const char *name = "";
-        const itemdata *it = q30_high_item(ids[i], &family, &name);
+        const bool starting = std::find(ids.begin(), ids.end(), id) != ids.end();
 
-        if(it)
-            q30_set_high_item_owned(ids[i], true);     // Link starts with it (Hero->Item[], the save)
-
-        if(!it || !(it->flags & ITEM_GAMEDATA))
-            continue;
-
-        if(it->count != -1)
+        if(starting && (itemsbuf[id].flags & ITEM_GAMEDATA))
         {
-            if(it->setmax)
-            {
-                int max = game->get_maxcounter(it->count);
+            if(!g->get_item(id))
+                q30_getitem_starting(id);
 
-                if(max < it->max)
-                    max = it->max;
-
-                game->set_maxcounter(zc_min(game->get_maxcounter(it->count) + it->setmax, max), it->count);
-            }
-
-            if(it->amount & 0x3FFF)
-            {
-                int add = (it->amount & 0x4000) ? -(it->amount & 0x3FFF) : (it->amount & 0x3FFF);
-
-                if(it->amount & 0x8000)     // gradual: through the drain counter, as getitem
-                    game->set_dcounter(game->get_dcounter(it->count) + add, it->count);
-                else
-                    game->set_counter(zc_max(0, zc_min(game->get_counter(it->count) + add, game->get_maxcounter(it->count))), it->count);
-            }
+            static const bool trace = getenv("ZC_Q30_TRACE") != NULL;
+            const itemdata &it = itemsbuf[id];
+            if(trace)
+                al_trace("q30 items: starting item %d '%s': counter %d (now %d, drain %d, max %d), amount %x\n", id, q30_item_name(id),
+                     (int)it.count, it.count >= 0 ? (int)g->get_counter(it.count) : 0, it.count >= 0 ? (int)g->get_dcounter(it.count) : 0,
+                     it.count >= 0 ? (int)g->get_maxcounter(it.count) : 0, (unsigned)it.amount);
         }
-
-        al_trace("q30 items: starting item %d '%s' (family %d): counter %d (now %d, drain %d, max %d), amount %x\n", ids[i], name, family,
-                 (int)it->count, it->count >= 0 ? (int)game->get_counter(it->count) : 0, it->count >= 0 ? (int)game->get_dcounter(it->count) : 0,
-                 it->count >= 0 ? (int)game->get_maxcounter(it->count) : 0, (unsigned)it->amount);
+        else
+            g->set_item_no_flush(id, false);
     }
 }
 
 void getitem(int id, bool nosound)
 {
+    const bool run_passive = !q30_starting_item;   // false: a starting item (q30_getitem_starting)
+    q30_starting_item = false;                      // (a bundle's items below are got as usual)
+
     if(id<0)
     {
         return;
@@ -16482,7 +16617,7 @@ void getitem(int id, bool nosound)
 
             for(int q = 0; q < 10; ++q)
             {
-                if(ids[q] < 0 || ids[q] >= MAXITEMS)
+                if(ids[q] < 0 || ids[q] >= q30_items_end())
                     continue;
 
                 if((bundle.flags & ITEM_FLAG1) && itemsbuf[ids[q]].collect_script)
@@ -16512,7 +16647,7 @@ void getitem(int id, bool nosound)
             }
             
             game->set_item(id,true);
-            q30_passive_item_script(id);
+            q30_passive_item_script(id, run_passive);
 
             if(!(itemsbuf[id].flags & ITEM_KEEPOLD))
             {
@@ -16596,7 +16731,7 @@ void getitem(int id, bool nosound)
         }
     }
     
-    switch(itemsbuf[id&0xFF].family)
+    switch(itemsbuf[id].family)
     {
     case itype_clock:
     {
@@ -16605,7 +16740,7 @@ void getitem(int id, bool nosound)
         for(int i=0; i<eMAXGUYS; i++)
             clock_zoras[i]=0;
             
-        clockclk=itemsbuf[id&0xFF].misc1;
+        clockclk=itemsbuf[id].misc1;
     }
     break;
     
@@ -16668,7 +16803,7 @@ void getitem(int id, bool nosound)
             
         game->set_HCpieces(0);
         
-        for(int i=0; i<MAXITEMS; i++)
+        for(int i=0; i<q30_items_end(); i++)
         {
             if(itemsbuf[i].family == itype_heartcontainer)
             {
@@ -16709,7 +16844,7 @@ void takeitem(int id)
         }
     }
     
-    switch(itemsbuf[id&0xFF].family)
+    switch(itemsbuf[id].family)
     {
         // NES consistency: replace all flying boomerangs with the current boomerang.
     case itype_brang:
@@ -16787,6 +16922,14 @@ void LinkClass::checkitems(int index)
     int pickup = ((item*)items.spr(index))->pickup;
     int PriceIndex = ((item*)items.spr(index))->PriceIndex;
     int id2 = ((item*)items.spr(index))->id;
+
+    if(getenv("ZC_EVENTLOG"))   // which item Link touched, where, and its hit box
+    {
+        const sprite *s = items.spr(index);
+        al_trace("q30 pickup: item %d at %d,%d (box %d,%d %dx%d) pickup 0x%x, Link at %d,%d (frame %d)\n", id2, int(s->x), int(s->y),
+                 int(s->hxofs), int(s->hyofs), int(s->hxsz), int(s->hysz), pickup, int(x), int(y), frame);
+    }
+
     int q30_pstr_item = id2;    // 2.55/3.0: whose pickup string shows (-1: none)
     int q30_shop = -1;
     const bool q30_bottle_buy = (pickup&ipCHECK) && PriceIndex > -1 && q30_bottle_shop_here(&q30_shop);
@@ -16820,7 +16963,7 @@ void LinkClass::checkitems(int index)
     {
         int nextitem = -1;
         
-        for(int i=0; i<MAXITEMS; i++)
+        for(int i=0; i<q30_items_end(); i++)
         {
             // Find the item which is as close to this item's fam_type as possible.
             if(itemsbuf[i].family==itemsbuf[id2].family && itemsbuf[i].fam_type>itemsbuf[id2].fam_type
@@ -16930,7 +17073,7 @@ void LinkClass::checkitems(int index)
         if(ev[4] || (index = q30_sprite_index(items, index, uid)) < 0)
             return;     // nullified, or the item is gone
 
-        if(ev[0] / 10000 >= 0 && ev[0] / 10000 < MAXITEMS)
+        if(ev[0] / 10000 >= 0 && ev[0] / 10000 < q30_items_end())
             id2 = ev[0] / 10000;
 
         pickup = (pickup & (ipCHECK|ipDUMMY)) | (ev[1] / 10000);
@@ -18392,6 +18535,20 @@ void LinkClass::q30_region_handoff(int ndx, int ndy)
             moved[k]->spr(i)->y -= shy;
         }
 
+    // and the other places they keep (a trap's home, a jumping enemy's floor, a Lanmola's trail),
+    // where the hookshot was fired from and a ladder Link has out
+    for(int i = 0; i < guys.Count(); ++i)
+        ((enemy *)guys.spr(i))->q30_region_shift(-shx, -shy);
+
+    hs_startx -= shx;
+    hs_starty -= shy;
+
+    if(ladderx > 0 || laddery > 0)
+    {
+        ladderx -= shx;
+        laddery -= shy;
+    }
+
     for(int i = 0; i < 176; ++i)
         guygrid[i] = 0;
 
@@ -18404,9 +18561,19 @@ void LinkClass::q30_region_handoff(int ndx, int ndy)
         fixed_door = false;
     }
 
-    currscr += ndx + ndy * 16;
-    homescr = currscr;
-    loadscr(0, currdmap, currscr, sdir, false);
+    // The region's screens are all live (q30_regions.h): the next one, as it is, becomes the
+    // current screen and this one keeps running in its slot, so nothing on either starts over,
+    // as walking over a border inside a region is in upstream. Else it loads as any screen.
+    const int next = currscr + ndx + ndy * 16;
+    const bool live = q30_region_go_live(next);
+
+    if(!live)
+    {
+        currscr = next;
+        homescr = currscr;
+        loadscr(0, currdmap, currscr, sdir, false);
+    }
+
     x -= shx;
     y -= shy;
 
@@ -18419,7 +18586,10 @@ void LinkClass::q30_region_handoff(int ndx, int ndy)
     warpx = warpy = -1;
 
     naturaldark = ((TheMaps[currmap * MAPSCRS + currscr].flags & fDARK) != 0);
-    ffscript_engine(true);
+
+    if(!live)
+        ffscript_engine(true);  // (a live screen's FFC scripts are running already)
+
     opendoors = 0;
     markBmap(-1);
     map_bkgsfx(true);

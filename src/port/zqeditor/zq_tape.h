@@ -134,6 +134,7 @@ struct TapeParser
     bool bad;
     Tape *t;
     const Tape *src;        // rebuilding: values come from here by key
+    const TapeIndex *src_index;     // rebuilding a big tape: src's fields by key (NULL: searched)
     std::string grp;
     bool extra_mode;
     unsigned gate_bits;
@@ -141,9 +142,11 @@ struct TapeParser
     int64_t def_value;
 
     TapeParser(const byte *data, size_t size, size_t at, Tape *out)
-        : d(data), n(size), pos(at), bad(false), t(out), src(NULL), extra_mode(false), gate_bits(0), have_def(false), def_value(0) {}
-    TapeParser(const Tape *source, Tape *out)
-        : d(NULL), n(0), pos(0), bad(false), t(out), src(source), extra_mode(false), gate_bits(0), have_def(false), def_value(0) {}
+        : d(data), n(size), pos(at), bad(false), t(out), src(NULL), src_index(NULL), extra_mode(false), gate_bits(0),
+          have_def(false), def_value(0) {}
+    TapeParser(const Tape *source, Tape *out, const TapeIndex *index = NULL)
+        : d(NULL), n(0), pos(0), bad(false), t(out), src(source), src_index(index), extra_mode(false), gate_bits(0),
+          have_def(false), def_value(0) {}
 
     void group(const char *g) { grp = g; }
     void extra(bool on) { extra_mode = on; }    // what follows: fields 2.53 doesn't hold
@@ -186,6 +189,12 @@ struct TapeParser
     void script_config(const char *key, const char *label);
     // upstream's weapon_data, with its own format version
     void weapon_data(const char *key, const char *label);
+
+    // rebuilding: the source's field of that key (through src_index when there is one)
+    const TapeField *src_find(const char *key) const
+    {
+        return src_index ? src_index->find(key) : src->find(key);
+    }
 
 private:
     void counted(const char *key, const char *label, int len_bytes, int kind);

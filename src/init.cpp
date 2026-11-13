@@ -1938,6 +1938,8 @@ int jwin_initlist_proc(int msg,DIALOG *d,int c)
 extern word quest_header_zelda_version;
 word q30_init_counter(int c, bool max);
 enum { Q30_INIT_MAX_COUNTERS = 107 };
+void q30_reset_high_items(gamedata *g);     // link.cpp: the items 256 and up a new game starts with
+void q30_getitem_starting(int id);          // link.cpp: getitem(id, true), no passive script run yet
 #endif
 
 void resetItems(gamedata *game2, zinitdata *zinit2, bool lvlitems)
@@ -1962,7 +1964,11 @@ void resetItems(gamedata *game2, zinitdata *zinit2, bool lvlitems)
         if(zinit2->items[i] && (itemsbuf[i].flags & ITEM_GAMEDATA))
         {
             if(!game2->get_item(i))
+#ifdef ZC_PLAYER_BUILD
+                q30_getitem_starting(i);    // getitem(i,true); a 2.55/3.0 passive script starts with the game
+#else
                 getitem(i,true);
+#endif
         }
         else
             game2->set_item_no_flush(i,false);
@@ -1975,6 +1981,14 @@ void resetItems(gamedata *game2, zinitdata *zinit2, bool lvlitems)
             game2->items_off[i] |= DMaps[get_currdmap()].disableditems[i];
     }
     
+#ifdef ZC_PLAYER_BUILD
+    // a 2.55/3.0 quest's items 256 and up, the same way, at a new game (link.cpp; nothing for
+    // 2.53 quests). In-game (lvlitems false: init data copied from the game, which has no room
+    // for them) Link keeps the ones he has, as upstream's whole copy would.
+    if(quest_header_zelda_version >= 0x255 && lvlitems)
+        q30_reset_high_items(game2);
+#endif
+
     flushItemCache();
     
     //Then set up the counters

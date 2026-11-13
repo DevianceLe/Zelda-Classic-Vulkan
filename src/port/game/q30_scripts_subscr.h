@@ -524,7 +524,7 @@ static bool z30_cond_ok(const Q30SubCond &c)
     for(size_t i = 0; i < c.owned.size(); ++i)
     {
         const int id = c.owned[i];
-        const bool have = id >= 0 && id < MAXITEMS && game->get_item(id) && !item_disabled(id);
+        const bool have = id >= 0 && id < q30_items_end() && game->get_item(id) && !item_disabled(id);
         if(gf & REQ_ANY_ITEM)
         {
             if(have)
@@ -542,7 +542,7 @@ static bool z30_cond_ok(const Q30SubCond &c)
     for(size_t i = 0; i < c.unowned.size(); ++i)
     {
         const int id = c.unowned[i];
-        if(id >= 0 && id < MAXITEMS && game->get_item(id) && !item_disabled(id))
+        if(id >= 0 && id < q30_items_end() && game->get_item(id) && !item_disabled(id))
             return false;
     }
 
@@ -1082,7 +1082,7 @@ static void zasm30_subdump_tick()
         for(const char *p = give; *p; )
         {
             const int id = atoi(p);
-            if(id > 0 && id < MAXITEMS)
+            if(id > 0 && id < q30_items_end())
             {
                 game->set_item(id, true);
                 if(q30_is_bottle(id))
@@ -1111,10 +1111,64 @@ static void zasm30_subdump_tick()
     al_trace("q30 subdump: frame %d dmap %d screen %d -> %s\n", frame, get_currdmap(), currscr, path);
 }
 
-// show_custom_subscreen's ssoCURRENTITEM, for an item slot the 2.53 code can't choose for: one
-// naming an item of a family 2.53 has no number for (a bottle), or a class it has none for (the
+static bool z30_sub_check_bomb_inner(int iid, bool super);
+
+// upstream's check_bomb / check_sbomb (new_subscr.cpp) for an item slot naming a bomb item;
+// ZC_Q30_BOMBSLOT=1 logs each change of what it decides for an item
+static bool z30_sub_check_bomb(int iid, bool super)
+{
+    const bool shown = z30_sub_check_bomb_inner(iid, super);
+
+    static const bool log = getenv("ZC_Q30_BOMBSLOT") != NULL;
+    static std::map<int, bool> last;
+
+    if(log && (last.find(iid) == last.end() || last[iid] != shown))
+    {
+        last[iid] = shown;
+        al_trace("q30 bomb slot: item %d (%s) %s: rule 433 %d (compat %d), bombs %d, super bombs %d, cost counters %d %d (payable %d)\n",
+                 iid, super ? "super" : "bomb", shown ? "shown" : "hidden", q30_compat_rule(433) ? 1 : 0,
+                 (int)q255_compat_rule_version, game->get_bombs(), game->get_sbombs(),
+                 q30_item_cost_counter(iid, 0), q30_item_cost_counter(iid, 1), q30_item_costs_payable(iid) ? 1 : 0);
+    }
+
+    return shown;
+}
+
+static bool z30_sub_check_bomb_inner(int iid, bool super)
+{
+    enum { QR_NEVERDISABLEAMMOONSUBSCREEN = 161, QR_BROKEN_BOMB_AMMO_COSTS = 433 };
+
+    if(q30_quest_rule(QR_NEVERDISABLEAMMOONSUBSCREEN))
+        return true;
+
+    if(!super && current_item_power(itype_bombbag))
+        return true;
+
+    if(super)
+    {
+        // (upstream's get_subscr_item_id: the best bag Link has, its costs not asked)
+        const int bag = current_item_id(itype_bombbag, false);
+        if(bag >= 0 && itemsbuf[bag].power && (itemsbuf[bag].flags & ITEM_FLAG1))
+            return true;
+    }
+
+    // qr_BROKEN_BOMB_AMMO_COSTS, which upstream turns on for quests saved before compat version
+    // 61: shown while Link has bombs. Otherwise while he can pay the item's own costs, any
+    // counter (a bomb's second cost is usually one bomb): 2.53's checkmagiccost knows only magic
+    // and rupees.
+    if(q30_compat_rule(QR_BROKEN_BOMB_AMMO_COSTS) ? (super ? game->get_sbombs() : game->get_bombs()) != 0
+       : q30_item_costs_payable(iid))
+        return true;
+
+    // remote bombs: still usable with one out
+    return itemsbuf[iid].misc1 == 0 && Lwpns.idCount(super ? wLitSBomb : wLitBomb) > 0;
+}
+
+// show_custom_subscreen's ssoCURRENTITEM in a 2.55/3.0 quest, for a slot that names its item (the
+// reader keeps it + 1 in d8, any of the quest's items), or a class 2.53 has no family for (the
 // reader keeps that class + 1 in d10). Returns true when it decided: *id is the item to draw, or
-// -1 for none, as upstream's SW_ItemSlot::getDisplayItem.
+// -1 for none, as upstream's SW_ItemSlot::getDisplayItem (shown when Link owns that very item;
+// 2.53 asked for the first item of its class and level instead).
 bool q30_subscreen_item(const subscreen_object &o, int *id)
 {
     if(!q30_active() || !game)
@@ -1123,11 +1177,58 @@ bool q30_subscreen_item(const subscreen_object &o, int *id)
     if(o.d8 > 0)
     {
         const int item = o.d8 - 1;
+        const bool nosp = o.d9 != 0;    // SUBSCR_CURITM_IGNR_SP_DISPLAY
+        bool select = false;
 
-        if(item >= MAXITEMS || q30_item_family(item) < itype_max)
-            return false;   // a family 2.53 knows: its own rules
+        if(item >= q30_items_end())
+            return false;
 
-        *id = (game->item[item] && !item_disabled(item)) ? item : -1;
+        switch(q30_item_family(item))
+        {
+        case itype_bomb:
+            select = z30_sub_check_bomb(item, false);
+            break;
+
+        case itype_bowandarrow:
+        case itype_arrow:
+            select = true;
+            break;
+
+        case itype_letterpotion:
+            break;
+
+        case itype_sbomb:
+            select = z30_sub_check_bomb(item, true);
+            break;
+
+        // the special displays
+        case itype_map:
+        case itype_compass:
+        case itype_bosskey:
+            if(nosp)
+                break;
+
+            *id = has_item(q30_item_family(item), -1) ? item : -1;
+            return true;
+
+        case itype_heartpiece:
+            if(nosp)
+                break;
+
+            if(QMisc.colors.HCpieces_tile)
+            {
+                *id = item;
+                return true;
+            }
+
+            break;
+
+        default:
+            select = true;
+            break;
+        }
+
+        *id = (select && !item_disabled(item) && game->get_item(item)) ? item : -1;
         return true;
     }
 
@@ -1283,11 +1384,16 @@ static int z30_sub_font_to_ssf(long font)
     for(size_t i = 0; i < sizeof(z30_sub_fonts) / sizeof(z30_sub_fonts[0]); ++i)
         if(z30_sub_fonts[i][0] == font)
             return z30_sub_fonts[i][1];
+    // the rest of upstream's fonts, as the reader keeps them (Q30_SSF_FONTS + id)
+    if(font >= 0 && font < Q30_FONT_COUNT)
+        return Q30_SSF_FONTS + (int)font;
     return -1;
 }
 
 static long z30_sub_font_from_ssf(int ssf)
 {
+    if(ssf >= Q30_SSF_FONTS && ssf < Q30_SSF_FONTS + Q30_FONT_COUNT)
+        return ssf - Q30_SSF_FONTS;
     for(size_t i = 0; i < sizeof(z30_sub_fonts) / sizeof(z30_sub_fonts[0]); ++i)
         if(z30_sub_fonts[i][1] == ssf)
             return z30_sub_fonts[i][0];

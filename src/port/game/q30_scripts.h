@@ -64,8 +64,20 @@ std::string q30_item_shown_name(int item);   // the display name if it has one, 
 
 // Dark rooms (q30_scripts_light.h): the quest's lighting defaults, and the lights scripts draw.
 void q30_set_light_init(int dith_type, int dith_arg, int dith_perc, int light_rad, int trans_perc, int dark_color);
+// Init data's light wave (INIT v40+): every light's radius swings by up to size pixels, a full
+// swing every 2 * rate frames (0: steady), as upstream's calc_wave_rad.
+void q30_set_light_wave(int rate, int size);
 int q30_default_light_radius();
-void q30_script_lights(BITMAP *mask);    // adds them to the 256x176 dark mask: 0 lit, 1 dark, 2 half
+// Adds them to the 256x176 dark mask (0 lit, 1 dark, 2 half), whose top-left is the view's:
+// (vx, vy) relative to the current screen's top-left (a scrolling region's camera, else 0, 0).
+void q30_script_lights(BITMAP *mask, int vx, int vy);
+// A part of the dark mask showing one screen (x1, y1 exclusive), and whether that screen is
+// "dark transparent" (q30_darkness_draw).
+struct Q30DarkArea
+{
+    int x0, y0, x1, y1;
+    bool trans;
+};
 
 // What each upstream subscreen widget became, from the subscreen reader (q30_scripts_subscr.h).
 // list: 0 active, 1 passive, 2 overlay, 3 map; slot: custom_subscreen[] index or -1; obj: the
@@ -206,6 +218,9 @@ void q30_run_ffc_waitdraw();
 void q30_run_screen_waitdraw();
 void q30_run_item_scripts(bool waitdraw);
 void q30_run_waitdraw_scripts();
+void q30_warp_script_check();       // upstream's warpScriptCheck: before a screen opening, fade or warp
+extern bool q30_warp_scripts_held;  // init_game/cont_game: scripts not set up yet, run none there
+extern int q30_warp_global_runs;    // times that check ran the global script
 void q30_game_init(bool first);     // before the first frame of a game: run Init-type scripts
 void q30_clear_engine();            // game end: frees every instance and script object
 void q30_run_hero_script(int slot);  // Hero's init(1), death(3), win(4)

@@ -326,6 +326,9 @@ typedef word tile_id;
 #define OLDMAXLEVELS	 256
 #define OLDMAXDMAPS		 256
 #define MAXITEMS         256
+// The player's itemsbuf has room for a 2.55/3.0 quest's items past 2.53's 256 (upstream's
+// MAXITEMS is 1024); 2.53 quests, their saves and ZQuest only ever use the first MAXITEMS.
+#define Q30_MAXITEMS     1024
 #define MAXWPNS          256
 #define OLDBETAMAXGUYS   256								//max 2.5 guys through beta 20
 #define MAXGUYS          512
@@ -1235,7 +1238,7 @@ public:
     dword scriptflag; //stores whether various operations were true/false etc.
     
     byte ffcref; //current object pointers
-    word idata;  // (a word: 2.55/3.0 items go up to 511; 2.53 scripts still wrap it at 256)
+    word idata;  // (a word: 2.55/3.0 items go up to 1023; 2.53 scripts still wrap it at 256)
     dword itemref, guyref, lwpn, ewpn;
     
     //byte ewpnclass, lwpnclass, guyclass; //Not implemented
@@ -1408,6 +1411,11 @@ struct mapscr
     byte old_cpage;
     short screen_midi;
     byte lens_layer;
+#ifdef ZC_PLAYER_BUILD
+    // 2.55/3.0 quests: the screen's item when its number is past 2.53's bytes (256 and up; item
+    // is 0 then). Read it through mapscr_item(). Only the player has it.
+    word q30_item;
+#endif
     
     
     void zero_memory()
@@ -1556,6 +1564,9 @@ struct mapscr
         secretsfx=0;
         holdupsfx=0;
         lens_layer=0;
+#ifdef ZC_PLAYER_BUILD
+        q30_item=0;
+#endif
         
         data.assign(176,0);
         sflag.assign(176,0);
@@ -1575,6 +1586,30 @@ struct mapscr
     }
     
 };
+
+// A screen's item number: item, or in the player a 2.55/3.0 quest's item of 256 and up.
+inline int mapscr_item(const mapscr *m)
+{
+#ifdef ZC_PLAYER_BUILD
+    if(m->q30_item)
+        return m->q30_item;
+#endif
+    return m->item;
+}
+
+// Sets it (a script's Screen->Item): ids past a byte go to q30_item in the player.
+inline void set_mapscr_item(mapscr *m, int id)
+{
+#ifdef ZC_PLAYER_BUILD
+    m->q30_item = (id >= 256 && id < Q30_MAXITEMS) ? (word)id : 0;
+    if(m->q30_item)
+    {
+        m->item = 0;
+        return;
+    }
+#endif
+    m->item = (byte)id;
+}
 
 struct ffscript
 {
@@ -2274,6 +2309,12 @@ enum {i_bombbag1=1, i_bombbag2, i_bombbag3, i_bombbag4, imax_bombbag};
 
 //enum {i_clock=1, imax_clock};
 
+#ifdef ZC_PLAYER_BUILD
+bool q30_high_item_owned(int id);           // q30_triggers.cpp: items 256 and up
+void q30_set_high_item_owned(int id, bool owned);
+bool q30_active();                          // a 2.55/3.0 quest is loaded
+#endif
+
 struct gamedata
 {
     //private:
@@ -2493,6 +2534,12 @@ struct gamedata
     void set_item_no_flush(int id, bool value);
     inline bool get_item(int id)
     {
+#ifdef ZC_PLAYER_BUILD
+        // a 2.55/3.0 quest's items 256 and up are owned in their own array (q30_triggers.cpp);
+        // a 2.53 quest indexes item[] as before
+        if(id >= MAXITEMS && q30_active())
+            return q30_high_item_owned(id);
+#endif
         return item[id];
     }
     

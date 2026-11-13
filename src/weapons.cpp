@@ -122,7 +122,7 @@ void checkLightSources(bool perm = false)
 // fire with no item behind it.
 static bool fire_light_temporary(int parentitem)
 {
-    if(!q30_active() || parentitem < 0 || parentitem >= MAXITEMS)
+    if(!q30_active() || parentitem < 0 || parentitem >= q30_items_end())
         return get_bit(quest_rules,qr_TEMPCANDLELIGHT) != 0;
 
     return (itemsbuf[parentitem].flags & ITEM_FLAG5) != 0;
@@ -1338,6 +1338,21 @@ bool weapon::Dead()
 
 bool weapon::clip()
 {
+    // 2.55/3.0 quests with "Weapons Better Screen Edge Hitbox" (upstream's weapon::clip): a weapon
+    // goes only once its picture and its hitbox are both wholly outside the view, with no dungeon
+    // border. Without it, Mystical Harps' Red Koopa lost the script eweapon that follows it (kept
+    // 16 pixels below an FFC near the top wall) as soon as it was moved there.
+    if(q30_quest_rule(Q30_QR_WEAPON_BETTER_SCREEN_EDGE_HITBOX))
+    {
+        int l = 0, t = 0, r = 256, b = 176;
+
+        if(q30_region_on())
+            q30_region_view_bounds(&l, &t, &r, &b);
+
+        return (x + xofs + txsz*16 < l || y + yofs + tysz*16 < t || x + xofs > r || y + yofs > b)
+               && (x + hxofs + hxsz < l || y + hyofs + hysz < t || x + hxofs > r || y + hyofs > b);
+    }
+
     int c[4];
     int d2=isdungeon();
     int nb1 = get_bit(quest_rules,qr_NOBORDER) ? 16 : 0;
@@ -3407,6 +3422,12 @@ void weapon::onhit(bool clipped)
 
 void weapon::onhit(bool clipped, int special, int linkdir)
 {
+    // diagnostics (newer quests): script-type weapons hitting something or the screen's edge
+    static const bool q30_trace = getenv("ZC_Q30_TRACE") != NULL;
+    if(q30_trace && quest_header_zelda_version >= 0x255 && id >= wScript1 && id <= wScript10)
+        al_trace("q30: script weapon %ld (type %d) onhit clipped %d special %d at %d,%d dir %d coldet %d\n", (long)getUID(), id,
+                 (int)clipped, special, int(x), int(y), dir, scriptcoldet);
+
     if((scriptcoldet&1) == 0)
     {
         // These won't hit anything, but they can still go too far offscreen...
@@ -3692,6 +3713,23 @@ offscreenCheck:
         
         break;
         
+    case wScript1:
+    case wScript2:
+    case wScript3:
+    case wScript4:
+    case wScript5:
+    case wScript6:
+    case wScript7:
+    case wScript8:
+    case wScript9:
+    case wScript10:
+        // 2.55/3.0 quests with "Check Clip for Custom / Script Type Weapons on Screen Edge"
+        // (upstream): one that reached the screen's edge stays. Otherwise gone, as before.
+        if(!clipped || !q30_quest_rule(Q30_QR_CHECKSCRIPTWEAPONOFFSCREENCLIP))
+            dead=1;
+
+        break;
+
     default:
         dead=1;
     }

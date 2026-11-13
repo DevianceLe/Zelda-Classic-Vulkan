@@ -830,6 +830,21 @@ void gamedata::set_item(int id, bool value)
 
 void gamedata::set_item_no_flush(int id, bool value)
 {
+#ifdef ZC_PLAYER_BUILD
+    // a 2.55/3.0 quest's items 256 and up (q30_triggers.cpp keeps them in the save's globalRAM);
+    // a 2.53 quest writes item[] as before
+    if(id >= MAXITEMS && q30_active())
+    {
+        const char *q30_item_name(int id);  // q30_core.cpp
+
+        if(!isclearing && value != get_item(id))
+            Z_eventlog("%sed item %i: %s\n", value ? "Gain" : "Remov", id, q30_item_name(id));
+
+        q30_set_high_item_owned(id, value);
+        return;
+    }
+#endif
+
     if(!isclearing && !(value == item[id]))
         Z_eventlog("%sed item %i: %s\n", value ? "Gain" : "Remov", id, item_string[id]);
         

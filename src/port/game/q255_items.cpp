@@ -68,6 +68,9 @@ static byte item_id_byte(word v)
 
 static word g_item_sprite_script, g_item_weapon_script;
 static dword g_item_override_flags;     // kept for scripts (itemdata->SizeFlags)
+// the item's own sizes the override flags pick from: hxofs, hyofs, hxsz, hysz, hzsz, xofs, yofs,
+// tile width, tile height (q30_set_item_size; the player's item sprites use them)
+static long g_item_size[9];
 static std::string g_item_display_name;
 static long g_item_sprite_initd[8], g_item_weapon_initd[8];
 
@@ -474,7 +477,11 @@ it.family = (byte)family;
             s.skip(2);          // weapon InitA
 
         s.skip(1);              // drawlayer
-        s.skip(7 * 4);          // item hit box and offsets
+
+        // item hit box and offsets: hxofs, hyofs, hxsz, hysz, hzsz, xofs, yofs (the player
+        // uses them with the override flags below)
+        for(int q = 0; q < 7; ++q)
+            g_item_size[q] = s.igetl_s();
 
         if(s.version < 63)
         {
@@ -489,7 +496,8 @@ it.family = (byte)family;
     if(s.version >= 28)
     {
         g_item_override_flags = s.igetl();     // override flags
-        s.skip(2 * 4);          // tile width, tile height
+        g_item_size[7] = s.igetl_s();           // tile width
+        g_item_size[8] = s.igetl_s();           // tile height
     }
     if(s.version >= 29 && s.version < 63)
         s.skip(3 * 4);          // the same for the weapon
@@ -592,6 +600,9 @@ int q255_read_items(Q255Section &s)
         q30_set_item_pickup(-1, 0, 0, 0, 0);
         q30_set_item_flags32(-1, 0);
         q30_set_item_cost(-1, 0, 0, 0, 0);
+#ifdef ZC_PLAYER_BUILD
+        q30_set_item_size(-1, 0, NULL);
+#endif
     }
 
     if(s.version < 25 || s.version > 71)
@@ -665,6 +676,7 @@ int q255_read_items(Q255Section &s)
         memset(&tempitem, 0, sizeof(itemdata));
         g_item_sprite_script = g_item_weapon_script = 0;
         g_item_override_flags = 0;
+        memset(g_item_size, 0, sizeof(g_item_size));
         g_item_usesound2 = 0;
         g_item_pickup = g_item_pickup_mode = g_item_pstring = g_item_psflags = 0;
         g_cost_counter[0] = g_cost_counter[1] = -1;
@@ -684,9 +696,22 @@ int q255_read_items(Q255Section &s)
                      q30_quest_rule(237), s.version);
 #endif
 
+        // In the player, items 256 and up keep the same extra data as the others (itemsbuf has
+        // room for them there); ZQuest's store keeps none of it for them.
+        bool extras = s.keep && i < MAXITEMS;
+
         if(s.keep && i < MAXITEMS)
-        {
             memcpy(&itemsbuf[i], &tempitem, sizeof(itemdata));
+        else if(s.keep)
+        {
+            q30_set_high_item(i, tempitem, g_true_family, high_name.c_str());   // 256 and up
+#ifdef ZC_PLAYER_BUILD
+            extras = i < Q30_MAX_ITEMS;
+#endif
+        }
+
+        if(extras)
+        {
             q30_set_item_family(i, g_true_family);
             q30_set_item_usesound2(i, g_item_usesound2);
             q30_set_item_passive_script(i, (g_item_raw_flags & (1u << 23)) != 0);
@@ -694,13 +719,19 @@ int q255_read_items(Q255Section &s)
             q30_set_item_pickup(i, g_item_pickup, g_item_pickup_mode, g_item_pstring, g_item_psflags);
             q30_set_item_flags32(i, g_item_raw_flags);
             q30_set_item_cost(i, g_cost_counter[0], g_cost_amount[0], g_cost_counter[1], g_cost_amount[1]);
-q30_set_item_sprite_script(i, g_item_sprite_script, g_item_sprite_initd);
+            q30_set_item_sprite_script(i, g_item_sprite_script, g_item_sprite_initd);
             q30_set_item_weapon_script(i, g_item_weapon_script, g_item_weapon_initd);
             q30_set_item_override_flags(i, (int)g_item_override_flags);
+#ifdef ZC_PLAYER_BUILD
+            q30_set_item_size(i, g_item_override_flags, g_item_size);
+
+            if(g_item_override_flags && getenv("ZC_Q30_ITEMDUMP"))
+                al_trace("q30 itemdump: item %d size flags 0x%lx hit %ld,%ld %ldx%ldx%ld draw %ld,%ld tiles %ldx%ld\n", i,
+                         (unsigned long)g_item_override_flags, g_item_size[0], g_item_size[1], g_item_size[2], g_item_size[3],
+                         g_item_size[4], g_item_size[5], g_item_size[6], g_item_size[7], g_item_size[8]);
+#endif
             q30_set_item_display_name(i, g_item_display_name.c_str());
         }
-        else if(s.keep)
-            q30_set_high_item(i, tempitem, g_true_family, high_name.c_str());   // 256 and up
     }
 
     if(s.keep)

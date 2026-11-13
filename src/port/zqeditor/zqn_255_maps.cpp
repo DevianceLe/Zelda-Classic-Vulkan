@@ -28,6 +28,11 @@
 //   viewport ranges before 40;
 // - region ids: maps before version 31 have none of their own; a version 21 DMap section gives
 //   its DMaps' maps theirs (zqn255_dmap_regions), which 3.0 keeps for the maps.
+//
+// 2.55.17 (versions 18-30, written as its version 30) reads them the same way, but keeps what 3.0
+// changes or drops: the 16-bit "no reset" and "no carry over" as stored (a fresh screen's are 0),
+// each screen's own MIDI, the FFCs' InitA, and the arrays 2.55 never used (the "unused" group);
+// it has no auto palette, region ids, maze wipe, exstates or viewport ranges. See write_maps_255.
 
 #include "precompiled.h" //always first
 
@@ -104,9 +109,13 @@ struct Ffc
     Config sc;
     byte layer;
     long suspend, despawn;          // viewport ranges
+    byte inita[2];                  // 2.55.17 only: InitA (3.0 dropped them)
 
     Ffc() : data(0), cset(0), delay(0), x(0), y(0), vx(0), vy(0), ax(0), ay(0), link(0), hit_width(0), hit_height(0),
-        txsz(0), tysz(0), flags(0), layer(1), suspend(0), despawn(0) {}
+        txsz(0), tysz(0), flags(0), layer(1), suspend(0), despawn(0)
+    {
+        inita[0] = inita[1] = 0;
+    }
 };
 
 // 3.0's mapscr, the fields its map section holds, with a fresh mapscr's values
@@ -161,6 +170,10 @@ struct Scr
     byte hidelayers, hidescriptlayers;
     std::string notes;
     long gravity, terminal_v;
+    // 2.55.17 only: the screen's own MIDI, the unused arrays
+    short screen_midi;
+    long npcstrings[10];
+    word new_items[10], new_item_x[10], new_item_y[10];
 
     void clear()
     {
@@ -225,6 +238,11 @@ struct Scr
         hidelayers = hidescriptlayers = 0;
         notes.clear();
         gravity = terminal_v = 0;
+        screen_midi = -1;
+        memset(npcstrings, 0, sizeof(npcstrings));
+        memset(new_items, 0, sizeof(new_items));
+        memset(new_item_x, 0, sizeof(new_item_x));
+        memset(new_item_y, 0, sizeof(new_item_y));
     }
 };
 
@@ -261,8 +279,9 @@ word clear_bad_enemy(word e)
     return e > GUYS ? 0 : e;
 }
 
-// readmapscreen_old for a 2.55 quest (map versions 18-22): every field in a fixed order.
-void read_old(Zqn255In &in, int v, bool nofairyfires, Scr &s)
+// readmapscreen_old for a 2.55 quest (map versions 18-22): every field in a fixed order. t255:
+// as 2.55.17 reads it (the states as stored, the MIDI, InitA and the unused arrays kept).
+void read_old(Zqn255In &in, int v, bool nofairyfires, Scr &s, bool t255 = false)
 {
     s.valid = in.u8();
     s.guy = in.u8();
@@ -307,8 +326,8 @@ void read_old(Zqn255In &in, int v, bool nofairyfires, Scr &s)
     for(int k = 0; k < 5; ++k)
         s.flags[k] = in.u8();
 
-    s.noreset = in.u16() | OLD_NORESET;
-    s.nocarry = in.u16() | OLD_NOCARRY;
+    s.noreset = in.u16() | (t255 ? 0 : OLD_NORESET);
+    s.nocarry = in.u16() | (t255 ? 0 : OLD_NOCARRY);
 
     if(s.flags[4] & 32)
     {
@@ -336,7 +355,7 @@ void read_old(Zqn255In &in, int v, bool nofairyfires, Scr &s)
     get_words(in, s.data, SQUARES);
     get_bytes(in, s.sflag, SQUARES);
     get_bytes(in, s.cset, SQUARES);
-    in.u16();                       // the MIDI: the music list has its number
+    s.screen_midi = (short)in.u16();    // 3.0: the music list has its number
     s.lens_layer = in.u8();
     const dword bits = in.u32();
 
@@ -368,11 +387,18 @@ void read_old(Zqn255In &in, int v, bool nofairyfires, Scr &s)
         for(int q = 0; q < 8; ++q)
             c.sc.args[q] = in.s32();
 
-        in.skip(2);                 // InitA, which 3.0 doesn't have
+        c.inita[0] = in.u8();       // InitA, which 3.0 doesn't have
+        c.inita[1] = in.u8();
     }
 
     if(v >= 19)
-        in.skip(100);               // arrays 2.55 never used
+    {
+        // arrays 2.55 never used (3.0 skips them)
+        for(int q = 0; q < 10; ++q) s.npcstrings[q] = in.s32();
+        get_words(in, s.new_items, 10);
+        get_words(in, s.new_item_x, 10);
+        get_words(in, s.new_item_y, 10);
+    }
 
     if(v >= 20)
     {
@@ -438,8 +464,9 @@ bool read_config(Zqn255In &in, Config &c)
 }
 
 // readmapscreen for versions 23-41: groups the "has" bits say are there. False when the screen
-// isn't one 3.0's reader takes.
-bool read_grouped(Zqn255In &in, int v, bool nofairyfires, Scr &s)
+// isn't one 3.0's reader takes. t255: as 2.55.17 reads it (versions 23-30: the states as stored,
+// the MIDI and InitA kept, the unused group read).
+bool read_grouped(Zqn255In &in, int v, bool nofairyfires, Scr &s, bool t255 = false)
 {
     s.valid = in.u8();
 
@@ -555,8 +582,8 @@ bool read_grouped(Zqn255In &in, int v, bool nofairyfires, Scr &s)
     {
         if(v < 34)
         {
-            s.noreset = in.u16() | OLD_NORESET;
-            s.nocarry = in.u16() | OLD_NOCARRY;
+            s.noreset = in.u16() | (t255 ? 0 : OLD_NORESET);
+            s.nocarry = in.u16() | (t255 ? 0 : OLD_NOCARRY);
         }
         else
         {
@@ -569,6 +596,8 @@ bool read_grouped(Zqn255In &in, int v, bool nofairyfires, Scr &s)
         s.nextmap = in.u8();
         s.nextscr = in.u8();
     }
+    else if(t255)
+        s.noreset = s.nocarry = 0;  // a fresh 2.55.17 mapscr's
     else if(v < 34)
     {
         s.noreset = OLD_NORESET;
@@ -592,6 +621,14 @@ bool read_grouped(Zqn255In &in, int v, bool nofairyfires, Scr &s)
 
             s.preloadscript = in.u8();
         }
+    }
+
+    if(t255 && (has & 0x1000))      // SCRHAS_UNUSED: 2.55.17 reads it (3.0 has no reader for it)
+    {
+        for(int q = 0; q < 10; ++q) s.npcstrings[q] = in.s32();
+        get_words(in, s.new_items, 10);
+        get_words(in, s.new_item_x, 10);
+        get_words(in, s.new_item_y, 10);
     }
 
     if(has & HAS_SECRETS)
@@ -631,7 +668,7 @@ bool read_grouped(Zqn255In &in, int v, bool nofairyfires, Scr &s)
         s.timedwarptics = in.u16();
 
         if(v < 37)
-            in.u16();               // the MIDI: the music list has its number
+            s.screen_midi = (short)in.u16();    // 3.0: the music list has its number
         else
             s.music = in.s32();
 
@@ -710,7 +747,10 @@ bool read_grouped(Zqn255In &in, int v, bool nofairyfires, Scr &s)
             return false;
 
         if(v < 33)
-            in.skip(2);             // InitA
+        {
+            c.inita[0] = in.u8();   // InitA (3.0 drops them)
+            c.inita[1] = in.u8();
+        }
         else
             c.layer = in.u8();
 
@@ -1162,5 +1202,378 @@ int write_maps(PACKFILE *f, const ZqNewerContext &ctx)
 }
 
 ZqNewerRegistration g_reg_maps(ID_MAPS, write_maps, "2.55 maps as 3.0");
+
+// ---- 2.55.17 --------------------------------------------------------------------------------
+
+// writemapscreen (2.55.17 zq/zq_class.cpp, version 30), screen j of its map: the groups that hold
+// anything, by 2.55.17's tests (a fresh screen's guy tile -1 always makes room data).
+void write_screen_255(Zqn255Out &o, const Scr &s, int j, bool old_ffcs)
+{
+    o.c(s.valid);
+
+    if(!(s.valid & VALID))
+        return;
+
+    dword has = 0;
+
+    if(s.guytile || s.guy || s.roomflags || s.str || s.room || s.catchall)
+        has |= HAS_ROOMDATA;
+
+    if(s.hasitem || (j >= 0x80 && (s.itemx || s.itemy)))
+        has |= HAS_ITEM;
+
+    bool any = (s.warpreturnc & 0x00FF) || s.tilewarpoverlayflags;
+
+    for(int q = 0; q < 4; ++q)
+        any = any || s.tilewarptype[q] || s.tilewarpdmap[q] || s.tilewarpscr[q];
+
+    if(any)
+        has |= HAS_TWARP;
+
+    any = (s.warpreturnc & 0xFF00) || s.sidewarpindex || s.sidewarpoverlayflags;
+
+    for(int q = 0; q < 4; ++q)
+        any = any || s.sidewarptype[q] != WARP_SCROLL || s.sidewarpdmap[q] || s.sidewarpscr[q];
+
+    if(any)
+        has |= HAS_SWARP;
+
+    if(s.warparrivalx || s.warparrivaly || any_bytes(s.warpreturnx, 4) || any_bytes(s.warpreturny, 4))
+        has |= HAS_WARPRET;
+
+    any = s.hidelayers || s.hidescriptlayers;
+
+    for(int q = 0; q < 6; ++q)
+        any = any || s.layermap[q] || s.layerscreen[q] || s.layeropacity[q] != 255;
+
+    if(any)
+        has |= HAS_LAYERS;
+
+    if(s.exitdir || any_bytes(s.path, 4))
+        has |= HAS_MAZE;
+
+    any = s.door_combo_set || s.stairx || s.stairy || s.undercombo || s.undercset;
+
+    for(int q = 0; q < 4; ++q)
+        any = any || s.door[q] != DOOR_NONE;
+
+    if(any)
+        has |= HAS_D_S_U;
+
+    if(any_bytes(s.flags, 11))
+        has |= HAS_FLAGS;
+
+    any = s.pattern != 0;
+
+    for(int q = 0; q < 10; ++q)
+        any = any || s.enemy[q];
+
+    if(any)
+        has |= HAS_ENEMY;
+
+    if(s.noreset || s.nocarry || s.nextmap || s.nextscr)
+        has |= HAS_CARRY;
+
+    if(s.sc.script || s.preloadscript)
+        has |= HAS_SCRIPT;
+
+    for(int q = 0; q < 8; ++q)
+        if(s.sc.args[q])
+            has |= HAS_SCRIPT;
+
+    const dword HAS_UNUSED = 0x1000;
+
+    for(int q = 0; q < 10; ++q)
+        if(s.npcstrings[q] || s.new_items[q] || s.new_item_x[q] || s.new_item_y[q])
+            has |= HAS_UNUSED;
+
+    any = false;
+
+    for(int q = 0; q < 128 && !any; ++q)
+        any = s.secretcombo[q] || s.secretcset[q] || s.secretflag[q];
+
+    if(any)
+        has |= HAS_SECRETS;
+
+    any = false;
+
+    for(int q = 0; q < SQUARES && !any; ++q)
+        any = s.data[q] || s.cset[q] || s.sflag[q];
+
+    if(any)
+        has |= HAS_COMBOFLAG;
+
+    if(s.color || s.csensitive != 1 || s.oceansfx || s.bosssfx || s.secretsfx || s.holdupsfx || s.timedwarptics ||
+       s.screen_midi != -1 || s.lens_layer || s.lens_show || s.lens_hide)
+        has |= HAS_MISC;
+
+    o.l(has);
+
+    if(has & HAS_ROOMDATA)
+    {
+        o.c(s.guy);
+        o.l(s.guytile);
+        o.c(s.guycs);
+        o.w(s.roomflags);
+        o.w(s.str);
+        o.c(s.room);
+        o.w(s.catchall);
+    }
+
+    if(has & HAS_ITEM)
+    {
+        o.c(s.item);
+        o.c(s.hasitem);
+        o.c(s.itemx);
+        o.c(s.itemy);
+    }
+
+    if(has & (HAS_SWARP | HAS_TWARP))
+        o.w(s.warpreturnc);
+
+    if(has & HAS_TWARP)
+    {
+        o.put(s.tilewarptype, 4);
+        for(int k = 0; k < 4; ++k) o.w(s.tilewarpdmap[k]);
+        o.put(s.tilewarpscr, 4);
+        o.c(s.tilewarpoverlayflags);
+    }
+
+    if(has & HAS_SWARP)
+    {
+        o.put(s.sidewarptype, 4);
+        for(int k = 0; k < 4; ++k) o.w(s.sidewarpdmap[k]);
+        o.put(s.sidewarpscr, 4);
+        o.c(s.sidewarpoverlayflags);
+        o.c(s.sidewarpindex);
+    }
+
+    if(has & HAS_WARPRET)
+    {
+        o.put(s.warpreturnx, 4);
+        o.put(s.warpreturny, 4);
+        o.c(s.warparrivalx);
+        o.c(s.warparrivaly);
+    }
+
+    if(has & HAS_LAYERS)
+    {
+        o.put(s.layermap, 6);
+        o.put(s.layerscreen, 6);
+        o.put(s.layeropacity, 6);
+        o.c(s.hidelayers);
+        o.c(s.hidescriptlayers);
+    }
+
+    if(has & HAS_MAZE)
+    {
+        o.put(s.path, 4);
+        o.c(s.exitdir);
+    }
+
+    if(has & HAS_D_S_U)
+    {
+        o.w(s.door_combo_set);
+        o.put(s.door, 4);
+        o.c(s.stairx);
+        o.c(s.stairy);
+        o.w(s.undercombo);
+        o.c(s.undercset);
+    }
+
+    if(has & HAS_FLAGS)
+        o.put(s.flags, 11);
+
+    if(has & HAS_ENEMY)
+    {
+        for(int k = 0; k < 10; ++k) o.w(s.enemy[k]);
+        o.c(s.pattern);
+    }
+
+    if(has & HAS_CARRY)
+    {
+        o.w(s.noreset);
+        o.w(s.nocarry);
+        o.c(s.nextmap);
+        o.c(s.nextscr);
+    }
+
+    if(has & HAS_SCRIPT)
+    {
+        o.w(s.sc.script);
+        o.c(s.preloadscript);
+
+        for(int q = 0; q < 8; ++q)
+            o.l(s.sc.args[q]);
+    }
+
+    if(has & HAS_UNUSED)
+    {
+        for(int q = 0; q < 10; ++q) o.l(s.npcstrings[q]);
+        for(int q = 0; q < 10; ++q) o.w(s.new_items[q]);
+        for(int q = 0; q < 10; ++q) o.w(s.new_item_x[q]);
+        for(int q = 0; q < 10; ++q) o.w(s.new_item_y[q]);
+    }
+
+    if(has & HAS_SECRETS)
+    {
+        for(int k = 0; k < 128; ++k) o.w(s.secretcombo[k]);
+        o.put(s.secretcset, 128);
+        o.put(s.secretflag, 128);
+    }
+
+    if(has & HAS_COMBOFLAG)
+    {
+        for(int k = 0; k < SQUARES; ++k) o.w(s.data[k]);
+        o.put(s.sflag, SQUARES);
+        o.put(s.cset, SQUARES);
+    }
+
+    if(has & HAS_MISC)
+    {
+        o.w(s.color);
+        o.c(s.csensitive);
+        o.c(s.oceansfx);
+        o.c(s.bosssfx);
+        o.c(s.secretsfx);
+        o.c(s.holdupsfx);
+        o.w(s.timedwarptics);
+        o.w(s.screen_midi);
+        o.c(s.lens_layer);
+        o.c(s.lens_show);
+        o.c(s.lens_hide);
+    }
+
+    // numFFC: up to the last one in use, at least 32 with the old FFC rule
+    int count = 0;
+
+    for(int m = FFCS - 1; m >= 0; --m)
+        if(s.ffc[m].data)
+        {
+            count = m + 1;
+            break;
+        }
+
+    if(count < 32 && old_ffcs)
+        count = 32;
+
+    o.w(count);
+
+    for(int m = 0; m < count; ++m)
+    {
+        const Ffc &c = s.ffc[m];
+        o.w(c.data);
+
+        if(!c.data)
+            continue;
+
+        o.c(c.cset);
+        o.w(c.delay);
+        o.l(c.x);
+        o.l(c.y);
+        o.l(c.vx);
+        o.l(c.vy);
+        o.l(c.ax);
+        o.l(c.ay);
+        o.c(c.link);
+        o.l(c.hit_width);
+        o.l(c.hit_height);
+        o.c(c.txsz);
+        o.c(c.tysz);
+        o.l(c.flags);
+        o.w(c.sc.script);
+
+        for(int q = 0; q < 8; ++q)
+            o.l(c.sc.args[q]);
+
+        o.c(c.inita[0]);
+        o.c(c.inita[1]);
+    }
+
+    o.l((int64_t)s.notes.size());
+    o.put(s.notes.data(), s.notes.size());
+}
+
+// readmaps / writemaps of 2.55.17, for map versions 18-30: per map a valid byte (whether any of
+// its screens is), its auto layer combos (as stored from version 26, else none), its 136 screens.
+int write_maps_255(PACKFILE *f, const ZqNewerContext &ctx)
+{
+    if(!zqn255_source(ctx) || ctx.target != ZQ_NEWER_255 || !ctx.src_part || ctx.src_version < 18 ||
+       ctx.src_version > 30)
+        return ZQW_UNSUPPORTED;
+
+    Zqn255Section s;
+
+    if(!zqn255_section(ctx, s))
+        return 2;
+
+    const int v = s.version;
+    std::vector<byte> rules;
+
+    if(!zqn255_rules_loaded(ctx.target, rules) || rules.size() * 8 <= (size_t)QR_OLD_FFC_FUNCTIONALITY)
+        return refuse("the quest rules as 2.55.17 holds them couldn't be worked out");
+
+    const bool nofairyfires = (rules[QR_NOFAIRYGUYFIRES >> 3] >> (QR_NOFAIRYGUYFIRES & 7)) & 1;
+    const bool old_ffcs = (rules[QR_OLD_FFC_FUNCTIONALITY >> 3] >> (QR_OLD_FFC_FUNCTIONALITY & 7)) & 1;
+    Zqn255In in(s.data);
+    const int maps = in.u16();
+
+    if(in.bad || maps > MAPS)
+        return refuse("its maps aren't laid out as expected");
+
+    Zqn255Out o;
+    o.w(maps);
+    std::vector<Scr> scr(SCREENS);
+
+    for(int i = 0; i < maps; ++i)
+    {
+        bool valid = true;
+        word autolayers[6] = { 0, 0, 0, 0, 0, 0 };
+
+        if(v > 22)
+            valid = in.u8() != 0;
+
+        if(valid && v > 25)
+            get_words(in, autolayers, 6);
+
+        bool any_valid = false;
+
+        for(int j = 0; j < SCREENS; ++j)
+        {
+            Scr &c = scr[j];
+            c.clear();
+            c.noreset = c.nocarry = 0;  // a fresh 2.55.17 mapscr's
+
+            if(valid)
+            {
+                if(!(v < 23 ? (read_old(in, v, nofairyfires, c, true), true) : read_grouped(in, v, nofairyfires, c, true)) || in.bad)
+                    return refuse("a screen isn't laid out as expected");
+            }
+            else
+                c.valid = 0;
+
+            any_valid = any_valid || (c.valid & VALID);
+        }
+
+        o.c(any_valid ? 1 : 0);
+
+        if(!any_valid)
+            continue;
+
+        for(int q = 0; q < 6; ++q)
+            o.w(autolayers[q]);
+
+        for(int j = 0; j < SCREENS; ++j)
+            write_screen_255(o, scr[j], j, old_ffcs);
+    }
+
+    if(!in.at_end())
+        return refuse("its maps aren't laid out as expected");
+
+    std::vector<byte> none;
+    return zqn255_emit(f, ID_MAPS, 30, 9, none, o.b);
+}
+
+ZqNewerRegistration g_reg_maps_255(ID_MAPS, write_maps_255, "2.55 maps as 2.55.17");
 
 } // namespace

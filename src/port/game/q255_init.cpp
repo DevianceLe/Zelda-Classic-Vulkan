@@ -21,7 +21,7 @@
 //   shove offset (v36+)
 //   sprite flicker speed, colour, transparency (v38+)
 //   air drag (v39+)
-//   light wave rate and size (v40+), region mapping (v41+)
+//   region mapping (v41+) (light wave rate and size, v40+, go to the dark rooms' lights)
 //   custom level item bits (v42+)
 //   bottle slots (v43+)
 //   level switch states (v44+)
@@ -30,7 +30,7 @@
 //   Link item box offset and size (v48+)
 //   message advance delay (v49+)
 //   global and hero script configs (v50+)
-//   viewport follow settings (v51+, v52+)
+// (viewport follow settings, v51+ and v52+, go to the scrolling regions' camera, q30_regions.cpp)
 //
 // INIT values that lose range:
 //   bombs, super bombs, max bombs, arrows, max arrows: words from v19, clamped to a byte
@@ -355,6 +355,13 @@ static void read_screen_data_init(Q255Section &s)
     }
 }
 
+// For the player's message engine (q30_msg.cpp): upstream's zinit.msg_advance_delay (50 until
+// INIT v49 stored it) and the section's version (before v49 the init data's "more" icon is
+// every string's). ZQuest ignores both.
+byte q255_msg_advance_delay = 50;
+int q255_initdata_version = 0;
+static byte g_init_msg_advance_delay = 50;
+
 static void read_init_new(Q255Section &s, zinitdata &temp)
 {
     const int v = s.version;
@@ -476,7 +483,7 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
     temp.msg_speed = s.getc();
 
     if(v >= 49)
-        s.skip(1);  // message advance delay
+        g_init_msg_advance_delay = s.getc();    // message advance delay
 
     temp.gravity = clamp_byte(s.igetl_s() / 100);
     s.skip(4);  // swim gravity
@@ -620,15 +627,23 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
         s.skip(4);  // air drag
 
     // Some z3 builds wrote only the region mapping byte at v40; nothing else follows it there.
+    int light_wave_rate = 0, light_wave_size = 0;   // how dark rooms' lights pulse (none before v40)
+
     if(v == 40 && s.left() == 1)
         s.skip(1);
     else
     {
         if(v >= 40)
-            s.skip(4);  // light wave rate and size
+        {
+            light_wave_rate = s.igetw();
+            light_wave_size = s.igetw();
+        }
         if(v >= 41)
             s.skip(1);  // region mapping
     }
+
+    if(s.keep && !s.failed)
+        q30_set_light_wave(light_wave_rate, light_wave_size);
 
     if(v >= 43)
     {
@@ -661,10 +676,29 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
         skip_script_config_array(s, 5);     // hero scripts
     }
 
+    // How a scrolling region's camera follows Link (q30_regions.cpp): the dead zone (v51+), then
+    // the lookahead and recentering (v52+). Older quests get upstream's defaults, a camera locked
+    // on Link.
+    int vf_deadzone_w = 0, vf_deadzone_h = 0, vf_lookahead_x = 0, vf_lookahead_y = 0, vf_recenter_delay = 30;
+    long vf_lookahead_speed = 10000, vf_recenter_speed = 0;
+
     if(v >= 51)
-        s.skip(2);      // viewport follow deadzone
+    {
+        vf_deadzone_w = s.getc();
+        vf_deadzone_h = s.getc();
+    }
     if(v >= 52)
-        s.skip(1 + 1 + 4 + 4 + 2);  // viewport follow lookahead and recentering
+    {
+        vf_lookahead_x = (signed char)s.getc();
+        vf_lookahead_y = (signed char)s.getc();
+        vf_lookahead_speed = s.igetl_s();
+        vf_recenter_speed = s.igetl_s();
+        vf_recenter_delay = s.igetw();
+    }
+
+    if(s.keep && !s.failed)
+        q30_set_viewport_follow(-1, false, vf_deadzone_w, vf_deadzone_h, vf_lookahead_x, vf_lookahead_y, vf_lookahead_speed,
+                                vf_recenter_speed, vf_recenter_delay);
 
     int hp = hp_per_heart ? hp_per_heart : 16;
     temp.hc = clamp_byte(mcounter[0] / hp);
@@ -707,6 +741,10 @@ int q255_read_initdata(Q255Section &s)
     g_init_subscr_speed = 1;    // upstream's default: 3 rows a frame
     memset(g_init_ctr, 0, sizeof(g_init_ctr));
     memset(g_init_mctr, 0, sizeof(g_init_mctr));
+    g_init_msg_advance_delay = 50;
+
+    if(s.keep)
+        q255_initdata_version = v;
 
     if(v >= 37)
     {
@@ -724,6 +762,7 @@ int q255_read_initdata(Q255Section &s)
         q30_init_subscr_speed = g_init_subscr_speed;
         memcpy(g_kept_ctr, g_init_ctr, sizeof(g_kept_ctr));
         memcpy(g_kept_mctr, g_init_mctr, sizeof(g_kept_mctr));
+        q255_msg_advance_delay = g_init_msg_advance_delay;
         }
 
         return 0;
@@ -919,6 +958,9 @@ int q255_read_initdata(Q255Section &s)
         q30_init_subscr_speed = g_init_subscr_speed;
         memcpy(g_kept_ctr, g_init_ctr, sizeof(g_kept_ctr));
         memcpy(g_kept_mctr, g_init_mctr, sizeof(g_kept_mctr));
+        q30_set_light_wave(0, 0);   // (these versions have no pulsing lights or camera follow settings)
+        q30_set_viewport_follow(-1, false, 0, 0, 0, 0, 10000, 0, 30);
+        q255_msg_advance_delay = g_init_msg_advance_delay;
     }
 
     return 0;
@@ -1259,6 +1301,10 @@ static int sub_font(long font)
         return ssfPROP;
     }
 
+    // The player draws every other font upstream has (ss_font); ZQuest keeps the default.
+    if(!q255_keep_for_editor && font >= 0 && font < Q30_FONT_COUNT)
+        return Q30_SSF_FONTS + (int)font;
+
     return ssfZELDA;
 }
 
@@ -1322,10 +1368,15 @@ static int sub_minitile(long tilecrn)
     return (sub_tile(tilecrn >> 2) << 2) | (int)(tilecrn & 3);
 }
 
-// 2.53 has no way to say "no item": item 0 is what its own default objects use.
+// 2.53 has no way to say "no item": item 0 is what its own default objects use. (The player
+// keeps a newer quest's items past 255 too; ZQuest's subscreen writer holds 2.53's.)
 static int sub_item(long item)
 {
+#ifdef ZC_PLAYER_BUILD
+    return (item < 0 || item >= Q30_MAXITEMS) ? 0 : (int)item;
+#else
     return (item < 0 || item >= MAXITEMS) ? 0 : (int)item;
+#endif
 }
 
 // SubscrTransition::read
@@ -1761,7 +1812,14 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
         t.d5 = selectable ? b.pos_down : -1;
         t.d6 = selectable ? b.pos_left : -1;
         t.d7 = selectable ? b.pos_right : -1;
+#ifdef ZC_PLAYER_BUILD
+        // the player: any item of the quest (256 and up too), and in d9 whether the slot ignores
+        // the special displays (upstream's SUBSCR_CURITM_IGNR_SP_DISPLAY) for q30_subscreen_item
+        t.d8 = (iid >= 0 && iid < Q30_MAXITEMS) ? (int)iid + 1 : 0;
+        t.d9 = (b.flags & 8) ? 1 : 0;
+#else
         t.d8 = (iid >= 0 && iid < MAXITEMS) ? (int)iid + 1 : 0;
+#endif
         // a class 2.53 has no family for (bottles, lanterns...): kept + 1 for q30_subscreen_item,
         // which picks the item the way upstream does; 2.53 never reads d10 of this object
         t.d10 = (iclass >= itype_max) ? (int)iclass + 1 : 0;

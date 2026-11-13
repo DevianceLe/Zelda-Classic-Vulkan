@@ -135,6 +135,13 @@ int q255_read_maps(Q255Section &s);
 extern std::vector<std::vector<byte> > q255_map_region_ids;    // per map, 64 bytes (MAP v31+)
 int q255_read_dmaps(Q255Section &s);
 
+// How a scrolling region's camera follows Link (upstream's ViewportFollowSettings): init data's
+// (dmap -1, INIT v51+) and each DMap's (DMAP v28+; custom false: the DMap uses init data's).
+// Speeds are in 1/10000 pixels a frame. The player's camera keeps them (q30_regions.cpp);
+// ZQuest's store ignores them, its own readers keep these fields for its editor.
+void q30_set_viewport_follow(int dmap, bool custom, int deadzone_w, int deadzone_h, int lookahead_x, int lookahead_y,
+                             long lookahead_speed, long recenter_speed, int recenter_delay);
+
 // q255_init.cpp
 int q255_read_initdata(Q255Section &s);
 int q255_read_linksprites(Q255Section &s);

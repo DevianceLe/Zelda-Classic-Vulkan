@@ -6,6 +6,11 @@
 // version 8 is that without the 16-bit tile, always 256 sprites; 3.0's version 9 is a list of
 // sprites, each with its name as a counted string, up to the last one that isn't empty
 // (sprite_data_buf.normalize()). Ported from both versions' readweapons / writeweapons.
+// 2.55.17 reads each name up to its end (strncat), so a version 8 section is laid out again
+// too: some files have leftovers of older names after a name's end, which it writes as zeros.
+// A version 9 section (3.0's own, which early 3.0 Nightlies wrote with a 2.55 header; up to
+// MAXSPRITES, 8192, sprites) is read as 3.0's read_single_spritedata reads it, each name a
+// counted string kept byte for byte, and written again up to its last sprite that isn't empty.
 
 #include "precompiled.h" //always first
 
@@ -37,7 +42,9 @@ struct Sprite
 
 int write_weapons(PACKFILE *f, const ZqNewerContext &ctx)
 {
-    if(!zqn255_source(ctx) || !ctx.src_part || ctx.src_version < 7 || ctx.src_version > 8)
+    // (version 9 only as 3.0: 2.55.17 can't hold it)
+    if(!zqn255_source(ctx) || !ctx.src_part || ctx.src_version < 7 || ctx.src_version > 9 ||
+       (ctx.src_version == 9 && ctx.target != ZQ_NEWER_30))
         return ZQW_UNSUPPORTED;
 
     Zqn255Section s;
@@ -45,42 +52,63 @@ int write_weapons(PACKFILE *f, const ZqNewerContext &ctx)
     if(!zqn255_section(ctx, s))
         return 2;
 
-    if(ctx.target == ZQ_NEWER_255 && s.version == 8)
-        return zqn255_emit(f, ID_WEAPONS, 8, 1, s.extra, s.data);
-
     Zqn255In r(s.data);
     int count = r.u16();
+    // MAXSPRITES in 3.0 (Mystical Harps has 294); 2.55 had 256
+    const int most = s.version >= 9 ? 8192 : 256;
 
-    if(count > 256)
+    if(count > most)
     {
-        zqw_last_error = "it has more than 256 weapon sprites";
+        zqw_last_error = "it has more weapon sprites than its version holds";
         return 2;
     }
 
-    std::vector<Sprite> w(256);
+    std::vector<Sprite> w(count > 256 ? count : 256);
 
-    for(int i = 0; i < count && !r.bad; ++i)
+    if(s.version >= 9)
     {
-        std::vector<byte> nm = r.bytes(64);
+        for(int i = 0; i < count && !r.bad; ++i)
+        {
+            Sprite &t = w[i];
+            std::vector<byte> nm = r.bytes(r.u8());     // p_getcstr: every byte, NULs too
 
-        if(!r.bad)
-            w[i].name.assign((const char *)&nm[0], strnlen((const char *)&nm[0], 64));
+            if(!r.bad && !nm.empty())
+                t.name.assign((const char *)&nm[0], nm.size());
+
+            t.misc = r.u8();
+            t.csets = r.u8();
+            t.frames = r.u8();
+            t.speed = r.u8();
+            t.type = r.u8();
+            t.script = r.u16();
+            t.tile = r.s32();
+        }
     }
-
-    for(int i = 0; i < count && !r.bad; ++i)
+    else
     {
-        Sprite &t = w[i];
+        for(int i = 0; i < count && !r.bad; ++i)
+        {
+            std::vector<byte> nm = r.bytes(64);
 
-        if(s.version < 8)
-            r.u16();    // the old 16-bit tile
+            if(!r.bad)
+                w[i].name.assign((const char *)&nm[0], strnlen((const char *)&nm[0], 64));
+        }
 
-        t.misc = r.u8();
-        t.csets = r.u8();
-        t.frames = r.u8();
-        t.speed = r.u8();
-        t.type = r.u8();
-        t.script = r.u16();
-        t.tile = r.s32();
+        for(int i = 0; i < count && !r.bad; ++i)
+        {
+            Sprite &t = w[i];
+
+            if(s.version < 8)
+                r.u16();    // the old 16-bit tile
+
+            t.misc = r.u8();
+            t.csets = r.u8();
+            t.frames = r.u8();
+            t.speed = r.u8();
+            t.type = r.u8();
+            t.script = r.u16();
+            t.tile = r.s32();
+        }
     }
 
     if(!r.at_end())
@@ -114,9 +142,10 @@ int write_weapons(PACKFILE *f, const ZqNewerContext &ctx)
         return zqn255_emit(f, ID_WEAPONS, 8, 1, s.extra, o.b);
     }
 
+    // sprite_data_buf.normalize(): up to the last sprite that isn't empty
     int n = 0;
 
-    for(int i = 0; i < 256; ++i)
+    for(int i = 0; i < (int)w.size(); ++i)
         if(!w[i].empty())
             n = i + 1;
 

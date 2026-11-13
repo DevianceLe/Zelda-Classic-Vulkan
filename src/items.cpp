@@ -39,6 +39,21 @@ int (*q30_bottle_tile_hook)(int item, int frames) = NULL;
 // pickupflag); for 2.53 quests it returns them unchanged.
 int (*q30_item_pickup_hook)(int item, int pickup) = NULL;
 
+#ifdef ZC_PLAYER_BUILD
+bool q30_new_item_hitboxes();       // q30_triggers.cpp: 2.55/3.0 items' whole-tile hit boxes
+void q30_item_apply_size(sprite *s, int item, bool in_place);    // (and their own sizes)
+int q30_items_end();                // q30_triggers.cpp: past 255 for a newer quest with more items
+// How far loops over every item go: a 2.55/3.0 quest's items 256 and up too (the player's
+// itemsbuf has room for them; MAXITEMS for 2.53 quests and in ZQuest).
+#define ITEMS_END q30_items_end()
+// Whether an item is disabled: items_off holds 2.53's 256, the DMap's own list the rest.
+bool q30_high_item_disabled(int item);
+#define ITEM_OFF(g, i) ((i) < MAXITEMS ? (g)->items_off[i] != 0 : q30_high_item_disabled(i))
+#else
+#define ITEMS_END MAXITEMS
+#define ITEM_OFF(g, i) ((g)->items_off[i] != 0)
+#endif
+
 int fairy_cnt=0;
 
 item::~item()
@@ -220,10 +235,10 @@ item::item(fix X,fix Y,fix Z,int i,int p,int c, bool isDummy) : sprite()
     anim=flash=twohand=subscreenItem=false;
     dummy_int[0]=PriceIndex=-1;
     
-    if(id<0 || id>iMax) //>, not >= for dummy items such as the HC Piece display in the subscreen
-        return;
+    if(id<0 || (id>iMax && id>=ITEMS_END)) //>, not >= for dummy items such as the HC Piece display in the subscreen
+        return;                            // (a 2.55/3.0 quest's items 256 and up are real items)
 
-    if(q30_item_pickup_hook && id < MAXITEMS)
+    if(q30_item_pickup_hook && id < ITEMS_END)
         pickup = q30_item_pickup_hook(id, pickup);
 
     o_tile = itemsbuf[id].tile;
@@ -264,6 +279,18 @@ item::item(fix X,fix Y,fix Z,int i,int p,int c, bool isDummy) : sprite()
         hysz=12;
     }
     
+#ifdef ZC_PLAYER_BUILD
+    // 2.55/3.0 quests without qr_OLD_ITEM_HITBOXES: an item's hit box is its whole 16x16 tile,
+    // whatever its pickup flags (upstream's item::item). Link's side is q30_item_box.
+    if(q30_new_item_hitboxes())
+    {
+        hxofs=hyofs=0;
+        hxsz=hysz=16;
+    }
+
+    q30_item_apply_size(this, id, false);  // an item's own tile size, hit box and draw offsets
+#endif
+
     if(!isDummy && itemsbuf[id].family == itype_fairy && itemsbuf[id].misc3)
     {
         misc = ++fairy_cnt;
@@ -285,6 +312,9 @@ void putitem(BITMAP *dest,int x,int y,int item_id)
 {
     item temp((fix)x,(fix)y,(fix)0,item_id,0,0);
     temp.yofs=0;
+#ifdef ZC_PLAYER_BUILD
+    q30_item_apply_size(&temp, item_id, true);  // (upstream's putitem: its own sizes, in place)
+#endif
     temp.animate(0);
     temp.draw(dest);
 }
@@ -293,6 +323,9 @@ void putitem2(BITMAP *dest,int x,int y,int item_id, int &aclk, int &aframe, int 
 {
     item temp((fix)x,(fix)y,(fix)0,item_id,0,0,true);
     temp.yofs=0;
+#ifdef ZC_PLAYER_BUILD
+    q30_item_apply_size(&temp, item_id, true);  // (upstream's putitem: its own sizes, in place)
+#endif
     temp.aclk=aclk;
     temp.aframe=aframe;
     
@@ -315,7 +348,7 @@ int getItemFamily(itemdata* items, int item)
 
 void removeItemsOfFamily(gamedata *g, itemdata *items, int family)
 {
-    for(int i=0; i<MAXITEMS; i++)
+    for(int i=0; i<ITEMS_END; i++)
     {
         if(items[i].family == family)
             g->set_item(i,false);
@@ -324,7 +357,7 @@ void removeItemsOfFamily(gamedata *g, itemdata *items, int family)
 
 void removeLowerLevelItemsOfFamily(gamedata *g, itemdata *items, int family, int level)
 {
-    for(int i=0; i<MAXITEMS; i++)
+    for(int i=0; i<ITEMS_END; i++)
     {
         if(items[i].family == family && items[i].fam_type < level)
             g->set_item(i, false);
@@ -365,9 +398,9 @@ int getHighestLevelOfFamily(gamedata *source, itemdata *items, int family, bool 
     int result = -1;
     int highestlevel = -1;
     
-    for(int i=0; i<MAXITEMS; i++)
+    for(int i=0; i<ITEMS_END; i++)
     {
-        if(items[i].family == family && source->get_item(i) && (checkenabled?(!(source->items_off[i])):1))
+        if(items[i].family == family && source->get_item(i) && (checkenabled?(!ITEM_OFF(source, i)):1))
         {
             if(items[i].fam_type >= highestlevel)
             {
@@ -384,7 +417,7 @@ int getItemID(itemdata *items, int family, int level)
 {
     if(level<0) return getCanonicalItemID(items, family);
     
-    for(int i=0; i<MAXITEMS; i++)
+    for(int i=0; i<ITEMS_END; i++)
     {
         if(items[i].family == family && items[i].fam_type == level)
             return i;
@@ -395,7 +428,7 @@ int getItemID(itemdata *items, int family, int level)
 
 int getItemIDPower(itemdata *items, int family, int power)
 {
-    for(int i=0; i<MAXITEMS; i++)
+    for(int i=0; i<ITEMS_END; i++)
     {
         if(items[i].family == family && items[i].power == power)
             return i;
@@ -410,7 +443,7 @@ int getCanonicalItemID(itemdata *items, int family)
     int lowestid = -1;
     int lowestlevel = -1;
     
-    for(int i=0; i<MAXITEMS; i++)
+    for(int i=0; i<ITEMS_END; i++)
     {
         if(items[i].family == family && (items[i].fam_type < lowestlevel || lowestlevel == -1))
         {

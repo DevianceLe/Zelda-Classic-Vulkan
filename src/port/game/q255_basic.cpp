@@ -903,8 +903,9 @@ static int skip_save_menus(Q255Section &s)
     return s.failed ? qe_invalid : 0;
 }
 
-// Moves items with hasitem clear to the end of each shop, as readmisc does.
-static void sort_shop_items(miscQdata &m)
+// Moves items with hasitem clear to the end of each shop, as readmisc does. ids holds each
+// shop's whole item numbers (shoptype keeps a byte), moved along with them.
+static void sort_shop_items(miscQdata &m, word (*ids)[3])
 {
     for(int i = 0; i < Q255_MAX_SHOPS; ++i)
     {
@@ -919,6 +920,10 @@ static void sort_shop_items(miscQdata &m)
                     byte item = shop.item[k];
                     shop.item[k] = shop.item[k + 1];
                     shop.item[k + 1] = item;
+
+                    word id = ids[i][k];
+                    ids[i][k] = ids[i][k + 1];
+                    ids[i][k + 1] = id;
 
                     word price = shop.price[k];
                     shop.price[k] = shop.price[k + 1];
@@ -1211,12 +1216,17 @@ int q255_read_strings(Q255Section &s)
 
         init_msgstrings(0, msg_strings_size);
         q30_clear_msg_layouts();
+        // the player's message engine (q30_msg.cpp) keeps every string as upstream does;
+        // upstream's reader turns qr_OLD_STRING_EDITOR_MARGINS on for sections before v7
+        q30_msg_clear_strings();
+        q30_msg_set_rules(g_old_string_frame, g_old_string_margins || s.version < 7);
     }
 
     for(int i = 0; i < count && !s.failed; ++i)
     {
         MsgStr t;
         memset(&t, 0, sizeof(t));
+        Q30MsgStr q;    // upstream's MsgStr, for the player's message engine
 
         long length = MSGSIZE + 1;
 
@@ -1230,10 +1240,15 @@ int q255_read_strings(Q255Section &s)
 
         // the player keeps a longer text whole beside MsgStrings (q30_msg_long_text)
         std::string whole;
-        store_message_text(t, s.getstr((size_t)length), s.version >= 11, q255_keep_for_editor ? NULL : &whole);
+        const std::string raw = s.getstr((size_t)length);
+        store_message_text(t, raw, s.version >= 11, q255_keep_for_editor ? NULL : &whole);
 
         if(s.keep && !s.failed && !whole.empty())
             q30_set_msg_long_text(i, whole.c_str());
+
+        // upstream ends the text at its first zero and at 8192 characters
+        q.text = raw.substr(0, raw.find('\0')).substr(0, 8192);
+        q.ascii = s.version >= 11;
 
         t.nextstring = s.igetw();
 
@@ -1264,6 +1279,19 @@ int q255_read_strings(Q255Section &s)
         if(s.version < 13)
             t.stringflags &= ~(0x04 | 0x08);    // defined once, never valid
 
+        q.tile = t.tile;
+        q.cset = t.cset;
+        q.trans = t.trans;
+        q.font = t.font;
+        q.x = t.x;
+        q.y = t.y;
+        q.w = (word)box_w;
+        q.h = (word)box_h;
+        q.hspace = t.hspace;
+        q.vspace = t.vspace;
+        q.stringflags = t.stringflags;
+        q.nextstring = t.nextstring;
+
         byte margins[4] = { 8, 0, 8, 0 };     // up, down, left, right
         bool has_margins = false;
 
@@ -1280,22 +1308,38 @@ int q255_read_strings(Q255Section &s)
             if(s.keep)
                 q30_set_msg_wrap_extra(i, (g_old_string_frame ? 0 : 16) - (ml + mr));
 
-            s.skip(4 + 5);      // portrait tile, portrait cset x y tw th
+            for(int k = 0; k < 4; ++k)
+                q.margins[k] = margins[k];
+
+            // the portrait: tile, cset, x, y, width and height in tiles
+            q.portrait_tile = s.igetl_s();
+            q.portrait_cset = s.getc();
+            q.portrait_x = s.getc();
+            q.portrait_y = s.getc();
+            q.portrait_tw = s.getc();
+            q.portrait_th = s.getc();
         }
 
         if(s.version >= 8)
-            s.skip(2);              // shadow type and color
+        {
+            q.shadow_type = s.getc();
+            q.shadow_color = s.getc();
+        }
 
         if(s.version >= 10)
-            s.skip(1);              // draw layer
+            q.drawlayer = s.getc();
 
         if(s.version >= 12)
         {
             word sfx = s.igetw();
             t.sfx = sfx > Q255_MAX_SFX_ID ? 0 : (byte)sfx;
+            q.sfx = sfx;
         }
         else
+        {
             t.sfx = s.getc();
+            q.sfx = t.sfx;
+        }
 
         t.listpos = s.igetw();
 
@@ -1310,10 +1354,37 @@ int q255_read_strings(Q255Section &s)
             icon_anchor = s.getc();
             icon_x = s.igetw_s();
             icon_y = s.igetw_s();
-            s.skip(2 * (2 + 1 + 2 + 2));    // scroll up and scroll down icons
-            s.skip(2);                      // active and passive scroll speeds
-            s.skip(3 * 2);                  // advance, menu move and menu close sfx
+
+            // the scroll up and scroll down icons, the scroll speeds and the advance, menu
+            // move and menu close sounds
+            q.icons[0].sprite = (short)icon_sprite;
+            q.icons[0].anchor = (byte)icon_anchor;
+            q.icons[0].x = (short)icon_x;
+            q.icons[0].y = (short)icon_y;
+
+            for(int k = 1; k < 3; ++k)
+            {
+                q.icons[k].sprite = (short)s.igetw_s();
+                q.icons[k].anchor = s.getc();
+                q.icons[k].x = (short)s.igetw_s();
+                q.icons[k].y = (short)s.igetw_s();
+            }
+
+            q.active_scroll_speed = s.getc();
+            q.passive_scroll_speed = s.getc();
+            q.adv_sfx = s.igetw();
+            q.menu_move_sfx = s.igetw();
+            q.menu_close_sfx = s.igetw();
         }
+        else
+        {
+            q.adv_sfx = 0;
+            q.menu_move_sfx = q.sfx;
+            q.menu_close_sfx = 0;
+        }
+
+        if(s.keep && !s.failed)
+            q30_msg_set_string(i, q);
 
         // Upstream draws text from the margins and stops at the bottom one; old frames keep
         // the box 16 bigger than w and h. Strings under qr_OLD_STRING_EDITOR_MARGINS lay out
@@ -1363,6 +1434,10 @@ int q255_read_misc(Q255Section &s)
     memset(temp.shop, 0, sizeof(temp.shop));
     memset(temp.info, 0, sizeof(temp.info));
 
+    // each shop's item numbers in full (the player sells items 256 and up too)
+    static word shop_ids[Q255_MAX_SHOPS][3];
+    memset(shop_ids, 0, sizeof(shop_ids));
+
     // shops
     word shops = s.igetw();
 
@@ -1385,6 +1460,17 @@ int q255_read_misc(Q255Section &s)
 
         for(int j = 0; j < 3; ++j)
         {
+#ifdef ZC_PLAYER_BUILD
+            // the player keeps items 256 and up in shop_ids (q30_set_shop_item); the byte gets 0
+            if(items[j] > Q255_MAX_ITEM_ID && items[j] < Q30_MAXITEMS)
+            {
+                if(i < Q255_MAX_SHOPS)
+                    shop_ids[i][j] = items[j];
+
+                shop.item[j] = 0;
+                continue;
+            }
+#endif
             if(items[j] > Q255_MAX_ITEM_ID)
             {
                 items[j] = 0;
@@ -1392,13 +1478,28 @@ int q255_read_misc(Q255Section &s)
             }
 
             shop.item[j] = (byte)items[j];
+
+            if(i < Q255_MAX_SHOPS)
+                shop_ids[i][j] = items[j];
         }
 
         if(i < Q255_MAX_SHOPS)
             temp.shop[i] = shop;
     }
 
-    sort_shop_items(temp);
+    sort_shop_items(temp, shop_ids);
+
+#ifdef ZC_PLAYER_BUILD
+    if(keep)
+    {
+        q30_set_shop_item(-1, 0, 0);
+
+        for(int i = 0; i < Q255_MAX_SHOPS; ++i)
+            for(int j = 0; j < 3; ++j)
+                if(shop_ids[i][j] > Q255_MAX_ITEM_ID)
+                    q30_set_shop_item(i, j, shop_ids[i][j]);
+    }
+#endif
 
     // infos
     word infos = s.igetw();

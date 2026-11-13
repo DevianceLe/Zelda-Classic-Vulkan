@@ -110,7 +110,10 @@ public:
     {
         return false;
     }
-    
+    // A 3.0 scrolling region moved this enemy by dx, dy into the next screen's coordinates
+    // (LinkClass::q30_region_handoff moves x and y): the other positions it keeps go too.
+    virtual void q30_region_shift(int dx, int dy);
+
 protected:
     int  clk2,sclk;
     int  starting_hp;
@@ -129,6 +132,10 @@ protected:
     virtual int defend(int wpnId, int *power, int edef);
     bool candamage(int power, int edef);
     int defenditemclass(int wpnId, int *power);
+    // defend() between newer quests' ENEMY_HIT1 and ENEMY_HIT2 generic script events (just
+    // defend() when no script listens); the defence a weapon type meets, or -1
+    int q30_defend_events(int wpnId, int *power, int edef, weapon *w);
+    static int edef_of(int wpnId);
     
     bool dont_draw();
     // base drawing function to be used by all derived classes instead of
@@ -284,6 +291,7 @@ public:
     virtual bool animate(int index);
     virtual void drawshadow(BITMAP *dest,bool translucent);
     virtual void draw(BITMAP *dest);
+    virtual void q30_region_shift(int dx, int dy);
 };
 
 class eItemFairy : public enemy
@@ -337,6 +345,7 @@ public:
     bool clip();
     virtual void draw(BITMAP *dest);
     virtual int takehit(weapon* w);
+    virtual void q30_region_shift(int dx, int dy);
 };
 
 class eTrap2 : public enemy                                 //trap that goes back and forth constantly
@@ -579,6 +588,7 @@ class eBaseLanmola : public enemy
 public:
     eBaseLanmola(fix X, fix Y, int Id, int Clk) : enemy(X, Y, Id, Clk) {}
     std::list<std::pair< std::pair<fix, fix>, int> > prevState;
+    virtual void q30_region_shift(int dx, int dy);
 };
 
 // segment manager

@@ -44,7 +44,8 @@ extern itemdata *itemsbuf;
 
 itemdata &q30_itemsbuf(int id)
 {
-    if(id >= 0 && id < MAXITEMS)
+    // the player's itemsbuf has room for every newer quest's item (q30_set_high_item)
+    if(id >= 0 && id < (quest_header_zelda_version < 0x255 ? MAXITEMS : Q30_MAXITEMS))
         return itemsbuf[id];
 
     std::map<int, HighItem>::iterator it = g_high_items.find(id);
@@ -161,17 +162,51 @@ bool q30_screen_guy(int index, long *tile, int *cs, int *roomflags)
     return true;
 }
 
+void q30_set_items_end(int count);     // q30_triggers.cpp
+
 void q30_clear_high_items()     // their data; the init data replaces its own list
 {
     g_high_items.clear();
+    q30_set_items_end(MAXITEMS);
+
+    // itemsbuf's newer items: blank, as the reader leaves an item the file doesn't cover
+    for(int i = MAXITEMS; i < Q30_MAXITEMS; ++i)
+    {
+        memset(&itemsbuf[i], 0, sizeof(itemdata));
+        itemsbuf[i].count = -1;
+        itemsbuf[i].fam_type = 1;
+    }
 }
 
+// The reader hands over the items in order, so the last one sets how far item loops go.
 void q30_set_high_item(int id, const itemdata &d, int family, const char *name)
 {
     HighItem &h = g_high_items[id];
     h.d = d;
     h.family = family;
     h.name = name ? name : "";
+
+    // and in itemsbuf, where the game reads every item (a level of 0 reads as 1, as for the others)
+    if(id >= MAXITEMS && id < Q30_MAXITEMS)
+    {
+        itemsbuf[id] = d;
+
+        if(itemsbuf[id].fam_type == 0)
+            itemsbuf[id].fam_type = 1;
+
+        q30_set_items_end(id + 1);
+    }
+}
+
+const char *q30_item_name(int id)
+{
+    extern char *item_string[];
+
+    if(id >= 0 && id < MAXITEMS)
+        return item_string[id];
+
+    std::map<int, HighItem>::const_iterator it = g_high_items.find(id);
+    return (it == g_high_items.end() || quest_header_zelda_version < 0x255) ? "" : it->second.name.c_str();
 }
 
 const itemdata *q30_high_item(int id, int *family, const char **name)

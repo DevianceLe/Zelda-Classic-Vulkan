@@ -54,10 +54,13 @@ bool can_drop(fix x, fix y)
     return !_walkflag(x,y+16,0);
 }
 
+int q30_items_end();     // q30_triggers.cpp: past 255 for a 2.55/3.0 quest with more items
+
 int select_dropitem(int item_set, int x, int y)
 {
     // A newer quest's combo or script can name any dropset, and its sets can hold item ids past
-    // this engine's items: those draw nothing. (2.53 data is always in range: unchanged.)
+    // the quest's items: those draw nothing. Its items 256 and up drop as any other (itemsbuf has
+    // room for them). (2.53 data is always in range: unchanged.)
     if(item_set < 0 || item_set >= MAXITEMDROPSETS)
         return -1;
 
@@ -71,7 +74,7 @@ int select_dropitem(int item_set, int x, int y)
         {
             int current_item=item_drop_sets[item_set].item[k-1];
 
-            if(current_item < 0 || current_item >= MAXITEMS)
+            if(current_item < 0 || current_item >= q30_items_end())
             {
                 continue;   // (adds no chance)
             }
@@ -103,7 +106,7 @@ int select_dropitem(int item_set, int x, int y)
         int current_chance=item_drop_sets[item_set].chance[k];
         int current_item=(k==0 ? -1 : item_drop_sets[item_set].item[k-1]);
 
-        if(current_item >= MAXITEMS)
+        if(current_item >= q30_items_end())
         {
             current_chance=0;   // (as the first loop: never drawn)
         }
@@ -133,7 +136,7 @@ int select_dropitem(int item_set, int x, int y)
     {
         for(int j=0; j<items.Count(); ++j)
         {
-            if(items.spr(j)->id >= 0 && items.spr(j)->id < MAXITEMS && (itemsbuf[items.spr(j)->id].family==itype_fairy)&&((abs(items.spr(j)->x-x)<32)||(abs(items.spr(j)->y-y)<32)))
+            if(items.spr(j)->id >= 0 && items.spr(j)->id < q30_items_end() && (itemsbuf[items.spr(j)->id].family==itype_fairy)&&((abs(items.spr(j)->x-x)<32)||(abs(items.spr(j)->y-y)<32)))
             {
                 drop_item=-1;
                 break;

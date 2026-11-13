@@ -88,7 +88,7 @@ int colordepth;
 int db=0;
 //zinitdata  zinit;
 int detail_int[10];                                         //temporary holder for things you want to detail
-int lens_hint_item[MAXITEMS][2];                            //aclk, aframe
+int lens_hint_item[Q30_MAXITEMS][2];                        //aclk, aframe (any item of a 2.55/3.0 quest too)
 int lens_hint_weapon[MAXWPNS][5];                           //aclk, aframe, dir, x, y
 int cheat_modifier_keys[4]; //two options each, default either control and either shift
 int strike_hint_counter=0;
@@ -438,6 +438,9 @@ void initZScriptArrayRAM(bool firstplay)
 
     zasm30_clear_heap();
     
+    extern void q30_hi_counter_forget();    // q30_triggers.cpp: newer quests' counter array is looked for again
+    q30_hi_counter_forget();
+
     if(game->globalRAM.size() != 0)
         game->globalRAM.clear();
         
@@ -595,9 +598,22 @@ zctune tunes[MAXMIDIS] =
 
 bool q30_active();
 
-// The fonts 3.0 numbers past 2.53's (upstream's core/fonts.h: font_nfont 71, font_sfont3 72,
-// font_nfont2 75) that this engine's fonts.dat has; NULL for the rest and for older quests,
-// which then draw the default font as before.
+FONT *q30_upstream_font(int id);    // q30_fonts.cpp
+
+// q30_msg.cpp (q30.h): the message engine of 2.55/3.0 quests, upstream's message_string.cpp
+bool q30_msg_engine();
+void q30_msg_clear_display();
+void q30_msg_do_new(int str);
+void q30_msg_dismiss();
+void q30_msg_run();
+void q30_msg_draw_icons();
+void q30_msg_init();
+bool q30_msg_nofreeze();
+
+// The fonts 3.0 numbers past 2.53's (upstream's core/fonts.h): font_nfont 71, font_sfont3 72
+// and font_nfont2 75 are in this engine's fonts.dat; the others (27-70, 73, 74, 76-100) are
+// built in from upstream's font data (q30_fonts.cpp). NULL for older quests, which draw the
+// default font as before, and for numbers no font has.
 FONT *q30_font(int index)
 {
     if(!q30_active())
@@ -615,7 +631,7 @@ FONT *q30_font(int index)
         return (FONT*)fontsdata[FONT_GUI_MONO].dat;     // "NFont2"
     }
 
-    return NULL;
+    return q30_upstream_font(index);
 }
 
 FONT *setmsgfont()
@@ -710,6 +726,15 @@ FONT *setmsgfont()
 
 void donewmsg(int str)
 {
+    // 2.55/3.0 quests: upstream's message engine (q30_msg.cpp)
+    if(q30_msg_engine())
+    {
+        q30_msg_do_new(str);
+        msgorig = msgstr;
+        msgpos = 0;
+        return;
+    }
+
     //al_trace("donewmsg %d\n",str);
     if(msg_onscreen || msg_active)
         dismissmsg();
@@ -749,6 +774,13 @@ void donewmsg(int str)
 // Called to make a message disappear
 void dismissmsg()
 {
+    if(q30_msg_engine())    // 2.55/3.0 quests (q30_msg.cpp)
+    {
+        q30_msg_dismiss();
+        msgpos = msgptr = 0;
+        return;
+    }
+
     linkedmsgclk=0;
     msgstr = msgclk=msgpos=msgptr=0;
     cursor_x=0;
@@ -768,6 +800,7 @@ std::vector<long> q30_take_hi_counters(bool firstplay);    // q30_triggers.cpp
 void q30_put_hi_counters(const std::vector<long> &v);
 std::vector<long> q30_take_hi_items(bool firstplay);        // q30_triggers.cpp
 void q30_put_hi_items(const std::vector<long> &v);
+int q30_items_end();                                        // (past 255 for a newer quest with more items)
 long q30_dmap_intro_string(int dmap);
 void q30_bunny_reset();
 
@@ -868,8 +901,140 @@ extern std::map<int, std::pair<std::string, std::string> > ffcmap;
 extern std::map<int, std::pair<std::string, std::string> > globalmap;
 extern std::map<int, std::pair<std::string, std::string> > itemmap;
 
+// 2.55/3.0 quests (upstream's track_repeated_script_error): an identical script error line is
+// shown at most once every 300 frames; the repeats in between are only counted, and the count
+// comes with the next one shown. A script that errs every frame otherwise writes (and flushes) a
+// line a frame, which made such quests run several times slower. True: this one isn't shown;
+// `note` is what to print with it (or instead of it), if anything.
+static bool q30_repeated_scripterr(const std::string &line, std::string &note)
+{
+    struct Seen { int last_shown, last_seen, hidden; };
+    static std::map<std::string, Seen> seen;
+    static bool explained = false;
+    const int window = 300;
+
+    if(line.empty() || line[line.size() - 1] != '\n')
+        return false;       // only whole lines: a partial one is finished by another call
+
+    // Once a frame (upstream's flush_repeated_script_errors): errors not seen for a window are
+    // forgotten, and one that still had uncounted repeats says how many before it goes.
+    static int pruned_frame = -1;
+
+    if(frame != pruned_frame)
+    {
+        pruned_frame = frame;
+
+        for(std::map<std::string, Seen>::iterator it = seen.begin(); it != seen.end(); )
+        {
+            if(frame - it->second.last_seen >= window || frame < it->second.last_seen)
+            {
+                if(it->second.hidden)
+                    al_trace("previous error repeated %d more times: %s", it->second.hidden, it->first.c_str());
+
+                seen.erase(it++);
+            }
+            else
+                ++it;
+        }
+    }
+
+    std::map<std::string, Seen>::iterator it = seen.find(line);
+
+    if(it == seen.end())
+    {
+        Seen s = { frame, frame, 0 };
+        seen[line] = s;
+        return false;
+    }
+
+    Seen &s = it->second;
+    s.last_seen = frame;
+
+    if(frame >= s.last_shown && frame - s.last_shown < window)
+    {
+        ++s.hidden;
+
+        if(!explained)
+        {
+            explained = true;
+            note = "Note: an identical script error is shown at most once every 300 frames - repeats in between are only counted.\n";
+        }
+
+        return true;
+    }
+
+    if(s.hidden)
+    {
+        char buf[128];
+        sprintf(buf, "  (repeated %d more times in the %d frames since last shown)\n", s.hidden, frame - s.last_shown);
+        note = buf;
+        s.hidden = 0;
+    }
+
+    s.last_shown = frame;
+    return false;
+}
+
 void Z_scripterrlog(const char * const format,...)
 {
+    if((get_bit(quest_rules,qr_SCRIPTERRLOG) || DEVLEVEL > 0) && quest_header_zelda_version >= 0x255)
+    {
+        // 2.55/3.0 quests: the whole line at once, unless it repeats one shown in the last 300
+        // frames (q30_repeated_scripterr). 2.53 quests: below, unchanged.
+        char prefix[512] = "";
+
+        switch(curScriptType)
+        {
+        case SCRIPT_GLOBAL:
+            snprintf(prefix, sizeof(prefix), "Global script %u (%s): ", curScriptNum+1, globalmap[curScriptNum].second.c_str());
+            break;
+
+        case SCRIPT_FFC:
+            snprintf(prefix, sizeof(prefix), "FFC script %u (%s): ", curScriptNum, ffcmap[curScriptNum-1].second.c_str());
+            break;
+
+        case SCRIPT_ITEM:
+            snprintf(prefix, sizeof(prefix), "Item script %u (%s): ", curScriptNum, itemmap[curScriptNum-1].second.c_str());
+            break;
+
+        default:
+            break;
+        }
+
+        prefix[sizeof(prefix) - 1] = 0;
+        char buf[2048];
+        va_list ap;
+        va_start(ap, format);
+        vsnprintf(buf, sizeof(buf), format, ap);
+        va_end(ap);
+        buf[sizeof(buf) - 1] = 0;
+
+        std::string note;
+
+        if(q30_repeated_scripterr(std::string(prefix) + buf, note))
+        {
+            if(!note.empty())
+                al_trace("%s", note.c_str());
+
+            return;
+        }
+
+        al_trace("%s%s%s", prefix, buf, note.c_str());
+
+        if(zconsole)
+            printf("%s", buf);
+
+        if(zscript_debugger)
+        {
+#ifdef _WIN32
+            zscript_coloured_console.cprintf((CConsoleLoggerEx::COLOR_RED | CConsoleLoggerEx::COLOR_INTENSITY |
+                CConsoleLoggerEx::COLOR_BACKGROUND_BLACK),"%s%s",prefix,buf);
+#endif
+        }
+
+        return;
+    }
+
     if(get_bit(quest_rules,qr_SCRIPTERRLOG) || DEVLEVEL > 0)
     {
        
@@ -960,6 +1125,9 @@ void ALLOFF(bool messagesToo, bool decorationsToo)
     {
         clear_bitmap(msgdisplaybuf);
         set_clip_state(msgdisplaybuf, 1);
+
+        if(q30_msg_engine())
+            q30_msg_clear_display();    // 2.55/3.0: the string's own display buffers (upstream clear_display_bmps)
     }
     
     clear_bitmap(pricesdisplaybuf);
@@ -1452,6 +1620,8 @@ int init_game()
     Link.reset_hookshot();
     Link.reset_ladder();
     linkedmsgclk=0;
+    if(q30_msg_engine())
+        q30_msg_init();     // 2.55/3.0: upstream's init_string_vars
     blockmoving=false;
     add_asparkle=0;
     add_bsparkle=0;
@@ -1476,7 +1646,7 @@ int init_game()
     show_layer_over=show_layer_push=show_sprites=show_ffcs=true;
     cheat_superman=do_cheat_light=do_cheat_goto=show_walkflags=show_ff_scripts=show_hitboxes=false;
     
-    for(int x = 0; x < MAXITEMS; x++)
+    for(int x = 0; x < Q30_MAXITEMS; x++)
     {
         lens_hint_item[x][0]=0;
         lens_hint_item[x][1]=0;
@@ -1717,10 +1887,27 @@ int init_game()
     if(firstplay)
     {
         game->set_continue_dmap(zinit.start_dmap);
-        resetItems(game,&zinit,true);
 
-        void q30_give_init_high_items();
-        q30_give_init_high_items();     // 2.55/3.0: starting items past 255 (none for 2.53 quests)
+        // ZC_TEST_INIT_ITEMS=id,...: test runs only, the new game starts with those items (below
+        // 256) as if the quest's init data had them, so resetItems gives them
+        if(const char *test_init = getenv("ZC_TEST_INIT_ITEMS"))
+        {
+            for(const char *p = test_init; *p; )
+            {
+                const int id = atoi(p);
+                if(id >= 0 && id < MAXITEMS)
+                {
+                    zinit.items[id] = true;
+                    al_trace("test: starting item %d\n", id);
+                }
+                p = strchr(p, ',');
+                if(!p)
+                    break;
+                ++p;
+            }
+        }
+
+        resetItems(game,&zinit,true);   // (2.55/3.0: the starting items past 255 too)
 	if ( quest_header_zelda_version < 0x190 ) { game->set_maxbombs(8); al_trace("Starting bombs set to %d for a quest made in ZC %x\n", game->get_maxbombs(), quest_header_zelda_version); }
     }
     
@@ -1872,6 +2059,12 @@ int init_game()
             Link.setX(tx);
             Link.setY(ty);
         }
+
+        // (where upstream's test mode would put Link: the screen's return squares)
+        al_trace("test: Link at %d,%d; the screen's arrival square %d,%d, return squares %d,%d %d,%d %d,%d %d,%d\n",
+                 int(LinkX()), int(LinkY()), tmpscr->warparrivalx, tmpscr->warparrivaly, tmpscr->warpreturnx[0], tmpscr->warpreturny[0],
+                 tmpscr->warpreturnx[1], tmpscr->warpreturny[1], tmpscr->warpreturnx[2], tmpscr->warpreturny[2],
+                 tmpscr->warpreturnx[3], tmpscr->warpreturny[3]);
     }
 
     Link.setEntryPoints(LinkX(),LinkY());
@@ -1964,11 +2157,80 @@ int init_game()
     
     map_bkgsfx(true);
 
+    // 2.55/3.0 quests without qr_OLD_INIT_SCRIPT_TIMING (upstream init_game): the Init or
+    // onSaveLoad script and the hero's init script run before the screen opens, then onLaunch,
+    // the generic scripts' INIT, and (unless qr_FFCPRELOAD_BUGGED_LOAD) the preload FFC scripts,
+    // so a preload FFC is already where its script put it as the screen opens (Mystical Harps'
+    // first dungeon showed the key its KeyFFC hides through the opening). 2.53 quests, and newer
+    // ones with that rule, keep 2.53's order below.
+    const bool q30_early_init = quest_header_zelda_version >= 0x255 && !q30_quest_rule(676);
+    const bool q30_early_preload = q30_early_init && !q30_compat_rule(348);
+
+    if(q30_early_init)
+    {
+        if(firstplay)
+        {
+            memset(game->screen_d, 0, MAXDMAPS * 64 * 8 * sizeof(long));
+            ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_INIT);
+            q30_run_hero_script(1); // the hero's init script
+        }
+        else
+        {
+            ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_CONTINUE);
+        }
+
+        initZScriptGlobalRAM();
+    }
+
+    // 2.55/3.0 quests under qr_OLD_INIT_SCRIPT_TIMING (upstream turns it on for quests older
+    // than 2.55): upstream's init_game runs the hero's init script (new game) before onLaunch,
+    // then starts the generic scripts (their INIT run) and the preload FFC scripts (unless
+    // qr_FFCPRELOAD_BUGGED_LOAD) before the screen opens, as with the newer timing. Only the
+    // Init script and the clearing of Screen->D wait until after the opening, so what a generic
+    // script writes to Screen->D as the game starts is gone by the first frame (Tranquil
+    // Expression's act cards depend on it). 2.53 quests and newer ones with the newer timing
+    // keep the order of their own branches.
+    const bool q30_generic_first = q30_active() && q30_quest_rule(676);
+
+    if(q30_generic_first && firstplay)
+        q30_run_hero_script(1); // the hero's init script
+
     // 2.55/3.0: the onLaunch global script runs here, after Init or onSaveLoad, for a new
     // game or a loaded one (upstream's runOnLaunchEngine). Nothing for 2.53 quests.
     q30_run_onlaunch();
 
+    if(q30_generic_first)
+    {
+        q30_bunny_reset();      // 2.55/3.0: Link starts as himself (upstream HeroClass::init)
+        q30_game_init(firstplay);
+
+        if(!q30_compat_rule(348))
+            ffscript_engine(true);
+    }
+
+    if(q30_early_init)
+    {
+        q30_bunny_reset();      // 2.55/3.0: Link starts as himself (upstream HeroClass::init)
+        q30_game_init(firstplay);
+
+        if(q30_early_preload)
+            ffscript_engine(true);
+
+        q30_global_first_frame = q30_scripts_active();
+    }
+
+    // Newer quests' scripts get a frame before the opening (q30_warp_script_check), but not those
+    // with the old Init timing: their global script is set up only after it, below. When that
+    // frame ran the global script, the game's first frame is no longer its first (upstream's
+    // global script waits out an opening string from then on).
+    const int q30_warp_runs = q30_warp_global_runs;
+    q30_warp_scripts_held = !q30_early_init;
     openscreen();
+    q30_warp_scripts_held = false;
+
+    if(q30_warp_global_runs != q30_warp_runs)
+        q30_global_first_frame = false;
+
     show_subscreen_numbers=true;
     show_subscreen_life=true;
     dointro();
@@ -1985,22 +2247,36 @@ int init_game()
     if(!Quit)
         playLevelMusic();
         
-    if(firstplay)
+    if(!q30_early_init)
     {
-        memset(game->screen_d, 0, MAXDMAPS * 64 * 8 * sizeof(long));
-        ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_INIT);
-        q30_run_hero_script(1); // the hero's init script
-    }
-    else
-    {
-        ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_CONTINUE); //Do this after global arrays have been loaded
-    }
+        if(firstplay)
+        {
+            memset(game->screen_d, 0, MAXDMAPS * 64 * 8 * sizeof(long));
+            ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_INIT);
 
-    initZScriptGlobalRAM(); //Call again so we're set up for GLOBAL_SCRIPT_GAME
-    ffscript_engine(true);  //Here is a much safer place...
-    q30_bunny_reset();      // 2.55/3.0: Link starts as himself (upstream HeroClass::init)
-    q30_game_init(firstplay);
-    q30_global_first_frame = q30_scripts_active();
+            if(!q30_generic_first)
+                q30_run_hero_script(1); // the hero's init script (2.53 quests: none)
+        }
+        else
+        {
+            ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_CONTINUE); //Do this after global arrays have been loaded
+        }
+
+        initZScriptGlobalRAM(); //Call again so we're set up for GLOBAL_SCRIPT_GAME
+
+        if(!q30_generic_first || q30_compat_rule(348))
+            ffscript_engine(true);  //Here is a much safer place...
+
+        if(!q30_generic_first)
+        {
+            q30_bunny_reset();      // 2.55/3.0: Link starts as himself (upstream HeroClass::init)
+            q30_game_init(firstplay);
+        }
+
+        q30_global_first_frame = q30_scripts_active();
+    }
+    else if(!q30_early_preload)
+        ffscript_engine(true);  // newer quests with qr_FFCPRELOAD_BUGGED_LOAD: 2.53's place
 
     // ZC_TEST_ITEMS=id,id,...: test runs only, gives Link those items at the start
     if(const char *test_items = getenv("ZC_TEST_ITEMS"))
@@ -2008,7 +2284,7 @@ int init_game()
         for(const char *p = test_items; *p; )
         {
             const int id = atoi(p);
-            if(id > 0 && id < MAXITEMS)
+            if(id > 0 && id < q30_items_end())
             {
                 game->set_item(id, true);
                 al_trace("test: gave item %d\n", id);
@@ -2020,18 +2296,102 @@ int init_game()
         }
     }
 
+    // ZC_TEST_BOMBS=bombs[,super bombs]: test runs only, upstream's Bombs cheat (a replay's
+    // "X n Bombs a b"): Link gets every bomb and super bomb item, then those counts
+    if(const char *test_bombs = getenv("ZC_TEST_BOMBS"))
+    {
+        int nb = 0, ns = -1;
+
+        if(sscanf(test_bombs, "%d,%d", &nb, &ns) >= 1)
+        {
+            for(int i = 0; i < q30_items_end(); ++i)
+                if(itemsbuf[i].family == itype_bomb || itemsbuf[i].family == itype_sbomb)
+                    getitem(i, true);
+
+            game->set_bombs((word)nb);
+
+            if(ns != -1)
+                game->set_sbombs((word)ns);
+
+            al_trace("test: bombs %d (max %d), super bombs %d (max %d)\n", game->get_bombs(), game->get_maxbombs(),
+                     game->get_sbombs(), game->get_maxcounter(6));
+        }
+    }
+
+    // ZC_TEST_ITEMREG=index,...: test runs only, writes Hero->Item[index] = true and then
+    // Game->Item[index] = false through the script registers, and logs what they read at that
+    // index and at the quest's last item before and after
+    if(const char *test_reg = getenv("ZC_TEST_ITEMREG"))
+    {
+        extern refInfo *ri;
+        void set_register(const long arg, const long value);
+        refInfo tmp, *keep = ri;
+        const long last = q30_items_end() - 1;
+        ri = &tmp;
+
+        for(const char *p = test_reg; *p; )
+        {
+            const long id = atol(p);
+            long r[6];
+
+            ri->d[0] = id * 10000;
+            r[0] = get_register(LINKITEMD) / 10000;
+            ri->d[0] = last * 10000;
+            r[1] = get_register(LINKITEMD) / 10000;
+            ri->d[0] = id * 10000;
+            set_register(LINKITEMD, 10000);
+            r[2] = get_register(LINKITEMD) / 10000;
+            r[3] = get_register(GAMEITEMSD) / 10000;
+            ri->d[0] = last * 10000;
+            r[4] = get_register(LINKITEMD) / 10000;
+            ri->d[0] = id * 10000;
+            set_register(GAMEITEMSD, 0);
+            r[5] = get_register(LINKITEMD) / 10000;
+            al_trace("test: item register %ld (last item %ld): read %ld (last %ld); Hero->Item[%ld] = true: reads %ld, Game->Item[] %ld (last %ld); "
+                     "Game->Item[%ld] = false: reads %ld\n", id, last, r[0], r[1], id, r[2], r[3], r[4], id, r[5]);
+
+            p = strchr(p, ',');
+            if(!p)
+                break;
+            ++p;
+        }
+
+        ri = keep;
+    }
+
     // ZC_TEST_DROP=id: test runs only, puts that item 24 pixels in front of Link as an enemy's
     // timed drop would be (a thing the 2.55/3.0 bug net can catch)
     if(const char *test_drop = getenv("ZC_TEST_DROP"))
     {
         const int id = atoi(test_drop), d = Link.getDir();
         const int dx = d == left ? -24 : d == right ? 24 : 0, dy = d == up ? -24 : d == down ? 24 : 0;
-        if(id >= 0 && id < MAXITEMS)
+        if(id >= 0 && id < q30_items_end())
         {
             items.add(new item(Link.getX() + dx, Link.getY() + dy, (fix)0, id, ipBIGRANGE + ipTIMER, 0));
             al_trace("test: dropped item %d at %d,%d (Link at %d,%d facing %d)\n", id, int(Link.getX()) + dx, int(Link.getY()) + dy,
                      int(Link.getX()), int(Link.getY()), d);
         }
+    }
+
+    // ZC_TEST_DROPSET=set: test runs only, the same with what that drop set gives (select_dropitem,
+    // as an enemy's death), and 20 more draws of it logged
+    if(const char *test_dropset = getenv("ZC_TEST_DROPSET"))
+    {
+        const int set = atoi(test_dropset), d = Link.getDir();
+        const int dx = d == left ? -24 : d == right ? 24 : 0, dy = d == up ? -24 : d == down ? 24 : 0;
+        const int id = select_dropitem(set, int(Link.getX()) + dx, int(Link.getY()) + dy);
+        std::string draws;
+        char num[16];
+
+        for(int i = 0; i < 20; ++i)
+        {
+            sprintf(num, " %d", select_dropitem(set, 0, 0));
+            draws += num;
+        }
+
+        if(id >= 0)
+            items.add(new item(Link.getX() + dx, Link.getY() + dy, (fix)0, id, ipBIGRANGE + ipTIMER, 0));
+        al_trace("test: drop set %d gave item %d at %d,%d; more draws:%s\n", set, id, int(Link.getX()) + dx, int(Link.getY()) + dy, draws.c_str());
     }
 
     // ZC_TEST_ENEMY=id: test runs only, puts that enemy (0: the screen's first) 24 pixels in
@@ -2064,6 +2424,8 @@ int cont_game()
     Link.reset_hookshot();
     Link.reset_ladder();
     linkedmsgclk=0;
+    if(q30_msg_engine())
+        q30_msg_init();     // 2.55/3.0: upstream's init_string_vars
     blockmoving=0;
     add_asparkle=0;
     add_bsparkle=0;
@@ -2145,7 +2507,9 @@ int cont_game()
     update_subscreens();
     Playing=true;
     map_bkgsfx(true);
+    q30_warp_scripts_held = true;   // the global script restarts only below: no newer-quest scripts in the opening
     openscreen();
+    q30_warp_scripts_held = false;
     show_subscreen_numbers=true;
     show_subscreen_life=true;
     dointro();
@@ -2878,6 +3242,10 @@ void game_loop()
     // or if a message is being prepared && qr_MSGDISAPPEAR is on.
     bool freezemsg = ((msg_active || (intropos && intropos<72) || (linkedmsgclk && get_bit(quest_rules,qr_MSGDISAPPEAR)))
                       && get_bit(quest_rules,qr_MSGFREEZE));
+
+    // 2.55/3.0: a string with the "doesn't freeze" flag leaves the game running (the intro still freezes it)
+    if(freezemsg && q30_msg_nofreeze() && !(intropos && intropos<72))
+        freezemsg = false;
                       
     // Messages also freeze FF combos.
     bool freezeff = freezemsg;
@@ -2987,6 +3355,7 @@ void game_loop()
             checklink=false;
         }
 
+        q30_region_tick_camera();   // 2.55/3.0: a scrolling region's camera follows Link (nothing for 2.53)
         q30_gen_timing(Z30T_POST_PLAYER_ANIMATE);
 	Link.cleanupByrna();
 
@@ -3030,7 +3399,9 @@ void game_loop()
     draw_screen(tmpscr);
     q30_gen_timing(Z30T_POST_DRAW);
     
-    if(linkedmsgclk==1)
+    if(q30_msg_engine())
+        q30_msg_draw_icons();   // 2.55/3.0: the string's "more" and scroll icons (msgstr::draw_icons)
+    else if(linkedmsgclk==1)
     {
         int more_x, more_y, more_sprite;
 
@@ -3074,6 +3445,9 @@ void game_loop()
         introclk=72;
         clear_bitmap(msgdisplaybuf);
         set_clip_state(msgdisplaybuf, 1);
+
+        if(q30_msg_engine())
+            q30_msg_clear_display();    // 2.55/3.0: the string's own display buffers (upstream clear_display_bmps)
         //    clear_bitmap(pricesdisplaybuf);
     }
     
@@ -3081,12 +3455,22 @@ void game_loop()
     {
         if(introclk==0 || (introclk>=72 && dmapmsgclk==0))
         {
-            putmsg();
-            
-            if(msgstr)
+            if(q30_msg_engine())
             {
-                set_clip_state(msgdisplaybuf, 0);
-                blit(msgbmpbuf, msgdisplaybuf, 0, 0, msg_xpos, msg_ypos, msg_w+16, msg_h+16);
+                // 2.55/3.0: upstream's msgstr::run, which also puts the string on msgdisplaybuf;
+                // updatescr draws it again on top while it's active, as upstream
+                q30_msg_run();
+                msgpos = msg_active ? 1 : 0;
+            }
+            else
+            {
+                putmsg();
+
+                if(msgstr)
+                {
+                    set_clip_state(msgdisplaybuf, 0);
+                    blit(msgbmpbuf, msgdisplaybuf, 0, 0, msg_xpos, msg_ypos, msg_w+16, msg_h+16);
+                }
             }
         }
         
