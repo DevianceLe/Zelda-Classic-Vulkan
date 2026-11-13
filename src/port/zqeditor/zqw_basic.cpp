@@ -1254,7 +1254,10 @@ int write_text_255(Out &out, const std::vector<byte> &b, const Str255 *o, const 
     return ZQW_OK;
 }
 
-int write_string_255(Out &out, const std::vector<byte> &b, const Str255 *o, const Str255 *tmpl, const MsgStr &m,
+// o: the string's record as loaded (2.53's fields are copied from it when unchanged); ex: the
+// record its 2.55/3.0 settings come from (o, unless 2.53's editor cleared or pasted over it;
+// NULL: the defaults, string 0's).
+int write_string_255(Out &out, const std::vector<byte> &b, const Str255 *o, const Str255 *ex, const Str255 *tmpl, const MsgStr &m,
                      int i, word v, bool old_frame)
 {
     int r = write_text_255(out, b, o, m, i, v);
@@ -1326,10 +1329,10 @@ int write_string_255(Out &out, const std::vector<byte> &b, const Str255 *o, cons
         out.c(flags);
 
     // margins, portrait, shadow, draw layer: nothing ZQuest has
-    size_t extra = o ? o->sfx_at - o->extra_at : 0;
+    size_t extra = ex ? ex->sfx_at - ex->extra_at : 0;
 
-    if(o)
-        out.copy(b, o->extra_at, extra);
+    if(ex)
+        out.copy(b, ex->extra_at, extra);
     else if(tmpl)
         out.copy(b, tmpl->extra_at, tmpl->sfx_at - tmpl->extra_at);
     else
@@ -1364,8 +1367,8 @@ int write_string_255(Out &out, const std::vector<byte> &b, const Str255 *o, cons
 
     if(v >= 13)
     {
-        if(o)
-            out.copy(b, o->tail_at, 29);
+        if(ex)
+            out.copy(b, ex->tail_at, 29);
         else if(tmpl)
             out.copy(b, tmpl->tail_at, 29);
         else
@@ -1528,14 +1531,18 @@ int write_strings_255(PACKFILE *f, const std::vector<byte> &b)
     {
         const Str255 *o = i < count ? &recs[i] : NULL;
         const MsgStr *was = loaded_string(i);
+        const Str255 *ex = o;
+        std::map<int, int>::const_iterator from = zq255.string_extras_from.find(i);
 
-        if(o && was && !zqw_force_serialize && same_string(MsgStrings[i], *was))
+        if(from != zq255.string_extras_from.end())      // cleared, or pasted over (2.53's editor)
+            ex = (from->second >= 0 && from->second < count) ? &recs[from->second] : NULL;
+        else if(o && was && !zqw_force_serialize && same_string(MsgStrings[i], *was))
         {
             out.copy(b, o->at, o->end - o->at);
             continue;
         }
 
-        int r = write_string_255(out, b, o, tmpl, MsgStrings[i], i, v, old_frame);
+        int r = write_string_255(out, b, o, ex, tmpl, MsgStrings[i], i, v, old_frame);
 
         if(r)
             return r;
@@ -2649,6 +2656,12 @@ void hash_string_fields(uint64_t *h)
         if(!it->second.bytes.empty())
             zq_hash_add(h, &it->second.bytes[0], it->second.bytes.size());
     }
+
+    for(std::map<int, int>::const_iterator it = zq255.string_extras_from.begin(); it != zq255.string_extras_from.end(); ++it)
+    {
+        zq_hash_add(h, &it->first, sizeof(it->first));
+        zq_hash_add(h, &it->second, sizeof(it->second));
+    }
 }
 
 ZqStoreHashRegistration g_hash_strings(ID_STRINGS, hash_string_fields);
@@ -2719,4 +2732,59 @@ bool zq255_strings_commit(const std::map<std::string, TapeField> &edits, std::st
     }
 
     return true;
+}
+
+// 2.53's string editor (zq_strings.cpp) clears a string or pastes another over it. In a 2.55/3.0
+// quest the string's 2.55/3.0 settings follow: a cleared one gets the defaults, a pasted one the
+// source's settings and its edits from the string data editor. Nothing for older quests.
+bool zq255_quest_is_newer();    // zq_q255.h
+
+static void drop_string_edits(int i)
+{
+    char pre[24];
+    snprintf(pre, sizeof(pre), "msg%d.", i);
+    const size_t n = strlen(pre);
+
+    for(std::map<std::string, TapeField>::iterator it = zq255.string_fields.lower_bound(pre); it != zq255.string_fields.end()
+        && it->first.compare(0, n, pre) == 0; )
+        zq255.string_fields.erase(it++);
+}
+
+void zq255_string_cleared(int i)
+{
+    if(!zq255_quest_is_newer() || i < 0)
+        return;
+
+    drop_string_edits(i);
+    zq255.string_extras_from[i] = -1;
+}
+
+void zq255_string_copied(int from, int to)
+{
+    if(!zq255_quest_is_newer() || from < 0 || to < 0 || from == to)
+        return;
+
+    std::map<int, int>::const_iterator f = zq255.string_extras_from.find(from);
+    const int src = f != zq255.string_extras_from.end() ? f->second : from;
+
+    drop_string_edits(to);
+
+    char pre[24], to_pre[24];
+    snprintf(pre, sizeof(pre), "msg%d.", from);
+    snprintf(to_pre, sizeof(to_pre), "msg%d.", to);
+    const size_t n = strlen(pre);
+    std::vector<std::pair<std::string, TapeField> > copies;
+
+    for(std::map<std::string, TapeField>::const_iterator it = zq255.string_fields.lower_bound(pre); it != zq255.string_fields.end()
+        && it->first.compare(0, n, pre) == 0; ++it)
+        copies.push_back(std::make_pair(to_pre + it->first.substr(n), it->second));
+
+    for(size_t k = 0; k < copies.size(); ++k)
+    {
+        TapeField fld = copies[k].second;
+        fld.key = copies[k].first;
+        zq255.string_fields[copies[k].first] = fld;
+    }
+
+    zq255.string_extras_from[to] = src;
 }

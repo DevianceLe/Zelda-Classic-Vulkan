@@ -23381,6 +23381,90 @@ int main(int argc,char **argv)
         }
 
 #ifdef ZC_ZQEDITOR
+        // -qst-own-save in.qst out.qst: loads the quest and saves it in its own version, not
+        // encoded (ZQ_OWN_SAVE_ALL=1: every part through its writer), as File > Save does
+        int own_save_arg = used_switch(argc,argv,"-qst-own-save");
+
+        if(own_save_arg && argc>own_save_arg+2)
+        {
+            extern bool skip_quest_password;
+            extern bool zq_batch_load;
+            extern int zq_save_own_format_ex(const char *filename, bool encode, bool all_parts, std::string &why);
+            skip_quest_password = true;
+            zq_batch_load = true;
+            int ret = load_quest(argv[own_save_arg+1],true,true);
+            std::string why;
+
+            if(ret == qe_OK)
+                ret = zq_save_own_format_ex(argv[own_save_arg+2], getenv("ZQ_OWN_SAVE_ENCODE") != NULL, getenv("ZQ_OWN_SAVE_ALL") != NULL, why);
+
+            al_trace("-qst-own-save result: %d %s\n", ret, why.c_str());
+            exit(ret == 0 ? 0 : 3);
+        }
+
+        // -qst-lens-edit-test in.qst out.qst screen show: the 2.55/3.0 screen data editor's Lens
+        // "shows" layers set on one screen (index into TheMaps), then a save in its own version
+        int lensedit_arg = used_switch(argc,argv,"-qst-lens-edit-test");
+
+        if(lensedit_arg && argc>lensedit_arg+4)
+        {
+            extern bool skip_quest_password;
+            extern bool zq_batch_load;
+            extern int zq_save_own_format_ex(const char *filename, bool encode, bool all_parts, std::string &why);
+            extern bool zq255_test_lens_edit(int index, int show);
+            skip_quest_password = true;
+            zq_batch_load = true;
+            int ret = load_quest(argv[lensedit_arg+1],true,true);
+            std::string why;
+
+            if(ret == qe_OK)
+                ret = zq255_test_lens_edit(atoi(argv[lensedit_arg+3]), atoi(argv[lensedit_arg+4])) ?
+                      zq_save_own_format_ex(argv[lensedit_arg+2], true, false, why) : 9;
+
+            al_trace("-qst-lens-edit-test result: %d %s\n", ret, why.c_str());
+            exit(ret == 0 ? 0 : 3);
+        }
+
+        // -qst-string-edit-test in.qst out.qst A B C: as the string editor's Clear on string A
+        // and Copy B / Paste over C do (zq_strings.cpp), then a save in the quest's own version
+        int stredit_arg = used_switch(argc,argv,"-qst-string-edit-test");
+
+        if(stredit_arg && argc>stredit_arg+5)
+        {
+            extern bool skip_quest_password;
+            extern bool zq_batch_load;
+            extern int zq_save_own_format_ex(const char *filename, bool encode, bool all_parts, std::string &why);
+            extern void zq255_string_cleared(int i);
+            extern void zq255_string_copied(int from, int to);
+            skip_quest_password = true;
+            zq_batch_load = true;
+            int ret = load_quest(argv[stredit_arg+1],true,true);
+            const int a = atoi(argv[stredit_arg+3]), b = atoi(argv[stredit_arg+4]), c = atoi(argv[stredit_arg+5]);
+            std::string why;
+
+            if(ret == qe_OK && a > 0 && b > 0 && c > 0 && a < msg_count && b < msg_count && c < msg_count)
+            {
+                word pos = MsgStrings[a].listpos;
+                memset((void*)(&MsgStrings[a]), 0, sizeof(MsgStr));
+                MsgStrings[a].x = 24;
+                MsgStrings[a].y = 32;
+                MsgStrings[a].w = 24*8;
+                MsgStrings[a].h = 3*8;
+                MsgStrings[a].listpos = pos;
+                zq255_string_cleared(a);
+                word cpos = MsgStrings[c].listpos;
+                MsgStrings[c] = MsgStrings[b];
+                MsgStrings[c].listpos = cpos;   // (the list keeps its order)
+                zq255_string_copied(b, c);
+                ret = zq_save_own_format_ex(argv[stredit_arg+2], true, false, why);
+            }
+            else if(ret == qe_OK)
+                ret = 9;
+
+            al_trace("-qst-string-edit-test result: %d %s\n", ret, why.c_str());
+            exit(ret == 0 ? 0 : 3);
+        }
+
         // -qst-capture-check in.qst report.txt: loads the quest and checks that the copy kept
         // of its parts (port/zqeditor/zq_sections.h) puts the decoded file back together exactly
         int capture_arg = used_switch(argc,argv,"-qst-capture-check");

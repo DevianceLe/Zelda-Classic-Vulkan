@@ -15,6 +15,10 @@
 #include "zq_q255.h"
 #include "zq_tile_refs.h"
 
+#include <map>
+#include <string>
+#include <vector>
+
 extern zinitdata zinit;
 extern bool zq_batch_load;
 
@@ -183,10 +187,84 @@ ZqPartContext context_for(const ZqQuestPart &p)
     return ctx;
 }
 
+// During one save (zq_save_own_format_ex) each part's writers run once, into memory, and the
+// save's later asks (the blocker check, needs_writing, the write itself) reuse that run: they
+// used to run the writers up to four times per changed part. A writer may read other parts, so
+// the runs are forgotten whenever the save replaces a part in the kept copy. A part's output
+// past 16 MB isn't kept (the 32-bit build's memory): its write runs the writer again.
+struct CachedRun
+{
+    const Entry *e;             // the writer that took the part (NULL: none)
+    int rc;
+    bool kept;                  // bytes holds the whole output
+    std::vector<byte> bytes;
+    std::string err;            // zqw_last_error after the run
+};
+
+bool g_run_cache_on = false;
+std::map<const ZqQuestPart *, CachedRun> g_run_cache;
+const size_t RUN_CACHE_LIMIT = 16u << 20;
+
+const CachedRun *run_cached(const ZqQuestPart &p)
+{
+    std::map<const ZqQuestPart *, CachedRun>::iterator it = g_run_cache.find(&p);
+
+    if(it != g_run_cache.end())
+        return &it->second;
+
+    CachedRun c;
+    c.e = NULL;
+    c.rc = ZQW_UNSUPPORTED;
+    c.kept = false;
+    ZqPartContext ctx = context_for(p);
+    std::vector<Entry> &r = registry();
+    const std::string before = zqw_last_error;
+
+    for(size_t i = 0; i < r.size(); ++i)
+    {
+        if(r[i].id != p.id)
+            continue;
+
+        std::vector<byte> bytes;
+        PACKFILE *f = zq_open_vector_sink(&bytes);
+
+        if(!f)
+            return NULL;
+
+        zqw_last_error.clear();
+        int rc = r[i].writer(f, ctx);
+        pack_fclose(f);
+
+        if(rc != ZQW_UNSUPPORTED)
+        {
+            c.e = &r[i];
+            c.rc = rc;
+            c.err = zqw_last_error;
+            c.kept = bytes.size() <= RUN_CACHE_LIMIT;
+
+            if(c.kept)
+                c.bytes.swap(bytes);
+
+            break;
+        }
+    }
+
+    zqw_last_error = before;
+    return &(g_run_cache[&p] = c);
+}
+
 // The writer that takes this part, or NULL. Asks each registered one in turn with a file
 // that throws the bytes away; fake_pack_writing passes are the writers' own business.
 const Entry *writer_for(const ZqQuestPart &p)
 {
+    if(g_run_cache_on)
+    {
+        const CachedRun *c = run_cached(p);
+
+        if(c)
+            return c->e;
+    }
+
     ZqPartContext ctx = context_for(p);
     std::vector<Entry> &r = registry();
 
@@ -214,6 +292,23 @@ const Entry *writer_for(const ZqQuestPart &p)
 
 int zq_write_part(PACKFILE *f, const ZqQuestPart &p)
 {
+    if(g_run_cache_on)      // (inside a save: the part's writer already ran)
+    {
+        const CachedRun *c = run_cached(p);
+
+        if(c && (c->kept || !c->e))
+        {
+            if(!c->e)
+                return ZQW_UNSUPPORTED;
+
+            if(!c->bytes.empty() && pack_fwrite(&c->bytes[0], (long)c->bytes.size(), f) != (long)c->bytes.size())
+                return 3;   // (a write failure, as the writers' ZQW_WRITE_FAILED)
+
+            zqw_last_error = c->err;
+            return c->rc;
+        }
+    }
+
     ZqPartContext ctx = context_for(p);
     std::vector<Entry> &r = registry();
 
@@ -532,6 +627,13 @@ int zq_save_own_format_ex(const char *filename, bool encode, bool all_parts, std
         zinit.last_screen = (byte)Map.getCurrScr();
     }
 
+    // From here every writer run is kept for this save's later asks (run_cached).
+    struct RunCacheScope
+    {
+        RunCacheScope() { g_run_cache.clear(); g_run_cache_on = !getenv("ZQ_NO_RUN_CACHE"); }     // (test switch: off)
+        ~RunCacheScope() { g_run_cache_on = false; g_run_cache.clear(); }
+    } run_cache_scope;
+
     std::vector<std::string> blockers;
 
     if(!all_parts)
@@ -595,6 +697,9 @@ int zq_save_own_format_ex(const char *filename, bool encode, bool all_parts, std
             why = "Writing " + zq_part_name(p) + " failed.";
             ret = 4;
         }
+
+        if(rewrite)
+            g_run_cache.clear();    // a writer may read the part just replaced
     }
 
     pack_fclose(f);

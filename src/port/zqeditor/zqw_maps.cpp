@@ -2246,6 +2246,8 @@ void take_field(TapeField &to, const TapeField &from)
 // A screen's record with its edited 2.55/3.0-only fields put in: the record read as a tape,
 // the fields set by key, the groups they need switched on, and the record laid out again.
 // False when the record can't be read.
+bool screen_raw(size_t index, std::vector<byte> &rec, word &v);     // (below)
+
 bool apply_screen_fields(size_t index, word v, std::vector<byte> &rec)
 {
     std::map<int, std::map<std::string, TapeField> >::const_iterator it = zq255.screen_fields.find((int)index);
@@ -2289,6 +2291,26 @@ bool apply_screen_fields(size_t index, word v, std::vector<byte> &rec)
     for(std::map<std::string, TapeField>::const_iterator f = it->second.begin(); f != it->second.end(); ++f)
         if(TapeField *x = out.find(f->first.c_str()))
             take_field(*x, f->second);
+
+    // A Lens show/hide edit: upstream leaves the screen's old lens byte as it was loaded. With
+    // any layer shown or hidden no reader looks at it, so it keeps its loaded value here too
+    // (zq255_screen_fields_sync put the layer the new show/hide mean into TheMaps).
+    if(it->second.count("lens_show") || it->second.count("lens_hide"))
+    {
+        TapeField *ll = out.find("lens_layer"), *sh = out.find("lens_show"), *hd = out.find("lens_hide");
+        std::vector<byte> orig;
+        word ov = 0;
+
+        if(ll && sh && hd && (sh->value | hd->value) && screen_raw(index, orig, ov) && ov == v)
+        {
+            Tape ot;
+            TapeParser op(orig.empty() ? NULL : &orig[0], orig.size(), 0, &ot);
+
+            if(zq_tape_screen(op, v) && op.pos == orig.size())
+                if(const TapeField *ol = ot.find("lens_layer"))
+                    ll->value = ol->value;
+        }
+    }
 
     rec.clear();
     out.encode(rec);
@@ -3206,4 +3228,32 @@ void zq255_screen_fields_sync(int index, bool music, bool lens)
 
     if(lens)
         TheMaps[index].lens_layer = got.lens_layer;
+}
+
+// Test runs (-qst-lens-edit-test): the 2.55/3.0 screen data editor's edit of a screen's Lens
+// "shows" layers (zq_record_editor.cpp), on one screen of a v28+ quest.
+bool zq255_test_lens_edit(int index, int show)
+{
+    std::vector<byte> rec;
+    word v = 0;
+
+    if(index < 0 || (size_t)index >= TheMaps.size() || !screen_raw((size_t)index, rec, v) || v < 28)
+        return false;
+
+    Tape t;
+    TapeParser p(rec.empty() ? NULL : &rec[0], rec.size(), 0, &t);
+
+    if(!zq_tape_screen(p, v))
+        return false;
+
+    const TapeField *f = t.find("lens_show");
+
+    if(!f)
+        return false;
+
+    TapeField e = *f;
+    e.value = show;
+    zq255.screen_fields[index]["lens_show"] = e;
+    zq255_screen_fields_sync(index, false, true);
+    return true;
 }

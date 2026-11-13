@@ -20,6 +20,8 @@
 void editmsg(int index, int addAfter);
 int strlist_del();
 int addtomsglist(int index);
+void zq255_string_cleared(int i);           // zqw_basic.cpp (2.55/3.0 quests' newer string settings)
+void zq255_string_copied(int from, int to);
 void build_bistringcat_list();
 const char *stringcatlist(int index, int *list_size);
 char *parse_msg_str(char *s);
@@ -692,6 +694,7 @@ int onStrings()
                 MsgStrings[index].w=24*8;
                 MsgStrings[index].h=3*8;
                 MsgStrings[index].listpos=pos; // Since the stuff below isn't being run, do this instead
+                zq255_string_cleared(index);    // 2.55/3.0 quests: its newer settings go back to the defaults
                 
                 
                 /*// Go through strings with higher listpos and decrement listpos
@@ -744,6 +747,7 @@ int onStrings()
                     msg_count++;
                     
                 MsgStrings[index]=MsgStrings[copysrc];
+                zq255_string_copied(copysrc, index);    // 2.55/3.0 quests: its newer settings come too
             }
             
             break;

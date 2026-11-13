@@ -97,6 +97,10 @@ struct Zq255Store
     // as edited; zqw_basic.cpp puts them into the section the writer makes
     std::map<std::string, TapeField> misc_fields;
     std::map<std::string, TapeField> string_fields;     // the same for the STR section ("msg12.layer")
+    // Strings whose 2.55/3.0 settings no longer come from their own record as loaded: 2.53's
+    // string editor cleared them (-1: the defaults) or pasted another string over them (that
+    // string's index, whose record they then use). zqw_basic.cpp's write_strings_255 reads it.
+    std::map<int, int> string_extras_from;
     std::map<std::string, TapeField> sub_fields;        // and the SUBS section ("s2.p1.w4.x")
 
     // misc and init data
