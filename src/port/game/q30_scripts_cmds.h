@@ -70,6 +70,39 @@ static void z30_free_bitmap(long ref)
     }
 }
 
+// The array collector (zasm30_collect) marks the bitmaps a script made that are still referred
+// to; with `sweep`, the others are freed. Script drawing to the screen copies a bitmap's pixels
+// when the command is given, so no queued command needs one later.
+static std::set<long> zasm30_bitmap_marks;
+
+static bool zasm30_mark_bitmap(long v)
+{
+    if(v < 1000 || v >= zasm30_next_bitmap || !zasm30_bitmaps.count(v))
+        return false;
+
+    zasm30_bitmap_marks.insert(v);
+    return true;
+}
+
+static void zasm30_sweep_bitmaps(bool sweep)
+{
+    if(sweep)
+    {
+        for(std::map<long, BITMAP *>::iterator it = zasm30_bitmaps.begin(); it != zasm30_bitmaps.end(); )
+        {
+            if(it->first >= 1000 && !zasm30_bitmap_marks.count(it->first))
+            {
+                destroy_bitmap(it->second);
+                zasm30_bitmaps.erase(it++);
+            }
+            else
+                ++it;
+        }
+    }
+
+    zasm30_bitmap_marks.clear();
+}
+
 // ---- RNG and stack objects (a list of user objects, ids from 1) ---------------------------------
 
 static std::map<long, unsigned int> zasm30_rngs;
@@ -601,6 +634,60 @@ static void zasm30_mark_stacks(std::vector<long> &work)
             zasm30_mark(it->second[n], work);
 }
 
+// What else a 3.0 script can store a reference in, for the collector (zasm30_collect): sprites'
+// Misc[] and InitD[], generic scripts' Data[] and InitD[], and the 3.0 fields kept in zasm30_store.
+static void zasm30_mark_engine(std::vector<long> &work)
+{
+    sprite_list *lists[] = { &guys, &items, &Lwpns, &Ewpns };
+
+    for(int l = 0; l < 4; ++l)
+        for(int i = 0; i < lists[l]->Count(); ++i)
+            for(int n = 0; n < 16; ++n)
+                zasm30_mark(lists[l]->spr(i)->miscellaneous[n], work);
+
+    for(int n = 0; n < 16; ++n)
+        zasm30_mark(Link.miscellaneous[n], work);
+
+    for(std::map<long, Zasm30SpriteState>::iterator it = zasm30_sprite_states.begin(); it != zasm30_sprite_states.end(); ++it)
+    {
+        for(int n = 0; n < 8; ++n)
+            zasm30_mark(it->second.initd[n], work);
+        for(int n = 0; n < 16; ++n)
+            zasm30_mark(it->second.misc2[n], work);
+    }
+
+    for(int q = 0; q < Q30_GENERIC_SLOTS; ++q)
+    {
+        for(size_t n = 0; n < zasm30_generic[q].data.size(); ++n)
+            zasm30_mark(zasm30_generic[q].data[n], work);
+        for(int n = 0; n < 8; ++n)
+            zasm30_mark(zasm30_generic[q].initd[n], work);
+    }
+
+    for(std::map<std::pair<std::pair<long,long>,long>, long>::iterator it = zasm30_store.begin(); it != zasm30_store.end(); ++it)
+        zasm30_mark(it->second, work);
+}
+
+// The sprite OBJ_OWN_CLASS gives an object to (upstream's get_own_sprite): the script type
+// says which reference register names it. 0 if there is no such sprite.
+static long zasm30_own_sprite_uid(long type)
+{
+    long uid = 0;
+
+    switch(type)
+    {
+    case 0: uid = Z30_REF(SPRITE); break;   // ScriptType::None: sprite->OwnObject()
+    case 6: uid = ri->lwpn; break;          // Lwpn
+    case 7: uid = ri->guyref; break;        // NPC
+    case 9: uid = ri->ewpn; break;          // Ewpn
+    case 11: uid = ri->itemref; break;      // ItemSprite
+    default: return 0;                      // an FFC isn't a sprite here
+    }
+
+    const Z30Sprite s = z30_sprite(uid);
+    return s.s ? s.s->getUID() : 0;
+}
+
 static std::vector<long> *z30_stack()
 {
     std::map<long, std::vector<long> >::iterator it = zasm30_stacks.find(Z30_REF(STACK));
@@ -627,8 +714,18 @@ static bool zasm30_family_get(const long arg, long &ret)
     }
     case Z30R_CREATEBITMAP:
     {
-        // Game->CreateBitmap(height, width): upstream reads rSFTEMP/rINDEX2... d1/d0.
-        ret = z30_new_bitmap(ri->d[1] / 10000, ri->d[0] / 10000);
+        // Game->CreateBitmap(width, height) and new bitmap(width, height): D0 holds the width and
+        // D1 the height (upstream do_create_bitmap). qr_OLDCREATEBITMAP_ARGS (652), which upstream
+        // also turns on for quests from 2.54 and 2.55 builds before 44, swaps them.
+        extern int q255_header_build;
+        const bool old_args = q30_quest_rule(652) || quest_header_zelda_version == 0x254
+                              || (quest_header_zelda_version == 0x255 && q255_header_build < 44);
+        int w = ri->d[0] / 10000, h = ri->d[1] / 10000;
+
+        if(old_args)
+            std::swap(w, h);
+
+        ret = z30_new_bitmap(w, h);
         return true;
     }
     case Z30R_ALLOCATEBITMAPR:
@@ -1537,6 +1634,7 @@ static void z30_screen_polygon()
     std::vector<long> *v = script_drawing_commands.GetVector();
     v->assign(pos.begin(), pos.end());
     script_drawing_commands[j].SetVector(v);
+    zasm30_capture_draw_origin(j);
 }
 
 // script_drawing.cpp's do_primitives, for a queued Screen->Polygon: sdci[2] points, sdci[4]
@@ -1552,12 +1650,61 @@ void zasm30_do_polygon(BITMAP *bmp, int i, int *sdci, int xoffset, int yoffset)
     z30_draw_polygon(bmp, sdci[2] / 10000, pos, sdci[4] / 10000, sdci[5] / 10000, xoffset, yoffset);
 }
 
+// A screen drawing command a 2.55/3.0 script just queued (command j) remembers where its
+// coordinates start: the script's Screen->DrawOrigin, with DEFAULT made REGION inside a
+// scrolling region and PLAYING_FIELD outside one (upstream get_draw_origin_for_screen_draw_command).
+// The two scrolling-time region origins are drawn as REGION here. A DRAW_ORIGIN_SPRITE command
+// whose sprite doesn't exist is never drawn. 2.53 quests: nothing is recorded.
+void zasm30_capture_draw_origin(int j)
+{
+    if(!zasm30_ffscript_version || j < 0)
+        return;
+
+    long origin = zasm30_frame().draw_origin, target = 0;
+
+    if(origin == Z30_DRAW_ORIGIN_DEFAULT)
+        origin = q30_region_on() ? Z30_DRAW_ORIGIN_REGION : Z30_DRAW_ORIGIN_PLAYING_FIELD;
+    else if(origin == Z30_DRAW_ORIGIN_REGION_SCROLLING_NEW || origin == Z30_DRAW_ORIGIN_REGION_SCROLLING_OLD)
+        origin = Z30_DRAW_ORIGIN_REGION;
+
+    if(origin == Z30_DRAW_ORIGIN_SPRITE)
+    {
+        target = zasm30_frame().draw_origin_target;
+
+        if(!z30_sprite(target).s)
+        {
+            Z_scripterrlog("Warning: Ignoring draw command using DRAW_ORIGIN_SPRITE with non-existent sprite uid: %ld.\n", target);
+            script_drawing_commands[j][0] = 0;  // never drawn
+            return;
+        }
+    }
+
+    script_drawing_commands[j].q30_origin = (int)origin + 1;
+    script_drawing_commands[j].q30_origin_target = (int)target;
+}
+
+// do_primitives (script_drawing.cpp), for a command with a recorded origin: where its
+// coordinates start on the bitmap being drawn. xoff, yoff are what that caller passes, the
+// playing field's top-left less a scrolling region's camera while one applies (q30_draw_cam_x/y).
+// PLAYING_FIELD stays put on the playing field, SCREEN starts at the screen's top-left, REGION
+// moves with the region's screens, SPRITE follows its sprite (upstream get_draw_origin_offset).
+// False: the sprite has gone since, so the command isn't drawn.
+// The placing itself is q30_regions.cpp's, which also knows the canvas the lower layers of a
+// scrolling region are drawn on.
+bool zasm30_draw_origin_offset(int origin, int target, int xoff, int yoff, int &x, int &y)
+{
+    if(origin - 1 == Z30_DRAW_ORIGIN_SPRITE && !z30_sprite(target).s)
+        return false;
+
+    return q30_draw_origin_offset(origin - 1, target, xoff, yoff, &x, &y);
+}
+
 // bitmap->Blit(layer, RT_SCREEN, sx, sy, sw, sh, dx, dy, dw, dh, rotation, cx, cy, mode, lit, mask):
 // upstream defers every bitmap command to drawing time and runs them in order, so the blit sees
 // the bitmap as the commands before it left it. Here bitmap commands run at once, so the source
 // rectangle is copied now and drawn onto the layer with the frame's other screen drawing.
-// Screen->DrawOrigin: DRAW_ORIGIN_SCREEN (2) places dx, dy from the screen's top-left, anything
-// else from the playing field's. Rotation, flips and lit colour aren't drawn (logged once).
+// Screen->DrawOrigin places dx, dy (zasm30_capture_draw_origin). Rotation, flips and lit colour
+// aren't drawn (logged once).
 static void z30_queue_screen_blit(BITMAP *src, int layer, int sx, int sy, int sw, int sh, int dx, int dy, int dw, int dh, int mode,
                                   bool masked, bool rotated)
 {
@@ -1568,7 +1715,7 @@ static void z30_queue_screen_blit(BITMAP *src, int layer, int sx, int sy, int sw
         if(shown++ < 20)
             al_trace("q30: blit to the screen: layer %d, %s source, %dx%d from %d,%d to %d,%d (%dx%d), mode %d, masked %d, origin %ld\n",
                      layer, src ? "a" : "no", sw, sh, sx, sy, dx, dy, dw, dh, mode, masked ? 1 : 0,
-                     zasm30_store_get(Z30R_SCREEN_DRAW_ORIGIN, 0, 0) / 10000);
+                     zasm30_frame().draw_origin);
     }
 
     if(!src || sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0 || sw > 4096 || sh > 4096)
@@ -1595,8 +1742,8 @@ static void z30_queue_screen_blit(BITMAP *src, int layer, int sx, int sy, int sw
     script_drawing_commands[j][7] = dh;
     script_drawing_commands[j][8] = mode;
     script_drawing_commands[j][9] = masked ? 1 : 0;
-    script_drawing_commands[j][10] = zasm30_store_get(Z30R_SCREEN_DRAW_ORIGIN, 0, 0) / 10000;
     script_drawing_commands[j][18] = -1;    // the screen, whatever the current render target
+    zasm30_capture_draw_origin(j);
 
     std::vector<long> *v = script_drawing_commands.GetVector();
     v->resize((size_t)sw * sh);
@@ -1629,10 +1776,7 @@ void zasm30_do_screen_blit(BITMAP *bmp, int i, int *sdci, int xoffset, int yoffs
         for(int x = 0; x < sw; ++x)
             _putpixel(tmp, x, y, (int)(*v)[(size_t)y * sw + x]);
 
-    int x = sdci[4] + xoffset, y = sdci[5] + yoffset;
-
-    if(sdci[10] == 2)   // DRAW_ORIGIN_SCREEN: from the screen's top-left, not the playing field's
-        y -= playing_field_offset;
+    const int x = sdci[4] + xoffset, y = sdci[5] + yoffset;    // (offsets from the command's draw origin)
 
     BITMAP *drawn = tmp;
 
@@ -1971,6 +2115,7 @@ static void z30_msg_set(long id, const std::string &text)
 
     memcpy(MsgStrings[id].s, out.data(), out.size());
     MsgStrings[id].s[out.size()] = 0;
+    q30_set_msg_long_text((int)id, NULL);     // the quest's longer text no longer applies
 }
 
 // ---- solidity on a screen other than the current one ----------------------------------------------

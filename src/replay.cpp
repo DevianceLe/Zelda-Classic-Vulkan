@@ -1562,7 +1562,8 @@ void replay_capture_frame(BITMAP *frame)
     if(g_hash || g_smoke)
     {
         int w = zc_min(frame->w, FB_W);
-        int h = zc_min(frame->h, FB_H);
+        // (FB_H rows; a newer quest's 232-row picture, zc_view_h, all of its rows)
+        int h = zc_min(frame->h, zc_max(FB_H, zc_view_h));
         uint64_t fh = FNV_BASIS;
         for(int y = 0; y < h; y++)
             fh = fnv1a(fh, frame->line[y], w);

@@ -12071,6 +12071,22 @@ void addfires()
     }
 }
 
+// 2.55/3.0 (upstream's addguy with a parent screen): the screen's guy tile and cset replace
+// the look of the guy just added; tile -1 keeps the enemy's own.
+static void q30_guy_look(bool use, long tile, int cs)
+{
+    if(!use || tile < 0 || guys.Count() == 0)
+        return;
+
+    enemy *g = (enemy*)guys.spr(guys.Count() - 1);
+    g->o_tile = (int)tile;
+
+    if(tile != 0)
+        g->flags &= ~guy_invisible;
+
+    g->cs = cs;
+}
+
 void loadguys()
 {
     if(loaded_guys)
@@ -12095,11 +12111,14 @@ void loadguys()
     
     hasitem=0;
     
+    int guy_screen = currscr;   // the screen the Guy comes from (2.55/3.0 guy look)
+
     if(currscr>=128 && DMaps[currdmap].flags&dmfGUYCAVES)
     {
         if(DMaps[currdmap].flags&dmfCAVES)
         {
             Guy=tmpscr[1].guy;
+            guy_screen=homescr;
         }
     }
     else
@@ -12110,12 +12129,21 @@ void loadguys()
             game->maps[(currmap*MAPSCRSNORMAL)+currscr] |= mVISITED;          // mark as visited
     }
     
+    // 2.55/3.0 screens (MAP v27+, without qr_OLD_GUY_HANDLING) say themselves whether the Guy
+    // has fires and whether it appears outside caves, and may give it another look (upstream's
+    // loadguys). False for 2.53 quests, which keep the checks below.
+    long q30_gtile = -1;
+    int q30_gcs = 0, q30_rflags = 0;
+    const bool q30_guy = q30_screen_guy(currmap*MAPSCRS + guy_screen, &q30_gtile, &q30_gcs, &q30_rflags);
+    const bool guyfires = q30_guy ? (q30_rflags & 2) != 0 : (Guy!=gFAIRY || !get_bit(quest_rules,qr_NOFAIRYGUYFIRES));
+
     // The Guy appears if 'Link is in cave' equals 'Guy is in cave'.
     if(Guy && ((currscr>=128) == !!(DMaps[currdmap].flags&dmfGUYCAVES)))
     {
         if(tmpscr->room==rZELDA)
         {
             addguy(120,72,Guy,-15,true);
+            q30_guy_look(q30_guy, q30_gtile, q30_gcs);
             guys.spr(0)->hxofs=1000;
             addenemy(128,96,eFIRE,-15);
             addenemy(112,96,eFIRE,-15);
@@ -12124,7 +12152,7 @@ void loadguys()
             return;
         }
         
-        if(Guy!=gFAIRY || !get_bit(quest_rules,qr_NOFAIRYGUYFIRES))
+        if(guyfires)
             addfires();
             
         if(currscr>=128)
@@ -12177,20 +12205,22 @@ void loadguys()
         
         if(Guy)
         {
-            if(Guy!=gFAIRY || !get_bit(quest_rules,qr_NOFAIRYGUYFIRES))
+            if(guyfires)
                 blockpath=true;
                 
             if(currscr<128)
                 sfx(WAV_SCALE);
                 
             addguy(120,64,Guy, (dlevel||BSZ)?-15:startguy[rand()&7], true);
+            q30_guy_look(q30_guy, q30_gtile, q30_gcs);
             Link.Freeze();
         }
     }
-    else if(Guy==gFAIRY)  // The only Guy that somewhat ignores the "Guys In Caves Only" DMap flag
+    else if(q30_guy ? (Guy && (q30_rflags & 1)) : Guy==gFAIRY)  // The only Guy that somewhat ignores the "Guys In Caves Only" DMap flag (2.55/3.0: RFL_ALWAYS_GUY)
     {
         sfx(WAV_SCALE);
         addguy(120,62,gFAIRY,-14,false);
+        q30_guy_look(q30_guy, q30_gtile, q30_gcs);
     }
     
     loaditem();
@@ -13410,17 +13440,41 @@ void setupscreen()
     }
 }
 
+// The text of string str as the message code reads it. A 3.0 string longer than 2.53's
+// MSGSIZE keeps its whole text beside MsgStrings (q30_msg_long_text) and reads up to
+// Q30_MSG_TEXT_MAX; every other string is MsgStrings[str].s, as before.
+static inline char *msgtext(int str)
+{
+    char *t = q30_msg_long_text(str);
+    return t ? t : MsgStrings[str].s;
+}
+
+static inline int msgsize(int str)
+{
+    return q30_msg_long_text(str) ? Q30_MSG_TEXT_MAX : MSGSIZE;
+}
+
+bool q30_active();
+
+// Whether a space that would run past the right edge (while the cursor is still inside it)
+// starts a new line. 2.53 asks of s3, the word printed last; upstream (msg_layout::
+// char_wrap_needed) asks of the space itself, so it stays on the line and the next one wraps.
+static inline bool msg_space_wraps(const char *s3)
+{
+    return q30_active() ? false : strcmp(s3," ")!=0;
+}
+
 // Increments msgptr and returns the control code argument pointed at.
 word grab_next_argument()
 {
-    byte val=MsgStrings[msgstr].s[++msgptr]-1;
+    byte val=msgtext(msgstr)[++msgptr]-1;
     word ret=val;
     
     // If an argument is succeeded by 255, then it's a three-byte argument -
     // between 254 and 65535 (or whatever the maximum actually is)
-    if((unsigned char)(MsgStrings[msgstr].s[msgptr+1]) == 255)
+    if((unsigned char)(msgtext(msgstr)[msgptr+1]) == 255)
     {
-        val=MsgStrings[msgstr].s[msgptr+2];
+        val=msgtext(msgstr)[msgptr+2];
         word next=val;
         ret += 254*next;
         msgptr+=2;
@@ -13431,9 +13485,9 @@ word grab_next_argument()
 
 bool parsemsgcode()
 {
-    if(msgptr>=MSGSIZE-2) return false;
+    if(msgptr>=msgsize(msgstr)-2) return false;
     
-    switch(MsgStrings[msgstr].s[msgptr]-1)
+    switch(msgtext(msgstr)[msgptr]-1)
     {
     case MSGC_NEWLINE:
         cursor_y += text_height(msgfont) + MsgStrings[msgstr].vspace;
@@ -13479,7 +13533,7 @@ bool parsemsgcode()
     case MSGC_CTRDNPC:
     case MSGC_CTRSETPC:
     {
-        int code = MsgStrings[msgstr].s[msgptr]-1;
+        int code = msgtext(msgstr)[msgptr]-1;
         int counter = grab_next_argument();
         int amount = grab_next_argument();
         amount = (int)(vbound(amount*0.01, 0, 1)*game->get_maxcounter(counter));
@@ -13704,12 +13758,13 @@ void wrapmsgstr(char *s3)
             // word after a run of spaces is still measured whole. 2.53 takes the space as an
             // empty word, and after an even run of spaces measures the next word a letter at a
             // time; 2.53 quests keep that, as their strings and replays were made with it.
-            if(MsgStrings[msgstr].s[msgptr] >= 32 && MsgStrings[msgstr].s[msgptr] <= 126 &&
-               !(MsgStrings[msgstr].s[msgptr] == ' ' && q30_active()))
+            if(msgtext(msgstr)[msgptr] >= 32 && msgtext(msgstr)[msgptr] <= 126 &&
+               !(msgtext(msgstr)[msgptr] == ' ' && q30_active()))
             {
-                for(int k=0; MsgStrings[msgstr].s[msgptr+k] && MsgStrings[msgstr].s[msgptr+k] != ' '; k++)
+                for(int k=0; msgtext(msgstr)[msgptr+k] && msgtext(msgstr)[msgptr+k] != ' '; k++)
                 {
-                    if(MsgStrings[msgstr].s[msgptr+k] >= 32 && MsgStrings[msgstr].s[msgptr+k] <= 126) s3[j++] = MsgStrings[msgstr].s[msgptr+k];
+                    // (j < 144: s3 holds 145; only a 3.0 string's longer text can reach it)
+                    if(msgtext(msgstr)[msgptr+k] >= 32 && msgtext(msgstr)[msgptr+k] <= 126 && j < 144) s3[j++] = msgtext(msgstr)[msgptr+k];
                 }
                 
                 s3[j] = 0;
@@ -13717,13 +13772,13 @@ void wrapmsgstr(char *s3)
             }
             else
             {
-                s3[0] = MsgStrings[msgstr].s[msgptr];
+                s3[0] = msgtext(msgstr)[msgptr];
                 s3[1] = 0;
             }
         }
         else
         {
-            s3[0] = MsgStrings[msgstr].s[msgptr];
+            s3[0] = msgtext(msgstr)[msgptr];
             s3[1] = 0;
             
             if(s3[0] == ' ') msgspace=true;
@@ -13731,7 +13786,7 @@ void wrapmsgstr(char *s3)
     }
     else
     {
-        s3[0] = MsgStrings[msgstr].s[msgptr];
+        s3[0] = msgtext(msgstr)[msgptr];
         s3[1] = 0;
     }
 }
@@ -13791,7 +13846,7 @@ void putmsg()
         }
     }
     
-    if(!msgstr || msgpos>=10000 || msgptr>=MSGSIZE || cursor_y >= msg_h)
+    if(!msgstr || msgpos>=10000 || msgptr>=msgsize(msgstr) || cursor_y >= msg_h+q30_msg_height_extra(msgstr))
     {
         if(!msgstr)
             msgorig=0;
@@ -13809,20 +13864,20 @@ void putmsg()
     if(((cBbtn())&&(get_bit(quest_rules,qr_ALLOWMSGBYPASS))) || msgspeed==0)
     {
         //finish writing out the string
-        while(msgptr<MSGSIZE && !atend(MsgStrings[msgstr].s+msgptr))
+        while(msgptr<msgsize(msgstr) && !atend(msgtext(msgstr)+msgptr))
         {
             if(msgspeed && !(cBbtn() && get_bit(quest_rules,qr_ALLOWMSGBYPASS)))
                 goto breakout; // break out if message speed was changed to non-zero
             else if(!parsemsgcode())
             {
-                if(cursor_y >= msg_h)
+                if(cursor_y >= msg_h+q30_msg_height_extra(msgstr))
                     break;
                     
                 wrapmsgstr(s3);
                 
-                if(MsgStrings[msgstr].s[msgptr]==' ')
+                if(msgtext(msgstr)[msgptr]==' ')
                 {
-                    tlength = msgfont->vtable->char_length(msgfont, MsgStrings[msgstr].s[msgptr]) + MsgStrings[msgstr].hspace;
+                    tlength = msgfont->vtable->char_length(msgfont, msgtext(msgstr)[msgptr]) + MsgStrings[msgstr].hspace;
                     
                     if(cursor_x+tlength > msg_w+q30_msg_wrap_extra(msgstr) && ((cursor_x > msg_w+q30_msg_wrap_extra(msgstr) || !(MsgStrings[msgstr].stringflags & STRINGFLAG_WRAP)) ? true : strcmp(s3," ")!=0))
                     {
@@ -13830,8 +13885,8 @@ void putmsg()
                         cursor_x=0;
                     }
                     
-                    textprintf_ex(msgbmpbuf,msgfont,cursor_x+8,cursor_y+8,msgcolour,-1,
-                                  "%c",MsgStrings[msgstr].s[msgptr]);
+                    textprintf_ex(msgbmpbuf,msgfont,cursor_x+q30_msg_text_x(msgstr),cursor_y+q30_msg_text_y(msgstr),msgcolour,-1,
+                                  "%c",msgtext(msgstr)[msgptr]);
                     cursor_x+=tlength;
                 }
                 else
@@ -13845,9 +13900,9 @@ void putmsg()
                     }
                     
                     sfx(MsgStrings[msgstr].sfx);
-                    textprintf_ex(msgbmpbuf,msgfont,cursor_x+8,cursor_y+8,msgcolour,-1,
-                                  "%c",MsgStrings[msgstr].s[msgptr]);
-                    cursor_x += msgfont->vtable->char_length(msgfont, MsgStrings[msgstr].s[msgptr]);
+                    textprintf_ex(msgbmpbuf,msgfont,cursor_x+q30_msg_text_x(msgstr),cursor_y+q30_msg_text_y(msgstr),msgcolour,-1,
+                                  "%c",msgtext(msgstr)[msgptr]);
+                    cursor_x += msgfont->vtable->char_length(msgfont, msgtext(msgstr)[msgptr]);
                     cursor_x += MsgStrings[msgstr].hspace;
                 }
                 
@@ -13856,7 +13911,7 @@ void putmsg()
             
             ++msgptr;
             
-            if(atend(MsgStrings[msgstr].s+msgptr))
+            if(atend(msgtext(msgstr)+msgptr))
             {
                 if(MsgStrings[msgstr].nextstring)
                 {
@@ -13884,11 +13939,11 @@ breakout:
     // Start writing the string
     if(msgptr == 0)
     {
-        while(MsgStrings[msgstr].s[msgptr]==' ')
+        while(msgtext(msgstr)[msgptr]==' ')
         {
-            tlength = msgfont->vtable->char_length(msgfont, MsgStrings[msgstr].s[msgptr]) + MsgStrings[msgstr].hspace;
+            tlength = msgfont->vtable->char_length(msgfont, msgtext(msgstr)[msgptr]) + MsgStrings[msgstr].hspace;
             
-            if(cursor_x+tlength > msg_w+q30_msg_wrap_extra(msgstr) && ((cursor_x > msg_w+q30_msg_wrap_extra(msgstr) || !(MsgStrings[msgstr].stringflags & STRINGFLAG_WRAP)) ? 1 : strcmp(s3," ")!=0))
+            if(cursor_x+tlength > msg_w+q30_msg_wrap_extra(msgstr) && ((cursor_x > msg_w+q30_msg_wrap_extra(msgstr) || !(MsgStrings[msgstr].stringflags & STRINGFLAG_WRAP)) ? 1 : msg_space_wraps(s3)))
             {
                 cursor_y += text_height(msgfont) + MsgStrings[msgstr].vspace;
                 cursor_x=0;
@@ -13899,7 +13954,7 @@ breakout:
             ++msgpos;
             
             // The "Continue From Previous" feature
-            if(atend(MsgStrings[msgstr].s+msgptr))
+            if(atend(msgtext(msgstr)+msgptr))
             {
                 if(MsgStrings[msgstr].nextstring)
                 {
@@ -13915,7 +13970,7 @@ breakout:
     }
     
     // Continue printing the string!
-    if(!atend(MsgStrings[msgstr].s+msgptr) && cursor_y < msg_h)
+    if(!atend(msgtext(msgstr)+msgptr) && cursor_y < msg_h+q30_msg_height_extra(msgstr))
     {
         if(!parsemsgcode())
         {
@@ -13932,16 +13987,16 @@ breakout:
             }
             
             sfx(MsgStrings[msgstr].sfx);
-            textprintf_ex(msgbmpbuf,msgfont,cursor_x+8,cursor_y+8,msgcolour,-1,
-                          "%c",MsgStrings[msgstr].s[msgptr]);
-            cursor_x += msgfont->vtable->char_length(msgfont, MsgStrings[msgstr].s[msgptr]);
+            textprintf_ex(msgbmpbuf,msgfont,cursor_x+q30_msg_text_x(msgstr),cursor_y+q30_msg_text_y(msgstr),msgcolour,-1,
+                          "%c",msgtext(msgstr)[msgptr]);
+            cursor_x += msgfont->vtable->char_length(msgfont, msgtext(msgstr)[msgptr]);
             cursor_x += MsgStrings[msgstr].hspace;
             msgpos++;
         }
         
         msgptr++;
         
-        if(atend(MsgStrings[msgstr].s+msgptr))
+        if(atend(msgtext(msgstr)+msgptr))
         {
             if(MsgStrings[msgstr].nextstring)
             {
@@ -13954,17 +14009,17 @@ breakout:
             }
         }
         
-        if((MsgStrings[msgstr].s[msgptr]==' ') && (MsgStrings[msgstr].s[msgptr+1]==' '))
-            while(MsgStrings[msgstr].s[msgptr]==' ')
+        if((msgtext(msgstr)[msgptr]==' ') && (msgtext(msgstr)[msgptr+1]==' '))
+            while(msgtext(msgstr)[msgptr]==' ')
             {
                 // 2.55/3.0 (upstream): the word after a run of spaces is measured whole, so it
                 // goes to the next line together rather than a letter at a time
                 if(q30_active())
                     msgspace = true;
 
-                tlength = msgfont->vtable->char_length(msgfont, MsgStrings[msgstr].s[msgptr]) + MsgStrings[msgstr].hspace;
+                tlength = msgfont->vtable->char_length(msgfont, msgtext(msgstr)[msgptr]) + MsgStrings[msgstr].hspace;
                 
-                if(cursor_x+tlength > msg_w+q30_msg_wrap_extra(msgstr) && ((cursor_x > msg_w+q30_msg_wrap_extra(msgstr) || !(MsgStrings[msgstr].stringflags & STRINGFLAG_WRAP)) ? true : strcmp(s3," ")!=0))
+                if(cursor_x+tlength > msg_w+q30_msg_wrap_extra(msgstr) && ((cursor_x > msg_w+q30_msg_wrap_extra(msgstr) || !(MsgStrings[msgstr].stringflags & STRINGFLAG_WRAP)) ? true : msg_space_wraps(s3)))
                 {
                     cursor_y += text_height(msgfont) + MsgStrings[msgstr].vspace;
                     cursor_x=0;
@@ -13974,7 +14029,7 @@ breakout:
                 ++msgpos;
                 ++msgptr;
                 
-                if(atend(MsgStrings[msgstr].s+msgptr))
+                if(atend(msgtext(msgstr)+msgptr))
                 {
                     if(MsgStrings[msgstr].nextstring)
                     {
@@ -13990,7 +14045,7 @@ breakout:
     }
     
     // Done printing the string
-    if((msgpos>=10000 || msgptr>=MSGSIZE || cursor_y >= msg_h || atend(MsgStrings[msgstr].s+msgptr)) && !linkedmsgclk)
+    if((msgpos>=10000 || msgptr>=msgsize(msgstr) || cursor_y >= msg_h+q30_msg_height_extra(msgstr) || atend(msgtext(msgstr)+msgptr)) && !linkedmsgclk)
     {
         while(parsemsgcode()) // Finish remaining control codes
             ;

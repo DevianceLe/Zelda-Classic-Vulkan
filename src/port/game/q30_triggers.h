@@ -267,6 +267,22 @@ void q30_combo_store(int id, Q30Combo *data);
 // The quest's whole rule bitfield (q255_read_rules should call this).
 void q30_set_quest_rules(const byte *rules, size_t bytes);
 bool q30_quest_rule(int id);                   // upstream's rule number; false for older quests
+bool q30_show_bottom_8px();     // the quest shows the playing field's bottom 8 rows (a 232-row picture)
+extern int q30_subscr_speed;    // upstream's Hero.subscr_speed (zc_subscr.cpp): 1 for 2.53 quests
+
+// Counters: newer quests have upstream's 107; gamedata keeps 2.53's 32 and asks for the rest
+// (kind 0 the counter, 1 its maximum, 2 its drain counter; always 0 for 2.53 quests).
+enum { Q30_MAX_COUNTERS = 107 };
+// A 2.55/3.0 subscreen counter 2.53's ssc numbers can't name (q255_init.cpp, subscr.cpp's
+// counter()): this + the counter's number.
+enum { Q30_SSC_COUNTER = 1000 };
+long q30_hi_counter(gamedata *g, int c, int kind);
+void q30_set_hi_counter(gamedata *g, int c, int kind, long value);
+// Items 256 and up (upstream has 512): whether the game's Link owns them, kept in the save.
+// False and nothing for older quests.
+enum { Q30_MAX_ITEMS = 512 };
+bool q30_high_item_owned(int id);
+void q30_set_high_item_owned(int id, bool owned);
 
 // upstream's rule numbers (qrs.h) the game code reads
 enum Q30QuestRuleId
@@ -404,6 +420,13 @@ int q30_link_mapcombo(int x, int y);        // MAPCOMBO, but 0 where a bridge co
 bool q30_walkflag(int x, int y, int cnt);   // _walkflag for 2.55+ quests
 void q30_walk_speed(int x, int y, int z, int &dx, int &dy);  // combo walk-speed modifiers
 double q30_walk_speed_scale(int x, int y, int z, double step);   // same, for a fractional step
+// link.cpp: the Hero step rate in 1/100 pixel a frame (upstream's steprate; Hero->Step), used
+// under qr_NEW_HERO_MOVEMENT/2; the quest's init data sets it as it loads, Link's init resets it.
+void q30_set_init_hero_step(int step);
+int q30_hero_step_rate();
+void q30_set_hero_step_rate(int rate);      // also the next game start's, unless rule 228
+int q30_hero_step_boost();                  // Hero->TempStepBoost, 0 at Link's init
+void q30_set_hero_step_boost(int boost);
 bool q30_respawn_forced();                  // a trigger fixed the drown respawn point
 bool q30_link_stunned();
 long q30_item_switch_family(int itemid);    // the family startwpn should treat this item as
@@ -504,6 +527,20 @@ int q30_trigger_group_count(int group);
 // Hero->HitBy[] and the other per-frame facts about the Hero (q30_scripts_regs.h).
 void q30_hero_hit_clear();
 void q30_hero_hit(int kind, int index, sprite *s);
+// Generic script events (upstream's GENSCR_EVENT_*) and the states that end or restart generic
+// scripts (GENSCR_ST_*), in q30_scripts_engine.h. They do nothing for 2.53 quests.
+enum
+{
+    Z30EV_INIT, Z30EV_CONTINUE, Z30EV_FFC_PRELOAD, Z30EV_CHANGE_SCREEN, Z30EV_CHANGE_DMAP, Z30EV_CHANGE_LEVEL,
+    Z30EV_HERO_HIT_1, Z30EV_HERO_HIT_2, Z30EV_COLLECT_ITEM, Z30EV_ENEMY_DROP_ITEM_1, Z30EV_ENEMY_DROP_ITEM_2,
+    Z30EV_ENEMY_DEATH, Z30EV_ENEMY_HIT1, Z30EV_ENEMY_HIT2, Z30EV_POST_COLLECT_ITEM, Z30EV_PLAYER_FALL, Z30EV_PLAYER_DROWN
+};
+enum { Z30ST_RELOAD, Z30ST_CONTINUE, Z30ST_CHANGE_SCREEN, Z30ST_CHANGE_DMAP, Z30ST_CHANGE_LEVEL };
+bool q30_generic_listening(int event);      // a running generic script waits for this event
+void q30_throw_generic_event(int event, long *data, int count);    // Game->EventData in and out
+void q30_throw_generic_event(int event);
+void q30_generic_time_exit(int state);      // ends or restarts the generic scripts set to on this
+void q30_screen_change_events(bool loaded); // loadscr: DMap, level and screen changes
 bool q30_no_active_subscreen();
 int q30_hero_cset_base(int normal);
 bool q30_hero_immortal();

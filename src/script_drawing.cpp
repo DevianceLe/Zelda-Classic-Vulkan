@@ -12,6 +12,8 @@
 #include "tiles.h"
 #include "zelda.h"
 #include "ffscript.h"
+#include "port/game/q30_triggers.h"
+#include "port/game/q30_regions.h"
 #include <stdio.h>
 
 #define DegtoFix(d)     ((d)*0.7111111111111)
@@ -33,8 +35,13 @@ BITMAP* ScriptDrawingBitmapPool::_parent_bmp = 0;
 
 
 
+FONT *q30_font(int index);     // zelda.cpp: 3.0 font numbers past 2.53's, NULL for older quests
+
 FONT *get_zc_font(int index)
 {
+    if(FONT *f = q30_font(index))
+        return f;
+
     //return getfont(index);
     switch(index)
     {
@@ -1010,7 +1017,10 @@ void do_drawcombor(BITMAP *bmp, int *sdci, int xoffset, int yoffset)
     int color=sdci[7]/10000;
     int x1=sdci[2]/10000;
     int y1=sdci[3]/10000;
-    
+
+    if(combo_editor_only(sdci[4]/10000))  // newer quests: upstream draws nothing for these
+        return;
+
     const newcombo & c = combobuf[(sdci[4]/10000)];
     int tiletodraw = combo_tile(c, x1, y1);
     int flip = ((sdci[14]/10000) & 3) ^ c.flip;
@@ -2236,7 +2246,8 @@ void draw_mapscr(BITMAP *b, const mapscr& m, int x, int y, bool transparent)
         const int tile = combo_tile(c, x2, y2);
 	    */
         
-        if(transparent)
+        // a newer quest's "transparent" combo flips it (upstream draw_mapscr; always false for 2.53)
+        if(transparent != combo_transparent(m.data[i]))
 	{
 		//void overcomboblocktranslucent(BITMAP *dest, int x, int y, int cmbdat, int cset, int w, int h, int opacity)
 		overcomboblocktranslucent(b, x2, y2, m.data[i], m.cset[i], 1, 1, 128);
@@ -2299,13 +2310,40 @@ void do_drawlayerr(BITMAP *bmp, int *sdci, int xoffset, int yoffset, bool isOffS
     const int maxX = isOffScreen ? 512 : 256;
     const int maxY = isOffScreen ? 512 : 176 + yoffset;
     bool transparent = opacity <= 128;
+    // the clipping rect is the view's; on a 3.0 scrolling region's canvas the view sits elsewhere
+    // in the bitmap (q30_draw_view_origin; 0, 0 otherwise)
+    int vx0 = 0, vy0 = 0;
     
+    if(!isOffScreen)
+        q30_draw_view_origin(bmp, &vx0, &vy0);
+
     if(rotation != 0) // rotate
     {
         draw_mapscr(b, l, x1, y1, transparent);
         
         rotate_sprite(bmp, b, x1, y1, degrees_to_fixed(rotation));
         script_drawing_commands.ReleaseSubBitmap(b);
+    }
+    else if(tiles_newer_combo_flags)
+    {
+        // 2.55/3.0 quests (upstream do_drawlayerr): editor-only combos are skipped, and a
+        // "transparent" combo flips between see-through and solid; whole combos are drawn.
+        for(int i(0); i < 176; ++i)
+        {
+            const int x2 = ((i&15)<<4) + x1;
+            const int y2 = (i&0xF0) + y1;
+
+            if(combo_editor_only(l.data[i]))
+                continue;
+
+            if(x2 > -16 && x2 < maxX && y2 > -16 && y2 < maxY)   //in clipping rect
+            {
+                if((opacity < 128) != combo_transparent(l.data[i]))
+                    overcomboblocktranslucent(b, x2, y2, l.data[i], l.cset[i], 1, 1, 128);
+                else
+                    overcomboblock(b, x2, y2, l.data[i], l.cset[i], 1, 1);
+            }
+        }
     }
     else
     {
@@ -2314,7 +2352,7 @@ void do_drawlayerr(BITMAP *bmp, int *sdci, int xoffset, int yoffset, bool isOffS
             const int x2 = ((i&15)<<4) + x1;
             const int y2 = (i&0xF0) + y1;
             
-            if(x2 > -16 && x2 < maxX && y2 > -16 && y2 < maxY)   //in clipping rect
+            if(x2 > vx0-16 && x2 < maxX+vx0 && y2 > vy0-16 && y2 < maxY+vy0)   //in clipping rect
             {
                 const newcombo & c = combobuf[ l.data[i] ];
                 const int tile = combo_tile(c, x2, y2);
@@ -2400,6 +2438,7 @@ void do_drawscreenr(BITMAP *bmp, int *sdci, int xoffset, int yoffset, bool isOff
 
 void zasm30_do_polygon(BITMAP *bmp, int i, int *sdci, int xoffset, int yoffset);   // q30_scripts_cmds.h
 void zasm30_do_screen_blit(BITMAP *bmp, int i, int *sdci, int xoffset, int yoffset);   // q30_scripts_cmds.h
+bool zasm30_draw_origin_offset(int origin, int target, int xoff, int yoff, int &x, int &y);    // q30_scripts_cmds.h
 
 void do_primitives(BITMAP *targetBitmap, int type, mapscr *, int xoff, int yoff)
 {
@@ -2440,7 +2479,30 @@ void do_primitives(BITMAP *targetBitmap, int type, mapscr *, int xoff, int yoff)
             
         // get the correct render target, if set.
         BITMAP *bmp = zscriptDrawingRenderTarget->GetTargetBitmap(sdci[18]);
-        
+        bool cmdOffScreen;
+
+        if(script_drawing_commands[i].q30_origin)
+        {
+            // A 2.55/3.0 script's command: its draw origin places it on the screen (upstream
+            // do_primitives); drawn to a script bitmap, it starts at the bitmap's top-left.
+            if(!bmp)
+            {
+                if(!zasm30_draw_origin_offset(script_drawing_commands[i].q30_origin, script_drawing_commands[i].q30_origin_target,
+                                              xoff, yoff, xoffset, yoffset))
+                    continue;   // its sprite has gone
+
+                bmp = targetBitmap;
+                cmdOffScreen = false;
+            }
+            else
+            {
+                xoffset = 0;
+                yoffset = 0;
+                cmdOffScreen = true;
+            }
+        }
+        else    // every 2.53 command: the old offset rules, unchanged
+        {
         if(!bmp)
         {
 			// draw to screen with subscreen offset
@@ -2461,7 +2523,10 @@ void do_primitives(BITMAP *targetBitmap, int type, mapscr *, int xoff, int yoff)
             }
             isTargetOffScreenBmp = true;
         }
-        
+
+        cmdOffScreen = isTargetOffScreenBmp;
+        }
+
         switch(sdci[0])
         {
         case RECTR:
@@ -2593,13 +2658,13 @@ void do_primitives(BITMAP *targetBitmap, int type, mapscr *, int xoff, int yoff)
         
         case DRAWLAYERR:
         {
-            do_drawlayerr(bmp, sdci, xoffset, yoffset, isTargetOffScreenBmp);
+            do_drawlayerr(bmp, sdci, xoffset, yoffset, cmdOffScreen);
         }
         break;
         
         case DRAWSCREENR:
         {
-            do_drawscreenr(bmp, sdci, xoffset, yoffset, isTargetOffScreenBmp);
+            do_drawscreenr(bmp, sdci, xoffset, yoffset, cmdOffScreen);
         }
         break;
         

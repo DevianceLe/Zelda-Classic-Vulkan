@@ -137,6 +137,38 @@ int draw_screen_clip_rect_x2=255;
 int draw_screen_clip_rect_y1=0;
 int draw_screen_clip_rect_y2=223;
 
+// See zelda.h. 2.53 quests, the title screen and everything outside a game keep 224.
+int zc_view_h=224;
+
+void zc_set_view_height(int h)
+{
+    if(h!=232)
+        h=224;
+
+    // the screen's rows below a shorter picture would keep the last game frame
+    if(h!=zc_view_h && screen)
+        clear_to_color(screen,BLACK);
+
+    zc_view_h=h;
+
+    // framebuf and temp_buf are remade at the new height, keeping what they show
+    BITMAP **bufs[2] = { &framebuf, &temp_buf };
+
+    for(int i=0; i<2; ++i)
+    {
+        BITMAP *old = *bufs[i];
+
+        if(!old || old->h==h)
+            continue;
+
+        BITMAP *b = create_bitmap_ex(8,256,h);
+        clear_bitmap(b);
+        blit(old,b,0,0,0,0,256,h);
+        destroy_bitmap(old);
+        *bufs[i] = b;
+    }
+}
+
 volatile int logic_counter=0;
 bool trip=false;
 void update_logic_counter()
@@ -378,8 +410,8 @@ extern bool global_wait;
 
 //ZScript array storage
 std::vector<ZScriptArray> globalRAM;
-ZScriptArray localRAM[MAX_ZCARRAY_SIZE];
-byte arrayOwner[MAX_ZCARRAY_SIZE];
+ZScriptArray localRAM[Z30_LOCALRAM_SIZE];
+byte arrayOwner[Z30_LOCALRAM_SIZE];
 
 //script bitmap drawing
 ZScriptDrawingRenderTarget* zscriptDrawingRenderTarget;
@@ -394,7 +426,8 @@ void setZScriptVersion(int s_version)
 
 void initZScriptArrayRAM(bool firstplay)
 {
-    extern bool zasm30_empty_array[MAX_ZCARRAY_SIZE];   // ffscript.cpp: newer quests' empty arrays
+    extern bool zasm30_empty_array[Z30_LOCALRAM_SIZE];  // ffscript.cpp: newer quests' empty arrays
+    extern void zasm30_clear_heap();                    // ffscript.cpp: a 3.0 quest's arrays and objects
 
     for(word i = 0; i < MAX_ZCARRAY_SIZE; i++)
     {
@@ -402,6 +435,8 @@ void initZScriptArrayRAM(bool firstplay)
         zasm30_empty_array[i] = false;
         arrayOwner[i]=255;
     }
+
+    zasm30_clear_heap();
     
     if(game->globalRAM.size() != 0)
         game->globalRAM.clear();
@@ -558,8 +593,36 @@ zctune tunes[MAXMIDIS] =
 
 // emusic enhancedMusic[MAXMUSIC];
 
+bool q30_active();
+
+// The fonts 3.0 numbers past 2.53's (upstream's core/fonts.h: font_nfont 71, font_sfont3 72,
+// font_nfont2 75) that this engine's fonts.dat has; NULL for the rest and for older quests,
+// which then draw the default font as before.
+FONT *q30_font(int index)
+{
+    if(!q30_active())
+        return NULL;
+
+    switch(index)
+    {
+    case 71:
+        return nfont;               // "NFont", FONT_GUI_PROP
+
+    case 72:
+        return sfont3;              // "Small 3", FONT_12x8
+
+    case 75:
+        return (FONT*)fontsdata[FONT_GUI_MONO].dat;     // "NFont2"
+    }
+
+    return NULL;
+}
+
 FONT *setmsgfont()
 {
+    if(FONT *f = q30_font(MsgStrings[msgstr].font))
+        return f;
+
     switch(MsgStrings[msgstr].font)
     {
     default:
@@ -698,6 +761,13 @@ void dismissmsg()
 
 bool q30_compat_rule(int id);
 bool q30_quest_rule(int id);
+bool q30_show_bottom_8px();     // q30_triggers.cpp
+void q30_reset_subscr_speed();  // zc_subscr.cpp
+bool q30_msg_more_icon(int str, int *x, int *y, int *sprite);  // q30_core.cpp (q30.h)
+std::vector<long> q30_take_hi_counters(bool firstplay);    // q30_triggers.cpp
+void q30_put_hi_counters(const std::vector<long> &v);
+std::vector<long> q30_take_hi_items(bool firstplay);        // q30_triggers.cpp
+void q30_put_hi_items(const std::vector<long> &v);
 long q30_dmap_intro_string(int dmap);
 void q30_bunny_reset();
 
@@ -1361,6 +1431,9 @@ void init_dmap()
     return;
 }
 
+// Newer quests: the active global script's first frame isn't held back by a message (game_loop).
+static bool q30_global_first_frame = false;
+
 int init_game()
 {
     q30_clear_engine();
@@ -1442,6 +1515,21 @@ int init_game()
     }
     
     //setPackfilePassword(NULL);
+
+    // 2.55/3.0 quests: "editor only" combos aren't drawn, "transparent" ones are see-through
+    // on layers (tiles.cpp). 2.53 quests draw every combo as they always have.
+    tiles_newer_combo_flags = quest_header_zelda_version >= 0x255;
+
+    // 2.55/3.0: a quest that doesn't hide the playing field's bottom 8 rows gets the 232-row
+    // picture (upstream's updateShowBottomPixels); 2.53 quests keep 224.
+    zc_set_view_height(q30_show_bottom_8px() ? 232 : 224);
+    draw_screen_clip_rect_y2=zc_view_h-1;
+    q30_reset_subscr_speed();   // the active subscreen's slide speed (zc_subscr.cpp)
+
+    // 2.55/3.0: a standalone (or test) start counts the play time as a new game does; its save
+    // never went through the file select that sets it (upstream's test mode shows the time)
+    if(quest_header_zelda_version >= 0x255 && standalone_mode && !game->get_hasplayed())
+        game->set_timevalid(1);
 
     // A DMap can name a map the quest doesn't have, and the game would then read
     // past the end of the list. Those maps get blank screens; map_count stays as is.
@@ -1630,6 +1718,9 @@ int init_game()
     {
         game->set_continue_dmap(zinit.start_dmap);
         resetItems(game,&zinit,true);
+
+        void q30_give_init_high_items();
+        q30_give_init_high_items();     // 2.55/3.0: starting items past 255 (none for 2.53 quests)
 	if ( quest_header_zelda_version < 0x190 ) { game->set_maxbombs(8); al_trace("Starting bombs set to %d for a quest made in ZC %x\n", game->get_maxbombs(), quest_header_zelda_version); }
     }
     
@@ -1749,7 +1840,15 @@ int init_game()
     //Script-related nonsense
     script_drawing_commands.Clear();
     
-    initZScriptArrayRAM(firstplay);
+    {
+        // 2.55/3.0: counters past 32 live in an array at the end of globalRAM (q30_triggers.cpp);
+        // a new game's, set by resetItems above, must outlast the arrays being remade
+        std::vector<long> q30_counters = q30_take_hi_counters(firstplay);
+        std::vector<long> q30_items = q30_take_hi_items(firstplay);     // (items 256 and up, the same)
+        initZScriptArrayRAM(firstplay);
+        q30_put_hi_counters(q30_counters);
+        q30_put_hi_items(q30_items);
+    }
     initZScriptGlobalRAM();
     global_wait=false;
     
@@ -1864,6 +1963,11 @@ int init_game()
     Playing=true;
     
     map_bkgsfx(true);
+
+    // 2.55/3.0: the onLaunch global script runs here, after Init or onSaveLoad, for a new
+    // game or a loaded one (upstream's runOnLaunchEngine). Nothing for 2.53 quests.
+    q30_run_onlaunch();
+
     openscreen();
     show_subscreen_numbers=true;
     show_subscreen_life=true;
@@ -1896,6 +2000,7 @@ int init_game()
     ffscript_engine(true);  //Here is a much safer place...
     q30_bunny_reset();      // 2.55/3.0: Link starts as himself (upstream HeroClass::init)
     q30_game_init(firstplay);
+    q30_global_first_frame = q30_scripts_active();
 
     // ZC_TEST_ITEMS=id,id,...: test runs only, gives Link those items at the start
     if(const char *test_items = getenv("ZC_TEST_ITEMS"))
@@ -2685,8 +2790,18 @@ void update_hookshot()
 void do_dcounters()
 {
     static bool sfxon = false;
-    
-    for(int i=0; i<32; i++)
+    // 2.55/3.0 quests have 107 counters (gamedata keeps the ones past 32 for them)
+    const int counters = quest_header_zelda_version >= 0x255 ? 107 : 32;
+
+    static const char *q30_ctr_trace = getenv("ZC_Q30_CTRTRACE");     // a counter's value, drain, max
+    if(q30_ctr_trace && frame % 30 == 0)
+    {
+        const int c = atoi(q30_ctr_trace);
+        al_trace("q30: frame %d counter %d = %d, drain %d, max %d\n", frame, c, (int)game->get_counter(c),
+                 (int)game->get_dcounter(c), (int)game->get_maxcounter(c));
+    }
+
+    for(int i=0; i<counters; i++)
     {
         if(game->get_dcounter(i)==0)
         {
@@ -2788,13 +2903,24 @@ void game_loop()
         }
     }
     
+    // Newer quests clear the last frame's script drawing before the START_FRAME generic scripts
+    // run, as upstream does, so what those scripts draw this frame is kept. (2.53: unchanged.)
+    const bool q30_early_clear = q30_scripts_active();
+
+    q30_gen_frame_end();    // (the end of the last frame: before the clear, as upstream)
+
+    if(q30_early_clear && !freezemsg)
+    {
+        script_drawing_commands.Clear();
+    }
+
     q30_gen_timing(Z30T_START_FRAME);
     animate_combos();
     q30_gen_timing(Z30T_POST_COMBO_ANIM);
     load_control_state();
     q30_gen_timing(Z30T_POST_POLL_INPUT);
 
-    if(!freezemsg)
+    if(!q30_early_clear && !freezemsg)
     {
         script_drawing_commands.Clear();
     }
@@ -2806,10 +2932,13 @@ void game_loop()
     q30_gen_timing(Z30T_POST_FFCS);
 
     // Arbitrary Rule 637: neither 'freeze' nor 'freezeff' freeze the global script.
-    if(!freezemsg && g_doscript)
+    // Newer quests: the game's first frame runs it even under the screen's opening string, which
+    // upstream only starts after the opening wipe (so its scripts set up their counters first).
+    if((!freezemsg || q30_global_first_frame) && g_doscript)
     {
         ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_GAME);
     }
+    q30_global_first_frame = false;
     q30_gen_timing(Z30T_POST_GLOBAL_ACTIVE);
 
     if(!freezemsg)
@@ -2897,17 +3026,32 @@ void game_loop()
     q30_gen_timing(Z30T_POST_GLOBAL_WAITDRAW);
     q30_run_waitdraw_scripts();
 
+    q30_gen_timing(Z30T_PRE_DRAW);  // newer quests: upstream runs it as draw_screen starts
     draw_screen(tmpscr);
     q30_gen_timing(Z30T_POST_DRAW);
     
     if(linkedmsgclk==1)
     {
-        if(wpnsbuf[iwMore].tile!=0)
+        int more_x, more_y, more_sprite;
+
+        // A 3.0 string places its own "more" icon (upstream's draw_icon); none when its sprite
+        // is -1 or has no tile. It's drawn as the more weapon with that sprite's graphics.
+        if(q30_msg_more_icon(msgstr, &more_x, &more_y, &more_sprite))
+        {
+            if(more_sprite >= 0 && more_sprite < MAXWPNS && wpnsbuf[more_sprite].tile!=0)
+            {
+                const wpndata keep = wpnsbuf[iwMore];
+                wpnsbuf[iwMore] = wpnsbuf[more_sprite];
+                putweapon(framebuf, more_x, more_y + playing_field_offset, wPhantom, 4, up, lens_hint_weapon[wPhantom][0], lens_hint_weapon[wPhantom][1],-1);
+                wpnsbuf[iwMore] = keep;
+            }
+        }
+        else if(wpnsbuf[iwMore].tile!=0)
         {
             putweapon(framebuf,zinit.msg_more_x, message_more_y(), wPhantom, 4, up, lens_hint_weapon[wPhantom][0], lens_hint_weapon[wPhantom][1],-1);
         }
     }
-    
+
     if(!freeze)
     {
         putintro();
@@ -4201,6 +4345,10 @@ int main(int argc, char* argv[])
         set_keyboard_rate(250,33);
         toogam = false;
         ignoreSideview=false;
+        // outside a game the picture is 224 rows (init_game sets the quest's); a continue
+        // (cont_game, no init_game) keeps the game's
+        if(Quit!=qCONT)
+            zc_set_view_height(224);
         titlescreen(load_save);
         
         load_save=0;
@@ -4260,6 +4408,7 @@ int main(int argc, char* argv[])
             
             initZScriptGlobalRAM();
             ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_END);
+            zc_set_view_height(224);    // the ending is drawn for 224 rows
             ending();
         }
         break;

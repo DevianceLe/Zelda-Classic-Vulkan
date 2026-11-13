@@ -262,7 +262,13 @@ public:
     {
         return data[i];
     }
-    
+
+    // Commands queued by a 2.55/3.0 script: where its coordinates start (Screen->DrawOrigin,
+    // resolved when queued) plus one, and the sprite uid for DRAW_ORIGIN_SPRITE. 0 for every
+    // 2.53 command, which keeps the old offsets (see do_primitives).
+    int q30_origin;
+    int q30_origin_target;
+
 protected:
     int data[ SCRIPT_DRAWING_COMMAND_VARIABLES ];
     void* ptr; //will be changed later

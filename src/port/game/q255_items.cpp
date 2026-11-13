@@ -77,10 +77,12 @@ static word item_script_id(word v)
 }
 
 // 2.53 keeps 32 counters; the file's byte is signed, with -1 for none.
+// The counter an item adds to: 2.53's 32, or the newer counters past them that gamedata keeps
+// (q30_hi_counter, up to Q30_MAX_COUNTERS); anything else none.
 static char item_counter(byte v)
 {
     signed char c = (signed char)v;
-    return (c < 0 || c >= 32) ? (char)-1 : (char)c;
+    return (c < 0 || c >= Q30_MAX_COUNTERS) ? (char)-1 : (char)c;
 }
 
 // Counter numbers are the same in both versions: 1 is rupees, 4 is magic.
@@ -584,6 +586,7 @@ int q255_read_items(Q255Section &s)
     {
         q30_clear_item_families();
         q30_clear_item_extras();
+        q30_clear_high_items();
         q30_set_item_usesound2(-1, 0);
         q30_set_item_bunny(-1, false);
         q30_set_item_pickup(-1, 0, 0, 0, 0);
@@ -600,6 +603,8 @@ int q255_read_items(Q255Section &s)
         return qe_invalid;
 
     // Up to v66 all the names come first; from v67 each item starts with its own.
+    std::vector<std::string> high_names;    // items past MAXITEMS, for q30_set_high_item
+
     if(s.version < 67)
     {
         for(int i = 0; i < items_to_read; ++i)
@@ -610,11 +615,12 @@ int q255_read_items(Q255Section &s)
             if(s.failed)
                 return qe_invalid;
 
+            name[63] = 0;
+
             if(s.keep && i < MAXITEMS)
-            {
-                name[63] = 0;
                 strcpy(item_string[i], name);
-            }
+            else if(s.keep)
+                high_names.push_back(name);
         }
     }
 
@@ -635,6 +641,8 @@ int q255_read_items(Q255Section &s)
 
     for(int i = 0; i < items_to_read; ++i)
     {
+        std::string high_name;
+
         if(s.version >= 67)
         {
             std::string name = s.getcstr();
@@ -647,7 +655,11 @@ int q255_read_items(Q255Section &s)
                 strncpy(item_string[i], name.c_str(), 63);
                 item_string[i][63] = 0;
             }
+            else
+                high_name = name;
         }
+        else if(i >= MAXITEMS && i - MAXITEMS < (int)high_names.size())
+            high_name = high_names[i - MAXITEMS];
 
         itemdata tempitem;
         memset(&tempitem, 0, sizeof(itemdata));
@@ -687,6 +699,8 @@ q30_set_item_sprite_script(i, g_item_sprite_script, g_item_sprite_initd);
             q30_set_item_override_flags(i, (int)g_item_override_flags);
             q30_set_item_display_name(i, g_item_display_name.c_str());
         }
+        else if(s.keep)
+            q30_set_high_item(i, tempitem, g_true_family, high_name.c_str());   // 256 and up
     }
 
     if(s.keep)

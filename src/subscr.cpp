@@ -27,6 +27,10 @@
 bool q30_active();
 bool q30_item_has_display_name(int item);
 std::string q30_item_shown_name(int item);
+#ifdef ZC_PLAYER_BUILD
+#include "port/game/q30_triggers.h"
+extern word quest_header_zelda_version;
+#endif
 
 bool show_subscreen_dmap_dots=true;
 bool show_subscreen_numbers=true;
@@ -3264,8 +3268,24 @@ int subscreen_color(miscQdata *misc, int c1, int c2)
     {
     case ssctSYSTEM:
         ret=(c2==-1)?c2:vc(c2);
+#ifdef ZC_PLAYER_BUILD
+        {
+            // 2.55/3.0 without qr_BROKEN_SYSTEM_COLORS: the 16 system colours are fixed EGA
+            // colours, the palette's nearest (upstream's subscreen colour code), not vc()
+            enum { QR_BROKEN_SYSTEM_COLORS = 450 };
+            static const byte ega[16][3] =
+            {
+                { 0, 0, 0 }, { 0, 0, 170 }, { 0, 157, 0 }, { 0, 170, 170 }, { 178, 36, 36 }, { 170, 0, 170 },
+                { 165, 105, 8 }, { 170, 170, 170 }, { 85, 85, 85 }, { 85, 85, 255 }, { 85, 255, 85 },
+                { 85, 255, 255 }, { 255, 85, 85 }, { 255, 85, 255 }, { 255, 255, 85 }, { 255, 255, 255 }
+            };
+
+            if(quest_header_zelda_version >= 0x255 && c2 >= 0 && c2 < 16 && !q30_quest_rule(QR_BROKEN_SYSTEM_COLORS))
+                ret=makecol(ega[c2][0], ega[c2][1], ega[c2][2]);
+        }
+#endif
         break;
-        
+
     case ssctMISC:
         switch(c2)
         {
@@ -3594,7 +3614,16 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
             tempfont=ss_font(fontnum);
             int x=css->objects[i].x+xofs;
             int y=css->objects[i].y+yofs;
-            
+#ifdef ZC_PLAYER_BUILD
+            // 2.55/3.0 widgets may sit left of or above the subscreen (the gem at -2,-1): their
+            // word x and y hold signed values
+            if(quest_header_zelda_version >= 0x255)
+            {
+                x=(short)css->objects[i].x+xofs;
+                y=(short)css->objects[i].y+yofs;
+            }
+#endif
+
             switch(css->objects[i].type)
             {
             case sso2X2FRAME:
@@ -4166,6 +4195,35 @@ bool is_counter_item(int itemtype, int countertype)
     return false;
 }
 
+#ifdef ZC_PLAYER_BUILD
+// A 2.53 ssc counter's value, for a newer quest's widget showing more than one counter.
+static int q30_ssc_value(int ssc)
+{
+    switch(ssc)
+    {
+    case sscRUPEES:
+        return game->get_rupies();
+    case sscBOMBS:
+        return game->get_bombs();
+    case sscSBOMBS:
+        return game->get_sbombs();
+    case sscARROWS:
+        return get_bit(quest_rules,qr_TRUEARROWS) ? game->get_arrows() : game->get_rupies();
+    case sscGENKEYMAGIC:
+    case sscGENKEYNOMAGIC:
+        return game->get_keys();
+    case sscLEVKEYMAGIC:
+    case sscLEVKEYNOMAGIC:
+        return game->get_lkeys();
+    case sscANYKEYMAGIC:
+    case sscANYKEYNOMAGIC:
+        return game->get_keys()+game->get_lkeys();
+    }
+
+    return (ssc >= sscSCRIPT1 && ssc <= sscSCRIPT25) ? game->get_counter(ssc-3) : 0;
+}
+#endif
+
 void counter(BITMAP *dest, int x, int y, FONT *tempfont, int color, int shadowcolor, int bgcolor, int alignment, int textstyle, int digits, char idigit, bool showzero, int itemtype1, int itemtype2, int itemtype3, int infiniteitem, bool onlyselected)
 {
     int value=0;
@@ -4309,11 +4367,40 @@ void counter(BITMAP *dest, int x, int y, FONT *tempfont, int color, int shadowco
     case sscSCRIPT24:
     case sscSCRIPT25:
         value += game->get_counter(itemtype-3);
-        
+
     default:
         break;
     }
-    
+
+#ifdef ZC_PLAYER_BUILD
+    // 2.55/3.0, as upstream's SW_Counter: life, magic and counters past 32 come as
+    // Q30_SSC_COUNTER + the counter (q255_init.cpp), and the widget adds up all three of its
+    // counters (a repeated one once)
+    extern word quest_header_zelda_version;
+
+    if(quest_header_zelda_version >= 0x255)
+    {
+        const int types[3] = { itemtype1, itemtype2, itemtype3 };
+
+        for(int q=0; q<3; ++q)
+        {
+            const int ty = types[q];
+            bool repeated = ty < 0;
+
+            for(int p=0; p<q; ++p)
+                repeated = repeated || types[p]==ty;
+
+            if(repeated)
+                continue;
+
+            if(ty >= Q30_SSC_COUNTER && ty < Q30_SSC_COUNTER+Q30_MAX_COUNTERS)
+                value += game->get_counter(ty-Q30_SSC_COUNTER);
+            else if(q > 0)
+                value += q30_ssc_value(ty);     // (the first was added above)
+        }
+    }
+#endif
+
     // (for loop) }
     if(!showzero&&!value&&!infinite)
     {
@@ -4371,6 +4458,15 @@ void put_passive_subscr(BITMAP *dest,miscQdata *misc,int x,int y,bool showtime,i
     //  load_Sitems();
     Sitems.animate();
     update_subscr_items();
+#ifdef ZC_PLAYER_BUILD
+    // 2.55/3.0: the passive subscreen shows the time whenever it should (upstream hands
+    // should_show_time to every passive draw; 2.53's callers pass false outside the subscreen)
+    extern word quest_header_zelda_version;
+    bool q30_should_show_time();
+
+    if(quest_header_zelda_version >= 0x255)
+        showtime = q30_should_show_time();
+#endif
     BITMAP *subscr = create_sub_bitmap(dest,x,y,256,passive_subscreen_height);
     
     if(no_subscreen())

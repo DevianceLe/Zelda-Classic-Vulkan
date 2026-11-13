@@ -776,7 +776,7 @@ qword trianglelines[16]=
     0x00000000000000FDULL,
 };
 
-word screen_triangles[28][32];
+word screen_triangles[29][32];    // 29 rows: a 232-row picture (zc_view_h) needs one more
 /*
   qword triangles[4][16]= //[direction][value]
   {
@@ -1732,8 +1732,8 @@ void close_black_opening(int x, int y, bool wait)
 {
     black_opening_shape=choose_opening_shape();
     
-    int w=256, h=224;
-    int blockrows=28, blockcolumns=32;
+    int w=256, h=zc_view_h;
+    int blockrows=h/8, blockcolumns=32;   // 28 rows, 29 with the 232-row picture
     int xoffset=(x-(w/2))/8, yoffset=(y-(h/2))/8;
     
     for(int blockrow=0; blockrow<blockrows; ++blockrow)  //30
@@ -1774,8 +1774,8 @@ void open_black_opening(int x, int y, bool wait)
 {
     black_opening_shape=choose_opening_shape();
     
-    int w=256, h=224;
-    int blockrows=28, blockcolumns=32;
+    int w=256, h=zc_view_h;
+    int blockrows=h/8, blockcolumns=32;   // 28 rows, 29 with the 232-row picture
     int xoffset=(x-(w/2))/8, yoffset=(y-(h/2))/8;
     
     for(int blockrow=0; blockrow<blockrows; ++blockrow)  //30
@@ -1826,7 +1826,7 @@ void black_opening(BITMAP *dest,int x,int y,int a,int max_a)
     }
 
     clear_to_color(tmp_scr,BLACK);
-    int w=256, h=224;
+    int w=256, h=zc_view_h;
 
     switch(black_opening_shape)
     {
@@ -1862,8 +1862,8 @@ void black_opening(BITMAP *dest,int x,int y,int a,int max_a)
     case bosSMAS:
     {
         int distance=zc_max(abs(w/2-x),abs(h/2-y))/8;
-        
-        for(int blockrow=0; blockrow<28; ++blockrow)  //30
+
+        for(int blockrow=0; blockrow<h/8; ++blockrow)  //30
         {
             for(int linerow=0; linerow<8; ++linerow)
             {
@@ -3392,7 +3392,8 @@ void draw_lens_over()
         last_width=width;
     }
     
-    masked_blit(lens_scr, framebuf, 288-(LinkX()+8), 240-playing_field_offset-(LinkY()+8), 0, playing_field_offset, 256, 168);
+    masked_blit(lens_scr, framebuf, 288-(LinkX()+8), 240-playing_field_offset-(LinkY()+8), 0, playing_field_offset, 256, zc_field_h());
+    q30_draw_script_layer(framebuf, Q30_SPLAYER_LENS_OVER);    // newer quests' scripts (upstream)
 }
 
 //----------------------------------------------------------------
@@ -3403,16 +3404,16 @@ void draw_wavy(BITMAP *source, BITMAP *target, int amplitude, bool interpol)
     static BITMAP *wavebuf = create_bitmap_ex(8,288,240-original_playing_field_offset);
     
     clear_to_color(wavebuf, BLACK);
-    blit(source,wavebuf,0,original_playing_field_offset,16,0,256,224-original_playing_field_offset);
-    
+    blit(source,wavebuf,0,original_playing_field_offset,16,0,256,zc_view_h-original_playing_field_offset);
+
     int ofs;
     //  int amplitude=8;
     //  int wavelength=4;
     amplitude = zc_min(2048,amplitude); // some arbitrary limit to prevent crashing
-    int amp2=168;
+    int amp2=zc_field_h();  // the rows shown: 168, or 176 with the 232-row picture
     int i=frame%amp2;
-    
-    for(int j=0; j<168; j++)
+
+    for(int j=0; j<amp2; j++)
     {
         if(j&1 && interpol)
         {
@@ -3455,11 +3456,11 @@ void draw_fuzzy(int fuzz)
         
     firsty = 1;
     
-    for(y=0; y<224;)
+    for(y=0; y<zc_view_h;)
     {
         start = &(scrollbuf->line[y][256]);
-        
-        for(dy=0; dy<ystep && dy+y<224; dy++)
+
+        for(dy=0; dy<ystep && dy+y<zc_view_h; dy++)
         {
             si = start;
             di = &(framebuf->line[y+dy][0]);
@@ -3500,7 +3501,16 @@ void updatescr(bool allowwavy)
 {
     static BITMAP *wavybuf = create_bitmap_ex(8,256,224);
     static BITMAP *panorama = create_bitmap_ex(8,256,224);
-        
+
+    // the picture's height changes with the quest (zc_view_h): both are remade to match
+    if(wavybuf->h != zc_view_h)
+    {
+        destroy_bitmap(wavybuf);
+        destroy_bitmap(panorama);
+        wavybuf = create_bitmap_ex(8,256,zc_view_h);
+        panorama = create_bitmap_ex(8,256,zc_view_h);
+    }
+
     if(toogam)
     {
         textout_ex(framebuf,font,"no walls",8,216,1,-1);
@@ -3570,8 +3580,8 @@ void updatescr(bool allowwavy)
         wavy = (DMaps[currdmap].flags&dmfWAVY ? 4 : 0);
     }
     
-    blit(framebuf, wavybuf, 0, 0, 0, 0, 256, 224);
-    
+    blit(framebuf, wavybuf, 0, 0, 0, 0, 256, zc_view_h);
+
     if(wavy && Playing && allowwavy)
     {
         draw_wavy(framebuf, wavybuf, wavy,false);
@@ -3584,7 +3594,7 @@ void updatescr(bool allowwavy)
         
     if(!(msgdisplaybuf->clip) && Playing && msgpos && !screenscrolling)
     {
-        masked_blit(msgdisplaybuf,framebuf,0,0,0,playing_field_offset,256,168);
+        masked_blit(msgdisplaybuf,framebuf,0,0,0,playing_field_offset,256,zc_field_h());
     }
     
     /*
@@ -3605,9 +3615,10 @@ void updatescr(bool allowwavy)
     
     if(nosubscr)
     {
+        const int field = zc_field_h();     // 168, or 176 with the 232-row picture
         rectfill(panorama,0,0,255,passive_subscreen_height/2,0);
-        rectfill(panorama,0,168+passive_subscreen_height/2,255,168+passive_subscreen_height-1,0);
-        blit(wavybuf,panorama,0,playing_field_offset,0,passive_subscreen_height/2,256,224-passive_subscreen_height);
+        rectfill(panorama,0,field+passive_subscreen_height/2,255,field+passive_subscreen_height-1,0);
+        blit(wavybuf,panorama,0,playing_field_offset,0,passive_subscreen_height/2,256,zc_view_h-passive_subscreen_height);
     }
     
     //TODO: Optimize blit 'overcalls' -Gleeok
@@ -3637,29 +3648,37 @@ void updatescr(bool allowwavy)
     if(!sbig && screen_scale > 1)
         sbig = true;
         
+    // (zc_view_h: 224 rows, or 232 for a newer quest that shows the playing field's bottom 8
+    // rows; drawn from row 8 of the 320 x 240 screen, they end at its bottom)
     const int sx = 256 * screen_scale;
-    const int sy = 224 * screen_scale;
+    const int sy = zc_view_h * screen_scale;
     const int scale_mul = screen_scale - 1;
     const int mx = scale_mul * 128;
-    const int my = scale_mul * 112;
-    
+    const int my = scale_mul * (zc_view_h / 2);
+
     if(sbig)
     {
         if(scanlines)
         {
+            if(scanlinesbmp && scanlinesbmp->h != sy)
+            {
+                destroy_bitmap(scanlinesbmp);
+                scanlinesbmp = NULL;
+            }
+
             if(!scanlinesbmp)
                 scanlinesbmp = create_bitmap_ex(8, sx, sy);
-                
-            stretch_blit(source, scanlinesbmp, 0, 0, 256, 224, 0, 0, sx, sy);
-            
-            for(int i=0; i<224; ++i)
+
+            stretch_blit(source, scanlinesbmp, 0, 0, 256, zc_view_h, 0, 0, sx, sy);
+
+            for(int i=0; i<zc_view_h; ++i)
                 _allegro_hline(scanlinesbmp, 0, (i*screen_scale)+1, sx, BLACK);
                 
             blit(scanlinesbmp, target, 0, 0, scrx+32-mx, scry+8-my, sx, sy);
         }
         else
         {
-            stretch_blit(source, target, 0, 0, 256, 224, scrx+32-mx, scry+8-my, sx, sy);
+            stretch_blit(source, target, 0, 0, 256, zc_view_h, scrx+32-mx, scry+8-my, sx, sy);
         }
         
         if(quakeclk>0)
@@ -3675,9 +3694,9 @@ void updatescr(bool allowwavy)
     }
     else
     {
-        blit(source,target,0,0,scrx+32,scry+8,256,224);
-        
-        if(quakeclk>0) rectfill(target,scrx+32,scry+8+224,scrx+32+256,scry+8+232,BLACK);
+        blit(source,target,0,0,scrx+32,scry+8,256,zc_view_h);
+
+        if(quakeclk>0) rectfill(target,scrx+32,scry+8+zc_view_h,scrx+32+256,scry+8+232,BLACK);
     }
     
     if(ShowFPS && (frame&1))
@@ -3752,12 +3771,12 @@ int onNonGUISnapshot()
     }
     while(num<99999 && exists(buf));
     
-    BITMAP *panorama = create_bitmap_ex(8,256,168);
-    
+    BITMAP *panorama = create_bitmap_ex(8,256,zc_field_h());    // the playing field's rows shown
+
     if(tmpscr->flags3&fNOSUBSCR)
     {
         clear_to_color(panorama,0);
-        blit(framebuf,panorama,0,playing_field_offset,0,0,256,168);
+        blit(framebuf,panorama,0,playing_field_offset,0,0,256,zc_field_h());
         save_bitmap(buf,panorama,realpal?temppal:RAMpal);
     }
     else
@@ -4716,7 +4735,7 @@ void advanceframe(bool allowwavy, bool sfxcleanup)
 void zapout()
 {
     set_clip_rect(scrollbuf, 0, 0, scrollbuf->w, scrollbuf->h);
-    blit(framebuf,scrollbuf,0,0,256,0,256,224);
+    blit(framebuf,scrollbuf,0,0,256,0,256,zc_view_h);
     
     script_drawing_commands.Clear();
     
@@ -4739,7 +4758,7 @@ void zapin()
     draw_screen(tmpscr);
     set_clip_rect(scrollbuf, 0, 0, scrollbuf->w, scrollbuf->h);
     put_passive_subscr(framebuf,&QMisc,0,passive_subscreen_offset,false,sspUP);
-    blit(framebuf,scrollbuf,0,0,256,0,256,224);
+    blit(framebuf,scrollbuf,0,0,256,0,256,zc_view_h);
     
     // zap out
     for(int i=24; i>=1; i--)
@@ -4761,9 +4780,9 @@ void wavyout(bool showlink)
     draw_screen(tmpscr, showlink);
     put_passive_subscr(framebuf,&QMisc,0,passive_subscreen_offset,false,sspUP);
     
-    BITMAP *wavebuf = create_bitmap_ex(8,288,224);
+    BITMAP *wavebuf = create_bitmap_ex(8,288,zc_view_h);
     clear_to_color(wavebuf,0);
-    blit(framebuf,wavebuf,0,0,16,0,256,224);
+    blit(framebuf,wavebuf,0,0,16,0,256,zc_view_h);
     
     PALETTE wavepal;
     
@@ -4773,7 +4792,7 @@ void wavyout(bool showlink)
     int wavelength=4;
     double palpos=0, palstep=4, palstop=126;
     
-    for(int i=0; i<168; i+=wavelength)
+    for(int i=0; i<zc_field_h(); i+=wavelength)   // (168 rows, 176 with the 232-row picture)
     {
         for(int l=0; l<256; l++)
         {
@@ -4793,7 +4812,7 @@ void wavyout(bool showlink)
             set_palette(RAMpal);
         }
         
-        for(int j=0; j+playing_field_offset<224; j++)
+        for(int j=0; j+playing_field_offset<zc_view_h; j++)
         {
             for(int k=0; k<256; k++)
             {
@@ -4801,7 +4820,7 @@ void wavyout(bool showlink)
                 
                 if((j<i)&&(j&1))
                 {
-                    ofs=int(sin((double(i+j)*2*PI/168.0))*amplitude);
+                    ofs=int(sin((double(i+j)*2*PI/zc_field_h()))*amplitude);
                 }
                 
                 framebuf->line[j+playing_field_offset][k]=wavebuf->line[j+playing_field_offset][k+ofs+16];
@@ -4824,9 +4843,9 @@ void wavyin()
     draw_screen(tmpscr);
     put_passive_subscr(framebuf,&QMisc,0,passive_subscreen_offset,false,sspUP);
     
-    BITMAP *wavebuf = create_bitmap_ex(8,288,224);
+    BITMAP *wavebuf = create_bitmap_ex(8,288,zc_view_h);
     clear_to_color(wavebuf,0);
-    blit(framebuf,wavebuf,0,0,16,0,256,224);
+    blit(framebuf,wavebuf,0,0,16,0,256,zc_view_h);
     
     PALETTE wavepal;
     
@@ -4841,9 +4860,9 @@ void wavyin()
     int ofs;
     int amplitude=8;
     int wavelength=4;
-    double palpos=168, palstep=4, palstop=126;
+    double palpos=zc_field_h(), palstep=4, palstop=126;
     
-    for(int i=0; i<168; i+=wavelength)
+    for(int i=0; i<zc_field_h(); i+=wavelength)   // (168 rows, 176 with the 232-row picture)
     {
         for(int l=0; l<256; l++)
         {
@@ -4863,15 +4882,15 @@ void wavyin()
             set_palette(RAMpal);
         }
         
-        for(int j=0; j+playing_field_offset<224; j++)
+        for(int j=0; j+playing_field_offset<zc_view_h; j++)
         {
             for(int k=0; k<256; k++)
             {
                 ofs=0;
                 
-                if((j<(167-i))&&(j&1))
+                if((j<(zc_field_h()-1-i))&&(j&1))
                 {
-                    ofs=int(sin((double(i+j)*2*PI/168.0))*amplitude);
+                    ofs=int(sin((double(i+j)*2*PI/zc_field_h()))*amplitude);
                 }
                 
                 framebuf->line[j+playing_field_offset][k]=wavebuf->line[j+playing_field_offset][k+ofs+16];
@@ -4943,8 +4962,8 @@ void openscreen()
         
         if(x>0)
         {
-            rectfill(framebuf,0,playing_field_offset,x,167+playing_field_offset,0);
-            rectfill(framebuf,256-x,playing_field_offset,255,167+playing_field_offset,0);
+            rectfill(framebuf,0,playing_field_offset,x,zc_field_h()-1+playing_field_offset,0);
+            rectfill(framebuf,256-x,playing_field_offset,255,zc_field_h()-1+playing_field_offset,0);
         }
         
         //    x=((80-i)/2)*4;

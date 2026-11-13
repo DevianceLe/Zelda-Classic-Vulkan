@@ -1,12 +1,13 @@
 // The 2.55 and 3.0 MAP (versions 18-41) and DMAP (versions 9-28) sections. See q255.h.
 //
+// Kept beside the screens: MAP v27+ guytile, guycs, roomflags (q30_set_screen_guy).
+//
 // Read and dropped, 2.53 has no home for them:
 // MAP v19+:  npcstrings[10], new_items[10], new_item_x[10], new_item_y[10] (100 bytes, unused by 2.55 too)
 // MAP v20+:  screen script number and its 8 InitD values
 // MAP v21+:  preloadscript
 // MAP v22+:  hidelayers, hidescriptlayers
 // MAP v25+:  FFCs past the 32 this engine has
-// MAP v27+:  guytile, guycs, roomflags
 // MAP v30+:  usr_notes
 // MAP v31+:  per-map scrolling region ids (8 x 8 bytes)
 // MAP v32+:  maze_transition_wipe
@@ -238,9 +239,16 @@ static byte screen_sfx(Q255Section &s, byte mapscr::*field)
     return 0;
 }
 
+// A screen's script and its InitD. Kept when either is set: scripts read a screen's InitD with
+// Screen->InitD whether the screen has a script or not (Mystical Harps names its places so).
 static void keep_screen_script(Q255Section &s, word script, const long *initd)
 {
-    if(s.keep && g_screen_index >= 0 && script > 0)
+    bool any = script > 0;
+
+    for(int i = 0; i < 8 && !any; ++i)
+        any = initd[i] != 0;
+
+    if(s.keep && g_screen_index >= 0 && any)
         zasm30_set_screen_script(g_screen_index, script, initd);
 }
 
@@ -564,7 +572,15 @@ static void read_screen_new(Q255Section &s, mapscr *t, int screen, const word *a
         t->guy = s.getc();
 
         if(s.version > 26)
-            s.skip(4 + 1 + 2);      // guytile, guycs, roomflags
+        {
+            // guytile, guycs, roomflags: kept beside the screen for loadguys (guys.cpp)
+            long guytile = s.igetl_s();
+            int guycs = s.getc();
+            int roomflags = s.igetw();
+
+            if(s.keep && g_screen_index >= 0)
+                q30_set_screen_guy(g_screen_index, guytile, guycs, roomflags);
+        }
 
         t->str = s.igetw();
         t->room = read_room(s.getc(), t);

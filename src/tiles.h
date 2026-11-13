@@ -73,6 +73,15 @@ void overblock8(BITMAP *dest,int tile,int x,int y,int csets[],int flip,int mask)
 int combo_tile(const newcombo &c, int x, int y);
 int combo_tile(int cmbdat, int x, int y);
 
+// The player sets this for 2.55/3.0 quests (zelda.cpp, at game start): their combos can be
+// "editor only" (animflags 0x20), which the game never draws, and "transparent" (0x08).
+// It stays false for 2.53 quests and in ZQuest, so those draw every combo as before.
+extern bool tiles_newer_combo_flags;
+#define TILES_AF_TRANSPARENT  0x08
+#define TILES_AF_EDITOR_ONLY  0x20
+bool combo_editor_only(int cmbdat);     // drawn in the editor only (always false unless the flag is set)
+bool combo_transparent(int cmbdat);     // drawn see-through on a layer (always false unless the flag is set)
+
 void putcombo(BITMAP* dest,int x,int y,int cmbdat,int cset);
 void oldputcombo(BITMAP* dest,int x,int y,int cmbdat,int cset);
 void overcombo(BITMAP* dest,int x,int y,int cmbdat,int cset);

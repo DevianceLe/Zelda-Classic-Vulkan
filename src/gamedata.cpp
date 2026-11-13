@@ -24,6 +24,19 @@ extern zinitdata zinit;
 extern void Z_eventlog(char *format,...);
 extern void ringcolor(bool forceDefault);
 
+#ifdef ZC_PLAYER_BUILD
+// 2.55/3.0 quests have counters up to 106 (upstream's 107); the ones past 2.53's 32 are kept in
+// q30_triggers.cpp (kind 0 the counter, 1 its maximum, 2 its drain counter). For 2.53 quests these
+// read 0 and keep nothing, as the checks below always did.
+long q30_hi_counter(gamedata *g, int c, int kind);
+void q30_set_hi_counter(gamedata *g, int c, int kind, long value);
+#define HI_COUNTER(c, kind) return (word)q30_hi_counter(this, c, kind)
+#define SET_HI_COUNTER(c, kind, v) q30_set_hi_counter(this, c, kind, v)
+#else
+#define HI_COUNTER(c, kind) return 0
+#define SET_HI_COUNTER(c, kind, v)
+#endif
+
 // Debug variables: these log certain operations on gamedata when active.
 // Should help me debug those item bugs.
 
@@ -175,7 +188,7 @@ void gamedata::change_quest(short q)
 word gamedata::get_counter(byte c)
 {
     if(c>=32)  // Sanity check
-        return 0;
+        HI_COUNTER(c, 0);
         
     return _counter[c];
 }
@@ -187,7 +200,10 @@ void gamedata::set_counter(word change, byte c)
 #endif
     
     if(c>=32)  // Sanity check
+    {
+        SET_HI_COUNTER(c, 0, change);
         return;
+    }
         
     if(game!=NULL)
     {
@@ -211,7 +227,10 @@ void gamedata::change_counter(short change, byte c)
 #endif
     
     if(c>=32)  // Sanity check
+    {
+        SET_HI_COUNTER(c, 0, vbound((int)get_counter(c)+change, 0, (int)get_maxcounter(c)));
         return;
+    }
         
     if(game!=NULL)
     {
@@ -230,7 +249,7 @@ void gamedata::change_counter(short change, byte c)
 word gamedata::get_maxcounter(byte c)
 {
     if(c>=32)  // Sanity check
-        return 0;
+        HI_COUNTER(c, 1);
         
     return _maxcounter[c];
 }
@@ -250,7 +269,10 @@ void gamedata::set_maxcounter(word change, byte c)
     }
     
     if(c>=32)  // Sanity check
+    {
+        SET_HI_COUNTER(c, 1, change);
         return;
+    }
         
     _maxcounter[c]=change;
     return;
@@ -269,7 +291,10 @@ void gamedata::change_maxcounter(short change, byte c)
     }
     
     if(c>=32)  // Sanity check
+    {
+        SET_HI_COUNTER(c, 1, zc_max(0, (int)get_maxcounter(c)+change));
         return;
+    }
         
     _maxcounter[c]=zc_max(0, _maxcounter[c]+change);
     return;
@@ -278,7 +303,12 @@ void gamedata::change_maxcounter(short change, byte c)
 short gamedata::get_dcounter(byte c)
 {
     if(c>=32)  // Sanity check
+    {
+#ifdef ZC_PLAYER_BUILD
+        return (short)q30_hi_counter(this, c, 2);
+#endif
         return 0;
+    }
         
     return _dcounter[c];
 }
@@ -293,7 +323,10 @@ void gamedata::set_dcounter(short change, byte c)
 #endif
         
     if(c>=32)  // Sanity check
+    {
+        SET_HI_COUNTER(c, 2, change);
         return;
+    }
         
     if(game!=NULL)
     {
@@ -318,7 +351,10 @@ void gamedata::change_dcounter(short change, byte c)
 #endif
     
     if(c>=32)  // Sanity check
+    {
+        SET_HI_COUNTER(c, 2, (short)(get_dcounter(c)+change));
         return;
+    }
         
     if(game!=NULL)
     {

@@ -1718,6 +1718,161 @@ void states_sync()
     }
 }
 
+// ---- counters past 2.53's 32 ---------------------------------------------------------------
+// 2.55/3.0 quests have 107 counters (upstream's MAX_COUNTERS). gamedata keeps 32; for newer
+// quests the rest live in one more extra array at the end of the game's globalRAM, like the
+// states above, so saves and continues carry them with no change to the save format. Layout:
+// magic, then the 75 counters, their maximums and their drain counters. 2.53 quests never get it.
+const long Q30_CTR_MAGIC = 0x5133304B;  // "Q30K"
+enum { Q30_HI_CTRS = Q30_MAX_COUNTERS - 32, Q30_CTR_ARRAY = 1 + 3 * Q30_HI_CTRS };
+
+ZScriptArray *hi_counter_array(gamedata *g, bool create)
+{
+    for(size_t i = g->globalRAM.size(); i > 0; --i)
+    {
+        ZScriptArray &a = g->globalRAM[i - 1];
+
+        if(a.Size() == Q30_CTR_ARRAY && a[0] == Q30_CTR_MAGIC)
+            return &a;
+    }
+
+    if(!create)
+        return NULL;
+
+    g->globalRAM.resize(g->globalRAM.size() + 1);
+    ZScriptArray &a = g->globalRAM.back();
+    a.Resize(Q30_CTR_ARRAY);
+    a[0] = Q30_CTR_MAGIC;
+
+    for(dword i = 1; i < Q30_CTR_ARRAY; ++i)
+        a[i] = 0;
+
+    return &a;
+}
+
+} // namespace
+
+// kind: 0 the counter, 1 its maximum, 2 its drain counter. 0 for older quests and other numbers.
+long q30_hi_counter(gamedata *g, int c, int kind)
+{
+    if(!g || quest_header_zelda_version < 0x255 || c < 32 || c >= Q30_MAX_COUNTERS)
+        return 0;
+
+    ZScriptArray *a = hi_counter_array(g, false);
+    return a ? (*a)[(dword)(1 + kind * Q30_HI_CTRS + (c - 32))] : 0;
+}
+
+void q30_set_hi_counter(gamedata *g, int c, int kind, long value)
+{
+    if(!g || quest_header_zelda_version < 0x255 || c < 32 || c >= Q30_MAX_COUNTERS)
+        return;
+
+    ZScriptArray *a = hi_counter_array(g, value != 0);
+
+    if(a)
+        (*a)[(dword)(1 + kind * Q30_HI_CTRS + (c - 32))] = value;
+}
+
+// init_game remakes globalRAM after resetItems has set a new game's counters: these keep them.
+std::vector<long> q30_take_hi_counters(bool firstplay)
+{
+    std::vector<long> v;
+    ZScriptArray *a = (firstplay && game) ? hi_counter_array(game, false) : NULL;
+
+    if(a)
+        for(dword i = 0; i < a->Size(); ++i)
+            v.push_back((*a)[i]);
+
+    return v;
+}
+
+void q30_put_hi_counters(const std::vector<long> &v)
+{
+    if(!game || v.size() != Q30_CTR_ARRAY)
+        return;
+
+    ZScriptArray *a = hi_counter_array(game, true);
+
+    for(dword i = 0; i < Q30_CTR_ARRAY; ++i)
+        (*a)[i] = v[i];
+}
+
+// Items 256 and up that Link owns (upstream's game->item[] past 2.53's 256): one entry per item
+// in another array at the end of globalRAM, so the save keeps them as it keeps the counters.
+const long Q30_ITEMS_MAGIC = 0x51333049;    // "Q30I"
+enum { Q30_ITEM_ARRAY = 1 + (Q30_MAX_ITEMS - MAXITEMS) };
+
+static ZScriptArray *hi_item_array(gamedata *g, bool create)
+{
+    for(size_t i = g->globalRAM.size(); i > 0; --i)
+    {
+        ZScriptArray &a = g->globalRAM[i - 1];
+
+        if(a.Size() == Q30_ITEM_ARRAY && a[0] == Q30_ITEMS_MAGIC)
+            return &a;
+    }
+
+    if(!create)
+        return NULL;
+
+    g->globalRAM.resize(g->globalRAM.size() + 1);
+    ZScriptArray &a = g->globalRAM.back();
+    a.Resize(Q30_ITEM_ARRAY);
+    a[0] = Q30_ITEMS_MAGIC;
+
+    for(dword i = 1; i < Q30_ITEM_ARRAY; ++i)
+        a[i] = 0;
+
+    return &a;
+}
+
+bool q30_high_item_owned(int id)
+{
+    if(!game || quest_header_zelda_version < 0x255 || id < MAXITEMS || id >= Q30_MAX_ITEMS)
+        return false;
+
+    ZScriptArray *a = hi_item_array(game, false);
+    return a && (*a)[(dword)(1 + id - MAXITEMS)] != 0;
+}
+
+void q30_set_high_item_owned(int id, bool owned)
+{
+    if(!game || quest_header_zelda_version < 0x255 || id < MAXITEMS || id >= Q30_MAX_ITEMS)
+        return;
+
+    ZScriptArray *a = hi_item_array(game, owned);
+
+    if(a)
+        (*a)[(dword)(1 + id - MAXITEMS)] = owned ? 1 : 0;
+}
+
+// As the counters (q30_take_hi_counters): a new game's, set before globalRAM is remade.
+std::vector<long> q30_take_hi_items(bool firstplay)
+{
+    std::vector<long> v;
+    ZScriptArray *a = (firstplay && game) ? hi_item_array(game, false) : NULL;
+
+    if(a)
+        for(dword i = 0; i < a->Size(); ++i)
+            v.push_back((*a)[i]);
+
+    return v;
+}
+
+void q30_put_hi_items(const std::vector<long> &v)
+{
+    if(!game || v.size() != Q30_ITEM_ARRAY)
+        return;
+
+    ZScriptArray *a = hi_item_array(game, true);
+
+    for(dword i = 0; i < Q30_ITEM_ARRAY; ++i)
+        (*a)[i] = v[i];
+}
+
+namespace
+{
+
 int cur_mi()
 {
     return (currmap * MAPSCRSNORMAL) + homescr;
@@ -2022,11 +2177,12 @@ int trig_counter(const Q30Trigger &t)
     return (int)cost;
 }
 
+// (upstream has 107 counters; gamedata keeps the ones past 2.53's 32 for newer quests)
 int ctr_value(int ctr, bool *inf)
 {
     *inf = false;
 
-    if(ctr < 0 || ctr >= 32)
+    if(ctr < 0 || ctr >= Q30_MAX_COUNTERS)
         return 0;
 
     if(ctr == 2 && current_item_power(itype_bombbag))
@@ -2041,12 +2197,12 @@ int ctr_value(int ctr, bool *inf)
 
 int ctr_max(int ctr)
 {
-    return (ctr < 0 || ctr >= 32) ? 0 : game->get_maxcounter((byte)ctr);
+    return (ctr < 0 || ctr >= Q30_MAX_COUNTERS) ? 0 : game->get_maxcounter((byte)ctr);
 }
 
 void ctr_modify(int ctr, int amount, bool gradual)
 {
-    if(ctr < 0 || ctr >= 32)
+    if(ctr < 0 || ctr >= Q30_MAX_COUNTERS)
         return;
 
     if(gradual)
@@ -9016,7 +9172,10 @@ void q30_draw_darkness(BITMAP *dest)
     void q30_script_lights(BITMAP *mask);   // q30_scripts_light.h: lights scripts drew, sprite glow
     q30_script_lights(g_dark_mask);
 
+    // script drawing under and over the darkness (upstream draw_darkroom)
+    q30_draw_script_layer(dest, Q30_SPLAYER_DARKROOM_UNDER);
     q30_darkness_draw(dest, g_dark_mask, playing_field_offset, &tmpscr[0]);
+    q30_draw_script_layer(dest, Q30_SPLAYER_DARKROOM_OVER);
 }
 
 // The lighting code still darkens the palette for an fDARK screen; new dark rooms
@@ -11235,6 +11394,71 @@ bool q30_compat_rule(int id)
 }
 
 extern int q255_header_build;
+extern int q255_header_version[3];
+
+// Upstream's compat_qr_hide_bottom_pixels (core/qst.cpp): a quest saved before 2.55.9 that has a
+// scripted active subscreen, or a script setting one of the values that mean "the old bottom of
+// the screen", keeps the bottom 8 rows hidden.
+static bool compat_hide_bottom_pixels()
+{
+    const int *v = q255_header_version;
+
+    if(v[0] > 2 || (v[0] == 2 && (v[1] > 55 || (v[1] == 55 && v[2] >= 9))))
+        return false;
+
+    for(int i = 0; i < MAXDMAPS; ++i)
+    {
+        const Q30ScriptRef *r = q30_dmap_script(i, q30_dmap_active_subscreen);
+
+        if(r && r->script > 0 && r->script < 256 && q30_dmap_scripts[r->script])
+            return true;
+    }
+
+    if(!strcmp(QHeader.title, "Yuurand: Tales of the Labyrinth"))
+        return true;
+
+    extern ffscript *zasm30_stream;
+    std::vector<ffscript *> all;
+    all.push_back(zasm30_stream);
+    for(int i = 0; i < 512; ++i) all.push_back(ffscripts[i]);
+    for(int i = 0; i < 256; ++i) { all.push_back(itemscripts[i]); all.push_back(guyscripts[i]); all.push_back(wpnscripts[i]); all.push_back(screenscripts[i]); }
+    for(int i = 0; i < NUMSCRIPTGLOBAL; ++i) all.push_back(globalscripts[i]);
+    for(int i = 0; i < 3; ++i) all.push_back(linkscripts[i]);
+    for(int i = 0; i < Q30_GLOBAL_SLOTS; ++i) all.push_back(q30_global_scripts[i]);
+    for(int i = 0; i < Q30_HERO_SLOTS; ++i) all.push_back(q30_hero_scripts[i]);
+    for(int i = 0; i < 256; ++i)
+    {
+        all.push_back(q30_lwpn_scripts[i]); all.push_back(q30_ewpn_scripts[i]); all.push_back(q30_dmap_scripts[i]);
+        all.push_back(q30_itemsprite_scripts[i]); all.push_back(q30_subscreen_scripts[i]);
+    }
+    for(int i = 0; i < 512; ++i) { all.push_back(q30_combo_scripts[i]); all.push_back(q30_generic_scripts[i]); }
+
+    for(size_t s = 0; s < all.size(); ++s)
+        for(int pc = 0; all[s] && pc < 20000000 && all[s][pc].command != 0xFFFF; ++pc)
+        {
+            const word c = all[s][pc].command;
+
+            if(c != SETV && c != PUSHV)
+                continue;
+
+            const long value = all[s][pc].arg2;
+
+            if(value == 167000000 || value == 168000000 || value == 167870000 || value == 167910000 || value == 168130000)
+                return true;
+        }
+
+    return false;
+}
+
+bool q30_show_bottom_8px()
+{
+    enum { QR_HIDE_BOTTOM_8_PIXELS = 482 };
+
+    if(quest_header_zelda_version < 0x255)
+        return false;
+
+    return !q30_quest_rule(QR_HIDE_BOTTOM_8_PIXELS) && !compat_hide_bottom_pixels();
+}
 extern int q255_combo_section_version;
 
 // Slashing a ->Next combo (upstream's check_slash_block). 2.55 build 50 stopped those

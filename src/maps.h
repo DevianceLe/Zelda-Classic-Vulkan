@@ -73,6 +73,29 @@ void do_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, int tempscreen
 void put_walkflags(BITMAP *dest,int x,int y,int xofs,int yofs, word cmbdat,int lyr);
 void do_walkflags(BITMAP *dest,mapscr* layer,int x, int y, int tempscreen);
 void do_primitives(BITMAP *bmp, int type, mapscr *layer, int x, int y);
+
+// Script drawing layers 2.55/3.0 quests have and 2.53 hasn't: the special sprite layers
+// (upstream SPLAYER_*, the values ZScript passes) and the negative layers -7..-1.
+enum
+{
+    Q30_SPLAYER_PLAYER_DRAW = -200000, Q30_SPLAYER_EWEAP_BEHIND_DRAW, Q30_SPLAYER_EWEAP_FRONT_DRAW,
+    Q30_SPLAYER_LWEAP_BEHIND_DRAW, Q30_SPLAYER_LWEAP_FRONT_DRAW, Q30_SPLAYER_LWEAP_ABOVE_DRAW,
+    Q30_SPLAYER_CHAINLINK_DRAW, Q30_SPLAYER_NPC_DRAW, Q30_SPLAYER_NPC_ABOVEPLAYER_DRAW,
+    Q30_SPLAYER_NPC_AIRBORNE_DRAW, Q30_SPLAYER_ITEMSPRITE_DRAW, Q30_SPLAYER_FAIRYITEM_DRAW,
+    Q30_SPLAYER_PUSHBLOCK, Q30_SPLAYER_MOVINGBLOCK, Q30_SPLAYER_OVERHEAD_CMB, Q30_SPLAYER_OVERHEAD_FFC,
+    Q30_SPLAYER_DARKROOM_UNDER, Q30_SPLAYER_DARKROOM_OVER, Q30_SPLAYER_FFC_DRAW,
+    Q30_SPLAYER_LENS_UNDER_1, Q30_SPLAYER_LENS_UNDER_2, Q30_SPLAYER_LENS_OVER,
+    Q30_SPLAYER_UNDER_PLAYER_DRAW, Q30_SPLAYER_OVER_LIFT_WEAPON, Q30_SPLAYER_OVER_PROMPT_COMBO,
+    Q30_SPLAYER_SPRITE_TARGET_UNDER, Q30_SPLAYER_SPRITE_TARGET_OVER
+};
+
+// Draws what scripts queued on one of those layers, at the point upstream draws it, through a
+// scrolling region's camera while one applies. Does nothing for 2.53 quests.
+void q30_draw_script_layer(BITMAP *bmp, int layer);
+// Newer quests without upstream's qr_OLD_LAYER_DRAW_ORDER: layers -7..-1 are drawn, and
+// background layer 2 goes over background layer 3. False for 2.53 quests.
+bool q30_new_layer_draw_order();
+
 void draw_screen(mapscr* this_screen, bool showlink=true);
 /*
   INLINE void do_scrolling_layer(int type, mapscr* layer, int x, int y, bool scrolling, int tempscreen)

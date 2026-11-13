@@ -31,12 +31,14 @@ bool particle::animate(int index)
     return true;
 }
 
+extern int q30_draw_cam_x, q30_draw_cam_y;    // sprite.cpp: a 3.0 scrolling region's camera, 0 otherwise
+
 void particle::draw(BITMAP *dest)
 {
     int tcs=cset;
     tcs &= 15;
     tcs <<= CSET_SHFT;
-    putpixel(dest, x, y+yofs, tcs+color);
+    putpixel(dest, x-q30_draw_cam_x, y+yofs-q30_draw_cam_y, tcs+color);
 }
 
 particle::particle(fix X,fix Y,int L,int CS,int C) : sprite()

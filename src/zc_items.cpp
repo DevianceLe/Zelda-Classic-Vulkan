@@ -56,16 +56,26 @@ bool can_drop(fix x, fix y)
 
 int select_dropitem(int item_set, int x, int y)
 {
+    // A newer quest's combo or script can name any dropset, and its sets can hold item ids past
+    // this engine's items: those draw nothing. (2.53 data is always in range: unchanged.)
+    if(item_set < 0 || item_set >= MAXITEMDROPSETS)
+        return -1;
+
     int total_chance=0;
-    
+
     for(int k=0; k<11; ++k)
     {
         int current_chance=item_drop_sets[item_set].chance[k];
-        
+
         if(k>0)
         {
             int current_item=item_drop_sets[item_set].item[k-1];
-            
+
+            if(current_item < 0 || current_item >= MAXITEMS)
+            {
+                continue;   // (adds no chance)
+            }
+
             if((!get_bit(quest_rules,qr_ENABLEMAGIC)||(game->get_maxmagic()<=0))&&(itemsbuf[current_item].family == itype_magic))
             {
                 current_chance=0;
@@ -92,7 +102,12 @@ int select_dropitem(int item_set, int x, int y)
     
         int current_chance=item_drop_sets[item_set].chance[k];
         int current_item=(k==0 ? -1 : item_drop_sets[item_set].item[k-1]);
-        
+
+        if(current_item >= MAXITEMS)
+        {
+            current_chance=0;   // (as the first loop: never drawn)
+        }
+
         if((!get_bit(quest_rules,qr_ENABLEMAGIC)||(game->get_maxmagic()<=0))&&(current_item>=0&&itemsbuf[current_item].family == itype_magic))
         {
             current_chance=0;
@@ -118,7 +133,7 @@ int select_dropitem(int item_set, int x, int y)
     {
         for(int j=0; j<items.Count(); ++j)
         {
-            if((itemsbuf[items.spr(j)->id].family==itype_fairy)&&((abs(items.spr(j)->x-x)<32)||(abs(items.spr(j)->y-y)<32)))
+            if(items.spr(j)->id >= 0 && items.spr(j)->id < MAXITEMS && (itemsbuf[items.spr(j)->id].family==itype_fairy)&&((abs(items.spr(j)->x-x)<32)||(abs(items.spr(j)->y-y)<32)))
             {
                 drop_item=-1;
                 break;

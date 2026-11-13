@@ -136,7 +136,8 @@ const Q30ScriptRef *q30_item_sprite_script(int item);
 void q30_set_item_weapon_script(int item, word script, const long *initd);
 const Q30ScriptRef *q30_item_weapon_script(int item);
 
-// The stages of a frame a generic script can wait for (upstream's scr_timing).
+// The stages of a frame a generic script can wait for (upstream's scr_timing; scripts pass these
+// numbers to WaitTo, so PRE_DRAW must keep its place even where nothing else uses it).
 enum
 {
     Z30T_START_FRAME, Z30T_POST_COMBO_ANIM, Z30T_POST_POLL_INPUT, Z30T_POST_FFCS, Z30T_POST_GLOBAL_ACTIVE,
@@ -147,7 +148,9 @@ enum
     Z30T_POST_COLLISIONS_PALETTECYCLE, Z30T_WAITDRAW, Z30T_POST_GLOBAL_WAITDRAW, Z30T_POST_PLAYER_WAITDRAW,
     Z30T_POST_DMAPDATA_ACTIVE_WAITDRAW, Z30T_POST_DMAPDATA_PASSIVESUBSCREEN_WAITDRAW, Z30T_POST_SCREEN_WAITDRAW,
     Z30T_POST_FFC_WAITDRAW, Z30T_POST_COMBO_WAITDRAW, Z30T_POST_ITEM_WAITDRAW, Z30T_POST_NPC_WAITDRAW,
-    Z30T_POST_EWPN_WAITDRAW, Z30T_POST_LWPN_WAITDRAW, Z30T_POST_ITEMSPRITE_WAITDRAW, Z30T_POST_DRAW,
+    Z30T_POST_EWPN_WAITDRAW, Z30T_POST_LWPN_WAITDRAW, Z30T_POST_ITEMSPRITE_WAITDRAW,
+    // upstream's SCR_TIMING_PRE_DRAW (35): scripts pass these as numbers, so the order must match
+    Z30T_PRE_DRAW, Z30T_POST_DRAW,
     Z30T_POST_STRINGS, Z30T_END_FRAME, Z30T_INIT
 };
 
@@ -188,6 +191,8 @@ void q30_sprite_destroyed(long uid);
 // Game loop stages for 2.55+ quests (zelda.cpp). All do nothing for older quests.
 bool q30_scripts_active();
 void q30_gen_timing(int timing);    // Runs generic scripts waiting for this frame stage.
+void q30_gen_frame_end();           // The last frame's stages after POST_DRAW, if they haven't run.
+void q30_scroll_generic(int timing);    // The same, in a frame of the scrolling loop (generic scripts only).
 void q30_frame_stage(int stage);    // Named stages of game_loop, below.
 void q30_run_hero_active();
 void q30_run_dmap_active();

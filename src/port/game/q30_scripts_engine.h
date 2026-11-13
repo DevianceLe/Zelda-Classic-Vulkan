@@ -196,12 +196,145 @@ void q30_generic_event(int event)
 
         if(g.event_state & (1 << event))
         {
+            if(zasm30_trace_on)
+                al_trace("q30: generic event %d wakes generic script %d (frame %d)\n", event, q, frame);
+
             Zasm30Instance *in = zasm30_instance(SCRIPT_GENERIC, q);
             in->ri.d[2] = event * 10000;
             g.waitevent = false;
             zasm30_run(SCRIPT_GENERIC, q, q);
         }
     }
+}
+
+// Game->EventData while a generic script event is being thrown (upstream's FFCore.eventData).
+static std::vector<long> zasm30_event_data;
+
+// A running generic script is waiting in WaitEvent() for this event.
+bool q30_generic_listening(int event)
+{
+    if(!zasm30_ffscript_version)
+        return false;
+
+    for(int q = 1; q <= zasm30_max_generic; ++q)
+    {
+        const Zasm30Generic &g = zasm30_generic[q];
+
+        if(g.run && q30_generic_scripts[q] && g.waitevent && (g.event_state & (1 << event)))
+            return true;
+    }
+
+    return false;
+}
+
+// Throws a generic script event (upstream's throwGenScriptEvent) with its Game->EventData, which
+// the scripts it wakes may change: the changed values come back in `data`. The engine can throw
+// one while a script runs, so the running script's state is put back afterwards.
+void q30_throw_generic_event(int event, long *data, int count)
+{
+    if(!zasm30_ffscript_version || !zasm30_max_generic)
+        return;
+
+    if(!q30_generic_listening(event))
+        return;
+
+    std::vector<long> outer_data;
+    outer_data.swap(zasm30_event_data);
+    zasm30_event_data.assign(data, data + count);
+
+    refInfo *saved_ri = ri;
+    ffscript *saved_curscript = curscript;
+    long (*saved_stack)[ZSCRIPT_STACK_ALLOC] = stack;
+    Zasm30Frame *saved_frame = zasm30_cur_frame;
+    Zasm30Instance *saved_inst = zasm30_cur_inst;
+    long *saved_sp = zasm30_wide_sp;
+    long saved_limit = zasm30_stack_limit;
+    long saved_arg1 = sarg1, saved_arg2 = sarg2;
+    byte saved_type = curScriptType;
+    word saved_num = curScriptNum;
+    long saved_key = zasm30_run_key;
+
+    q30_generic_event(event);
+
+    ri = saved_ri;
+    curscript = saved_curscript;
+    stack = saved_stack;
+    zasm30_cur_frame = saved_frame;
+    zasm30_cur_inst = saved_inst;
+    zasm30_wide_sp = saved_sp;
+    zasm30_stack_limit = saved_limit;
+    sarg1 = saved_arg1;
+    sarg2 = saved_arg2;
+    curScriptType = saved_type;
+    curScriptNum = saved_num;
+    zasm30_run_key = saved_key;
+
+    for(int n = 0; n < count && n < (int)zasm30_event_data.size(); ++n)
+        data[n] = zasm30_event_data[n];
+
+    zasm30_event_data.swap(outer_data);
+}
+
+// The same for an event with no data (INIT, CONTINUE, the screen and DMap changes...).
+void q30_throw_generic_event(int event)
+{
+    q30_throw_generic_event(event, NULL, 0);
+}
+
+// A running generic script whose exit state has this bit stops; else one whose reload state has
+// it starts over (upstream's timeExitAllGenscript).
+void q30_generic_time_exit(int state)
+{
+    if(!zasm30_ffscript_version)
+        return;
+
+    for(int q = 1; q <= zasm30_max_generic; ++q)
+    {
+        Zasm30Generic &g = zasm30_generic[q];
+
+        if(!g.run)
+            continue;
+
+        if(g.exit_state & (1 << state))
+            zasm30_generic_quit(q);
+        else if(g.reload_state & (1 << state))
+            zasm30_generic_launch(q);
+    }
+}
+
+// loadscr for the screen being played: before it loads (loaded false), a DMap or level change
+// since the last one ends or restarts the generic scripts set to and throws CHANGE_DMAP and
+// CHANGE_LEVEL, then the same for CHANGE_SCREEN; once it has loaded, CHANGE_SCREEN is thrown.
+// Upstream does the DMap and level part where it warps or scrolls to another DMap.
+static int zasm30_event_dmap = -1, zasm30_event_level = -1;
+
+void q30_screen_change_events(bool loaded)
+{
+    if(!zasm30_ffscript_version)
+        return;
+
+    if(loaded)
+    {
+        q30_throw_generic_event(Z30EV_CHANGE_SCREEN);
+        return;
+    }
+
+    const bool dmap = currdmap != zasm30_event_dmap, level = dlevel != zasm30_event_level;
+
+    if(dmap)
+        q30_generic_time_exit(Z30ST_CHANGE_DMAP);
+    if(level)
+        q30_generic_time_exit(Z30ST_CHANGE_LEVEL);
+
+    zasm30_event_dmap = currdmap;
+    zasm30_event_level = dlevel;
+
+    if(dmap)
+        q30_throw_generic_event(Z30EV_CHANGE_DMAP);
+    if(level)
+        q30_throw_generic_event(Z30EV_CHANGE_LEVEL);
+
+    q30_generic_time_exit(Z30ST_CHANGE_SCREEN);
 }
 
 static void zasm30_generic_passive(int timing)
@@ -370,9 +503,12 @@ static void zasm30_init_type(byte type, Zasm30Instance *in)
     case SCRIPT_GENERIC:
     case SCRIPT_GENERICFROZEN:
     {
+        // `this` and the genericdata reference are the slot itself, as LOADGENERICDATA sets it
+        // (upstream's genericdataref = script); slot * 10000 made this->Data[] and
+        // this->EventListen[] miss the slot.
         word slot = in->script;
-        in->frame.refs[Z30REF_GENERICDATA] = slot * 10000;
-        in->frame.inst[0] = slot * 10000;
+        in->frame.refs[Z30REF_GENERICDATA] = slot;
+        in->frame.inst[0] = slot;
         if(slot < Q30_GENERIC_SLOTS)
             memcpy(in->ri.d, zasm30_generic[slot].initd, sizeof(zasm30_generic[slot].initd));
         break;
@@ -488,6 +624,8 @@ void q30_sprite_destroyed(long uid)
 
     for(int i = 0; i < 4; ++i)
         zasm30_drop_instance(kinds[i], uid);
+
+    zasm30_sprite_released(uid);    // the objects it owned (sprite->OwnObject)
 }
 
 static int zasm30_run(byte type, word script, long key, bool)
@@ -1110,18 +1248,56 @@ void q30_run_ffc_waitdraw()
 
 void q30_run_screen_waitdraw() {}
 
+// The second half of a hero, DMap or passive subscreen script that called Waitdraw.
+static void zasm30_run_waitdraw_half(byte type, word script, long key)
+{
+    std::map<std::pair<int,long>, Zasm30Instance*>::iterator it = zasm30_instances.find(std::make_pair((int)type, key));
+
+    if(!script || it == zasm30_instances.end() || !it->second->waitdraw || !it->second->doscript)
+        return;
+
+    it->second->waitdraw = false;
+    zasm30_run(type, script, key);
+}
+
+// Runs after the global script's Waitdraw half, with the generic timing at POST_PLAYER_WAITDRAW.
+// Each script group runs its Waitdraw half, then the generic scripts waiting for the point that
+// follows it, in upstream's order (zc/zelda.cpp game_loop). This used to run the WAITDRAW point
+// here, which walked the generic timing all the way round to the next frame's WAITDRAW first, so
+// every generic script ran twice a frame.
 void q30_run_waitdraw_scripts()
 {
     if(!zasm30_ffscript_version)
         return;
 
-    zasm30_generic_passive(Z30T_WAITDRAW);
+    if(q30_hero_scripts[2] && q30_hero_scripts[2][0].command != 0xFFFF)
+        zasm30_run_waitdraw_half(SCRIPT_LINK, 2, 2);
+    zasm30_generic_passive(Z30T_POST_PLAYER_WAITDRAW);
+
+    const Q30ScriptRef *dmap = q30_dmap_script(currdmap, q30_dmap_active);
+    if(dmap)
+        zasm30_run_waitdraw_half(SCRIPT_DMAP, dmap->script, 0);
+    zasm30_generic_passive(Z30T_POST_DMAPDATA_ACTIVE_WAITDRAW);
+
+    const Q30ScriptRef *passive = q30_dmap_script(currdmap, q30_dmap_passive_subscreen);
+    if(passive)
+        zasm30_run_waitdraw_half(SCRIPT_PASSIVESUB, passive->script, 0);
+    zasm30_generic_passive(Z30T_POST_DMAPDATA_PASSIVESUBSCREEN_WAITDRAW);
+
+    q30_run_screen_waitdraw();
+    zasm30_generic_passive(Z30T_POST_SCREEN_WAITDRAW);
     q30_run_ffc_waitdraw();
+    zasm30_generic_passive(Z30T_POST_FFC_WAITDRAW);
     q30_run_combo_scripts(true);
+    zasm30_generic_passive(Z30T_POST_COMBO_WAITDRAW);
     zasm30_item_engine(true);
+    zasm30_generic_passive(Z30T_POST_ITEM_WAITDRAW);
     q30_run_npc_scripts(true);
+    zasm30_generic_passive(Z30T_POST_NPC_WAITDRAW);
     q30_run_eweapon_scripts(true);
+    zasm30_generic_passive(Z30T_POST_EWPN_WAITDRAW);
     q30_run_lweapon_scripts(true);
+    zasm30_generic_passive(Z30T_POST_LWPN_WAITDRAW);
     q30_run_itemsprite_scripts(true);
     zasm30_generic_passive(Z30T_POST_ITEMSPRITE_WAITDRAW);
 }
@@ -1137,6 +1313,10 @@ void q30_run_onlaunch()
 
 void q30_run_continue()
 {
+    // upstream cont_game: generic scripts set to end or restart on a continue do, then CONTINUE
+    q30_generic_time_exit(Z30ST_CONTINUE);
+    q30_throw_generic_event(Z30EV_CONTINUE);
+
     if(zasm30_ffscript_version)
         zasm30_items_init();
 
@@ -1165,18 +1345,17 @@ void q30_gen_timing(int timing)
         zasm30_frame_start();
         z30_scrdata_savetest();
         zasm30_subdump_tick();
-    }
 
-    if(timing == Z30T_POST_POLL_INPUT)
-    {
-        zasm30_update_input();
-
-        // with the frame's other script drawing: game_loop keeps it while a message freezes the game
+        // with the frame's other script drawing, which game_loop now clears just before this stage
+        // (upstream), and keeps while a message freezes the game
         const bool freezemsg = (msg_active || (intropos && intropos < 72) || (linkedmsgclk && get_bit(quest_rules, qr_MSGDISAPPEAR)))
                                && get_bit(quest_rules, qr_MSGFREEZE);
         if(!freezemsg)
             z30_clear_script_lights();
     }
+
+    if(timing == Z30T_POST_POLL_INPUT)
+        zasm30_update_input();
 
     zasm30_generic_passive(timing);
 
@@ -1190,6 +1369,25 @@ void q30_gen_timing(int timing)
 bool q30_scripts_active()
 {
     return zasm30_ffscript_version != 0;
+}
+
+// The last frame's remaining generic stages (POST_STRINGS, END_FRAME), run before the next frame
+// clears the script drawing, as upstream runs them at the end of its frame. Nothing if they ran.
+void q30_gen_frame_end()
+{
+    if(!zasm30_ffscript_version || zasm30_genscript_timing == Z30T_START_FRAME)
+        return;
+
+    zasm30_generic_passive(Z30T_END_FRAME);
+}
+
+// The scrolling loop (LinkClass::scrollscr) runs no game_loop, but upstream keeps the generic
+// scripts going through it (run_generic_scrolling, run_scrolling_script): each frame they run
+// every stage up to this one.
+void q30_scroll_generic(int timing)
+{
+    if(zasm30_ffscript_version)
+        zasm30_generic_passive(timing);
 }
 
 static void z30_reset_script_objects();
@@ -1219,6 +1417,12 @@ void q30_game_init(bool first)
     zasm30_count_generic();
     zasm30_genscript_timing = Z30T_START_FRAME;
 
+    if(getenv("ZC_Q30_TRACE"))     // which generic scripts start, and what ends them or wakes them
+        for(int q = 1; q <= zasm30_max_generic; ++q)
+            if(q30_generic_scripts[q])
+                al_trace("q30: generic slot %d: run %d exit %04x reload %04x events %08lx\n", q, (int)zasm30_generic[q].run,
+                         (unsigned)zasm30_generic[q].exit_state, (unsigned)zasm30_generic[q].reload_state, (unsigned long)zasm30_generic[q].event_state);
+
     for(int q = 1; q < Q30_GENERIC_SLOTS; ++q)
     {
         if(zasm30_generic[q].loaded)
@@ -1232,8 +1436,13 @@ void q30_game_init(bool first)
         }
     }
 
-    // Each generic that starts running does so at the game's start.
+    // A loaded game: generic scripts set to end or restart on a reload do (upstream init_game).
+    if(!first)
+        q30_generic_time_exit(Z30ST_RELOAD);
+
+    // Each generic that starts running does so at the game's start, then gets the INIT event.
     zasm30_generic_passive(Z30T_INIT);
+    q30_throw_generic_event(Z30EV_INIT);
 }
 
 #endif

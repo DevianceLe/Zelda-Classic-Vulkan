@@ -232,6 +232,12 @@ extern int draw_screen_clip_rect_x2;
 extern int draw_screen_clip_rect_y1;
 extern int draw_screen_clip_rect_y2;
 
+// The game picture's height: 224 rows, or 232 for a 2.55/3.0 quest that shows the playing
+// field's bottom 8 rows (upstream's show_bottom_8px). framebuf and temp_buf are made this tall.
+extern int zc_view_h;
+inline int zc_field_h() { return zc_view_h-56; }   // the playing field rows shown: 168 or 176
+void zc_set_view_height(int h);
+
 /*
 extern tiledata *newtilebuf, *grabtilebuf;
 extern newcombo *combobuf;
@@ -348,9 +354,16 @@ extern SAMPLE customsfxdata[WAV_COUNT];
 extern int sfxdat;
 
 #define MAX_ZCARRAY_SIZE	4096
+// Arrays and class member arrays that a 3.0 quest's scripts make live in the slots from
+// Z30_HEAP_FIRST up, past the global-array pointers (MAX_ZCARRAY_SIZE + n). Their pointers
+// (slot * 10000) are numbers scripts don't otherwise use, so the 3.0 array collector
+// (ffscript.cpp zasm30_collect) can't take a counter or a coordinate for one. 2.53 and 2.55
+// scripts only ever use the slots below MAX_ZCARRAY_SIZE.
+#define Z30_HEAP_FIRST		100000
+#define Z30_LOCALRAM_SIZE	214748     // slot * 10000 must still fit in a long
 typedef ZCArray<long> ZScriptArray;
-extern ZScriptArray localRAM[MAX_ZCARRAY_SIZE];
-extern byte arrayOwner[MAX_ZCARRAY_SIZE];
+extern ZScriptArray localRAM[Z30_LOCALRAM_SIZE];
+extern byte arrayOwner[Z30_LOCALRAM_SIZE];
 
 dword getNumGlobalArrays();
 

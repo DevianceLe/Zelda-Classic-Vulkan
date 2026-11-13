@@ -29,6 +29,7 @@ FFScript FFCore;
 #include "port/game/q30_scripts.h"
 #include "port/game/q30_regions.h"
 #include "port/game/q30_scripts_defs.h"
+#include "port/game/q30_triggers.h"   // generic script events (ffscript_engine)
 
 extern word quest_header_zelda_version; //2.53 ONLY. In 2.55, we have an array for this in FFCore! -Z
 extern word quest_header_zelda_build; //2.53 ONLY. In 2.55, we have an array for this in FFCore! -Z
@@ -1960,8 +1961,11 @@ struct Zasm30Frame
     long inst[256];
     long refs[Z30REF_COUNT];
     std::vector<long> wstack;   // the deep stack, for 2.55+ scripts
+    // Screen->DrawOrigin and DrawOriginTarget: upstream keeps them per script (raw DRAW_ORIGIN_*
+    // and a sprite uid); set back to DEFAULT when the script starts.
+    long draw_origin, draw_origin_target;
 
-    Zasm30Frame() { sp = 0; thiskey = thiskey2 = switchkey = 0; waitframes = 0; memset(inst, 0, sizeof(inst)); memset(refs, 0, sizeof(refs)); }
+    Zasm30Frame() { sp = 0; thiskey = thiskey2 = switchkey = 0; waitframes = 0; draw_origin = draw_origin_target = 0; memset(inst, 0, sizeof(inst)); memset(refs, 0, sizeof(refs)); }
 };
 
 // Everything one running script owns, for the script types 2.53 has no storage for.
@@ -2013,12 +2017,43 @@ static bool zasm30_command(word cmd);
 static void zasm30_log_once(const char *kind, long id);
 static bool zasm30_family_get(const long arg, long &ret);
 static bool zasm30_family_set(const long arg, const long value);
+void zasm30_capture_draw_origin(int j);    // q30_scripts_cmds.h: a queued command's Screen->DrawOrigin
 long zasm30_ffscript_version = 0; // the quest's script format version (0 for a 2.53 quest)
 static refInfo zasm30_screen_ri;
 static bool zasm30_screen_done = true;
 static long zasm30_screen_stack[ZSCRIPT_STACK_ALLOC];
-static std::vector<std::vector<long> > zasm30_objects;
-static bool zasm30_gc_array[MAX_ZCARRAY_SIZE];
+// Class objects (ZCLASS_CONSTRUCT). A script holds an object as Z30_OBJECT_BASE + its index,
+// a number scripts don't otherwise use, so the collector can't take a counter for one.
+// From ZScript version 25 upstream counts references and frees an object nobody holds;
+// here zasm30_collect frees the ones it can't reach, except those a living sprite owns
+// (sprite->OwnObject), a script owns (OwnObject) or that were made global (GlobalObject).
+// Objects of older quests are never freed, as before.
+enum { Z30_OWN_NONE, Z30_OWN_SPRITE, Z30_OWN_SCRIPT, Z30_OWN_GLOBAL };
+#define Z30_OBJECT_BASE 300000001L
+
+struct Zasm30Object
+{
+    std::vector<long> data;
+    long owner;     // the owning sprite's uid (Z30_OWN_SPRITE)
+    byte own;
+    bool live;
+
+    Zasm30Object() : owner(0), own(Z30_OWN_NONE), live(false) {}
+};
+
+static std::vector<Zasm30Object> zasm30_objects;
+static std::deque<long> zasm30_free_objects;   // freed indices, reused oldest first
+static bool zasm30_gc_array[Z30_LOCALRAM_SIZE];
+
+static Zasm30Object *zasm30_object(long id)
+{
+    const long n = id - Z30_OBJECT_BASE;
+
+    if(n < 0 || n >= (long)zasm30_objects.size() || !zasm30_objects[n].live)
+        return NULL;
+
+    return &zasm30_objects[n];
+}
 
 // The script instance (a 2.55 quest's npc, weapon, item sprite, item, DMap, generic... script)
 // that made each local array, or NULL. Upstream frees the arrays a script owns when its sprite
@@ -2028,12 +2063,12 @@ static bool zasm30_gc_array[MAX_ZCARRAY_SIZE];
 // script, after which every allocation fails and its global script loops on errors).
 // FFC scripts keep 2.53's rule (their arrays go with the screen), arrays a 3.0 script made are
 // left to zasm30_collect, and 2.53 quests run no instances, so this stays NULL for them.
-static Zasm30Instance *zasm30_array_inst[MAX_ZCARRAY_SIZE];
+static Zasm30Instance *zasm30_array_inst[Z30_LOCALRAM_SIZE];
 
 // 3.0 scripts can have empty arrays (a class's `Layer list[0];`, later grown by ArrayPush or
 // ResizeArray), which upstream marks valid. A local array slot of size 0 is free in 2.53's
 // scheme, so the empty ones of newer quests are marked here. 2.53 quests never set it.
-bool zasm30_empty_array[MAX_ZCARRAY_SIZE];
+bool zasm30_empty_array[Z30_LOCALRAM_SIZE];
 
 static void zasm30_free_instance_arrays(const Zasm30Instance *in)
 {
@@ -2155,6 +2190,7 @@ static void zasm30_begin(long inits)
 
 // Quest load: forget what the previous 3.0 quest left behind.
 static void zasm30_drop_all_state();
+void zasm30_clear_heap();
 void q30_sprite_destroyed(long uid);
 extern void (*q30_sprite_destroy_hook)(long);
 
@@ -2166,8 +2202,7 @@ void zasm30_reset()
     zasm30_stream = NULL;
     zasm30_literals.clear();
     zasm30_inst_inits.clear();
-    zasm30_objects.clear();
-    memset(zasm30_gc_array, 0, sizeof(zasm30_gc_array));
+    zasm30_clear_heap();
     memset(zasm30_extra_gd, 0, sizeof(zasm30_extra_gd));
 }
 
@@ -2245,12 +2280,50 @@ static bool zasm30_array_live(long p)
     return localRAM[p].Size() != 0 || zasm30_empty_array[p];
 }
 
+// ---- the 3.0 heap: arrays a 3.0 quest's scripts make (slots Z30_HEAP_FIRST and up) ----------
+static long zasm30_heap_next = Z30_HEAP_FIRST;   // where the search for a free slot goes on from
+
+static bool zasm30_heap_slot(long p)
+{
+    return p >= Z30_HEAP_FIRST && p < Z30_LOCALRAM_SIZE;
+}
+
+// A free heap slot, or 0 when every one is in use. The search goes round the heap, so a slot
+// that was just freed is the last one to be given out again.
+static long zasm30_heap_find()
+{
+    for(long n = Z30_HEAP_FIRST; n < Z30_LOCALRAM_SIZE; ++n)
+    {
+        const long p = zasm30_heap_next;
+
+        if(++zasm30_heap_next >= Z30_LOCALRAM_SIZE)
+            zasm30_heap_next = Z30_HEAP_FIRST;
+
+        if(!zasm30_array_live(p))
+            return p;
+    }
+
+    return 0;
+}
+
+static void zasm30_free_array(long p)
+{
+    localRAM[p].Clear();
+    zasm30_empty_array[p] = false;
+    arrayOwner[p] = 255;
+    zasm30_gc_array[p] = false;
+    zasm30_array_inst[p] = NULL;
+}
+
+// A new heap array of `size` zeros, which only the collector frees; 0 when the heap is full.
 static long zasm30_new_array(long size)
 {
-    dword ptrval;
-    for(ptrval = 1; ptrval < MAX_ZCARRAY_SIZE && zasm30_array_live(ptrval); ptrval++) ;
+    if(size < 0)
+        return 0;
 
-    if(ptrval >= MAX_ZCARRAY_SIZE || size < 0)
+    const long ptrval = zasm30_heap_find();
+
+    if(!ptrval)
         return 0;
 
     ZScriptArray &a = localRAM[ptrval];
@@ -2260,7 +2333,22 @@ static long zasm30_new_array(long size)
     zasm30_empty_array[ptrval] = size == 0;
     arrayOwner[ptrval] = 255;
     zasm30_array_inst[ptrval] = NULL;
+    zasm30_gc_array[ptrval] = true;
     return ptrval * 10000;
+}
+
+// A new game or quest: every heap array and class object goes.
+void zasm30_clear_heap()
+{
+    for(long p = 1; p < Z30_LOCALRAM_SIZE; ++p)
+    {
+        if(p < MAX_ZCARRAY_SIZE ? zasm30_gc_array[p] : zasm30_array_live(p))
+            zasm30_free_array(p);
+    }
+
+    zasm30_heap_next = Z30_HEAP_FIRST;
+    zasm30_objects.clear();
+    zasm30_free_objects.clear();
 }
 
 void clear_ffc_stack(const byte i)
@@ -2871,6 +2959,15 @@ public:
         if(ptr <= 0)
             return InvalidError(ptr);
             
+        // an array a 3.0 script made (zasm30_new_array); 2.53 and 2.55 scripts never have one
+        if(ptr >= Z30_HEAP_FIRST && ptr < Z30_LOCALRAM_SIZE)
+        {
+            if(localRAM[ptr].Size() == 0 && !zasm30_empty_array[ptr])
+                return InvalidError(ptr);
+
+            return localRAM[ptr];
+        }
+            
         if(ptr >= MAX_ZCARRAY_SIZE) //Then it's a global
         {
             dword gptr = ptr - MAX_ZCARRAY_SIZE;
@@ -3089,6 +3186,18 @@ public:
 // Called when leaving a screen; deallocate arrays created by FFCs that aren't carried over
 void deallocateArray(const long ptrval)
 {
+    // A heap array of a 3.0 quest (zasm30_new_array). Scripts compiled before upstream's
+    // reference counting (ZScript version 28) free each local array at the end of its scope.
+    if(zasm30_ffscript_version && zasm30_heap_slot(ptrval))
+    {
+        if(zasm30_array_live(ptrval))
+            zasm30_free_array(ptrval);
+        else
+            Z_scripterrlog("Script tried to deallocate memory that was not allocated at address %ld\n", ptrval);
+
+        return;
+    }
+
     if(ptrval<=0 || ptrval >= MAX_ZCARRAY_SIZE)
         Z_scripterrlog("Script tried to deallocate memory at invalid address %ld\n", ptrval);
     else
@@ -3428,7 +3537,10 @@ long get_register(const long arg)
         break;
         
     case LINKITEMD:
-        ret = game->item[vbound(ri->d[0]/10000, 0, MAXITEMS-1)] ? 10000 : 0;
+        if(zasm30_ffscript_version && ri->d[0]/10000 >= MAXITEMS)     // 2.55/3.0: items 256 and up
+            ret = q30_high_item_owned(ri->d[0]/10000) ? 10000 : 0;
+        else
+            ret = game->item[vbound(ri->d[0]/10000, 0, MAXITEMS-1)] ? 10000 : 0;
         break;
         
     case LINKEQUIP:
@@ -3937,39 +4049,39 @@ long get_register(const long arg)
 ///----------------------------------------------------------------------------------------------------//
 //Itemdata Variables
     case IDATAFAMILY:
-        ret=(itemsbuf[ri->idata].family)*10000;
+        ret=(Q30_IDATA(ri->idata).family)*10000;
         break;
         
     case IDATALEVEL:
-        ret=(itemsbuf[ri->idata].fam_type)*10000;
+        ret=(Q30_IDATA(ri->idata).fam_type)*10000;
         break;
         
     case IDATAKEEP:
-        ret=(itemsbuf[ri->idata].flags & ITEM_GAMEDATA)?10000:0;
+        ret=(Q30_IDATA(ri->idata).flags & ITEM_GAMEDATA)?10000:0;
         break;
         
     case IDATAAMOUNT:
-        ret=(itemsbuf[ri->idata].amount)*10000;
+        ret=(Q30_IDATA(ri->idata).amount)*10000;
         break;
         
     case IDATASETMAX:
-        ret=(itemsbuf[ri->idata].setmax)*10000;
+        ret=(Q30_IDATA(ri->idata).setmax)*10000;
         break;
         
     case IDATAMAX:
-        ret=(itemsbuf[ri->idata].max)*10000;
+        ret=(Q30_IDATA(ri->idata).max)*10000;
         break;
         
     case IDATACOUNTER:
-        ret=(itemsbuf[ri->idata].count)*10000;
+        ret=(Q30_IDATA(ri->idata).count)*10000;
         break;
         
     case IDATAUSESOUND:
-        ret=(itemsbuf[ri->idata].usesound)*10000;
+        ret=(Q30_IDATA(ri->idata).usesound)*10000;
         break;
         
     case IDATAPOWER:
-        ret=(itemsbuf[ri->idata].power)*10000;
+        ret=(Q30_IDATA(ri->idata).power)*10000;
         break;
         
     case IDATAINITDD:
@@ -3979,7 +4091,7 @@ long get_register(const long arg)
         if(BC::checkBounds(a, 0, 7, "itemdata->InitD") != SH::_NoError)
             ret = -10000;
         else
-            ret = itemsbuf[ri->idata].initiald[a];
+            ret = Q30_IDATA(ri->idata).initiald[a];
     }
     break;
     
@@ -5127,8 +5239,11 @@ else \
         ret = zasm30_ffscript_version >= 26 ? 0x7FF00000L + ri->ffcref : ri->ffcref * 10000;
         break;
         
+    // A failed Load/Create leaves LONG_MAX here. A 3.0 script gets 0 (NULL) instead, as upstream
+    // sets it, so `if(w)` sees the failure; 2.53 and 2.55 scripts keep the old value.
     case REFITEM:
         ret = ri->itemref;
+        if(ret == LONG_MAX && zasm30_stream && curscript == zasm30_stream) ret = 0;
         break;
         
     case REFITEMCLASS:
@@ -5137,14 +5252,17 @@ else \
         
     case REFLWPN:
         ret = ri->lwpn;
+        if(ret == LONG_MAX && zasm30_stream && curscript == zasm30_stream) ret = 0;
         break;
         
     case REFEWPN:
         ret = ri->ewpn;
+        if(ret == LONG_MAX && zasm30_stream && curscript == zasm30_stream) ret = 0;
         break;
         
     case REFNPC:
         ret = ri->guyref;
+        if(ret == LONG_MAX && zasm30_stream && curscript == zasm30_stream) ret = 0;
         break;
         
     case SP:
@@ -5293,6 +5411,13 @@ void set_register(const long arg, const long value)
         
     case FFFLAGSD:
 	if(BC::checkFFC(ri->ffcref, "ffc->Flags") != SH::_NoError) break;
+        static const bool q30_trace_flags = getenv("ZC_Q30_TRACE") != NULL;
+        if(zasm30_ffscript_version && q30_trace_flags)
+        {
+            static std::set<int> seen;  // each FFC and flag once
+            if(seen.insert(ri->ffcref * 64 + (ri->d[0] / 10000)).second)
+                al_trace("q30: ffc %d Flags[%ld] = %ld (screen %d)\n", ri->ffcref + 1, ri->d[0] / 10000, value / 10000, currscr);
+        }
         value ? tmpscr->ffflags[ri->ffcref] |=   1<<((ri->d[0])/10000)
                 : tmpscr->ffflags[ri->ffcref] &= ~(1<<((ri->d[0])/10000));
         break;
@@ -5392,6 +5517,11 @@ void set_register(const long arg, const long value)
         break;
         
     case LINKITEMD:
+        if(zasm30_ffscript_version && ri->d[0]/10000 >= MAXITEMS)     // 2.55/3.0: items 256 and up
+        {
+            q30_set_high_item_owned(ri->d[0]/10000, value != 0);
+            break;
+        }
         {
            int itemID=vbound(ri->d[0]/10000,0,MAXITEMS-1);
             
@@ -5977,41 +6107,41 @@ void set_register(const long arg, const long value)
 ///----------------------------------------------------------------------------------------------------//
 //Itemdata Variables
     case IDATAFAMILY:
-        (itemsbuf[ri->idata].family)=value/10000;
+        (Q30_IDATA(ri->idata).family)=value/10000;
         flushItemCache();
         break;
         
     case IDATALEVEL:
-        (itemsbuf[ri->idata].fam_type)=value/10000;
+        (Q30_IDATA(ri->idata).fam_type)=value/10000;
         flushItemCache();
         break;
         
     case IDATAKEEP:
-        (itemsbuf[ri->idata].flags)|=(value/10000)?ITEM_GAMEDATA:0;
+        (Q30_IDATA(ri->idata).flags)|=(value/10000)?ITEM_GAMEDATA:0;
         break;
         
     case IDATAAMOUNT:
-        (itemsbuf[ri->idata].amount)=value/10000;
+        (Q30_IDATA(ri->idata).amount)=value/10000;
         break;
         
     case IDATASETMAX:
-        (itemsbuf[ri->idata].setmax)=value/10000;
+        (Q30_IDATA(ri->idata).setmax)=value/10000;
         break;
         
     case IDATAMAX:
-        (itemsbuf[ri->idata].max)=value/10000;
+        (Q30_IDATA(ri->idata).max)=value/10000;
         break;
         
     case IDATAPOWER:
-        (itemsbuf[ri->idata].power)=value/10000;
+        (Q30_IDATA(ri->idata).power)=value/10000;
         break;
         
     case IDATACOUNTER:
-        (itemsbuf[ri->idata].count)=value/10000;
+        (Q30_IDATA(ri->idata).count)=value/10000;
         break;
         
     case IDATAUSESOUND:
-        (itemsbuf[ri->idata].usesound)=value/10000;
+        (Q30_IDATA(ri->idata).usesound)=value/10000;
         break;
         
     case IDATAINITDD:
@@ -6019,7 +6149,7 @@ void set_register(const long arg, const long value)
         int a = ri->d[0] / 10000;
         
         if(BC::checkBounds(a, 0, 7, "itemdata->InitD") == SH::_NoError)
-            itemsbuf[ri->idata].initiald[a] = value;
+            Q30_IDATA(ri->idata).initiald[a] = value;
     }
     break;
     
@@ -7249,7 +7379,7 @@ case COMBODDM:
         break;
         
     case REFITEMCLASS:
-        ri->idata = value;
+        ri->idata = zasm30_ffscript_version ? (word)value : (byte)value;  // (2.53: a byte, as before)
         break;
         
     case REFLWPN:
@@ -8236,6 +8366,13 @@ void do_loaditemdata(const bool v)
 {
     long ID = SH::get_arg(sarg1, v) / 10000;
     
+    // 2.55/3.0 quests: items 256 and up are in their own table (q30_high_item)
+    if(zasm30_ffscript_version && ID >= MAXITEMS && ID < Q30_MAX_ITEMS && q30_high_item((int)ID))
+    {
+        ri->idata = (word)ID;
+        return;
+    }
+
     //I *think* this is the right check ~Joe
     if(BC::checkItemID(ID, "Game->LoadItemData") != SH::_NoError)
         return;
@@ -8513,6 +8650,8 @@ void do_drawing_command(const int script_command)
     }
     break;
     }
+
+    zasm30_capture_draw_origin(j);  // 2.55/3.0 scripts only (does nothing for 2.53 quests)
 }
 
 void do_set_rendertarget(bool)
@@ -8556,7 +8695,18 @@ void do_enh_music(bool v)
         ArrayH::getString(arrayptr, filename_str, 256);
         strncpy(filename_char, filename_str.c_str(), 255);
         filename_char[255]='\0';
-        ret=try_zcmusic(filename_char, track, -1000);
+
+        // A 2.55/3.0 quest looks for the file the way upstream does (the quest's
+        // "music" and "<quest>_music" folders too) and plays it at the enhanced
+        // music volume. 2.53 quests keep the old exe-then-quest folder search.
+        bool q30_active();
+        bool q30_play_enhanced(const char *filename, int track);
+
+        if(q30_active())
+            ret=q30_play_enhanced(filename_char, track);
+        else
+            ret=try_zcmusic(filename_char, track, -1000);
+
         set_register(sarg2, ret ? 10000 : 0);
     }
 }
@@ -9183,21 +9333,43 @@ static void zasm255_sprintf(long num_args)
         ri->d[2] = (long)output.size() * 10000L;
 }
 
-// 3.0 scripts create arrays freely and never free them: upstream counts references.
-// This engine finds the live ones when it needs room, by following every value a
-// running script can reach that could be an array pointer. A false match only keeps
-// an array a little longer. Only arrays a 3.0 script made are ever freed here.
-static bool zasm30_gc_marked[MAX_ZCARRAY_SIZE];
+// 3.0 scripts create arrays and class objects freely and never free them: upstream counts
+// references. This engine finds the live ones when it needs room, by following every value
+// that could be a heap array pointer or an object id: what running scripts hold, the globals,
+// sprites' Misc[] and the engine's other script storage, and from there every array and object
+// those reach. Whatever that leaves is freed. A false match only keeps an array a little
+// longer. Only arrays and objects a 3.0 script made are ever freed here.
+static bool zasm30_gc_marked[Z30_LOCALRAM_SIZE];
+static std::vector<bool> zasm30_obj_marked;
 static long zasm30_allocs_since_collect = 0;
+static bool zasm30_mark_bitmap(long v);     // q30_scripts_cmds.h: bitmaps a script made
+static void zasm30_sweep_bitmaps(bool sweep);
 
+// `work` gets each newly reached array slot, and each object as -(index + 1).
 static void zasm30_mark(long v, std::vector<long> &work)
 {
-    if(v == 0 || v % 10000)
+    if(v >= Z30_OBJECT_BASE && v < Z30_OBJECT_BASE + (long)zasm30_obj_marked.size())
+    {
+        const long n = v - Z30_OBJECT_BASE;
+
+        if(zasm30_objects[n].live && !zasm30_obj_marked[n])
+        {
+            zasm30_obj_marked[n] = true;
+            work.push_back(-(n + 1));
+        }
+
+        return;
+    }
+
+    if(zasm30_mark_bitmap(v))
+        return;
+
+    if(v <= 0 || v % 10000)
         return;
 
     long p = v / 10000;
 
-    if(p <= 0 || p >= MAX_ZCARRAY_SIZE || zasm30_gc_marked[p] || !zasm30_array_live(p))
+    if(!(p < MAX_ZCARRAY_SIZE || zasm30_heap_slot(p)) || zasm30_gc_marked[p] || !zasm30_array_live(p))
         return;
 
     zasm30_gc_marked[p] = true;
@@ -9232,23 +9404,36 @@ static void zasm30_mark_script(const refInfo &r, const long *stack_base, const Z
     for(size_t s = 0; s < frame.saved_vargs.size(); ++s)
         for(size_t n = 0; n < frame.saved_vargs[s].size(); ++n)
             zasm30_mark(frame.saved_vargs[s][n], work);
+
+    // a class function's `this`, and the objects (bitmaps...) its registers refer to
+    zasm30_mark(frame.thiskey, work);
+    zasm30_mark(frame.thiskey2, work);
+
+    for(int n = 0; n < Z30REF_COUNT; ++n)
+        zasm30_mark(frame.refs[n], work);
 }
 
 static void zasm30_mark_stacks(std::vector<long> &work);
+static void zasm30_mark_engine(std::vector<long> &work);   // q30_scripts_cmds.h
+static long zasm30_own_sprite_uid(long type);              // q30_scripts_cmds.h
 
 static void zasm30_collect()
 {
     memset(zasm30_gc_marked, 0, sizeof(zasm30_gc_marked));
+    zasm30_obj_marked.assign(zasm30_objects.size(), false);
+    zasm30_sweep_bitmaps(false);    // clears the marks
     std::vector<long> work;
 
     zasm30_mark_script(globalScriptData, global_stack, zasm30_frames[33], work);
     zasm30_mark_script(zasm30_screen_ri, zasm30_screen_stack, zasm30_frames[34], work);
+    zasm30_mark_script(itemScriptData, item_stack, zasm30_frames[32], work);
 
     for(std::map<std::pair<int,long>, Zasm30Instance*>::iterator it = zasm30_instances.begin(); it != zasm30_instances.end(); ++it)
         zasm30_mark_script(it->second->ri, NULL, it->second->frame, work);
 
-    if(ri == &itemScriptData)
-        zasm30_mark_script(itemScriptData, item_stack, zasm30_frames[32], work);
+    // scripts that ended their own instance while a script was running (zasm30_retire_instance)
+    for(size_t n = 0; n < zasm30_retired.size(); ++n)
+        zasm30_mark_script(zasm30_retired[n]->ri, NULL, zasm30_retired[n]->frame, work);
 
     for(int i = 0; i < 32; ++i)
     {
@@ -9257,6 +9442,9 @@ static void zasm30_collect()
 
         for(int n = 0; n < 16; ++n)
             zasm30_mark(ffmisc[i][n], work);
+
+        for(int n = 0; n < 8; ++n)
+            zasm30_mark(tmpscr->initd[i][n], work);
     }
 
     for(int n = 0; n < 256; ++n)
@@ -9265,54 +9453,168 @@ static void zasm30_collect()
     for(int n = 0; n < ZASM30_GD_LAST - 255; ++n)
         zasm30_mark(zasm30_extra_gd[n], work);
 
+    // Objects of quests from before reference counting (ZScript version 25) live for good.
+    // From then on only owned and global objects are roots; the rest live while reached.
+    const bool counted = zasm30_ffscript_version >= 25;
+
     for(size_t n = 0; n < zasm30_objects.size(); ++n)
-        for(size_t m = 0; m < zasm30_objects[n].size(); ++m)
-            zasm30_mark(zasm30_objects[n][m], work);
+        if(zasm30_objects[n].live && (!counted || zasm30_objects[n].own != Z30_OWN_NONE))
+            zasm30_mark(Z30_OBJECT_BASE + (long)n, work);
 
     for(size_t n = 0; n < game->globalRAM.size(); ++n)
         for(dword m = 0; m < game->globalRAM[n].Size(); ++m)
             zasm30_mark(game->globalRAM[n][m], work);
 
+    // Screen->D[]
+    for(int n = 0; n < MAXDMAPS * MAPSCRSNORMAL; ++n)
+        for(int m = 0; m < 8; ++m)
+            if(game->screen_d[n][m])
+                zasm30_mark(game->screen_d[n][m], work);
+
     zasm30_mark_stacks(work);
+    zasm30_mark_engine(work);
 
     while(!work.empty())
     {
         long p = work.back();
         work.pop_back();
+
+        if(p < 0)
+        {
+            const std::vector<long> &data = zasm30_objects[-p - 1].data;
+
+            for(size_t m = 0; m < data.size(); ++m)
+                zasm30_mark(data[m], work);
+
+            continue;
+        }
+
         ZScriptArray &a = localRAM[p];
 
         for(dword m = 0; m < a.Size(); ++m)
             zasm30_mark(a[m], work);
     }
 
-    for(long p = 1; p < MAX_ZCARRAY_SIZE; ++p)
+    for(long p = 1; p < Z30_LOCALRAM_SIZE; ++p)
     {
+        if(p == MAX_ZCARRAY_SIZE)
+            p = Z30_HEAP_FIRST;
+
         if(zasm30_gc_array[p] && !zasm30_gc_marked[p] && zasm30_array_live(p))
+            zasm30_free_array(p);
+    }
+
+    for(size_t n = 0; n < zasm30_objects.size(); ++n)
+    {
+        Zasm30Object &o = zasm30_objects[n];
+
+        if(o.live && !zasm30_obj_marked[n])
         {
-            localRAM[p].Clear();
-            zasm30_empty_array[p] = false;
-            arrayOwner[p] = 255;
-            zasm30_gc_array[p] = false;
-            zasm30_array_inst[p] = NULL;
+            o.live = false;
+            o.own = Z30_OWN_NONE;
+            o.owner = 0;
+            std::vector<long>().swap(o.data);
+            zasm30_free_objects.push_back((long)n);
         }
     }
+
+    // From version 25 a bitmap nothing refers to goes too, as upstream's reference counting
+    // frees it (ParallaxLayer makes two for every layer of every screen it shows).
+    zasm30_sweep_bitmaps(counted);
+    zasm30_allocs_since_collect = 0;
 }
 
-// Which array a 3.0 script just made is recorded, so only those can be collected.
-static void zasm30_allocate(bool v)
+// Collects after every 1000 arrays or objects made. Only called at the start of a command that
+// makes one, when nothing but the scripts' own registers and stacks holds a new one.
+static void zasm30_collect_if_due()
 {
     if(++zasm30_allocs_since_collect >= 1000)
-    {
-        zasm30_allocs_since_collect = 0;
         zasm30_collect();
+}
+
+// A new heap array, collecting once first if the heap is full; 0 if it stays full.
+static long zasm30_new_array_or_collect(long size)
+{
+    long ptr = zasm30_new_array(size);
+
+    if(!ptr && size >= 0)
+    {
+        zasm30_collect();
+        ptr = zasm30_new_array(size);
+
+        if(!ptr)
+            Z_scripterrlog("%d local arrays already in use, no more can be allocated\n", Z30_LOCALRAM_SIZE - Z30_HEAP_FIRST);
     }
 
-    do_allocatemem(v, true, 255);
+    return ptr;
+}
 
-    long p = get_register(sarg1) / 10000;
+// ALLOCATEMEMR/V from a 3.0 script: a heap array, which only the collector frees. From ZScript
+// version 28 (upstream's gc_arrays) an empty array is valid.
+static void zasm30_allocate(bool v)
+{
+    const long size = SH::get_arg(sarg2, v) / 10000;
 
-    if(p > 0 && p < MAX_ZCARRAY_SIZE)
-        zasm30_gc_array[p] = true;
+    zasm30_collect_if_due();
+
+    if(size < 0 || (size == 0 && zasm30_ffscript_version < 28))
+    {
+        Z_scripterrlog("Array initialized to invalid size of %d\n", size);
+        set_register(sarg1, 0);
+        return;
+    }
+
+    set_register(sarg1, zasm30_new_array_or_collect(size));
+}
+
+// ZCLASS_CONSTRUCT: a new object of `layout[0]` fields, then one heap array per further entry
+// of the layout (its member arrays, of those sizes). Returns its id.
+static long zasm30_construct(const std::vector<long> &layout)
+{
+    zasm30_collect_if_due();
+
+    long n;
+
+    if(!zasm30_free_objects.empty())
+    {
+        n = zasm30_free_objects.front();
+        zasm30_free_objects.pop_front();
+    }
+    else
+    {
+        n = (long)zasm30_objects.size();
+        zasm30_objects.push_back(Zasm30Object());
+    }
+
+    Zasm30Object &o = zasm30_objects[n];
+    o.live = true;
+    o.owner = 0;
+    o.own = Z30_OWN_GLOBAL;     // nothing holds it yet: a collection for its arrays must keep it
+    o.data.assign((size_t)vbound(layout[0], 0, 214748), 0);
+
+    for(size_t k = 1; k < layout.size(); ++k)
+        o.data.push_back(zasm30_new_array_or_collect(layout[k]));
+
+    o.own = Z30_OWN_NONE;
+    return Z30_OBJECT_BASE + n;
+}
+
+// A sprite that owned objects (sprite->OwnObject) is gone: they live on only while reached.
+void zasm30_sprite_released(long uid)
+{
+    if(zasm30_objects.empty())
+        return;
+
+    for(size_t n = 0; n < zasm30_objects.size(); ++n)
+    {
+        Zasm30Object &o = zasm30_objects[n];
+
+        if(o.live && o.own == Z30_OWN_SPRITE && o.owner == uid)
+        {
+            o.own = Z30_OWN_NONE;
+            o.owner = 0;
+        }
+    }
 }
 
 static void zasm30_resize_array(ZScriptArray &a, long size)
@@ -9328,7 +9630,7 @@ static void zasm30_resize_array(ZScriptArray &a, long size)
         a[n] = n < (long)keep.size() ? keep[n] : 0;
 
     // a local array shrunk to nothing stays allocated (3.0 keeps empty arrays valid)
-    if(&a >= &localRAM[1] && &a < &localRAM[0] + MAX_ZCARRAY_SIZE)
+    if(&a >= &localRAM[1] && &a < &localRAM[0] + Z30_LOCALRAM_SIZE)
         zasm30_empty_array[&a - &localRAM[0]] = size == 0;
 }
 
@@ -9435,7 +9737,7 @@ int run_script(const byte type, const word script, const byte i)
         zasm30_cur_frame = &zasm30_frames[32];
         ri->Clear(); //Only runs for one frame so we just zero it out
         
-        curscript = itemscripts[script];
+        curscript = script < NUMSCRIPTITEM ? itemscripts[script] : NULL;
         stack = &item_stack;
         memset(stack, 0, sizeof(*stack)); //zero here too
         
@@ -9507,6 +9809,14 @@ int run_script(const byte type, const word script, const byte i)
         break;
     }
     
+    // A newer quest can name a script slot that holds nothing (an item's collect script past
+    // the item scripts it has, say); there is nothing to run then.
+    if(!curscript)
+    {
+        zasm30_log_once("run of a script slot with no script, type", type);
+        return 0;
+    }
+
     // Read once: a getenv on every script run took longer than many of the scripts.
     static const bool zasm30_trace_env = getenv("ZC_Q30_TRACE") != NULL;
 
@@ -9544,6 +9854,9 @@ int run_script(const byte type, const word script, const byte i)
         zasm30_cur_inst->initialized = true;
         zasm30_init_type(type, zasm30_cur_inst);
     }
+
+    if(zasm30_first_run)    // a script starting draws from the default origin again
+        zasm30_frame().draw_origin = zasm30_frame().draw_origin_target = 0;
 
     zasm30_setup_frame(type);
 
@@ -10690,6 +11003,7 @@ int run_script(const byte type, const word script, const byte i)
             string *str = script_drawing_commands.GetString();
             ArrayH::getString(script_drawing_commands[j][8] / 10000, *str);
             script_drawing_commands[j].SetString(str);
+            zasm30_capture_draw_origin(j);
             break;
         }
 
@@ -11196,14 +11510,7 @@ int run_script(const byte type, const word script, const byte i)
             if(it == zasm30_literals.end() || it->second.vec.empty())
                 break;
 
-            const std::vector<long> &layout = it->second.vec;
-            std::vector<long> data((size_t)layout[0], 0);
-
-            for(size_t n = 1; n < layout.size(); ++n)
-                data.push_back(zasm30_new_array(layout[n]));
-
-            zasm30_objects.push_back(data);
-            long id = (long)zasm30_objects.size();
+            long id = zasm30_construct(it->second.vec);
             set_register(sarg1, id);
             zasm30_frame().thiskey = id;
             break;
@@ -11211,10 +11518,10 @@ int run_script(const byte type, const word script, const byte i)
 
         case ZASM30_ZCLASS_READ:
         {
-            long id = get_register(sarg1);
+            Zasm30Object *o = zasm30_object(get_register(sarg1));
 
-            if(id > 0 && id <= (long)zasm30_objects.size() && sarg2 >= 0 && sarg2 < (long)zasm30_objects[id - 1].size())
-                ri->d[2] = zasm30_objects[id - 1][sarg2];
+            if(o && sarg2 >= 0 && sarg2 < (long)o->data.size())
+                ri->d[2] = o->data[sarg2];
             else
                 ri->d[2] = 0;
             break;
@@ -11222,14 +11529,48 @@ int run_script(const byte type, const word script, const byte i)
 
         case ZASM30_ZCLASS_WRITE:
         {
-            long id = get_register(sarg1);
+            Zasm30Object *o = zasm30_object(get_register(sarg1));
 
-            if(id > 0 && id <= (long)zasm30_objects.size() && sarg2 >= 0 && sarg2 < (long)zasm30_objects[id - 1].size())
-                zasm30_objects[id - 1][sarg2] = ri->d[2];
+            if(o && sarg2 >= 0 && sarg2 < (long)o->data.size())
+                o->data[sarg2] = ri->d[2];
             break;
         }
 
-        // Objects here live until the quest is closed, so there is nothing to count.
+        // OwnObject(): the running script owns it. That keeps it for good here (upstream frees
+        // it when the script ends); it also stops being global, as upstream.
+        case ZASM30_ZCLASS_OWN:
+            if(Zasm30Object *o = zasm30_object(get_register(sarg1)))
+            {
+                o->own = Z30_OWN_SCRIPT;
+                o->owner = 0;
+            }
+            break;
+
+        // GlobalObject(): never freed.
+        case ZASM30_ZCLASS_GLOBALIZE:
+            if(Zasm30Object *o = zasm30_object(get_register(sarg1)))
+            {
+                o->own = Z30_OWN_GLOBAL;
+                o->owner = 0;
+            }
+            break;
+
+        // sprite->OwnObject(): kept while that sprite lives (zasm30_sprite_released), unless global.
+        case ZASM30_OBJ_OWN_CLASS:
+            if(Zasm30Object *o = zasm30_object(get_register(sarg1)))
+            {
+                const long uid = zasm30_own_sprite_uid(sarg2);
+
+                if(uid && o->own != Z30_OWN_GLOBAL)
+                {
+                    o->own = Z30_OWN_SPRITE;
+                    o->owner = uid;
+                }
+            }
+            break;
+
+        // The collector finds what is still referenced (zasm30_collect), so the reference counts
+        // the compiler keeps aren't needed.
         case ZASM30_REF_INC:
         case ZASM30_REF_DEC:
         case ZASM30_REF_AUTORELEASE:
@@ -11238,9 +11579,6 @@ int run_script(const byte type, const word script, const byte i)
         case ZASM30_MARK_TYPE_STACK:
         case ZASM30_MARK_TYPE_REG:
         case ZASM30_ZCLASS_MARK_TYPE:
-        case ZASM30_ZCLASS_OWN:
-        case ZASM30_ZCLASS_GLOBALIZE:
-        case ZASM30_OBJ_OWN_CLASS:
         case ZASM30_GC:
             break;
 
@@ -11285,8 +11623,14 @@ zasm30_wait:
     if(!scriptCanSave)
         scriptCanSave=true;
 
-    if(scommand == WAITFRAME && type == SCRIPT_GENERIC && !zasm30_generic[script].waitevent && zasm30_generic[script].waituntil == Z30T_START_FRAME)
+    // A generic script's own Waitframe() resumes at the start of the next frame, whatever WaitTo()
+    // asked before (upstream WAITFRAME). WaitTo/WaitEvent also stop here, but not at a WAITFRAME.
+    if(scommand == WAITFRAME && type == SCRIPT_GENERIC && !zasm30_generic[script].waitevent
+       && !(zasm30_cur_inst && zasm30_cur_inst->dropped) && curscript[pc].command == WAITFRAME)
+    {
+        zasm30_generic[script].waituntil = Z30T_START_FRAME;
         zasm30_generic[script].atleast = false;
+    }
 
     zasm30_wide_sp = NULL;
     zasm30_stack_limit = ZSCRIPT_STACK_ALLOC;
@@ -11414,8 +11758,8 @@ static void zasm30_run_screen_script()
             memcpy(zasm30_screen_ri.d, it->second.initd, sizeof(it->second.initd));
     }
 
-    if(zasm30_screen_done || it == zasm30_screen_scripts.end() || it->second.script >= 256 || !screenscripts[it->second.script])
-        return;
+    if(zasm30_screen_done || it == zasm30_screen_scripts.end() || !it->second.script || it->second.script >= 256 || !screenscripts[it->second.script])
+        return;     // (an entry with InitD and no script only answers Screen->InitD)
 
     run_script(SCRIPT_SCREEN, it->second.script, 0);
 }
@@ -11424,6 +11768,9 @@ static void zasm30_apply_pending_warp();
 
 int ffscript_engine(const bool preload)
 {
+    if(preload)
+        q30_throw_generic_event(Z30EV_FFC_PRELOAD);    // newer quests' generic scripts (upstream)
+
     if(!preload)
     {
         zasm30_apply_pending_warp();

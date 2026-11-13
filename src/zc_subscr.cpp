@@ -26,6 +26,7 @@
 #include "port/game/q30_triggers.h"
 
 extern LinkClass   Link;
+extern word quest_header_zelda_version;
 extern int directItem;
 extern int directItemA;
 extern int directItemB;
@@ -33,37 +34,79 @@ extern int directItemB;
 //DIALOG *sso_properties_dlg;
 
 bool q30_subscreen_anim_draw(BITMAP *dest, int dx, int dy);    // q30_scripts_subscr.h
+extern word q30_init_subscr_speed;      // q255_init.cpp
 
-void put_active_subscr(miscQdata *misc, int y, int pos)
+int q30_subscr_speed = 1;   // see q30_triggers.h; init_game sets it from the quest's init data
+
+// The play time is shown when it's valid and the quest asks for it; 2.53 also hides it in a
+// game that cheated, 2.55/3.0 don't (upstream's should_show_time).
+bool q30_should_show_time()
+{
+    return game->get_timevalid() && (quest_header_zelda_version >= 0x255 || !game->get_cheat()) && get_bit(quest_rules,qr_TIME);
+}
+
+// The game's start: the active subscreen's slide speed is the init data's (upstream's Hero init).
+void q30_reset_subscr_speed()
+{
+    q30_subscr_speed = quest_header_zelda_version >= 0x255 ? vbound((int)q30_init_subscr_speed, 1, 85) : 1;
+}
+
+// How far the active subscreen slides: 168 rows, or 176 with the 232-row picture (upstream's
+// draw_subscrs distance). It moves 3 * q30_subscr_speed rows a frame (3 for 2.53 quests).
+static int subscr_distance()
+{
+    return zc_view_h == 232 ? 176 : 168;
+}
+
+// Draws the active subscreen with its top at ay.
+static void put_active_at(miscQdata *misc, int ay, int pos)
 {
     //Don't call Sitems.animate() - that gets called somewhere else, somehow. -L
     animate_selectors();
 
+    // 2.55/3.0 with the 232-row picture and qr_ACTIVE_SUB_IGNORE_8PX: the active subscreen is
+    // 176 rows apart from the passive one but only 168 tall, so upstream draws 8 black rows over
+    // the playing field and the subscreen 8 rows lower
+    enum { QR_ACTIVE_SUB_IGNORE_8PX = 476 };
+
+    if(zc_view_h == 232 && q30_quest_rule(QR_ACTIVE_SUB_IGNORE_8PX))
+    {
+        rectfill(framebuf, 0, ay, framebuf->w, ay+8-1, BLACK);
+        ay += 8;
+    }
+
     // 2.55/3.0: a page change's animation, drawn in the subscreen's place while it lasts
-    if(q30_subscreen_anim_draw(framebuf, 0, 6-y))
+    if(q30_subscreen_anim_draw(framebuf, 0, ay))
         return;
 
-    bool showtime = game->get_timevalid() && !game->get_cheat() && get_bit(quest_rules,qr_TIME);
-    show_custom_subscreen(framebuf, misc, current_subscreen_active, 0, 6-y, showtime, pos);
+    show_custom_subscreen(framebuf, misc, current_subscreen_active, 0, ay, q30_should_show_time(), pos);
+}
+
+void put_active_subscr(miscQdata *misc, int y, int pos)
+{
+    put_active_at(misc, 6-y, pos);
 }
 
 extern bool q30_passive_on_top();
 
-// Newer quests draw the passive panel last, so an active subscreen that runs 8 rows too tall
-// can't paint over it.
-static void put_both_subscrs(miscQdata *misc, int y, bool showtime, int pos)
+// The active subscreen with its top at ay (upstream's y: -distance closed, 0 open), the passive
+// one subscr_distance() rows below it. Newer quests draw the passive panel last, so an active
+// subscreen that runs 8 rows too tall can't paint over it.
+static void put_both_subscrs(miscQdata *misc, int ay, bool showtime, int pos)
 {
+    const int py = ay+subscr_distance();
+
     if(q30_passive_on_top())
     {
-        put_active_subscr(misc,y,pos);
-        put_passive_subscr(framebuf,misc,0,176-2-y,showtime,pos);
+        put_active_at(misc,ay,pos);
+        put_passive_subscr(framebuf,misc,0,py,showtime,pos);
         return;
     }
 
     //throw the passive subscreen onto the screen
-    put_passive_subscr(framebuf,misc,0,176-2-y,showtime,pos);
+    put_passive_subscr(framebuf,misc,0,py,showtime,pos);
     //put the active subscreen above the passive subscreen
-    put_active_subscr(misc,y,pos);
+    put_active_at(misc,ay,pos);
 }
 
 // A button giving up an item to the one being set takes over whatever that one held.
@@ -131,6 +174,17 @@ struct Q30DosubscrBunnyOff
     ~Q30DosubscrBunnyOff() { q30_bunny_check(true); }
 };
 
+// How many rows of the playing field still show under the sliding subscreen whose top is at ay:
+// upstream's for newer quests (8 more with the 232-row picture), 2.53's (6 too many, cut off by
+// the screen's bottom) otherwise.
+static int subscr_field_rows(int ay)
+{
+    if(quest_header_zelda_version >= 0x255)
+        return -ay+(zc_view_h==232 ? 8 : 0);
+
+    return 6-ay;
+}
+
 void dosubscr(miscQdata *misc)
 {
     Q30DosubscrBunnyOff q30_bunny_off;
@@ -148,8 +202,7 @@ void dosubscr(miscQdata *misc)
         refreshpal=true;
     }
     
-    int miny;
-    bool showtime = game->get_timevalid() && !game->get_cheat() && get_bit(quest_rules,qr_TIME);
+    bool showtime = q30_should_show_time();
     load_Sitems(misc);
     
     pause_sfx(WAV_BRANG);
@@ -170,8 +223,14 @@ void dosubscr(miscQdata *misc)
     blit(scrollbuf,scrollbuf,0,playing_field_offset,256,0,256,176);
     //make a copy of the complete playing field on the bottom of scrollbuf
     blit(framebuf,scrollbuf,0,playing_field_offset,0,176,256,176);
-    miny = 6;
-    
+
+    // The slide, as upstream counts it: the active subscreen's top goes from -distance (closed)
+    // to 0 (open), 3 * q30_subscr_speed rows a frame. For 2.53 quests that's 168 rows 3 at a
+    // time, frame for frame what this loop always did (it counted y = 6 - ay down from 174).
+    const int distance = subscr_distance();
+    const int step = 3*q30_subscr_speed;
+    int ay;
+
     //Set the selector to the correct position before bringing up the subscreen -DD
     if(get_bit(quest_rules,qr_SELECTAWPN))
     {
@@ -185,13 +244,13 @@ void dosubscr(miscQdata *misc)
 
     q30_subscreen_cursor(true, Bpos);   // 2.55/3.0: a page other than the first keeps its cursor
 
-    for(int y=176-2; y>=6; y-=3)
+    for(ay=-distance; ay<=0; ay+=step)
     {
         do_dcounters();
         Link.refill();
         //fill in the screen with black to prevent the hall of mirrors effect
-        rectfill(framebuf, 0, 0, 255, 223, 0);
-        
+        rectfill(framebuf, 0, 0, 255, zc_view_h-1, 0);
+
         if(COOLSCROLL)
         {
             //copy the playing field back onto the screen
@@ -200,10 +259,10 @@ void dosubscr(miscQdata *misc)
         else
         {
             //scroll the playing field (copy the copy we made)
-            blit(scrollbuf,framebuf,256,0,0,176-2-y+passive_subscreen_height,256,y);
+            blit(scrollbuf,framebuf,256,0,0,ay+distance+passive_subscreen_height,256,subscr_field_rows(ay));
         }
-        
-        put_both_subscrs(misc,y,showtime,sspSCROLLING);
+
+        put_both_subscrs(misc,ay,showtime,sspSCROLLING);
         advanceframe(false);
         
         if(Quit)
@@ -310,8 +369,8 @@ void dosubscr(miscQdata *misc)
         //put_active_subscr(misc,miny,true);
         
         //fill in the screen with black to prevent the hall of mirrors effect
-        rectfill(framebuf, 0, 0, 255, 223, 0);
-        
+        rectfill(framebuf, 0, 0, 255, zc_view_h-1, 0);
+
         if(COOLSCROLL)
         {
             //copy the playing field back onto the screen
@@ -321,8 +380,8 @@ void dosubscr(miscQdata *misc)
         {
             //nothing to do; the playing field has scrolled off the screen
         }
-        
-        put_both_subscrs(misc,miny,showtime,sspDOWN);
+
+        put_both_subscrs(misc,0,showtime,sspDOWN);
         
         advanceframe(false);
         
@@ -342,13 +401,14 @@ void dosubscr(miscQdata *misc)
 
     q30_subscreen_cursor(false, Bpos);
 
-    for(int y=6; y<=174; y+=3)
+    // (upstream starts closing from where the opening stopped, at most 0)
+    for(ay=zc_min(ay,0); ay>=-distance; ay-=step)
     {
         do_dcounters();
         Link.refill();
         //fill in the screen with black to prevent the hall of mirrors effect
-        rectfill(framebuf, 0, 0, 255, 223, 0);
-        
+        rectfill(framebuf, 0, 0, 255, zc_view_h-1, 0);
+
         if(COOLSCROLL)
         {
             //copy the playing field back onto the screen
@@ -357,10 +417,10 @@ void dosubscr(miscQdata *misc)
         else
         {
             //scroll the playing field (copy the copy we made)
-            blit(scrollbuf,framebuf,256,0,0,176-2-y+passive_subscreen_height,256,y);
+            blit(scrollbuf,framebuf,256,0,0,ay+distance+passive_subscreen_height,256,subscr_field_rows(ay));
         }
-        
-        put_both_subscrs(misc,y,showtime,sspSCROLLING);
+
+        put_both_subscrs(misc,ay,showtime,sspSCROLLING);
         advanceframe(false);
         
         if(Quit)

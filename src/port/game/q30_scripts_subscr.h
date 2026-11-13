@@ -746,8 +746,8 @@ enum { Z30_SUB_W = 256, Z30_SUB_H = 176 };
 static void z30_sub_draw_page(BITMAP *dest)
 {
     clear_bitmap(dest);
-    const bool showtime = game->get_timevalid() && !game->get_cheat() && get_bit(quest_rules, qr_TIME);
-    show_custom_subscreen(dest, &QMisc, current_subscreen_active, 0, 0, showtime, sspDOWN);
+    bool q30_should_show_time();    // zc_subscr.cpp
+    show_custom_subscreen(dest, &QMisc, current_subscreen_active, 0, 0, q30_should_show_time(), sspDOWN);
 }
 
 static bool z30_anim_dither(int x, int y, double perc)     // upstream dither_staticcheck

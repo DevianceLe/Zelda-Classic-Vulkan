@@ -7,11 +7,79 @@
 
 #include "q30.h"
 
+extern word quest_header_zelda_version;
+
 namespace
 {
 
 std::map<int, Q30ScriptRef> g_combo_scripts;
 std::map<int, int> g_msg_wrap_extra;
+
+// A 3.0 string's margins and "more" icon (q30_set_msg_layout).
+struct MsgLayout
+{
+    int box_w, box_h;   // w and h as the quest gives them (this engine keeps them 16 smaller)
+    int margins[4];     // up, down, left, right
+    bool has_icon;
+    int sprite, anchor, x, y;
+};
+
+std::map<int, MsgLayout> g_msg_layouts;
+std::map<int, std::vector<char> > g_msg_long_texts;    // q30_set_msg_long_text
+
+// Items 256 and up (q30_set_high_item) and the init data's starting ones among them.
+struct HighItem
+{
+    itemdata d;
+    int family;         // upstream's family (itemdata's byte can't hold every one)
+    std::string name;
+};
+
+std::map<int, HighItem> g_high_items;
+std::vector<int> g_init_high_items;
+
+}   // (the high items' door is outside the anonymous namespace)
+
+extern itemdata *itemsbuf;
+
+itemdata &q30_itemsbuf(int id)
+{
+    if(id >= 0 && id < MAXITEMS)
+        return itemsbuf[id];
+
+    std::map<int, HighItem>::iterator it = g_high_items.find(id);
+
+    if(it != g_high_items.end())
+        return it->second.d;
+
+    static itemdata none;
+    memset(&none, 0, sizeof(none));
+    none.count = -1;
+    return none;
+}
+
+namespace
+{
+
+// q30_set_screen_guy: tile, cs, roomflags
+struct ScreenGuy
+{
+    long tile;
+    int cs, roomflags;
+};
+
+std::map<int, ScreenGuy> g_screen_guys;
+
+// The layout of string str, or NULL for a 2.53 quest (one loaded after a newer one too)
+// and for strings without their own.
+const MsgLayout *msg_layout(int str)
+{
+    if(quest_header_zelda_version < 0x255)
+        return NULL;
+
+    std::map<int, MsgLayout>::const_iterator it = g_msg_layouts.find(str);
+    return it == g_msg_layouts.end() ? NULL : &it->second;
+}
 std::map<int, Q30ScriptRef> g_dmap_scripts[q30_dmap_kinds];
 std::map<int, std::pair<int, int> > g_dmap_subscreens;    // overlay, map
 std::map<int, std::pair<std::string, long> > g_dmap_texts;  // title, intro string
@@ -60,6 +128,186 @@ int q30_msg_wrap_extra(int str)
     return it == g_msg_wrap_extra.end() ? 0 : it->second;
 }
 
+void q30_clear_msg_layouts()
+{
+    g_msg_layouts.clear();
+    g_msg_long_texts.clear();
+}
+
+void q30_set_screen_guy(int index, long tile, int cs, int roomflags)
+{
+    ScreenGuy g;
+    g.tile = tile;
+    g.cs = cs;
+    g.roomflags = roomflags;
+    g_screen_guys[index] = g;
+}
+
+bool q30_screen_guy(int index, long *tile, int *cs, int *roomflags)
+{
+    bool q30_quest_rule(int id);
+
+    if(quest_header_zelda_version < 0x255 || q30_quest_rule(415))   // qr_OLD_GUY_HANDLING
+        return false;
+
+    std::map<int, ScreenGuy>::const_iterator it = g_screen_guys.find(index);
+
+    if(it == g_screen_guys.end())
+        return false;
+
+    *tile = it->second.tile;
+    *cs = it->second.cs;
+    *roomflags = it->second.roomflags;
+    return true;
+}
+
+void q30_clear_high_items()     // their data; the init data replaces its own list
+{
+    g_high_items.clear();
+}
+
+void q30_set_high_item(int id, const itemdata &d, int family, const char *name)
+{
+    HighItem &h = g_high_items[id];
+    h.d = d;
+    h.family = family;
+    h.name = name ? name : "";
+}
+
+const itemdata *q30_high_item(int id, int *family, const char **name)
+{
+    if(quest_header_zelda_version < 0x255)
+        return NULL;
+
+    std::map<int, HighItem>::const_iterator it = g_high_items.find(id);
+
+    if(it == g_high_items.end())
+        return NULL;
+
+    if(family)
+        *family = it->second.family;
+
+    if(name)
+        *name = it->second.name.c_str();
+
+    return &it->second.d;
+}
+
+// bits: one per item, first_id the first one's number.
+void q30_set_init_high_items(const byte *bits, int first_id, int count)
+{
+    g_init_high_items.clear();
+
+    for(int i = 0; bits && i < count; ++i)
+        if(bits[i / 8] & (1 << (i % 8)))
+            g_init_high_items.push_back(first_id + i);
+}
+
+const std::vector<int> &q30_init_high_items()
+{
+    static const std::vector<int> none;
+    return quest_header_zelda_version < 0x255 ? none : g_init_high_items;
+}
+
+void q30_set_msg_long_text(int str, const char *text)
+{
+    if(!text)
+    {
+        g_msg_long_texts.erase(str);
+        return;
+    }
+
+    // zeros past the end, as MsgStr::s has: the message code peeks up to two bytes ahead
+    const size_t n = strlen(text);
+    std::vector<char> &v = g_msg_long_texts[str];
+    v.assign(n + 8, 0);
+    memcpy(&v[0], text, n);
+}
+
+char *q30_msg_long_text(int str)
+{
+    if(quest_header_zelda_version < 0x255 || g_msg_long_texts.empty())
+        return NULL;
+
+    std::map<int, std::vector<char> >::iterator it = g_msg_long_texts.find(str);
+    return it == g_msg_long_texts.end() ? NULL : &it->second[0];
+}
+
+void q30_set_msg_layout(int str, int box_w, int box_h, const int margins[4], bool has_icon, int icon_sprite, int icon_anchor, int icon_x, int icon_y)
+{
+    MsgLayout l;
+    l.box_w = box_w;
+    l.box_h = box_h;
+    memcpy(l.margins, margins, sizeof(l.margins));
+    l.has_icon = has_icon;
+    l.sprite = icon_sprite;
+    l.anchor = icon_anchor;
+    l.x = icon_x;
+    l.y = icon_y;
+    g_msg_layouts[str] = l;
+}
+
+// Text is drawn at the margins (upstream's msgstr::do_new: cursor_x = margins[left],
+// cursor_y = margins[up]); 2.53 draws it 8 pixels in.
+int q30_msg_text_x(int str)
+{
+    const MsgLayout *l = msg_layout(str);
+    return l ? l->margins[2] : 8;
+}
+
+int q30_msg_text_y(int str)
+{
+    const MsgLayout *l = msg_layout(str);
+    return l ? l->margins[0] : 8;
+}
+
+// Upstream stops a string that can't scroll once a line starts at h - margins[down]
+// (msg_layout::bottom_margin_clip); 2.53 stops at h - 16 with lines counted from 8 down.
+int q30_msg_height_extra(int str)
+{
+    const MsgLayout *l = msg_layout(str);
+    return l ? 16 - l->margins[0] - l->margins[1] : 0;
+}
+
+// Upstream's message_string.cpp draw_icon: the icon's offset from the anchor it names on
+// the box (or the screen).
+bool q30_msg_more_icon(int str, int *x, int *y, int *sprite)
+{
+    extern MsgStr *MsgStrings;
+    const MsgLayout *l = msg_layout(str);
+
+    if(!l || !l->has_icon)
+        return false;
+
+    // message_anchor: up, down, left, right, l_up, r_up, l_down, r_down, center, screen,
+    // screen_y_offset
+    enum { a_up, a_down, a_left, a_right, a_l_up, a_r_up, a_l_down, a_r_down, a_center, a_screen, a_screen_y };
+    const MsgStr &m = MsgStrings[str];
+    const int bw = l->box_w, bh = l->box_h;     // the box as upstream sizes it
+    int ix = l->x, iy = l->y;
+
+    switch(l->anchor)
+    {
+    case a_l_up: case a_left: case a_l_down: ix += m.x; break;
+    case a_up: case a_center: case a_down: ix += m.x + bw / 2; break;
+    case a_r_up: case a_right: case a_r_down: ix += m.x + bw; break;
+    default: break;
+    }
+
+    switch(l->anchor)
+    {
+    case a_screen_y: case a_l_up: case a_up: case a_r_up: iy += m.y; break;
+    case a_left: case a_center: case a_right: iy += m.y + bh / 2; break;
+    case a_l_down: case a_down: case a_r_down: iy += m.y + bh; break;
+    default: break;
+    }
+
+    *x = ix;
+    *y = iy;
+    *sprite = l->sprite;
+    return true;
+}
+
 void q30_clear_tables()
 {
     g_combo_scripts.clear();
@@ -71,6 +319,7 @@ void q30_clear_tables()
     g_dmap_texts.clear();
     g_dmap_floors.clear();
     g_dmap_mirrors.clear();
+    g_screen_guys.clear();
 }
 
 void q30_set_dmap_mirror(int dmap, int mirror)

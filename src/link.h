@@ -327,6 +327,7 @@ private:
     bool sideviewhammerpound();
     bool agonyflag(int flag);
     int ringpower(int dmg);
+    int q30_hit_events(int dmg, bool ring, int &hdir, int &iframes, int objtype, long objuid);
     void addsparkle(int wpn);
     void addsparkle2(int type1, int type2);
     void PhantomsCleanup();
@@ -477,6 +478,8 @@ extern int Xwpn, Ywpn, directItemX, directItemY, q30_xpos, q30_ypos;
 bool q30_use_x_button();
 bool q30_use_y_button();
 void q30_set_button_item(bool x, int wpn);
+void q30_set_ab_item(bool a, int val);      // Hero->ItemA / ItemB (link.cpp)
+extern int q30_forced_awpn, q30_forced_bwpn;
 void q30_set_button_slot(bool x, int wpn, int pos, int direct);
 void q30_verify_extra_buttons();
 void q30_load_extra_buttons();

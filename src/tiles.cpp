@@ -1599,8 +1599,23 @@ int combo_tile(int cmbdat, int x, int y)
     return combo_tile(c, x, y);
 }
 
+bool tiles_newer_combo_flags = false;
+
+bool combo_editor_only(int cmbdat)
+{
+    return tiles_newer_combo_flags && cmbdat >= 0 && cmbdat < MAXCOMBOS && (combobuf[cmbdat].animflags & TILES_AF_EDITOR_ONLY);
+}
+
+bool combo_transparent(int cmbdat)
+{
+    return tiles_newer_combo_flags && cmbdat >= 0 && cmbdat < MAXCOMBOS && (combobuf[cmbdat].animflags & TILES_AF_TRANSPARENT);
+}
+
 void putcombotranslucent(BITMAP* dest,int x,int y,int cmbdat,int cset,int opacity)
 {
+    if(combo_editor_only(cmbdat))   // newer quests: never drawn in the game
+        return;
+
     newcombo c = combobuf[cmbdat];
     int drawtile=combo_tile(c, x, y);
     
@@ -1628,6 +1643,9 @@ void overcombotranslucent(BITMAP* dest,int x,int y,int cmbdat,int cset,int opaci
 
 void overcomboblocktranslucent(BITMAP *dest, int x, int y, int cmbdat, int cset, int w, int h, int opacity)
 {
+    if(combo_editor_only(cmbdat))   // newer quests: never drawn in the game
+        return;
+
     newcombo c = combobuf[cmbdat];
     int drawtile=combo_tile(c, x, y);
     
@@ -2452,6 +2470,9 @@ void overblock8(BITMAP *dest,int tile,int x,int y,int csets[],int flip,int mask)
 
 void putcombo(BITMAP* dest,int x,int y,int cmbdat,int cset)
 {
+    if(combo_editor_only(cmbdat))   // newer quests: never drawn in the game
+        return;
+
     newcombo c = combobuf[cmbdat];
     int drawtile=combo_tile(c, x, y);
     
@@ -2507,6 +2528,9 @@ void overcombo(BITMAP* dest,int x,int y,int cmbdat,int cset)
 
 void overcomboblock(BITMAP *dest, int x, int y, int cmbdat, int cset, int w, int h)
 {
+    if(combo_editor_only(cmbdat))   // newer quests: never drawn in the game
+        return;
+
     newcombo c = combobuf[cmbdat];
     int drawtile=combo_tile(c, x, y);
     

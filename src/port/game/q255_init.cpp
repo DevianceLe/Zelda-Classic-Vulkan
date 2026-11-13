@@ -4,7 +4,7 @@
 //
 // INIT
 //   max super bombs (v19+): 2.53 derives it from max_bombs / bomb_ratio
-//   Link walk step (v20+)
+//   Link walk step (v20+): kept beside zinit for the new movement rules (link.cpp)
 //   subscreen scroll speed (v21+)
 //   HP per heart, magic per block, Link and enemy damage multipliers (v22+): 2.53 hardcodes 16, 32, 2, 4
 //   custom counters 1-25, start and max (v23+)
@@ -292,6 +292,20 @@ static void set_level_items(zinitdata &temp, int level, bool map, bool compass, 
 // percent, light radius, transdark percent, darkness colour. Handed to the script engine.
 static byte g_init_light[6];
 static long g_init_bunny_ltm = 0;   // the tile modifier on Link while he's a bunny (q30_triggers.cpp)
+static word g_init_subscr_speed = 1;  // the active subscreen's slide speed multiplier, 1-85
+word q30_init_subscr_speed = 1;       // the kept one: zc_subscr.cpp moves 3 rows a frame times this
+// The custom counters' (7 and up, upstream's crCUSTOM1-100) start and max values, which zinitdata
+// has no room for: resetItems gives them to a new game (q30_init_counter).
+static word g_init_ctr[Q30_MAX_COUNTERS], g_init_mctr[Q30_MAX_COUNTERS];
+static word g_kept_ctr[Q30_MAX_COUNTERS], g_kept_mctr[Q30_MAX_COUNTERS];
+
+word q30_init_counter(int c, bool max)
+{
+    if(c < 7 || c >= Q30_MAX_COUNTERS)
+        return 0;
+
+    return max ? g_kept_mctr[c] : g_kept_ctr[c];
+}
 
 static void read_init_light(Q255Section &s, int count)
 {
@@ -347,16 +361,20 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
 
     temp.subscreen = ssdtMAX;
 
-    byte item_bits[32];
-    memset(item_bits, 0, 32);
+    // one bit per item; from v47 a bounded list that can cover items past 2.53's 256
+    byte item_bits[128];
+    memset(item_bits, 0, sizeof(item_bits));
 
     if(v >= 47)
-        get_bounded_bytes(s, item_bits, 32);
+        get_bounded_bytes(s, item_bits, sizeof(item_bits));
     else
         s.read(item_bits, 32);
 
     for(int i = 0; i < 256; ++i)
         temp.items[i] = (item_bits[i / 8] & (1 << (i % 8))) != 0;
+
+    if(s.keep && !s.failed)
+        q30_set_init_high_items(item_bits + 32, 256, (sizeof(item_bits) - 32) * 8);    // 256 and up
 
     // level item bits: 1 McGuffin, 2 map, 4 compass, 8 boss killed, 16 boss key
     if(v >= 42)
@@ -400,6 +418,8 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
         word val = s.igetw();
         if(q < 7)
             counter[q] = val;
+        else if(q < Q30_MAX_COUNTERS)
+            g_init_ctr[q] = val;
     }
 
     for(q = 0; q < num_counters; ++q)
@@ -407,6 +427,8 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
         word val = s.igetw();
         if(q < 7)
             mcounter[q] = val;
+        else if(q < Q30_MAX_COUNTERS)
+            g_init_mctr[q] = val;
     }
 
     temp.bomb_ratio = s.getc();
@@ -463,12 +485,17 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
     s.skip(2);  // swim multiplier and divisor
     s.skip(6);  // sideswim steps
     s.skip(4);  // exit water jump
-    s.skip(2);  // walk step
+    {
+        word step = s.igetw();  // Link's walk step (upstream's zinit.heroStep), kept beside zinit
+
+        if(s.keep && !s.failed)
+            q30_set_init_hero_step(step);
+    }
     temp.linkanimationstyle = s.getc();
     temp.jump_link_layer_threshold = s.getc();
     g_init_bunny_ltm = s.igetl_s();     // bunny LTM
     temp.start_dmap = s.igetw();
-    s.skip(2);  // subscreen speed
+    g_init_subscr_speed = s.igetw();    // subscreen speed
     {
         byte sw_style = s.getc();     // switchhook style, for enemies' "Switch w/ Player"
 
@@ -670,12 +697,16 @@ int q255_read_initdata(Q255Section &s)
     {
         q30_clear_screen_data_init();
         q30_set_init_switch_style(0);
+        q30_set_init_high_items(NULL, 256, 0);  // only v37+ can start with items past 255
     }
 
     // upstream's defaults for a section too old to have them
     const byte light_defaults[6] = { 0, 0, 20, 24, 0, BLACK };
     memcpy(g_init_light, light_defaults, sizeof(g_init_light));
     g_init_bunny_ltm = 0;
+    g_init_subscr_speed = 1;    // upstream's default: 3 rows a frame
+    memset(g_init_ctr, 0, sizeof(g_init_ctr));
+    memset(g_init_mctr, 0, sizeof(g_init_mctr));
 
     if(v >= 37)
     {
@@ -690,6 +721,9 @@ int q255_read_initdata(Q255Section &s)
             link_animation_speed = (zinit.linkanimationstyle == las_zelda3slow) ? 2 : 1;
             q30_set_light_init(g_init_light[0], g_init_light[1], g_init_light[2], g_init_light[3], g_init_light[4], g_init_light[5]);
         q30_set_bunny_ltm(g_init_bunny_ltm);
+        q30_init_subscr_speed = g_init_subscr_speed;
+        memcpy(g_kept_ctr, g_init_ctr, sizeof(g_kept_ctr));
+        memcpy(g_kept_mctr, g_init_mctr, sizeof(g_kept_mctr));
         }
 
         return 0;
@@ -771,14 +805,25 @@ int q255_read_initdata(Q255Section &s)
         temp.max_arrows = clamp_byte(s.igetw());
     }
 
-    if(v >= 20)
-        s.skip(2);  // walk step
+    {
+        // Link's walk step (upstream's zinit.heroStep, 150 before v20), kept beside zinit
+        word step = v >= 20 ? s.igetw() : 150;
+
+        if(s.keep && !s.failed)
+            q30_set_init_hero_step(step);
+    }
     if(v >= 21)
-        s.skip(2);  // subscreen speed
+        g_init_subscr_speed = s.igetw();    // subscreen speed
     if(v > 21)
         s.skip(4);  // HP per heart, magic per block, damage multipliers
     if(v > 22)
-        s.skip(25 * 2 * 2); // custom counters: 25 start, 25 max
+    {
+        // custom counters 7-31: 25 start values, then 25 max values
+        for(int q = 7; q <= 31; ++q)
+            g_init_ctr[q] = s.igetw();
+        for(int q = 7; q <= 31; ++q)
+            g_init_mctr[q] = s.igetw();
+    }
     if(v > 23)
         read_init_light(s, 5);  // dither, light radius, transdark
     if(v > 24)
@@ -871,6 +916,9 @@ int q255_read_initdata(Q255Section &s)
         link_animation_speed = (zinit.linkanimationstyle == las_zelda3slow) ? 2 : 1;
         q30_set_light_init(g_init_light[0], g_init_light[1], g_init_light[2], g_init_light[3], g_init_light[4], g_init_light[5]);
         q30_set_bunny_ltm(g_init_bunny_ltm);
+        q30_init_subscr_speed = g_init_subscr_speed;
+        memcpy(g_kept_ctr, g_init_ctr, sizeof(g_kept_ctr));
+        memcpy(g_kept_mctr, g_init_mctr, sizeof(g_kept_mctr));
     }
 
     return 0;
@@ -1246,6 +1294,13 @@ static int sub_counter(long ctr)
     // crCUSTOM1 to crCUSTOM25
     if(ctr >= 7 && ctr <= 31)
         return sscSCRIPT1 + (int)(ctr - 7);
+
+#ifdef ZC_PLAYER_BUILD
+    // the player's counter() shows any other counter as Q30_SSC_COUNTER + its number: life (0),
+    // magic (4) and counters 32-106 (upstream's crCUSTOM26 and up)
+    if(ctr == 0 || ctr == 4 || (ctr >= 32 && ctr < Q30_MAX_COUNTERS))
+        return Q30_SSC_COUNTER + (int)ctr;
+#endif
 
     return -1;
 }

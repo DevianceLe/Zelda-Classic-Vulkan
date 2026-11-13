@@ -34,6 +34,8 @@
 #include "zc_sys.h"
 #include "port/game/q30_triggers.h"
 #include "port/game/q30_regions.h"
+#include "port/game/q30_scripts.h"
+#include "port/game/q30.h"
 
 // On 2.55+ quests a bridge hides what's under it from Link; 2.53 quests get MAPCOMBO unchanged.
 #define MAPCOMBO(x,y) q30_link_mapcombo((x),(y))
@@ -84,6 +86,39 @@ static inline bool isSideview()
 static inline bool q30_no_gridlock()
 {
     return q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2) || q30_quest_rule(Q30_QR_DISABLE_4WAY_GRIDLOCK);
+}
+
+// 2.55+ Hero step rate, in 1/100 pixel per frame (upstream's steprate, tmp_step_boost and
+// zinit.heroStep). It sets the walking speed only under qr_NEW_HERO_MOVEMENT or
+// qr_NEW_HERO_MOVEMENT2; 2.53 quests never read it.
+static int q30_zinit_hero_step = 150;   // zinit.heroStep: the init data, or what a script last wrote
+static int q30_steprate = 150;
+static int q30_step_boost = 0;
+
+// The quest's init data, as it loads (q255_init.cpp).
+void q30_set_init_hero_step(int step)
+{
+    q30_zinit_hero_step = q30_steprate = step;
+    q30_step_boost = 0;
+}
+
+int q30_hero_step_rate() { return q30_steprate; }
+int q30_hero_step_boost() { return q30_step_boost; }
+void q30_set_hero_step_boost(int boost) { q30_step_boost = boost; }
+
+// Hero->Step: upstream also writes zinit.heroStep, so the next game start keeps it, unless
+// qr_SCRIPT_WRITING_HEROSTEP_DOESNT_CARRY_OVER (228).
+void q30_set_hero_step_rate(int rate)
+{
+    q30_steprate = rate < 0 ? 0 : rate;
+
+    if(!q30_quest_rule(228))
+        q30_zinit_hero_step = q30_steprate;
+}
+
+static bool q30_new_hero_movement()
+{
+    return q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT) || q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2);
 }
 
 // Which layer 1 and 2 combos this sword swing has already cut (qr_BUSHESONLAYERS1AND2).
@@ -137,6 +172,7 @@ bool is_moving()
 }
 
 bool q30_shield_jinxed();            // q30_scripts_regs.h: a newer quest's script jinxed the shield
+static int q30_sprite_index(sprite_list &list, int index, long uid);    // below
 void q30_shield_jinx_reset(bool all);
 
 // called by ALLOFF()
@@ -685,6 +721,10 @@ int LinkClass::getSpecialCave()
 
 void LinkClass::init()
 {
+    // upstream's HeroClass::init: steprate = zinit.heroStep, tmp_step_boost = 0
+    q30_steprate = q30_zinit_hero_step;
+    q30_step_boost = 0;
+
     hookshot_used=false;
     hookshot_frozen=false;
     dir = up;
@@ -761,17 +801,19 @@ void LinkClass::draw_under(BITMAP* dest)
 {
     int c_raft=current_item_id(itype_raft);
     int c_ladder=current_item_id(itype_ladder);
+    // (a 3.0 scrolling region's camera moves them as it moves Link; both 0 otherwise)
+    const int camx = q30_draw_cam_x, camy = q30_draw_cam_y;
     
     if(action==rafting && c_raft >-1)
     {
         if(((dir==left) || (dir==right)) && (get_bit(quest_rules,qr_RLFIX)))
         {
-            overtile16(dest, itemsbuf[c_raft].tile, x, y+playing_field_offset+4,
+            overtile16(dest, itemsbuf[c_raft].tile, x-camx, y+playing_field_offset+4-camy,
                        itemsbuf[c_raft].csets&15, rotate_value((itemsbuf[c_raft].misc>>2)&3)^3);
         }
         else
         {
-            overtile16(dest, itemsbuf[c_raft].tile, x, y+playing_field_offset+4,
+            overtile16(dest, itemsbuf[c_raft].tile, x-camx, y+playing_field_offset+4-camy,
                        itemsbuf[c_raft].csets&15, (itemsbuf[c_raft].misc>>2)&3);
         }
     }
@@ -780,12 +822,12 @@ void LinkClass::draw_under(BITMAP* dest)
     {
         if((ladderdir>=left) && (get_bit(quest_rules,qr_RLFIX)))
         {
-            overtile16(dest, itemsbuf[c_ladder].tile, ladderx, laddery+playing_field_offset,
+            overtile16(dest, itemsbuf[c_ladder].tile, ladderx-camx, laddery+playing_field_offset-camy,
                        itemsbuf[c_ladder].csets&15, rotate_value((itemsbuf[iRaft].misc>>2)&3)^3);
         }
         else
         {
-            overtile16(dest, itemsbuf[c_ladder].tile, ladderx, laddery+playing_field_offset,
+            overtile16(dest, itemsbuf[c_ladder].tile, ladderx-camx, laddery+playing_field_offset-camy,
                        itemsbuf[c_ladder].csets&15, (itemsbuf[c_ladder].misc>>2)&3);
         }
     }
@@ -1135,8 +1177,20 @@ void LinkClass::positionSword(weapon *w, int itemid)
     w->dir = dir;
 }
 
+// 2.55/3.0 scripts' drawing just under Link and just over him (upstream SPLAYER_UNDER_PLAYER_DRAW
+// and SPLAYER_PLAYER_DRAW, drawn however HeroClass::draw ends). Nothing for 2.53 quests.
+struct Q30LinkDrawLayers
+{
+    BITMAP *dest;
+
+    explicit Q30LinkDrawLayers(BITMAP *d) : dest(d) { q30_draw_script_layer(dest, Q30_SPLAYER_UNDER_PLAYER_DRAW); }
+    ~Q30LinkDrawLayers() { q30_draw_script_layer(dest, Q30_SPLAYER_PLAYER_DRAW); }
+};
+
 void LinkClass::draw(BITMAP* dest)
 {
+    Q30LinkDrawLayers q30_layers(dest);
+
     q30_draw_prompt(dest);
 
 /*{
@@ -3185,14 +3239,19 @@ void LinkClass::checkhit()
             if(s->id==wFire && (superman ? ((diagonalMovement||q30_no_gridlock())?s->hit(x+4,y+4,z,7,7,1):s->hit(x+7,y+7,z,2,2,1)) : s->hit(this))&&
                         (itemid < 0 || itemsbuf[itemid].family!=itype_dinsfire))
             {
-                if(NayrusLoveShieldClk<=0)
+                int q30_hdir = s->hitdir(x,y,16,16,dir), q30_iframes = 48;
+                const int q30_hit = q30_hit_events(lwpn_dp(i), true, q30_hdir, q30_iframes, 1, s->getUID());
+
+                if(q30_hit < 0 && NayrusLoveShieldClk<=0)
                 {
                     int ringpow = ringpower(lwpn_dp(i));
                     game->set_life(zc_max(game->get_life()-ringpow,0));
                 }
                 
+                if(q30_hit != 0)    // 0: a script nullified the hit
+                {
                 q30_hero_hit(2, i, s);
-                hitdir = s->hitdir(x,y,16,16,dir);
+                hitdir = q30_hdir;
 
                 if (action != rafting && action != freeze)
                 {
@@ -3209,9 +3268,10 @@ void LinkClass::checkhit()
                     tapping = false;
                 }
 
-                hclk=48;
+                hclk=q30_iframes;
                 sfx(q30_hero_hurt_sfx(),pan(int(x)));
                 return;
+                }
             }
         }
 
@@ -3332,14 +3392,20 @@ killweapon:
             //     if(((s->id==wBomb)||(s->id==wSBomb)) && (superman ? s->hit(x+7,y+7,z,2,2,1) : s->hit(this)))
             if(((s->id==wBomb)||(s->id==wSBomb)) && s->hit(this) && !superman && (scriptcoldet&1))
             {
-                if(NayrusLoveShieldClk<=0)
+                int q30_hdir = s->hitdir(x,y,16,16,dir), q30_iframes = 48;
+                const int q30_hit = q30_hit_events((((weapon*)s)->parentitem>-1 ? itemsbuf[((weapon*)s)->parentitem].misc3 : ((weapon*)s)->power) *HP_PER_HEART,
+                                                   true, q30_hdir, q30_iframes, 1, s->getUID());
+
+                if(q30_hit < 0 && NayrusLoveShieldClk<=0)
                 {
                     int ringpow = ringpower(((((weapon*)s)->parentitem>-1 ? itemsbuf[((weapon*)s)->parentitem].misc3 : ((weapon*)s)->power) *HP_PER_HEART));
                     game->set_life(zc_min(game->get_maxlife(), zc_max(game->get_life()-ringpow,0)));
                 }
                 
+                if(q30_hit != 0)    // 0: a script nullified the hit
+                {
                 q30_hero_hit(2, i, s);
-                hitdir = s->hitdir(x,y,16,16,dir);
+                hitdir = q30_hdir;
 
                 if (action != rafting && action != freeze)
                 {
@@ -3356,9 +3422,10 @@ killweapon:
                     tapping = false;
                 }
 
-                hclk=48;
+                hclk=q30_iframes;
                 sfx(q30_hero_hurt_sfx(),pan(int(x)));
                 return;
+                }
             }
         }
 
@@ -3399,14 +3466,34 @@ killweapon:
 
     if(hit2!=-1)
     {
+        int q30_hdir = Lwpns.spr(hit2)->hitdir(x,y,16,16,dir), q30_iframes = 48;
+        const long q30_hit_uid = Lwpns.spr(hit2)->getUID();
+        const int q30_hit = q30_hit_events(lwpn_dp(hit2), true, q30_hdir, q30_iframes, 1, Lwpns.spr(hit2)->getUID());
+
+        if(q30_hit == 0)    // a script nullified the hit
+            return;
+
+        if(q30_hit > 0)
+            hit2 = q30_sprite_index(Lwpns, hit2, q30_hit_uid);  // a script that saw the hit may have moved it
+
+        if(hit2 < 0)
+        {
+            // the weapon was removed by the script that saw the hit: the hit itself stands
+            hitdir = q30_hdir;
+            action = (action==swimming || hopclk==0xFF) ? swimhit : gothit;
+            hclk = q30_iframes;
+            sfx(q30_hero_hurt_sfx(),pan(int(x)));
+            return;
+        }
+
         q30_hero_hit(2, hit2, Lwpns.spr(hit2));
-if(NayrusLoveShieldClk<=0)
+if(q30_hit < 0 && NayrusLoveShieldClk<=0)
         {
             int ringpow = ringpower(lwpn_dp(hit2));
             game->set_life(zc_max(game->get_life()-ringpow,0));
         }
         
-        hitdir = Lwpns.spr(hit2)->hitdir(x,y,16,16,dir);
+        hitdir = q30_hdir;
         ((weapon*)Lwpns.spr(hit2))->onhit(false);
         
         if(action==swimming || hopclk==0xFF)
@@ -3414,7 +3501,7 @@ if(NayrusLoveShieldClk<=0)
         else
             action=gothit;
             
-        hclk=48;
+        hclk=q30_iframes;
         
         if(charging > 0 || spins > 0 || attack == wSword || attack == wHammer)
         {
@@ -3431,14 +3518,34 @@ if(NayrusLoveShieldClk<=0)
 
     if(hit2!=-1)
     {
+        int q30_hdir = Ewpns.spr(hit2)->hitdir(x,y,16,16,dir), q30_iframes = 48;
+        const long q30_hit_uid = Ewpns.spr(hit2)->getUID();
+        const int q30_hit = q30_hit_events(ewpn_dp(hit2), true, q30_hdir, q30_iframes, 2, Ewpns.spr(hit2)->getUID());
+
+        if(q30_hit == 0)    // a script nullified the hit
+            return;
+
+        if(q30_hit > 0)
+            hit2 = q30_sprite_index(Ewpns, hit2, q30_hit_uid);  // a script that saw the hit may have moved it
+
+        if(hit2 < 0)
+        {
+            // the weapon was removed by the script that saw the hit: the hit itself stands
+            hitdir = q30_hdir;
+            action = (action==swimming || hopclk==0xFF) ? swimhit : gothit;
+            hclk = q30_iframes;
+            sfx(q30_hero_hurt_sfx(),pan(int(x)));
+            return;
+        }
+
         q30_hero_hit(1, hit2, Ewpns.spr(hit2));
-if(NayrusLoveShieldClk<=0)
+if(q30_hit < 0 && NayrusLoveShieldClk<=0)
         {
             int ringpow = ringpower(ewpn_dp(hit2));
             game->set_life(zc_max(game->get_life()-ringpow,0));
         }
         
-        hitdir = Ewpns.spr(hit2)->hitdir(x,y,16,16,dir);
+        hitdir = q30_hdir;
         ((weapon*)Ewpns.spr(hit2))->onhit(false);
         
         if(action==swimming || hopclk==0xFF)
@@ -3446,7 +3553,7 @@ if(NayrusLoveShieldClk<=0)
         else
             action=gothit;
             
-        hclk=48;
+        hclk=q30_iframes;
         
         if(charging > 0 || spins > 0 || attack == wSword || attack == wHammer)
         {
@@ -3535,13 +3642,20 @@ bool LinkClass::checkdamagecombos(int dx1, int dx2, int dy1, int dy2, int layer,
     {
         if((itemid<0) || (tmpscr->flags5&fDAMAGEWITHBOOTS) || (4<<current_item_power(itype_boots)<(abs(hp_modmin))) || (solid && bootsnosolid) || !checkmagiccost(itemid))
         {
-            if(NayrusLoveShieldClk<=0)
+            int q30_hdir = dir^1, q30_iframes = 48;
+            const int q30_hit = q30_hit_events(-hp_modmin, global_ring!=current_ring, q30_hdir, q30_iframes, 4,
+                                               layer>-1 ? MAPCOMBO2(layer,dx1,dy1) : MAPCOMBO(dx1,dy1));
+
+            if(q30_hit == 0)    // a script nullified the hit
+                return false;
+
+            if(q30_hit < 0 && NayrusLoveShieldClk<=0)
             {
                 int ringpow = ringpower(-hp_modmin);
                 game->set_life(zc_max(game->get_life()-(global_ring!=current_ring ? ringpow:-hp_modmin),0));
             }
             
-            hitdir = (dir^1);
+            hitdir = q30_hdir;
             
             if (action != rafting && action != freeze)
             {
@@ -3552,7 +3666,7 @@ bool LinkClass::checkdamagecombos(int dx1, int dx2, int dy1, int dy2, int layer,
             }
                 
                 
-            hclk=48;
+            hclk=q30_iframes;
             
             if(charging > 0 || spins > 0 || attack == wSword || attack == wHammer)
             {
@@ -3596,21 +3710,32 @@ void LinkClass::hitlink(int hit2)
     }
     else if(superman || !(scriptcoldet&1))
         return;
-    else if(NayrusLoveShieldClk<=0)
+
+    int q30_hdir = guys.spr(hit2)->hitdir(x,y,16,16,dir), q30_iframes = 48;
+    const long q30_hit_uid = guys.spr(hit2)->getUID();
+    const int q30_hit = q30_hit_events(enemy_dp(hit2), true, q30_hdir, q30_iframes, 0, q30_hit_uid);
+
+    if(q30_hit == 0)    // a script nullified the hit
+        return;
+
+    if(q30_hit < 0 && NayrusLoveShieldClk<=0)
     {
         int ringpow = ringpower(enemy_dp(hit2));
         game->set_life(zc_max(game->get_life()-ringpow,0));
     }
     
-    hitdir = guys.spr(hit2)->hitdir(x,y,16,16,dir);
+    hitdir = q30_hdir;
     
     if(action==swimming || hopclk==0xFF)
         action=swimhit;
     else
         action=gothit;
         
-    hclk=48;
+    hclk=q30_iframes;
     sfx(q30_hero_hurt_sfx(),pan(int(x)));
+
+    if(q30_hit > 0 && (hit2 = q30_sprite_index(guys, hit2, q30_hit_uid)) < 0)
+        return;     // a script that saw the hit removed the enemy
     
     if(charging > 0 || spins > 0 || attack == wSword || attack == wHammer)
     {
@@ -4365,6 +4490,7 @@ bool LinkClass::animate(int)
                 playLevelMusic();
                 
             action=none;
+            q30_throw_generic_event(Z30EV_POST_COLLECT_ITEM);  // 2.55+ quests: the item held up is taken
         }
         else
             freeze_guys=true;
@@ -4382,6 +4508,7 @@ bool LinkClass::animate(int)
                 playLevelMusic();
                 
             action=swimming;
+            q30_throw_generic_event(Z30EV_POST_COLLECT_ITEM);  // 2.55+ quests: the item held up is taken
         }
         else
             freeze_guys=true;
@@ -5536,12 +5663,14 @@ bool LinkClass::startwpn(int itemid)
         if(Bwpn == itemid)
         {
             Bwpn = 0;
+            q30_forced_bwpn = -1;
             verifyBWpn();
         }
-        
+
         if(Awpn == itemid)
         {
             Awpn = 0;
+            q30_forced_awpn = -1;
             verifyAWpn();
         }
 
@@ -7899,6 +8028,8 @@ static inline int q30_round(double v)
     return (int)(v + (v < 0 ? -0.00001 : 0.00001));
 }
 
+static bool q30_ffc_solid_at(int wx, int wy, int cnt);     // (with LinkClass::walkflag)
+
 bool LinkClass::q30_walk_solid(double wx, double wy, int d2)
 {
     (void)d2;
@@ -7912,6 +8043,9 @@ bool LinkClass::q30_walk_solid(double wx, double wy, int d2)
         return true;
 
     if(blockmoving && mblock2.hit(ix, iy, 0, 1, 1, 1))
+        return true;
+
+    if(q30_ffc_solid_at(ix, iy, 1))     // solid FFCs (upstream's solid objects)
         return true;
 
     bool freeform = get_bit(quest_rules, qr_FREEFORM) != 0;
@@ -8308,8 +8442,10 @@ void LinkClass::q30_free_walk(int push)
     if(movedir < 0 || inlikelike)
         return;
 
-    // upstream's default Hero step; the quest's own init-data step is not read yet
-    double step = 1.5;
+    // Under the new movement rules Link walks (steprate + tmp_step_boost) / 100 pixels a frame
+    // (upstream's moveOld2 and get_move); otherwise upstream's moveOld, about 1.5.
+    const bool new_movement = q30_new_hero_movement();
+    double step = new_movement ? (q30_steprate + q30_step_boost) / 100.0 : 1.5;
     bool slowcombo = (combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement && (z == 0 || (tmpscr->flags2 & fAIRCOMBOS))) ||
                      (isSideview() && ON_SIDEPLATFORM && combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement);
     bool slowcharging = charging > 0 &&     // (2.55/3.0: the sword's flag 10)
@@ -8320,7 +8456,10 @@ void LinkClass::q30_free_walk(int push)
     else if(slowcombo || slowcharging)
         step = step * 2 / 3;
 
-    step = q30_walk_speed_scale(int(x), int(y), int(z), step);
+    // Combo speed modifiers (upstream's mod_steps) only touch qr_NEW_HERO_MOVEMENT2's movehero;
+    // moveheroOld, which every other quest uses, never reads them.
+    if(q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2))
+        step = q30_walk_speed_scale(int(x), int(y), int(z), step);
 
     double diag = (diagonalMovement && shiftdir != -1) ? step * 0.7071 : step;
     double dx = 0, dy = 0;
@@ -9179,28 +9318,87 @@ void LinkClass::move(int d2)
     }
 }
 
+// 2.55/3.0: an FFC with the "solid" flag (upstream's ffc_solid; scripts set it with
+// Flags[FFCF_SOLID]) stops Link like a wall, over its hit box, with or without a combo of its
+// own (a script may draw it). Changers never are (upstream's ffcdata::setSolid). The points are
+// walkflag's: cnt of them, 8 apart. Older quests never get here.
+static bool q30_ffc_solid_at(int wx, int wy, int cnt)
+{
+    if(quest_header_zelda_version < 0x255)
+        return false;
+
+    static int traced_scr = -1;     // ZC_Q30_TRACE: the solid FFCs of each screen, once
+    static const bool tracing = getenv("ZC_Q30_TRACE") != NULL;
+    const bool trace = tracing && traced_scr != currscr;
+
+    if(trace)
+        traced_scr = currscr;
+
+    for(int i = 0; i < 32; ++i)
+    {
+        const dword f = tmpscr->ffflags[i];
+
+        if(trace && (f & ffSOLID))
+            al_trace("q30: screen %d ffc %d solid at %ld,%ld hit %dx%d flags %lx\n", currscr, i + 1, tmpscr->ffx[i] / 10000,
+                     tmpscr->ffy[i] / 10000, (tmpscr->ffwidth[i] & 0x3F) + 1, (tmpscr->ffheight[i] & 0x3F) + 1, (unsigned long)f);
+
+        if(!(f & ffSOLID) || (f & ffCHANGER))
+            continue;
+
+        const int fx = tmpscr->ffx[i] / 10000, fy = tmpscr->ffy[i] / 10000;
+        const int fw = (tmpscr->ffwidth[i] & 0x3F) + 1, fh = (tmpscr->ffheight[i] & 0x3F) + 1;
+
+        for(int k = 0; k < cnt; ++k)
+        {
+            const int px = wx + k * 8;
+
+            if(px >= fx && px < fx + fw && wy >= fy && wy < fy + fh)
+            {
+                static int logged = -1;
+
+                if(logged != i && tracing)
+                {
+                    logged = i;
+                    al_trace("q30: solid ffc %d (combo %d, flags %lx) at %d,%d %dx%d stops Link at %d,%d\n", i + 1,
+                             (int)tmpscr->ffdata[i], (unsigned long)f, fx, fy, fw, fh, px, wy);
+                }
+
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 LinkClass::WalkflagInfo LinkClass::walkflag(int wx,int wy,int cnt,byte d2)
 {
     WalkflagInfo ret;
-    
+
     if(toogam)
     {
         ret.setUnwalkable(false);
         return ret;
     }
-    
+
     if(blockpath && wy<(bigHitbox?80:88))
     {
         ret.setUnwalkable(true);
         return ret;
     }
-    
+
     if(blockmoving && mblock2.hit(wx,wy,0,1,1,1))
     {
         ret.setUnwalkable(true);
         return ret;
     }
-    
+
+    if(q30_ffc_solid_at(wx, wy, cnt))
+    {
+        ret.setUnwalkable(true);
+        return ret;
+    }
+
     if(isdungeon() && currscr<128 && wy<(bigHitbox?32:40) && (((diagonalMovement||q30_no_gridlock())?(x<=112||x>=128):x!=120) || _walkflag(120,24,2))
             && !get_bit(quest_rules,qr_FREEFORM))
     {
@@ -9238,7 +9436,7 @@ LinkClass::WalkflagInfo LinkClass::walkflag(int wx,int wy,int cnt,byte d2)
                         changehop = false;
                     else if(wx>240&&cnt==2)
                         changehop = false;
-                    else if(wy>168)
+                    else if(wy>zc_field_h())
                         changehop = false;
                 }
                 //This may be where the hang-up for exiting water exists. -Z
@@ -9305,7 +9503,7 @@ LinkClass::WalkflagInfo LinkClass::walkflag(int wx,int wy,int cnt,byte d2)
                 if(wx<0||wy<0);
                 else if(wx>248);
                 else if(wx>240&&cnt==2);
-                else if(wy>168);
+                else if(wy>zc_field_h());
                 else if(get_bit(quest_rules, qr_DROWN) && !ilswim);
                 else if(iswater(MAPCOMBO(wx,wy)) && iswater(MAPCOMBO(wx,wy)))
                 {
@@ -14302,8 +14500,16 @@ void LinkClass::run_scrolling_script(int scrolldir, int cx, int sx, int sy, bool
     
     const bool waitdraw_pass = global_wait;     // this function is also the global script's Waitdraw
 
+    // 2.55/3.0: generic scripts keep running through a scroll, at their stages around the global
+    // script (upstream's run_scrolling_script); nothing for older quests
+    if(!waitdraw_pass)
+        q30_scroll_generic(Z30T_POST_FFCS);
+
     if(g_doscript)
         ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_GAME);
+
+    if(!waitdraw_pass)
+        q30_scroll_generic(Z30T_POST_GLOBAL_ACTIVE);
 
     if(!waitdraw_pass)
         q30_item_scripts_tick(false);
@@ -14526,6 +14732,9 @@ void LinkClass::scrollscr(int scrolldir, int destscr, int destdmap)
     if(!waitdraw_old250)
         script_drawing_commands.Clear();
 
+    // 2.55/3.0: Game->Scrolling and the region camera follow this scroll (nothing for 2.53)
+    q30_scroll_begin(scrolldir);
+
     if((DMaps[currdmap].type&dmfTYPE)==dmCAVE)
         markBmap(scrolldir);
         
@@ -14609,6 +14818,8 @@ void LinkClass::scrollscr(int scrolldir, int destscr, int destdmap)
     break;
     }
 
+    q30_scroll_loaded(delay != 0);  // the new screen is in: Game->Scrolling says where it scrolls
+
     // change Link's state if entering water
     int ahead = lookahead(scrolldir);
     int aheadflag = lookaheadflag(scrolldir);
@@ -14683,10 +14894,12 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
     int no_move = 0;
     bool end_frames = false;
     
-    for(word i = 0; cx >= 0 && delay != 0; i++, cx--) //Go!
+    // (a 3.0 scroll may go on after the scroll to line the camera up: q30_scroll_align_pending)
+    for(word i = 0; (cx >= 0 && delay != 0) || q30_scroll_align_pending(); i++, cx--) //Go!
     {
         if(Quit)
         {
+            q30_scroll_end();
             screenscrolling = false;
             return;
         }
@@ -14705,7 +14918,8 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
             no_move--;
             
         //Don't want to move things on the first or last iteration, or between delays
-        if(i == 0 || cx == 0 || cx % delay != 0)
+        //(nor while a 3.0 scroll lines the camera up first)
+        if(i == 0 || cx == 0 || cx % delay != 0 || q30_scroll_align_first())
             no_move++;
             
         if(scrolldir == up || scrolldir == down)
@@ -14731,6 +14945,20 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
             }
         }
         
+        // 3.0 scrolling regions: the view lines up with the new region's camera on the other
+        // axis, 4 pixels a frame, before the scroll (which waits) or after it (upstream's
+        // secondary_axis_alignment_amount). Nothing for 2.53 quests.
+        switch(q30_scroll_align_step(cx >= 0 && delay != 0))
+        {
+        case 1:
+            cx++;
+            break;
+
+        case 2:
+            no_move = 1;
+            break;
+        }
+
         //Move Link and the scroll position
         if(!no_move)
         {
@@ -14777,6 +15005,14 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
             }
         }
         
+        // 2.55/3.0: Game->Scrolling's view-relative entries and Viewport->X/Y for this frame,
+        // then the generic scripts' Waitdraw stage (upstream runs them through the scroll)
+        q30_scroll_view(sx, sy);
+        lastaction = action;
+        action = scrolling;
+        q30_scroll_generic(Z30T_WAITDRAW);
+        action = lastaction;
+
         if(global_wait)
         {
             // And now to injure your other eye
@@ -14816,6 +15052,14 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
             break;
         }
         
+        // 3.0 scrolling regions: the view's offset on the other axis (0 otherwise)
+        int q30ox, q30oy;
+        q30_scroll_offset(&q30ox, &q30oy);
+        tx += q30ox;
+        ty += q30oy;
+        tx2 += q30ox;
+        ty2 += q30oy;
+
         clear_bitmap(scrollbuf);
         clear_bitmap(framebuf);
         
@@ -14832,9 +15076,9 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
             
             // Draw both screens' background layer primitives together, after both layers' combos.
             // Not ideal, but probably good enough for all realistic purposes.
-            if(newscr->flags7&fLAYER2BG || oldscr->flags7&fLAYER2BG) do_primitives(scrollbuf, 2, newscr, sx, sy);
+            if(newscr->flags7&fLAYER2BG || oldscr->flags7&fLAYER2BG) do_primitives(scrollbuf, 2, newscr, sx+q30ox, sy+q30oy);
             
-            if(newscr->flags7&fLAYER3BG || oldscr->flags7&fLAYER3BG) do_primitives(scrollbuf, 3, newscr, sx, sy);
+            if(newscr->flags7&fLAYER3BG || oldscr->flags7&fLAYER3BG) do_primitives(scrollbuf, 3, newscr, sx+q30ox, sy+q30oy);
             
             putscr(scrollbuf, 0, 0, newscr);
             putscr(scrollbuf, 0, 176, oldscr);
@@ -14849,9 +15093,9 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
             
             if(oldscr->flags7&fLAYER3BG) do_layer(scrollbuf,2, oldscr, 0, playing_field_offset, 3);
             
-            if(newscr->flags7&fLAYER2BG || oldscr->flags7&fLAYER2BG) do_primitives(scrollbuf, 2, newscr, sx, sy);
+            if(newscr->flags7&fLAYER2BG || oldscr->flags7&fLAYER2BG) do_primitives(scrollbuf, 2, newscr, sx+q30ox, sy+q30oy);
             
-            if(newscr->flags7&fLAYER3BG || oldscr->flags7&fLAYER3BG) do_primitives(scrollbuf, 3, newscr, sx, sy);
+            if(newscr->flags7&fLAYER3BG || oldscr->flags7&fLAYER3BG) do_primitives(scrollbuf, 3, newscr, sx+q30ox, sy+q30oy);
             
             putscr(scrollbuf, 0, 0, oldscr);
             putscr(scrollbuf, 0, 176, newscr);
@@ -14866,9 +15110,9 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
             
             if(oldscr->flags7&fLAYER3BG) do_layer(scrollbuf,2, oldscr, -256, playing_field_offset, 3);
             
-            if(newscr->flags7&fLAYER2BG || oldscr->flags7&fLAYER2BG) do_primitives(scrollbuf, 2, newscr, sx, sy);
+            if(newscr->flags7&fLAYER2BG || oldscr->flags7&fLAYER2BG) do_primitives(scrollbuf, 2, newscr, sx+q30ox, sy+q30oy);
             
-            if(newscr->flags7&fLAYER3BG || oldscr->flags7&fLAYER3BG) do_primitives(scrollbuf, 3, newscr, sx, sy);
+            if(newscr->flags7&fLAYER3BG || oldscr->flags7&fLAYER3BG) do_primitives(scrollbuf, 3, newscr, sx+q30ox, sy+q30oy);
             
             putscr(scrollbuf, 0, 0, newscr);
             putscr(scrollbuf, 256, 0, oldscr);
@@ -14883,25 +15127,33 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
             
             if(oldscr->flags7&fLAYER3BG) do_layer(scrollbuf,2, oldscr, 0, playing_field_offset, 3);
             
-            if(newscr->flags7&fLAYER2BG || oldscr->flags7&fLAYER2BG) do_primitives(scrollbuf, 2, newscr, sx, sy);
+            if(newscr->flags7&fLAYER2BG || oldscr->flags7&fLAYER2BG) do_primitives(scrollbuf, 2, newscr, sx+q30ox, sy+q30oy);
             
-            if(newscr->flags7&fLAYER3BG || oldscr->flags7&fLAYER3BG) do_primitives(scrollbuf, 3, newscr, sx, sy);
+            if(newscr->flags7&fLAYER3BG || oldscr->flags7&fLAYER3BG) do_primitives(scrollbuf, 3, newscr, sx+q30ox, sy+q30oy);
             
             putscr(scrollbuf, 0, 0, oldscr);
             putscr(scrollbuf, 256, 0, newscr);
             break;
         }
         
-        blit(scrollbuf, framebuf, sx, sy, 0, playing_field_offset, 256, 168);
+        // (3.0 scrolling regions: with the screens beside them, through the view's offset)
+        if(!q30_scroll_blit_lower(scrollbuf, framebuf, sx, sy))
+            blit(scrollbuf, framebuf, sx, sy, 0, playing_field_offset, 256, zc_field_h());
         do_primitives(framebuf, 0, newscr, 0, playing_field_offset);
         
+        // Each layer of the old and the new screen, and of the region screens beside them
+        // that a 3.0 scroll's view shows (q30_scroll_layer, nothing otherwise).
         do_layer(framebuf, 0, oldscr, tx2, ty2, 3);
+        q30_scroll_layer(framebuf, 0, false, tx2, ty2, false);
         
         if(!(oldscr->flags7&fLAYER2BG)) do_layer(framebuf,1, oldscr, tx2, ty2, 3);
+        q30_scroll_layer(framebuf, 1, false, tx2, ty2, false);
         
         do_layer(framebuf, 0, newscr, tx, ty, 2, false, true);
+        q30_scroll_layer(framebuf, 0, true, tx, ty, false);
         
         if(!(newscr->flags7&fLAYER2BG)) do_layer(framebuf,1, newscr, tx, ty, 2, false, !(oldscr->flags7&fLAYER2BG));
+        q30_scroll_layer(framebuf, 1, true, tx, ty, false);
         
         do_layer(framebuf, -2, oldscr, tx2, ty2, 3); //push blocks
         do_layer(framebuf, -2, newscr, tx, ty, 2);
@@ -14913,12 +15165,18 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
         {
             do_layer(framebuf, -3, oldscr, tx2, ty2, 3, true); //ffcs
             do_layer(framebuf, -3, newscr, tx, ty, 2, true);
+            q30_scroll_layer(framebuf, -3, false, tx2, ty2, true);
+            q30_scroll_layer(framebuf, -3, true, tx, ty, true);
         }
         
         putscrdoors(framebuf, 0-tx2, 0-ty2+playing_field_offset, oldscr);
         putscrdoors(framebuf, 0-tx,  0-ty+playing_field_offset, newscr);
         linkstep();
         
+        // (Link, through a 3.0 scroll's offset on the other axis)
+        q30_draw_cam_x = q30ox;
+        q30_draw_cam_y = q30oy;
+
         if(z > 0 && (!get_bit(quest_rules,qr_SHADOWSFLICKER) || frame&1))
         {
             drawshadow(framebuf, get_bit(quest_rules, qr_TRANSSHADOWS) != 0);
@@ -14932,24 +15190,38 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
             decorations.draw(framebuf,  true);
         }
         
+        q30_draw_cam_x = q30_draw_cam_y = 0;
+
         if(!(oldscr->flags7&fLAYER3BG)) do_layer(framebuf,2, oldscr, tx2, ty2, 3);
+        q30_scroll_layer(framebuf, 2, false, tx2, ty2, false);
         
         do_layer(framebuf, 3, oldscr, tx2, ty2, 3); //layer 3
         do_layer(framebuf,-1, oldscr, tx2, ty2, 3); //overhead combos
         do_layer(framebuf, 4, oldscr, tx2, ty2, 3); //layer 4
         do_layer(framebuf,-4, oldscr, tx2, ty2, 3, true); //overhead FFCs
         do_layer(framebuf, 5, oldscr, tx2, ty2, 3); //layer 5
+        q30_scroll_layer(framebuf, 3, false, tx2, ty2, false);
+        q30_scroll_layer(framebuf, -1, false, tx2, ty2, false);
+        q30_scroll_layer(framebuf, 4, false, tx2, ty2, false);
+        q30_scroll_layer(framebuf, -4, false, tx2, ty2, true);
+        q30_scroll_layer(framebuf, 5, false, tx2, ty2, false);
         
         if(!(newscr->flags7&fLAYER3BG)) do_layer(framebuf,2, newscr, tx, ty, 2, false, !(oldscr->flags7&fLAYER3BG));
+        q30_scroll_layer(framebuf, 2, true, tx, ty, false);
         
         do_layer(framebuf, 3, newscr, tx, ty, 2, false, true); //layer 3
         do_layer(framebuf,-1, newscr, tx, ty, 2); //overhead combos
         do_layer(framebuf, 4, newscr, tx, ty, 2, false, true); //layer 4
         do_layer(framebuf,-4, newscr, tx, ty, 2, true); //overhead FFCs
         do_layer(framebuf, 5, newscr, tx, ty, 2, false, true); //layer 5
+        q30_scroll_layer(framebuf, 3, true, tx, ty, false);
+        q30_scroll_layer(framebuf, -1, true, tx, ty, false);
+        q30_scroll_layer(framebuf, 4, true, tx, ty, false);
+        q30_scroll_layer(framebuf, -4, true, tx, ty, true);
+        q30_scroll_layer(framebuf, 5, true, tx, ty, false);
         
         if(msgdisplaybuf->clip == 0)
-            masked_blit(msgdisplaybuf, framebuf, tx2, ty2, 0, playing_field_offset, 256, 168);
+            masked_blit(msgdisplaybuf, framebuf, tx2, ty2, 0, playing_field_offset, 256, zc_field_h());
             
         put_passive_subscr(framebuf, &QMisc, 0, passive_subscreen_offset, false, sspUP);
         
@@ -14957,10 +15229,14 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
             do_primitives(framebuf, 7, newscr, 0, playing_field_offset);
             
         //end drawing
+        lastaction = action;
+        action = scrolling;
+        q30_scroll_generic(Z30T_END_FRAME);     // 2.55/3.0: the rest of the frame's generic stages
+        action = lastaction;
         advanceframe(true);
     }//end main scrolling loop (2 spaces tab width makes me sad =( )
     
-    
+    q30_scroll_end();   // 2.55/3.0: Game->Scrolling[DIR] is -1 again
     
     clear_bitmap(msgdisplaybuf);
     set_clip_state(msgdisplaybuf, 1);
@@ -15102,9 +15378,120 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
     decorations.animate(); //continue to animate tall grass during scrolling
 }
 
+// Where the sprite with this uid is in the list now: at `index` still, elsewhere, or gone (-1).
+static int q30_sprite_index(sprite_list &list, int index, long uid)
+{
+    if(index >= 0 && index < list.Count() && list.spr(index)->getUID() == uid)
+        return index;
+
+    for(int i = 0; i < list.Count(); ++i)
+        if(list.spr(i)->getUID() == uid)
+            return i;
+
+    return -1;
+}
+
+// 2.55+ quests: the HERO_HIT_1 and HERO_HIT_2 generic script events around a hit on Link, with
+// the Game->EventData upstream gives them (hero.cpp try_ewpn_hit and friends). `dmg` is the damage
+// before rings, and `ring` says whether rings reduce it. Returns -1 when no script listens (the
+// caller then runs 2.53's damage code, unchanged), 0 when a script nullified the hit, or 1 when
+// the damage the scripts left was applied (unless Nayru's Love); hdir and iframes come back as
+// the scripts left them.
+int LinkClass::q30_hit_events(int dmg, bool ring, int &hdir, int &iframes, int objtype, long objuid)
+{
+    if(!q30_generic_listening(Z30EV_HERO_HIT_1) && !q30_generic_listening(Z30EV_HERO_HIT_2))
+        return -1;
+
+    const long nayru = NayrusLoveShieldClk > 0 ? 10000 : 0;
+    // damage, hit dir, nullify, invincible, iframes, object type, object, type 2 (none), object 2, invincible (knockback)
+    long ev[10] = { dmg * 10000L, hdir * 10000L, 0, nayru, iframes * 10000L, objtype * 10000L, objuid, -10000L, 0, nayru };
+
+    q30_throw_generic_event(Z30EV_HERO_HIT_1, ev, 10);
+
+    if(ev[2])
+        return 0;
+
+    ev[0] = (ring ? ringpower(ev[0] / 10000) : ev[0] / 10000) * 10000L;
+    q30_throw_generic_event(Z30EV_HERO_HIT_2, ev, 10);
+
+    if(ev[2])
+        return 0;
+
+    if(!ev[3])
+        game->set_life(zc_max(game->get_life() - ev[0] / 10000, 0));
+
+    static const bool trace = getenv("ZC_Q30_TRACE") != NULL;
+
+    if(trace)
+        al_trace("q30: Link hit by %d %ld for %d (%d before rings and scripts), life now %d\n", objtype, objuid, (int)(ev[0] / 10000), dmg, game->get_life());
+
+    hdir = ev[1] / 10000;
+    iframes = ev[4] / 10000;
+    return 1;
+}
+
+// 2.55+ quests: upstream's rings (HeroClass::ringpower). A ring with item flag 2 multiplies by
+// its power as a percentage instead of dividing by it (a "Dummy" ring of 100% leaves the damage
+// as it is, where 2.53's sum divides by 100), and a negative power adds damage. Quest rule 211
+// (qr_BROKEN_RING_POWER) keeps the older sums.
+static int q30_ringpower(int dmg)
+{
+    if(dmg < 0)
+        return dmg;     // healing isn't reduced
+
+    const bool broken = q30_quest_rule(211);
+    double divisor = 1, percentage = 1;
+    bool usering = false;
+
+    for(int r = 0; r < 2; ++r)     // the ring, then the peril ring
+    {
+        const int itemid = current_item_id(r ? itype_perilring : itype_ring);
+
+        if(itemid < 0)
+            continue;
+
+        if(r == 1 && !(game->get_life() <= itemsbuf[itemid].misc1*HP_PER_HEART && checkmagiccost(itemid)))
+            continue;
+
+        usering = true;
+        paymagiccost(itemid);
+        const int power = itemsbuf[itemid].power;
+
+        if(q30_item_flag(itemid, ITEM_FLAG2))    // "Divisor is Percentage Multiplier"
+        {
+            double perc = power / 100.0;
+            if(!broken && perc < 0)
+                perc = -perc + 1;   // a negative percentage: that much more damage
+            percentage *= perc;
+        }
+        else if(!broken && power < 0)
+            divisor /= -power;
+        else
+            divisor *= broken ? (double)power : power;
+    }
+
+    if(usering && (divisor == 0 || percentage == 0))
+        return 0;
+
+    if(broken)
+    {
+        float perc = (float)percentage;
+        if(perc < 0)
+            perc = -perc + 1;
+        if(divisor < 0)
+            return int(dmg * perc * (int(divisor) * -1));
+        return int(dmg * perc / int(divisor));
+    }
+
+    return int(dmg * percentage / divisor);
+}
+
 // How much to reduce Link's damage, taking into account various rings.
 int LinkClass::ringpower(int dmg)
 {
+    if(q30_active())
+        return q30_ringpower(dmg);
+
     int result = 1;
     int itemid = current_item_id(itype_ring);
     bool usering = false;
@@ -15534,6 +15921,9 @@ void selectNextBWpn(int type)
 
 void verifyAWpn()
 {
+    if(q30_forced_awpn != -1)   // a script's Hero->ItemA (newer quests)
+        return;
+
     if(!get_bit(quest_rules,qr_SELECTAWPN))
     {
         Awpn = selectSword();
@@ -15553,6 +15943,9 @@ void verifyAWpn()
 
 void verifyBWpn()
 {
+    if(q30_forced_bwpn != -1)   // a script's Hero->ItemB (newer quests)
+        return;
+
     if(game->bwpn == 255 && q30_quest_rule(424))
         return;
 
@@ -15597,6 +15990,45 @@ void q30_set_button_item(bool x, int wpn)
     (x ? directItemX : directItemY) = wpn & 0xFFF;
 }
 
+// 2.55/3.0 scripts: Hero->ItemA / ItemB put an item on the button whether Link owns it or not
+// (upstream's forced_awpn / forced_bwpn). The button keeps it until the item is lost: verifyAWpn
+// and verifyBWpn leave a forced button alone. -1 when nothing is forced (always, for 2.53 quests).
+int q30_forced_awpn = -1, q30_forced_bwpn = -1;
+
+void q30_set_ab_item(bool a, int val)
+{
+    if(val < -1 || val >= MAXITEMS)
+    {
+        al_trace("Tried to write an invalid item ID to Hero->Item%c: %d\n", a ? 'A' : 'B', val);
+        return;
+    }
+
+    (a ? Awpn : Bwpn) = val < 0 ? 0 : val;
+
+    // the subscreen slot that holds it, if one does (upstream's get_page_pos)
+    if(val >= 0 && current_subscreen_active)
+    {
+        const int keep = directItem;
+
+        for(int pos = 0; pos < 0xFF; ++pos)
+        {
+            if(Bweapon(pos) == val)
+            {
+                (a ? game->awpn : game->bwpn) = pos;
+                break;
+            }
+        }
+
+        directItem = keep;
+    }
+
+    if(val >= 0)
+        game->items_off[val] = 0;
+
+    (a ? q30_forced_awpn : q30_forced_bwpn) = val;
+    (a ? directItemA : directItemB) = val;
+}
+
 void q30_set_button_slot(bool x, int wpn, int pos, int direct)
 {
     (x ? Xwpn : Ywpn) = wpn;
@@ -15626,6 +16058,7 @@ void q30_verify_extra_buttons()
 
 void q30_load_extra_buttons()
 {
+    q30_forced_awpn = q30_forced_bwpn = -1;
     Xwpn = Ywpn = 0;
     directItemX = directItemY = -1;
     q30_xpos = q30_ypos = Q30_NO_POS;
@@ -15972,6 +16405,55 @@ void dospecialmoney(int index)
         set_clip_state(pricesdisplaybuf, 1);
         //    putscr(scrollbuf,0,0,tmpscr);
         break;
+    }
+}
+
+// A 2.55/3.0 quest's starting items numbered 256 and up, which 2.53's itemsbuf and save can't
+// hold (q30_high_item): at a new game they add to counters as getitem does (a wallet's max
+// rupees, a heart container's life), as resetItems gives the others. They aren't owned in
+// the save, so Link->Item[], the subscreen and item use still don't see them.
+void q30_give_init_high_items()
+{
+    const std::vector<int> &ids = q30_init_high_items();
+
+    for(size_t i = 0; i < ids.size(); ++i)
+    {
+        int family = 0;
+        const char *name = "";
+        const itemdata *it = q30_high_item(ids[i], &family, &name);
+
+        if(it)
+            q30_set_high_item_owned(ids[i], true);     // Link starts with it (Hero->Item[], the save)
+
+        if(!it || !(it->flags & ITEM_GAMEDATA))
+            continue;
+
+        if(it->count != -1)
+        {
+            if(it->setmax)
+            {
+                int max = game->get_maxcounter(it->count);
+
+                if(max < it->max)
+                    max = it->max;
+
+                game->set_maxcounter(zc_min(game->get_maxcounter(it->count) + it->setmax, max), it->count);
+            }
+
+            if(it->amount & 0x3FFF)
+            {
+                int add = (it->amount & 0x4000) ? -(it->amount & 0x3FFF) : (it->amount & 0x3FFF);
+
+                if(it->amount & 0x8000)     // gradual: through the drain counter, as getitem
+                    game->set_dcounter(game->get_dcounter(it->count) + add, it->count);
+                else
+                    game->set_counter(zc_max(0, zc_min(game->get_counter(it->count) + add, game->get_maxcounter(it->count))), it->count);
+            }
+        }
+
+        al_trace("q30 items: starting item %d '%s' (family %d): counter %d (now %d, drain %d, max %d), amount %x\n", ids[i], name, family,
+                 (int)it->count, it->count >= 0 ? (int)game->get_counter(it->count) : 0, it->count >= 0 ? (int)game->get_dcounter(it->count) : 0,
+                 it->count >= 0 ? (int)game->get_maxcounter(it->count) : 0, (unsigned)it->amount);
     }
 }
 
@@ -16435,6 +16917,25 @@ void LinkClass::checkitems(int index)
         q30_pstr_item = -1;     // upstream: no pickup string for a bottle bought
     }
 
+    // 2.55+ quests: the COLLECT_ITEM generic script event (upstream HeroClass::checkitems). The
+    // scripts it wakes may change the item and its pickup flags, or cancel the pickup.
+    if(q30_generic_listening(Z30EV_COLLECT_ITEM))
+    {
+        const long uid = items.spr(index)->getUID();
+        // item id, pickup flags, pickup string, string flags, nullify, the itemsprite, how (collected), the lweapon
+        long ev[8] = { id2 * 10000L, pickup * 10000L, 0, 0, 0, uid, 0, 0 };
+
+        q30_throw_generic_event(Z30EV_COLLECT_ITEM, ev, 8);
+
+        if(ev[4] || (index = q30_sprite_index(items, index, uid)) < 0)
+            return;     // nullified, or the item is gone
+
+        if(ev[0] / 10000 >= 0 && ev[0] / 10000 < MAXITEMS)
+            id2 = ev[0] / 10000;
+
+        pickup = (pickup & (ipCHECK|ipDUMMY)) | (ev[1] / 10000);
+    }
+
     if(pickup&ipONETIME)    // set mITEM for one-time-only items
     {
 		setmapflag(mITEM);
@@ -16628,6 +17129,9 @@ void LinkClass::checkitems(int index)
         else
             getBigTri(id2);
     }
+
+    if(!holdclk)
+        q30_throw_generic_event(Z30EV_POST_COLLECT_ITEM);  // 2.55+ quests (upstream checkitems)
 }
 
 void LinkClass::StartRefill(int refillWhat)
@@ -16875,7 +17379,7 @@ void LinkClass::getTriforce(int id2)
                 draw_screen_clip_rect_x1=curtain_x;
                 draw_screen_clip_rect_x2=255-curtain_x;
                 draw_screen_clip_rect_y1=0;
-                draw_screen_clip_rect_y2=223;
+                draw_screen_clip_rect_y2=zc_view_h-1;
                 //draw_screen_clip_rect_show_link=true;
                 //draw_screen(tmpscr);
             }
@@ -16897,7 +17401,7 @@ void LinkClass::getTriforce(int id2)
     draw_screen_clip_rect_x1=0;
     draw_screen_clip_rect_x2=255;
     draw_screen_clip_rect_y1=0;
-    draw_screen_clip_rect_y2=223;
+    draw_screen_clip_rect_y2=zc_view_h-1;
     //draw_screen_clip_rect_show_link=true;
     show_subscreen_items=true;
     
@@ -16924,8 +17428,8 @@ void red_shift()
         RAMpal[i+tnum].b = r >> 4;
     }
     
-    // color scale the game screen
-    for(int y=0; y<168; y++)
+    // color scale the game screen (the rows shown: 168, or 176 with the 232-row picture)
+    for(int y=0; y<zc_field_h(); y++)
     {
         for(int x=0; x<256; x++)
         {
@@ -17231,7 +17735,7 @@ void LinkClass::gameover()
                     }
                     
                     //draw only link. otherwise black layers might cover him.
-                    rectfill(framebuf,0,playing_field_offset,255,167+playing_field_offset,0);
+                    rectfill(framebuf,0,playing_field_offset,255,zc_field_h()-1+playing_field_offset,0);
                     draw(framebuf);
                     blit(subscrbmp,framebuf,0,0,0,0,256,passive_subscreen_height);
                 }
@@ -17317,7 +17821,7 @@ void LinkClass::gameover()
                 else
                 {
                     //draw only link. otherwise black layers might cover him.
-                    rectfill(framebuf,0,playing_field_offset,255,167+playing_field_offset,0);
+                    rectfill(framebuf,0,playing_field_offset,255,zc_field_h()-1+playing_field_offset,0);
                     draw(framebuf);
                     blit(subscrbmp,framebuf,0,0,0,0,256,passive_subscreen_height);
                 }

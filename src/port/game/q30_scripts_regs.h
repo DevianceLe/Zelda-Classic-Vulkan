@@ -44,6 +44,13 @@ void zasm30_log_once(const char *kind, long id)
 
 // ---- resolving a sprite reference --------------------------------------------------------------
 
+// Screen->DrawOrigin values (upstream DrawOrigin, raw longs in screendata.zh)
+enum
+{
+    Z30_DRAW_ORIGIN_DEFAULT, Z30_DRAW_ORIGIN_PLAYING_FIELD, Z30_DRAW_ORIGIN_SCREEN, Z30_DRAW_ORIGIN_REGION,
+    Z30_DRAW_ORIGIN_REGION_SCROLLING_NEW, Z30_DRAW_ORIGIN_REGION_SCROLLING_OLD, Z30_DRAW_ORIGIN_SPRITE
+};
+
 enum { Z30S_NONE, Z30S_HERO, Z30S_NPC, Z30S_LWPN, Z30S_EWPN, Z30S_ITEM, Z30S_FFC };
 
 #define Z30_FFC_BASE 0x7FF00000L
@@ -1019,10 +1026,17 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_LINKDIAG: ret = get_bit(quest_rules, qr_LTTPWALK) ? 10000 : 0; return true;
     case Z30R_LINKBIGHITBOX: ret = get_bit(quest_rules, qr_LTTPCOLLISION) ? 10000 : 0; return true;
     case Z30R_LINKINVFRAME: ret = Link.getHClk() * 10000; return true;
-    case Z30R_HEROSTEPRATE: ret = zasm30_store_get(arg, 0, 0) * 10000; return true;
+    case Z30R_HEROSTEPRATE: ret = q30_hero_step_rate() * 10000; return true;
+    case Z30R_HERO_TMP_STEPBOOST: ret = q30_hero_step_boost() * 10000; return true;
     case Z30R_HEROLIFTEDWPN: ret = 0; return true;
     case Z30R_HEROSTANDING: ret = Link.getZ() == 0 ? 10000 : 0; return true;
     case Z30R_HERO_SCREEN: ret = currscr * 10000; return true;
+    // Game->CurScreen / CurDMapScreen: upstream's cur_screen, which in a scrolling region is the
+    // region's top-left screen (Hero->Screen above is Link's own); currscr outside regions
+    case Z30R_CURSCR: ret = q30_region_origin() * 10000; return true;
+    case Z30R_CURDSCR:
+        ret = (DMaps[currdmap].type == dmOVERW ? q30_region_origin() : q30_region_origin() - DMaps[currdmap].xoff) * 10000;
+        return true;
 
     // NPC
     case Z30R_NPCFLAGS:
@@ -1202,11 +1216,12 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
         }
         return true;
     }
+    // raw DRAW_ORIGIN_* (not x10000) and a sprite uid, kept by each running script (upstream)
     case Z30R_SCREEN_DRAW_ORIGIN:
-        ret = zasm30_store_get(arg, 0, 0);
+        ret = zasm30_frame().draw_origin;
         return true;
     case Z30R_SCREEN_DRAW_ORIGIN_TARGET:
-        ret = zasm30_store_get(arg, 0, 0);
+        ret = zasm30_frame().draw_origin_target;
         return true;
     case Z30R_SHOWNMSG:
         ret = (msgstr >= 0 ? msgstr : 0) * 10000;
@@ -1289,10 +1304,10 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
 
     // itemdata-> (ri->idata)
     case Z30R_IDATAID: ret = ri->idata * 10000; return true;
-    case Z30R_IDATATILE: ret = itemsbuf[ri->idata].tile * 10000; return true;
-    case Z30R_IDATACSET: ret = (itemsbuf[ri->idata].csets & 15) * 10000; return true;
+    case Z30R_IDATATILE: ret = Q30_IDATA(ri->idata).tile * 10000; return true;
+    case Z30R_IDATACSET: ret = (Q30_IDATA(ri->idata).csets & 15) * 10000; return true;
     case Z30R_IDATABUNNYABLE: ret = q30_item_bunny(ri->idata) ? 10000 : 0; return true;
-    case Z30R_IDATASCRIPT: ret = itemsbuf[ri->idata].script * 10000; return true;
+    case Z30R_IDATASCRIPT: ret = Q30_IDATA(ri->idata).script * 10000; return true;
     case Z30R_IDATASPRITE: ret = zasm30_store_get(arg, ri->idata, Z30_INDEX) * 10000; return true;
 
     // spritedata->
@@ -1369,9 +1384,12 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
         ret = (arg == Z30R_BUTTONPRESS ? button_press[n] : control_state[n]) ? 10000 : 0;
         return true;
     }
-    case Z30R_GAMESCROLLING: ret = zasm30_store_get(arg, 0, Z30_INDEX) * 10000; return true;
+    // Game->Scrolling[]: the running scroll (q30_regions.h); DIR is -1 while none runs
+    case Z30R_GAMESCROLLING: ret = q30_scroll_data(Z30_INDEX) * 10000; return true;
     case Z30R_GAMESUSPEND: ret = zasm30_store_get(arg, 0, Z30_INDEX) * 10000; return true;
-    case Z30R_GAMEEVENTDATA: ret = zasm30_store_get(arg, 0, Z30_INDEX); return true;
+    case Z30R_GAMEEVENTDATA:    // the event being thrown (q30_throw_generic_event)
+        ret = (Z30_INDEX >= 0 && Z30_INDEX < (long)zasm30_event_data.size()) ? zasm30_event_data[Z30_INDEX] : 0;
+        return true;
     case Z30R_GAMEBOTTLEST: ret = q30_bottle_slot(Z30_INDEX) * 10000; return true;   // the save's bottle slots (q30_triggers.cpp)
     case Z30R_MUSICUPDATECOND: ret = zasm30_store_get(arg, 0, 0) * 10000; return true;
     case Z30R_GAMEASUBYOFF: ret = zasm30_store_get(arg, 0, 0) * 10000; return true;
@@ -1532,6 +1550,7 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_LINKEATEN: ret = Link.getEaten() * 10000; return true;
     case Z30R_LINKGRABBED: ret = Link.getInWallm() ? 10000 : 0; return true;
     case Z30R_HEROISWARPING: ret = Link.ffwarp ? 10000 : 0; return true;
+    case Z30R_ACTIVESSSPEED: ret = q30_subscr_speed * 10000; return true;   // the subscreen's slide speed
     case Z30R_HEROIMMORTAL: ret = zasm30_hero_immortal * 10000; return true;
     case Z30R_LINKHURTSFX: ret = (zasm30_hero_hurt_sfx > 0 ? zasm30_hero_hurt_sfx : WAV_OUCH) * 10000; return true;
     case Z30R_LINKSCRIPTTILE: ret = zasm30_hero_script_tile * 10000; return true;
@@ -1910,14 +1929,14 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
         ret = -10000;
         if(unsigned(ri->idata) < MAXITEMS && Z30_INDEX >= 0 && Z30_INDEX < 10)
         {
-            const itemdata &it = itemsbuf[ri->idata];
+            const itemdata &it = Q30_IDATA(ri->idata);
             const long values[10] = { it.misc1, it.misc2, it.misc3, it.misc4, it.misc5, it.misc6, it.misc7, it.misc8, it.misc9, it.misc10 };
             ret = values[Z30_INDEX] * 10000;
         }
         return true;
     }
     case Z30R_IDATAMINHEARTS:
-        ret = unsigned(ri->idata) < MAXITEMS ? itemsbuf[ri->idata].pickup_hearts * 10000 : -10000;
+        ret = unsigned(ri->idata) < MAXITEMS ? Q30_IDATA(ri->idata).pickup_hearts * 10000 : -10000;
         return true;
 
     // paldata->
@@ -1984,15 +2003,17 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     {
     case Z30R_LINKITEMX: q30_set_button_item(true, value / 10000); return true;
     case Z30R_LINKITEMY: q30_set_button_item(false, value / 10000); return true;
+    case Z30R_ACTIVESSSPEED: q30_subscr_speed = vbound(value / 10000, 1, 85); return true;
     case Z30R_HEROBUNNY: q30_set_bunny_clock(value / 10000); return true;
-    case Z30R_LINKITEMA:
-    case Z30R_LINKITEMB:
+    case Z30R_LINKITEMA: q30_set_ab_item(true, value / 10000); return true;
+    case Z30R_LINKITEMB: q30_set_ab_item(false, value / 10000); return true;
     case Z30R_LINKSTUN:
     case Z30R_LINKTILEMOD:
     case Z30R_LINKCANFLICKER:
-    case Z30R_HEROSTEPRATE:
         zasm30_store_set(arg, 0, 0, arg == Z30R_LINKCANFLICKER ? (value ? 10000 : 0) : value / 10000);
         return true;
+    case Z30R_HEROSTEPRATE: q30_set_hero_step_rate(value / 10000); return true;     // Hero->Step
+    case Z30R_HERO_TMP_STEPBOOST: q30_set_hero_step_boost(value / 10000); return true;
     case Z30R_HEROLIFTEDWPN:
     case Z30R_HEROSTANDING:
         return true;
@@ -2184,8 +2205,19 @@ static bool zasm30_set_register_inner(const long arg, const long value)
         }
         return true;
     }
-    case Z30R_SCREEN_DRAW_ORIGIN: zasm30_store_set(arg, 0, 0, value); return true;
-    case Z30R_SCREEN_DRAW_ORIGIN_TARGET: zasm30_store_set(arg, 0, 0, value); return true;
+    case Z30R_SCREEN_DRAW_ORIGIN:
+        // DRAW_ORIGIN_DEFAULT (0) to DRAW_ORIGIN_SPRITE (6), raw; anything else is refused
+        if(value < Z30_DRAW_ORIGIN_DEFAULT || value > Z30_DRAW_ORIGIN_SPRITE)
+            Z_scripterrlog("Invalid value %ld for Screen->DrawOrigin (0 to 6)\n", value);
+        else
+            zasm30_frame().draw_origin = value;
+        return true;
+    case Z30R_SCREEN_DRAW_ORIGIN_TARGET:
+        if(z30_sprite(value).s)     // the hero, an npc, weapon or item sprite
+            zasm30_frame().draw_origin_target = value;
+        else
+            Z_scripterrlog("Screen->DrawOriginTarget: no sprite with uid %ld\n", value);
+        return true;
     case Z30R_PUSHBLOCKLAYER: zasm30_store_set(arg, 0, 0, vbound(value / 10000, 0, 6)); return true;
     case Z30R_SHOWNMSG: return true;
 
@@ -2256,10 +2288,10 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     case Z30R_DMAPINITD: return true;
 
     // itemdata->
-    case Z30R_IDATATILE: itemsbuf[ri->idata].tile = vbound(value / 10000, 0, NEWMAXTILES - 1); return true;
-    case Z30R_IDATACSET: itemsbuf[ri->idata].csets = (itemsbuf[ri->idata].csets & 0xF0) | vbound(value / 10000, 0, 15); return true;
+    case Z30R_IDATATILE: Q30_IDATA(ri->idata).tile = vbound(value / 10000, 0, NEWMAXTILES - 1); return true;
+    case Z30R_IDATACSET: Q30_IDATA(ri->idata).csets = (Q30_IDATA(ri->idata).csets & 0xF0) | vbound(value / 10000, 0, 15); return true;
     case Z30R_IDATABUNNYABLE: q30_set_item_bunny(ri->idata, value != 0); return true;
-    case Z30R_IDATASCRIPT: itemsbuf[ri->idata].script = vbound(value / 10000, 0, 255); return true;
+    case Z30R_IDATASCRIPT: Q30_IDATA(ri->idata).script = vbound(value / 10000, 0, 255); return true;
     case Z30R_IDATASPRITE: zasm30_store_set(arg, ri->idata, Z30_INDEX, value / 10000); return true;
 
     // spritedata->
@@ -2352,7 +2384,10 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     case Z30R_GAMEASUBYOFF:
         zasm30_store_set(arg, 0, Z30_INDEX, value / 10000);
         return true;
-    case Z30R_GAMEEVENTDATA: zasm30_store_set(arg, 0, Z30_INDEX, value); return true;
+    case Z30R_GAMEEVENTDATA:
+        if(Z30_INDEX >= 0 && Z30_INDEX < (long)zasm30_event_data.size())
+            zasm30_event_data[Z30_INDEX] = value;
+        return true;
     case Z30R_FFRULE: if(Z30_INDEX >= 0 && Z30_INDEX < QUESTRULES_SIZE * 8) set_bit(quest_rules, Z30_INDEX, value ? 1 : 0); return true;
     case Z30R_FFCLAYER: zasm30_store_set(arg, ri->ffcref, 0, value / 10000); return true;
     case Z30R_FFCID:
@@ -2900,7 +2935,7 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     {
         if(unsigned(ri->idata) < MAXITEMS && Z30_INDEX >= 0 && Z30_INDEX < 10)
         {
-            itemdata &it = itemsbuf[ri->idata];
+            itemdata &it = Q30_IDATA(ri->idata);
             long *fields[10] = { &it.misc1, &it.misc2, &it.misc3, &it.misc4, &it.misc5, &it.misc6, &it.misc7, &it.misc8, &it.misc9, &it.misc10 };
             *fields[Z30_INDEX] = value / 10000;
         }
@@ -2908,7 +2943,7 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     }
     case Z30R_IDATAMINHEARTS:
         if(unsigned(ri->idata) < MAXITEMS)
-            itemsbuf[ri->idata].pickup_hearts = (byte)vbound(value / 10000, 0, 255);
+            Q30_IDATA(ri->idata).pickup_hearts = (byte)vbound(value / 10000, 0, 255);
         return true;
 
     // paldata->

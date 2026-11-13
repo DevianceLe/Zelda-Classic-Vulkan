@@ -2889,6 +2889,59 @@ static void q30_draw_air_shadows(sprite_list &list, bool items_list, int behind)
     }
 }
 
+extern long zasm30_ffscript_version;     // ffscript.cpp: 0 for a 2.53 quest
+extern dword q255_compat_rule_version;
+
+void q30_draw_script_layer(BITMAP *bmp, int layer)
+{
+    if(!zasm30_ffscript_version || !script_drawing_commands.Count())
+        return;
+
+    do_primitives(bmp, layer, tmpscr, -q30_draw_cam_x, playing_field_offset - q30_draw_cam_y);
+}
+
+bool q30_new_layer_draw_order()
+{
+    enum { QR_CLASSIC_DRAWING_ORDER = 469, QR_OLD_LAYER_DRAW_ORDER = 581 };
+
+    if(!zasm30_ffscript_version)
+        return false;
+
+    // upstream turns the rule on for quests saved before it, when they draw in the classic order
+    // (which it turns on for quests saved before compat version 90)
+    const bool classic = q255_compat_rule_version < 90 || q30_quest_rule(QR_CLASSIC_DRAWING_ORDER);
+    const bool old_order = q30_quest_rule(QR_OLD_LAYER_DRAW_ORDER) || (q255_compat_rule_version < 110 && classic);
+    return !old_order;
+}
+
+// Layer 2 or 3 drawn as a background layer, with its script drawing and particles (draw_screen).
+static void draw_background_layer2(BITMAP *lower, mapscr* this_screen)
+{
+    do_layer(lower,1, this_screen, q30_draw_cam_x, q30_draw_cam_y, 2, false, true);
+    q30_draw_block_on(lower, 2);
+
+    for(int pcounter=0; pcounter<particles.Count(); pcounter++)
+    {
+        if(((particle*)particles.spr(pcounter))->layer==1)
+        {
+            particles.spr(pcounter)->draw(lower);
+        }
+    }
+}
+
+static void draw_background_layer3(BITMAP *lower, mapscr* this_screen)
+{
+    do_layer(lower,2, this_screen, q30_draw_cam_x, q30_draw_cam_y, 2, false, true);
+
+    for(int pcounter=0; pcounter<particles.Count(); pcounter++)
+    {
+        if(((particle*)particles.spr(pcounter))->layer==2)
+        {
+            particles.spr(pcounter)->draw(lower);
+        }
+    }
+}
+
 void draw_screen(mapscr* this_screen, bool showlink)
 {
 
@@ -2907,7 +2960,7 @@ void draw_screen(mapscr* this_screen, bool showlink)
     //11. Draw some text on framebuf and scrollbuf
     //12. Draw the subscreen onto framebuf, without clipping
     clear_bitmap(framebuf);
-    set_clip_rect(framebuf,0,0,256,224);
+    set_clip_rect(framebuf,0,0,256,zc_view_h);
     
     clear_bitmap(temp_buf);
     set_clip_state(temp_buf,1);
@@ -2918,51 +2971,64 @@ void draw_screen(mapscr* this_screen, bool showlink)
     
     //1. Draw some layers onto temp_buf
     clear_bitmap(scrollbuf);
-    
-    if(this_screen->flags7&fLAYER2BG)
+    // 3.0 scrolling region with the camera off the screen's grid: the lower layers of this screen
+    // and the others it shows go on a canvas around this one (q30_draw_cam_x/y place this screen
+    // on it), and the camera's window of it goes to scrollbuf at the end. Otherwise scrollbuf, at 0.
+    // (q30_region_lower_layer: that layer of the other screens in view, before this screen's;
+    // nothing otherwise)
+    BITMAP *lower = q30_region_lower_begin(scrollbuf);
+
+    // Newer quests in upstream's layer order: script layers -7..-4 under everything, background
+    // layer 3, script layer -3, background layer 2, script layers -2 and -1, then layer 0.
+    // 2.53 quests (and newer ones with the old order) keep background layer 2 under 3.
+    if(q30_new_layer_draw_order())
     {
-        do_layer(scrollbuf,1, this_screen, 0, 0, 2, false, true);
-        q30_draw_block_on(scrollbuf, 2);
-        
-        for(pcounter=0; pcounter<particles.Count(); pcounter++)
-        {
-            if(((particle*)particles.spr(pcounter))->layer==1)
-            {
-                particles.spr(pcounter)->draw(scrollbuf);
-            }
-        }
+        for(int l = -7; l <= -4; ++l)
+            q30_draw_script_layer(lower, l);
+
+        q30_region_lower_layer(lower, Q30_LOWER_BG3);
+        if(this_screen->flags7&fLAYER3BG)
+            draw_background_layer3(lower, this_screen);
+
+        q30_draw_script_layer(lower, -3);
+
+        q30_region_lower_layer(lower, Q30_LOWER_BG2);
+        if(this_screen->flags7&fLAYER2BG)
+            draw_background_layer2(lower, this_screen);
+
+        q30_draw_script_layer(lower, -2);
+        q30_draw_script_layer(lower, -1);
+    }
+    else
+    {
+        q30_region_lower_layer(lower, Q30_LOWER_BG2);
+        if(this_screen->flags7&fLAYER2BG)
+            draw_background_layer2(lower, this_screen);
+
+        q30_region_lower_layer(lower, Q30_LOWER_BG3);
+        if(this_screen->flags7&fLAYER3BG)
+            draw_background_layer3(lower, this_screen);
     }
     
-    if(this_screen->flags7&fLAYER3BG)
-    {
-        do_layer(scrollbuf,2, this_screen, 0, 0, 2, false, true);
-        
-        for(pcounter=0; pcounter<particles.Count(); pcounter++)
-        {
-            if(((particle*)particles.spr(pcounter))->layer==2)
-            {
-                particles.spr(pcounter)->draw(scrollbuf);
-            }
-        }
-    }
-    
-    putscr(scrollbuf,0,playing_field_offset,this_screen);
-    q30_draw_block_on(scrollbuf, 0);
+    q30_region_lower_layer(lower, Q30_LOWER_LAYER0);
+    putscr(lower,-q30_draw_cam_x,playing_field_offset-q30_draw_cam_y,this_screen);
+    q30_draw_block_on(lower, 0);
     
     // Lens hints, then primitives, then particles.
     if((lensclk || (get_debug() && key[KEY_L])) && !get_bit(quest_rules, qr_OLDLENSORDER))
     {
-        draw_lens_under(scrollbuf, false);
+        draw_lens_under(q30_region_lower_local(lower), false);
+        q30_draw_script_layer(lower, Q30_SPLAYER_LENS_UNDER_1);
     }
     
     if(show_layer_0)
-        do_primitives(scrollbuf, 0, this_screen, 0, playing_field_offset);
+        do_primitives(lower, 0, this_screen, -q30_draw_cam_x, playing_field_offset-q30_draw_cam_y);
         
     for(pcounter=0; pcounter<particles.Count(); pcounter++)
     {
         if(((particle*)particles.spr(pcounter))->layer==-3)
         {
-            particles.spr(pcounter)->draw(scrollbuf);
+            particles.spr(pcounter)->draw(lower);
         }
     }
     
@@ -2982,50 +3048,55 @@ void draw_screen(mapscr* this_screen, bool showlink)
                 cmby2=-16;
             }
             
-            decorations.draw2(scrollbuf,true);
-            Link.draw(scrollbuf);
-            decorations.draw(scrollbuf,true);
+            decorations.draw2(lower,true);
+            Link.draw(lower);
+            decorations.draw(lower,true);
             int ccx = (int)(Link.getClimbCoverX());
             int ccy = (int)(Link.getClimbCoverY());
             
-            overcombo(scrollbuf,ccx,ccy+cmby2+playing_field_offset,MAPCOMBO(ccx,ccy+cmby2),MAPCSET(ccx,ccy+cmby2));
-            putcombo(scrollbuf,ccx,ccy+playing_field_offset,MAPCOMBO(ccx,ccy),MAPCSET(ccx,ccy));
+            overcombo(lower,ccx-q30_draw_cam_x,ccy+cmby2+playing_field_offset-q30_draw_cam_y,MAPCOMBO(ccx,ccy+cmby2),MAPCSET(ccx,ccy+cmby2));
+            putcombo(lower,ccx-q30_draw_cam_x,ccy+playing_field_offset-q30_draw_cam_y,MAPCOMBO(ccx,ccy),MAPCSET(ccx,ccy));
             
             if(int(Link.getX())&15)
             {
-                overcombo(scrollbuf,ccx+16,ccy+cmby2+playing_field_offset,MAPCOMBO(ccx+16,ccy+cmby2),MAPCSET(ccx+16,ccy+cmby2));
-                putcombo(scrollbuf,ccx+16,ccy+playing_field_offset,MAPCOMBO(ccx+16,ccy),MAPCSET(ccx+16,ccy));
+                overcombo(lower,ccx+16-q30_draw_cam_x,ccy+cmby2+playing_field_offset-q30_draw_cam_y,MAPCOMBO(ccx+16,ccy+cmby2),MAPCSET(ccx+16,ccy+cmby2));
+                putcombo(lower,ccx+16-q30_draw_cam_x,ccy+playing_field_offset-q30_draw_cam_y,MAPCOMBO(ccx+16,ccy),MAPCSET(ccx+16,ccy));
             }
         }
     }
     
-    do_layer(scrollbuf,0, this_screen, 0, 0, 2, false, true); // LAYER 1
-    q30_draw_block_on(scrollbuf, 1);
+    q30_region_lower_layer(lower, Q30_LOWER_LAYER1);
+    do_layer(lower,0, this_screen, q30_draw_cam_x, q30_draw_cam_y, 2, false, true); // LAYER 1
+    q30_draw_block_on(lower, 1);
     
     for(pcounter=0; pcounter<particles.Count(); pcounter++)
     {
         if(((particle*)particles.spr(pcounter))->layer==0)
         {
-            particles.spr(pcounter)->draw(scrollbuf);
+            particles.spr(pcounter)->draw(lower);
         }
     }
     
-    do_layer(scrollbuf,-3, this_screen, 0, 0, 2); // freeform combos!
+    q30_region_lower_layer(lower, Q30_LOWER_FFCS);
+    do_layer(lower,-3, this_screen, q30_draw_cam_x, q30_draw_cam_y, 2); // freeform combos!
     
+    q30_region_lower_layer(lower, Q30_LOWER_LAYER2);
     if(!(this_screen->flags7&fLAYER2BG))
     {
-        do_layer(scrollbuf,1, this_screen, 0, 0, 2, false, true); // LAYER 2
-        q30_draw_block_on(scrollbuf, 2);
+        do_layer(lower,1, this_screen, q30_draw_cam_x, q30_draw_cam_y, 2, false, true); // LAYER 2
+        q30_draw_block_on(lower, 2);
         
         for(pcounter=0; pcounter<particles.Count(); pcounter++)
         {
             if(((particle*)particles.spr(pcounter))->layer==1)
             {
-                particles.spr(pcounter)->draw(scrollbuf);
+                particles.spr(pcounter)->draw(lower);
             }
         }
     }
-    
+
+    q30_draw_script_layer(lower, Q30_SPLAYER_FFC_DRAW);
+
     if(get_bit(quest_rules,qr_LAYER12UNDERCAVE))
     {
         if(showlink &&
@@ -3040,63 +3111,66 @@ void draw_screen(mapscr* this_screen, bool showlink)
                 cmby2=-16;
             }
             
-            decorations.draw2(scrollbuf,true);
-            Link.draw(scrollbuf);
-            decorations.draw(scrollbuf,true);
+            decorations.draw2(lower,true);
+            Link.draw(lower);
+            decorations.draw(lower,true);
             int ccx = (int)(Link.getClimbCoverX());
             int ccy = (int)(Link.getClimbCoverY());
             
-            overcombo(scrollbuf,ccx,ccy+cmby2+playing_field_offset,MAPCOMBO(ccx,ccy+cmby2),MAPCSET(ccx,ccy+cmby2));
-            putcombo(scrollbuf,ccx,ccy+playing_field_offset,MAPCOMBO(ccx,ccy),MAPCSET(ccx,ccy));
+            overcombo(lower,ccx-q30_draw_cam_x,ccy+cmby2+playing_field_offset-q30_draw_cam_y,MAPCOMBO(ccx,ccy+cmby2),MAPCSET(ccx,ccy+cmby2));
+            putcombo(lower,ccx-q30_draw_cam_x,ccy+playing_field_offset-q30_draw_cam_y,MAPCOMBO(ccx,ccy),MAPCSET(ccx,ccy));
             
             if(int(Link.getX())&15)
             {
-                overcombo(scrollbuf,ccx+16,ccy+cmby2+playing_field_offset,MAPCOMBO(ccx+16,ccy+cmby2),MAPCSET(ccx+16,ccy+cmby2));
-                putcombo(scrollbuf,ccx+16,ccy+playing_field_offset,MAPCOMBO(ccx+16,ccy),MAPCSET(ccx+16,ccy));
+                overcombo(lower,ccx+16-q30_draw_cam_x,ccy+cmby2+playing_field_offset-q30_draw_cam_y,MAPCOMBO(ccx+16,ccy+cmby2),MAPCSET(ccx+16,ccy+cmby2));
+                putcombo(lower,ccx+16-q30_draw_cam_x,ccy+playing_field_offset-q30_draw_cam_y,MAPCOMBO(ccx+16,ccy),MAPCSET(ccx+16,ccy));
             }
         }
     }
     
     if(q30_compat_rule(Q30_QR_PUSHBLOCK_SPRITE_LAYER))
     {
-        do_layer(scrollbuf,-2, this_screen, 0, 0, 2); // push blocks!
-        q30_draw_layer_blocks(scrollbuf, 0, 0);
+        do_layer(lower,-2, this_screen, q30_draw_cam_x, q30_draw_cam_y, 2); // push blocks!
+        q30_draw_layer_blocks(lower, q30_draw_cam_x, q30_draw_cam_y);
+        q30_draw_script_layer(lower, Q30_SPLAYER_PUSHBLOCK);
     }
     
     //Show walkflags cheat
     do_walkflags(temp_buf,this_screen,0,0,2);
-    do_walkflags(scrollbuf,this_screen,0,0,2);
+    do_walkflags(lower,this_screen,q30_draw_cam_x,q30_draw_cam_y,2);
     
-    putscrdoors(scrollbuf,0,playing_field_offset,this_screen);
+    putscrdoors(lower,-q30_draw_cam_x,playing_field_offset-q30_draw_cam_y,this_screen);
     
     // Lens hints, doors etc.
     if(lensclk || (get_debug() && key[KEY_L]))
     {
         if(get_bit(quest_rules, qr_OLDLENSORDER))
         {
-            draw_lens_under(scrollbuf, false);
+            draw_lens_under(q30_region_lower_local(lower), false);
+            q30_draw_script_layer(lower, Q30_SPLAYER_LENS_UNDER_1);
         }
-        
-        draw_lens_under(scrollbuf, true);
+
+        draw_lens_under(q30_region_lower_local(lower), true);
+        q30_draw_script_layer(lower, Q30_SPLAYER_LENS_UNDER_2);
     }
     
-    // 3.0 scrolling region: the other screens the camera shows, then the camera's window
-    q30_region_compose_lower(scrollbuf);
+    // 3.0 scrolling region: the camera's window of the canvas onto scrollbuf
+    q30_region_lower_end(scrollbuf);
 
     //2. Blit those layers onto framebuf
 
 
     set_clip_rect(framebuf,draw_screen_clip_rect_x1,draw_screen_clip_rect_y1,draw_screen_clip_rect_x2,draw_screen_clip_rect_y2);
-    masked_blit(scrollbuf, framebuf, 0, 0, 0, 0, 256, 224);
+    masked_blit(scrollbuf, framebuf, 0, 0, 0, 0, 256, zc_view_h);
 
 
     //3. Draw some sprites onto framebuf (in a scrolling region, through its camera)
     q30_region_begin_sprites();
-    set_clip_rect(framebuf,0,0,256,224);
+    set_clip_rect(framebuf,0,0,256,zc_view_h);
     
     if(!(pricesdisplaybuf->clip))
     {
-        masked_blit(pricesdisplaybuf,framebuf,0,0,0,playing_field_offset,256,168);
+        masked_blit(pricesdisplaybuf,framebuf,0,0,0,playing_field_offset,256,zc_field_h());
     }
     
     if(showlink && ((Link.getAction()!=climbcovertop)&&(Link.getAction()!=climbcoverbottom)))
@@ -3123,12 +3197,14 @@ void draw_screen(mapscr* this_screen, bool showlink)
                 if(((weapon *)Ewpns.spr(i))->behind)
                     Ewpns.spr(i)->draw(framebuf);
             }
+            q30_draw_script_layer(framebuf, Q30_SPLAYER_EWEAP_BEHIND_DRAW);
 	    
 	    for(int i=0; i<Lwpns.Count(); i++)
             {
                 if(((weapon *)Lwpns.spr(i))->behind)
                     Lwpns.spr(i)->draw(framebuf);
             }
+            q30_draw_script_layer(framebuf, Q30_SPLAYER_LWEAP_BEHIND_DRAW);
             
             if(get_bit(quest_rules,qr_SHADOWS)&&(!get_bit(quest_rules,qr_SHADOWSFLICKER)||frame&1))
             {
@@ -3136,7 +3212,9 @@ void draw_screen(mapscr* this_screen, bool showlink)
             }
             
             guys.draw(framebuf,true);
+            q30_draw_script_layer(framebuf, Q30_SPLAYER_NPC_DRAW);
             chainlinks.draw(framebuf,true);
+            q30_draw_script_layer(framebuf, Q30_SPLAYER_CHAINLINK_DRAW);
             //Lwpns.draw(framebuf,true);
             
             q30_draw_air_shadows(Ewpns, false, 0);
@@ -3147,16 +3225,19 @@ void draw_screen(mapscr* this_screen, bool showlink)
                 if(!((weapon *)Ewpns.spr(i))->behind)
                     Ewpns.spr(i)->draw(framebuf);
             }
+            q30_draw_script_layer(framebuf, Q30_SPLAYER_EWEAP_FRONT_DRAW);
 	    
 	    for(int i=0; i<Lwpns.Count(); i++)
             {
                 if(!((weapon *)Lwpns.spr(i))->behind)
                     Lwpns.spr(i)->draw(framebuf);
             }
+            q30_draw_script_layer(framebuf, Q30_SPLAYER_LWEAP_FRONT_DRAW);
 	    
             
             q30_draw_air_shadows(items, true, -1);
             items.draw(framebuf,true);
+            q30_draw_script_layer(framebuf, Q30_SPLAYER_ITEMSPRITE_DRAW);
         }
         else
         {
@@ -3168,12 +3249,14 @@ void draw_screen(mapscr* this_screen, bool showlink)
                 if(((weapon *)Ewpns.spr(i))->behind)
                     Ewpns.spr(i)->draw(framebuf);
             }
+            q30_draw_script_layer(framebuf, Q30_SPLAYER_EWEAP_BEHIND_DRAW);
 	    
 	    for(int i=0; i<Lwpns.Count(); i++)
             {
                 if(((weapon *)Lwpns.spr(i))->behind)
                     Lwpns.spr(i)->draw(framebuf);
             }
+            q30_draw_script_layer(framebuf, Q30_SPLAYER_LWEAP_BEHIND_DRAW);
             
             if(get_bit(quest_rules,qr_SHADOWS)&&(!get_bit(quest_rules,qr_SHADOWSFLICKER)||frame&1))
             {
@@ -3182,9 +3265,12 @@ void draw_screen(mapscr* this_screen, bool showlink)
             
             q30_draw_air_shadows(items, true, -1);
             items.draw(framebuf,false);
+            q30_draw_script_layer(framebuf, Q30_SPLAYER_ITEMSPRITE_DRAW);
             chainlinks.draw(framebuf,false);
+            q30_draw_script_layer(framebuf, Q30_SPLAYER_CHAINLINK_DRAW);
             //Lwpns.draw(framebuf,false);
             guys.draw(framebuf,false);
+            q30_draw_script_layer(framebuf, Q30_SPLAYER_NPC_DRAW);
             
             q30_draw_air_shadows(Ewpns, false, 0);
             q30_draw_air_shadows(Lwpns, false, 0);
@@ -3196,6 +3282,7 @@ void draw_screen(mapscr* this_screen, bool showlink)
                     Ewpns.spr(i)->draw(framebuf);
                 }
             }
+            q30_draw_script_layer(framebuf, Q30_SPLAYER_EWEAP_FRONT_DRAW);
 	    
 	    for(int i=0; i<Lwpns.Count(); i++)
             {
@@ -3204,6 +3291,7 @@ void draw_screen(mapscr* this_screen, bool showlink)
                     Lwpns.spr(i)->draw(framebuf);
                 }
             }
+            q30_draw_script_layer(framebuf, Q30_SPLAYER_LWEAP_FRONT_DRAW);
         }
         
         guys.draw2(framebuf,true);
@@ -3214,7 +3302,10 @@ void draw_screen(mapscr* this_screen, bool showlink)
     if(showlink && ((Link.getAction()!=climbcovertop)&& (Link.getAction()!=climbcoverbottom)))
     {
         if(q30_compat_rule(Q30_QR_PUSHBLOCK_SPRITE_LAYER))
+        {
             mblock2.draw(framebuf);
+            q30_draw_script_layer(framebuf, Q30_SPLAYER_MOVINGBLOCK);
+        }
 
         if(!Link.isSwimming())
         {
@@ -3254,12 +3345,15 @@ void draw_screen(mapscr* this_screen, bool showlink)
             //Jumping enemies in front of Link.
             guys.spr(i)->draw(framebuf);
         }
+
+        // (once for each enemy, as upstream does)
+        q30_draw_script_layer(framebuf, Q30_SPLAYER_NPC_ABOVEPLAYER_DRAW);
     }
     
     //4. Blit framebuf onto temp_buf
     
     //you have to do this, because do_layer calls overcombo, which doesn't respect the clipping rectangle, which messes up the triforce curtain. -DD
-    blit(framebuf, temp_buf, 0, 0, 0, 0, 256, 224);
+    blit(framebuf, temp_buf, 0, 0, 0, 0, 256, zc_view_h);
     
     //5. Draw some layers onto temp_buf and scrollbuf
     
@@ -3294,7 +3388,8 @@ void draw_screen(mapscr* this_screen, bool showlink)
     if(q30_region_on()) q30_region_upper_layer(temp_buf, -1, this_screen, false);
     else do_layer(temp_buf,-1, this_screen, 0, 0, 2);
     do_layer(scrollbuf,-1, this_screen, 0, 0, 2);
-    
+    q30_draw_script_layer(temp_buf, Q30_SPLAYER_OVERHEAD_CMB);
+
     for(pcounter=0; pcounter<particles.Count(); pcounter++)
     {
         if(((particle*)particles.spr(pcounter))->layer==-1)
@@ -3306,7 +3401,7 @@ void draw_screen(mapscr* this_screen, bool showlink)
     //6. Blit temp_buf onto framebuf with clipping
     
     set_clip_rect(framebuf,draw_screen_clip_rect_x1,draw_screen_clip_rect_y1,draw_screen_clip_rect_x2,draw_screen_clip_rect_y2);
-    blit(temp_buf, framebuf, 0, 0, 0, 0, 256, 224);
+    blit(temp_buf, framebuf, 0, 0, 0, 0, 256, zc_view_h);
     q30_draw_beams(framebuf);
     q30_draw_darkness(framebuf);
     q30_draw_lift(framebuf);
@@ -3322,7 +3417,7 @@ void draw_screen(mapscr* this_screen, bool showlink)
     
     
     //7. Draw some flying sprites onto framebuf
-    set_clip_rect(framebuf,0,0,256,224);
+    set_clip_rect(framebuf,0,0,256,zc_view_h);
     
     //Jumping Link and jumping enemies are drawn on this layer.
     if(Link.getZ() > (fix)zinit.jump_link_layer_threshold)
@@ -3330,7 +3425,8 @@ void draw_screen(mapscr* this_screen, bool showlink)
         decorations.draw2(framebuf,false);
         Link.draw(framebuf);
         chainlinks.draw(framebuf,true);
-        
+        q30_draw_script_layer(framebuf, Q30_SPLAYER_CHAINLINK_DRAW);
+
         for(int i=0; i<Lwpns.Count(); i++)
         {
             if(Lwpns.spr(i)->z > (fix)zinit.jump_link_layer_threshold)
@@ -3338,7 +3434,8 @@ void draw_screen(mapscr* this_screen, bool showlink)
                 Lwpns.spr(i)->draw(framebuf);
             }
         }
-        
+        q30_draw_script_layer(framebuf, Q30_SPLAYER_LWEAP_ABOVE_DRAW);
+
         decorations.draw(framebuf,false);
     }
     
@@ -3359,15 +3456,17 @@ void draw_screen(mapscr* this_screen, bool showlink)
             }
         }
     }
-    
+    q30_draw_script_layer(framebuf, Q30_SPLAYER_NPC_AIRBORNE_DRAW);
+
     // Draw the Moving Fairy above layer 3
     for(int i=0; i<items.Count(); i++)
         if(itemsbuf[items.spr(i)->id].family == itype_fairy && itemsbuf[items.spr(i)->id].misc3)
             items.spr(i)->draw(framebuf);
-            
+    q30_draw_script_layer(framebuf, Q30_SPLAYER_FAIRYITEM_DRAW);
+
     //8. Blit framebuf onto temp_buf
     
-    masked_blit(framebuf, temp_buf, 0, 0, 0, 0, 256, 224);
+    masked_blit(framebuf, temp_buf, 0, 0, 0, 0, 256, zc_view_h);
     
     //9. Draw some layers onto temp_buf and scrollbuf
     
@@ -3388,6 +3487,7 @@ void draw_screen(mapscr* this_screen, bool showlink)
     if(q30_region_on()) q30_region_upper_layer(temp_buf, -4, this_screen, false);
     else do_layer(temp_buf,-4, this_screen, 0, 0, 2); // overhead freeform combos!
     do_layer(scrollbuf, -4, this_screen, 0, 0, 2);
+    q30_draw_script_layer(temp_buf, Q30_SPLAYER_OVERHEAD_FFC);
 
     if(q30_region_on()) q30_region_upper_layer(temp_buf, 5, this_screen, true);
     else do_layer(temp_buf,5, this_screen, 0, 0, 2, false, true);
@@ -3404,19 +3504,19 @@ void draw_screen(mapscr* this_screen, bool showlink)
     //10. Blit temp_buf onto framebuf with clipping
     
     set_clip_rect(framebuf,draw_screen_clip_rect_x1,draw_screen_clip_rect_y1,draw_screen_clip_rect_x2,draw_screen_clip_rect_y2);
-    blit(temp_buf, framebuf, 0, 0, 0, 0, 256, 224);
+    blit(temp_buf, framebuf, 0, 0, 0, 0, 256, zc_view_h);
     
     
     //11. Draw some text on framebuf
     q30_region_end_sprites();   // the playfield is done; text and the subscreen don't move
 
-    set_clip_rect(framebuf,0,0,256,224);
-    set_clip_rect(scrollbuf,0,0,256,224);
+    set_clip_rect(framebuf,0,0,256,zc_view_h);
+    set_clip_rect(scrollbuf,0,0,256,zc_view_h);
     
     if(!(msgdisplaybuf->clip))
     {
-        masked_blit(msgdisplaybuf,framebuf,0,0,0,playing_field_offset,256,168);
-        masked_blit(msgdisplaybuf,scrollbuf,0,0,0,playing_field_offset,256,168);
+        masked_blit(msgdisplaybuf,framebuf,0,0,0,playing_field_offset,256,zc_field_h());
+        masked_blit(msgdisplaybuf,scrollbuf,0,0,0,playing_field_offset,256,zc_field_h());
     }
     
     //12. Draw the subscreen, without clipping
@@ -3919,7 +4019,10 @@ void openshutters()
 void loadscr(int tmp,int destdmap, int scr,int ldir,bool overlay=false)
 {
     if(tmp==0)
+    {
         q30_clear_secrets_note();
+        q30_screen_change_events(false);    // 2.55+ generic scripts: DMap, level, screen changes
+    }
 
     //  introclk=intropos=msgclk=msgpos=dmapmsgclk=0;
     for(word x=0; x<animated_combos; x++)
@@ -4229,6 +4332,7 @@ void loadscr(int tmp,int destdmap, int scr,int ldir,bool overlay=false)
     {
         q30_trig_screen_load();
         q30_region_screen_loaded();     // 3.0 scrolling regions: which one this screen is in
+        q30_screen_change_events(true); // 2.55+ generic scripts: CHANGE_SCREEN
     }
 }
 
@@ -4894,7 +4998,7 @@ void ViewMap()
         
         if(!redraw)
         {
-            blit(scrollbuf,framebuf,256,0,0,0,256,224);
+            blit(scrollbuf,framebuf,256,0,0,0,256,zc_view_h);
         }
         else
         {
@@ -4903,7 +5007,7 @@ void ViewMap()
                          int(256+(px-mappic->w)*scale)/2,int(224+(py-mappic->h)*scale)/2,
                          int(mappic->w*scale),int(mappic->h*scale));
                          
-            blit(framebuf,scrollbuf,0,0,256,0,256,224);
+            blit(framebuf,scrollbuf,0,0,256,0,256,zc_view_h);
             redraw=false;
         }
         

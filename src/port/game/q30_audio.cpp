@@ -272,6 +272,11 @@ ZCMUSIC *load_for_quest(const char *filename)
         }
     }
 
+    // logged once per file asked for in a row, so a script asking every frame doesn't flood it
+    static std::string last_logged;
+    const bool log = last_logged != filename;
+    last_logged = filename;
+
     for(size_t i = 0; i < dirs.size(); ++i)
     {
         std::string found;
@@ -282,8 +287,16 @@ ZCMUSIC *load_for_quest(const char *filename)
         ZCMUSIC *m = zcmusic_port_load_whole(found.c_str());
 
         if(m)
+        {
+            if(log)
+                al_trace("Enhanced music: %s\n", found.c_str());
+
             return m;
+        }
     }
+
+    if(log)
+        al_trace("Enhanced music not found: %s\n", filename);
 
     return NULL;
 }

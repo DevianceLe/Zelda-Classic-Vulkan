@@ -1234,7 +1234,8 @@ public:
     byte sp; //stack pointer for current script
     dword scriptflag; //stores whether various operations were true/false etc.
     
-    byte ffcref, idata; //current object pointers
+    byte ffcref; //current object pointers
+    word idata;  // (a word: 2.55/3.0 items go up to 511; 2.53 scripts still wrap it at 256)
     dword itemref, guyref, lwpn, ewpn;
     
     //byte ewpnclass, lwpnclass, guyclass; //Not implemented

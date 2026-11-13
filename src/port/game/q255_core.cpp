@@ -401,7 +401,7 @@ void dump_loaded_data()
     if(index >= 0 && index < (int)TheMaps.size())
     {
         const mapscr &m = TheMaps[index];
-        al_trace("dump: str %d room %d timedwarptics %d valid %x flags %x %x %x %x %x %x %x %x %x %x\n", m.str, m.room, m.timedwarptics, m.valid,
+        al_trace("dump: str %d room %d guy %d timedwarptics %d valid %x flags %x %x %x %x %x %x %x %x %x %x\n", m.str, m.room, m.guy, m.timedwarptics, m.valid,
                  m.flags, m.flags2, m.flags3, m.flags4, m.flags5, m.flags6, m.flags7, m.flags8, m.flags9, m.flags10);
         for(int i = 0; i < 4; ++i)
             al_trace("dump: warp %d tile dmap %d scr %d type %d | side dmap %d scr %d type %d\n", i, m.tilewarpdmap[i], m.tilewarpscr[i], m.tilewarptype[i],

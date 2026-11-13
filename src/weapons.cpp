@@ -3821,13 +3821,13 @@ void weapon::draw(BITMAP *dest)
         if(type2==3 && (f&2))
             ++tile;
             
-        if(!type2 || f==0 || (type2>1 && f==3)) overtile16(dest,tile,x-2-ofs,y+playing_field_offset-2-ofs-(z+zofs),cs,0);
+        if(!type2 || f==0 || (type2>1 && f==3)) overtile16(dest,tile,x-q30_draw_cam_x-2-ofs,y+playing_field_offset-q30_draw_cam_y-2-ofs-(z+zofs),cs,0);
         
-        if(!type2 || f==2 || (type2>1 && f==1)) overtile16(dest,tile,x+2+ofs,y+playing_field_offset-2-ofs-(z+zofs),cs,1);
+        if(!type2 || f==2 || (type2>1 && f==1)) overtile16(dest,tile,x-q30_draw_cam_x+2+ofs,y+playing_field_offset-q30_draw_cam_y-2-ofs-(z+zofs),cs,1);
         
-        if(!type2 || f==1 || (type2>1 && f==2)) overtile16(dest,tile,x-2-ofs,y+playing_field_offset+2+ofs-(z+zofs),cs,2);
+        if(!type2 || f==1 || (type2>1 && f==2)) overtile16(dest,tile,x-q30_draw_cam_x-2-ofs,y+playing_field_offset-q30_draw_cam_y+2+ofs-(z+zofs),cs,2);
         
-        if(!type2 || f==3 || (type2>1 && f==0)) overtile16(dest,tile,x+2+ofs,y+playing_field_offset+2+ofs-(z+zofs),cs,3);
+        if(!type2 || f==3 || (type2>1 && f==0)) overtile16(dest,tile,x-q30_draw_cam_x+2+ofs,y+playing_field_offset-q30_draw_cam_y+2+ofs-(z+zofs),cs,3);
     }
     
     return;                                               // don't draw sword
@@ -3898,18 +3898,18 @@ void weapon::draw(BITMAP *dest)
             //update_weapon_frame(1,tile);
         }
         
-        overtile16(dest,tile,x+((clk&1)?7:-7),y+yofs-13-(z+zofs),cs,0);
-        overtile16(dest,tile,x,y+yofs-(z+zofs),cs,0);
-        overtile16(dest,tile,x+((clk&1)?-14:14),y+yofs-(z+zofs),cs,0);
-        overtile16(dest,tile,x+((clk&1)?-7:7),y+yofs+14-(z+zofs),cs,0);
+        overtile16(dest,tile,x-q30_draw_cam_x+((clk&1)?7:-7),y+yofs-q30_draw_cam_y-13-(z+zofs),cs,0);
+        overtile16(dest,tile,x-q30_draw_cam_x,y+yofs-q30_draw_cam_y-(z+zofs),cs,0);
+        overtile16(dest,tile,x-q30_draw_cam_x+((clk&1)?-14:14),y+yofs-q30_draw_cam_y-(z+zofs),cs,0);
+        overtile16(dest,tile,x-q30_draw_cam_x+((clk&1)?-7:7),y+yofs-q30_draw_cam_y+14-(z+zofs),cs,0);
         
         if(id==wSBomb||id==ewSBomb)
         {
-            overtile16(dest,tile,x+((clk&1)?7:-7),y+yofs-27-(z+zofs),cs,0);
-            overtile16(dest,tile,x+((clk&1)?-21:21),y+yofs-13-(z+zofs),cs,0);
-            overtile16(dest,tile,x+((clk&1)?-28:28),y+yofs-(z+zofs),cs,0);
-            overtile16(dest,tile,x+((clk&1)?21:-21),y+yofs+14-(z+zofs),cs,0);
-            overtile16(dest,tile,x+((clk&1)?-7:7),y+yofs+28-(z+zofs),cs,0);
+            overtile16(dest,tile,x-q30_draw_cam_x+((clk&1)?7:-7),y+yofs-q30_draw_cam_y-27-(z+zofs),cs,0);
+            overtile16(dest,tile,x-q30_draw_cam_x+((clk&1)?-21:21),y+yofs-q30_draw_cam_y-13-(z+zofs),cs,0);
+            overtile16(dest,tile,x-q30_draw_cam_x+((clk&1)?-28:28),y+yofs-q30_draw_cam_y-(z+zofs),cs,0);
+            overtile16(dest,tile,x-q30_draw_cam_x+((clk&1)?21:-21),y+yofs-q30_draw_cam_y+14-(z+zofs),cs,0);
+            overtile16(dest,tile,x-q30_draw_cam_x+((clk&1)?-7:7),y+yofs-q30_draw_cam_y+28-(z+zofs),cs,0);
         }
         else
         {

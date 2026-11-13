@@ -402,6 +402,9 @@ void q30_clear_tables()
 }
 
 void q30_set_msg_wrap_extra(int str, int extra) { zq255.msg_wrap_extra[str] = extra; }
+void q30_clear_msg_layouts() {}                         // the player's (string margins and "more" icon as drawn)
+void q30_set_msg_layout(int, int, int, const int *, bool, int, int, int, int) {}   // (the same)
+void q30_set_msg_long_text(int, const char *) {}        // (the same: never called while keeping for the editor)
 
 void q30_set_dmap_script(int dmap, int kind, word script, const long *initd)
 {
@@ -425,6 +428,11 @@ void q30_item_pickup_info(int, long *pickup, int *mode, int *pstring, int *psfla
 }
 int q30_shop_string(int, int) { return 0; }             // (the same)
 void q30_set_bunny_ltm(long) {}                         // the player's (the bunny form)
+void q30_set_init_hero_step(int) {}                     // the player's (Link's walk step)
+void q30_clear_high_items() {}                          // the player's (items 256 and up)
+void q30_set_screen_guy(int, long, int, int) {}         // the player's (a screen's guy look and room flags)
+void q30_set_high_item(int, const itemdata &, int, const char *) {}    // (the same)
+void q30_set_init_high_items(const byte *, int, int) {} // (the same)
 void q30_set_item_bunny(int, bool) {}                   // the player's (the bunny form)
 void q30_set_item_pickup(int, long, int, int, int) {}  // the player's (item pickup flags and strings)
 void q30_set_shop_string(int, int, int) {}              // the player's (shop item strings)

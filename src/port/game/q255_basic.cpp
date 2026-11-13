@@ -95,6 +95,9 @@ static const int Q255_MAX_SFX_ID = 255;
 static bool g_old_string_frame = true;
 static bool g_old_subscr = true;
 static const int Q255_QR_OLD_SUBSCR = 422;
+// qr_OLD_STRING_EDITOR_MARGINS: every string uses upstream's old_margins {8, 0, 8, -8}.
+static bool g_old_string_margins = true;
+static const int Q255_QR_OLD_STRING_EDITOR_MARGINS = 202;
 
 bool q30_passive_on_top()
 {
@@ -233,12 +236,13 @@ struct MsgWriter
 {
     std::string text;
     bool full;
+    size_t cap;     // MSGSIZE, or Q30_MSG_TEXT_MAX for a 3.0 string's whole text
 
-    MsgWriter() : full(false) {}
+    MsgWriter(size_t c = MSGSIZE) : full(false), cap(c) {}
 
     void literal(char c)
     {
-        if(text.size() >= (size_t)MSGSIZE)
+        if(text.size() >= cap)
         {
             full = true;
             return;
@@ -250,7 +254,7 @@ struct MsgWriter
     // A command goes in whole or not at all, and not where parsemsgcode won't read it.
     void command(const std::string &bytes)
     {
-        if(text.size() >= (size_t)(MSGSIZE - 2) || text.size() + bytes.size() > (size_t)MSGSIZE)
+        if(text.size() >= cap - 2 || text.size() + bytes.size() > cap)
         {
             full = true;
             return;
@@ -757,8 +761,9 @@ static void copy_ascii_text(const std::string &str, MsgWriter &out)
     write_ascii_literal(str, literal_start, last, out);
 }
 
-// Fills t.s from a string's bytes as the file holds them.
-static void store_message_text(MsgStr &t, const std::string &raw, bool ascii)
+// Fills t.s from a string's bytes as the file holds them. When the text doesn't fit and whole
+// is given, whole gets all of it (up to Q30_MSG_TEXT_MAX), for q30_set_msg_long_text.
+static void store_message_text(MsgStr &t, const std::string &raw, bool ascii, std::string *whole = NULL)
 {
     MsgWriter out;
     const std::string text = raw.substr(0, raw.find('\0'));
@@ -773,6 +778,23 @@ static void store_message_text(MsgStr &t, const std::string &raw, bool ascii)
 
     memcpy(t.s, out.text.data(), out.text.size());
     t.s[out.text.size()] = 0;
+
+    if(whole)
+    {
+        whole->clear();
+
+        if(out.full)
+        {
+            MsgWriter all(Q30_MSG_TEXT_MAX);
+
+            if(ascii)
+                copy_ascii_text(text, all);
+            else
+                copy_binary_text(text, all);
+
+            *whole = all.text;
+        }
+    }
 }
 
 // For ZQuest's string writer only (src/port/zqeditor/zqw_basic.cpp), which checks with these
@@ -1123,6 +1145,7 @@ int q255_read_rules(Q255Section &s)
 
     // not stored in the engine, so it applies whichever sections are being kept
     g_old_string_frame = !s.header || build < 50 || get_bit(rules, Q255_QR_STRING_FRAME_OLD_WIDTH_HEIGHT) != 0;
+    g_old_string_margins = get_bit(rules, Q255_QR_OLD_STRING_EDITOR_MARGINS) != 0;
 
     if(s.keep)
     {
@@ -1187,6 +1210,7 @@ int q255_read_strings(Q255Section &s)
         }
 
         init_msgstrings(0, msg_strings_size);
+        q30_clear_msg_layouts();
     }
 
     for(int i = 0; i < count && !s.failed; ++i)
@@ -1204,7 +1228,12 @@ int q255_read_strings(Q255Section &s)
                 return qe_invalid;
         }
 
-        store_message_text(t, s.getstr((size_t)length), s.version >= 11);
+        // the player keeps a longer text whole beside MsgStrings (q30_msg_long_text)
+        std::string whole;
+        store_message_text(t, s.getstr((size_t)length), s.version >= 11, q255_keep_for_editor ? NULL : &whole);
+
+        if(s.keep && !s.failed && !whole.empty())
+            q30_set_msg_long_text(i, whole.c_str());
 
         t.nextstring = s.igetw();
 
@@ -1214,11 +1243,12 @@ int q255_read_strings(Q255Section &s)
 
         t.cset = s.getc();
         t.trans = s.getc() != 0;
-        t.font = s.getc();          // numbers past this engine's fonts draw as the default font
+        t.font = s.getc();          // 3.0 font numbers: setmsgfont's q30_font, else the default font
         t.x = s.igetw_s();
         t.y = s.igetw_s();
         t.w = s.igetw();
         t.h = s.igetw();
+        const int box_w = t.w, box_h = t.h;     // as upstream draws the box (new frames)
 
         // this engine draws a frame 16 wider and taller than w and h
         if(!g_old_string_frame)
@@ -1234,13 +1264,21 @@ int q255_read_strings(Q255Section &s)
         if(s.version < 13)
             t.stringflags &= ~(0x04 | 0x08);    // defined once, never valid
 
+        byte margins[4] = { 8, 0, 8, 0 };     // up, down, left, right
+        bool has_margins = false;
+
         if(s.version >= 7)
         {
-            byte margins[4];    // up, down, left, right
             s.read(margins, 4);
+            has_margins = true;
+
+            // upstream's wrap limit is (box w) - margins[right], counted from the left margin
+            // here; with old frames w is the box's inside, so it is 16 less
+            const int ml = g_old_string_margins ? 8 : margins[2];
+            const int mr = g_old_string_margins ? -8 : margins[3];
 
             if(s.keep)
-                q30_set_msg_wrap_extra(i, 16 - (int(margins[2]) + int(margins[3])));
+                q30_set_msg_wrap_extra(i, (g_old_string_frame ? 0 : 16) - (ml + mr));
 
             s.skip(4 + 5);      // portrait tile, portrait cset x y tw th
         }
@@ -1261,11 +1299,39 @@ int q255_read_strings(Q255Section &s)
 
         t.listpos = s.igetw();
 
+        // the "more" icon: sprite, anchor, x, y (upstream's message_icon)
+        bool has_icon = false;
+        int icon_sprite = -1, icon_anchor = 0, icon_x = 0, icon_y = 0;
+
         if(s.version >= 13)
         {
-            s.skip(3 * (2 + 1 + 2 + 2));    // more, scroll up and scroll down icons
+            has_icon = true;
+            icon_sprite = s.igetw_s();
+            icon_anchor = s.getc();
+            icon_x = s.igetw_s();
+            icon_y = s.igetw_s();
+            s.skip(2 * (2 + 1 + 2 + 2));    // scroll up and scroll down icons
             s.skip(2);                      // active and passive scroll speeds
             s.skip(3 * 2);                  // advance, menu move and menu close sfx
+        }
+
+        // Upstream draws text from the margins and stops at the bottom one; old frames keep
+        // the box 16 bigger than w and h. Strings under qr_OLD_STRING_EDITOR_MARGINS lay out
+        // as 2.53 did, but still take their own "more" icon.
+        if(s.keep && !s.failed && (has_margins || has_icon))
+        {
+            int m[4];
+
+            if(has_margins && !g_old_string_margins)
+                for(int k = 0; k < 4; ++k)
+                    m[k] = margins[k];
+            else
+            {
+                m[0] = 8; m[1] = 8; m[2] = 8; m[3] = 8;   // 2.53's 8 in, h - 16 deep
+            }
+
+            // (upstream's draw_icon anchors to w and h as given, whichever frame style)
+            q30_set_msg_layout(i, box_w, box_h, m, has_icon, icon_sprite, icon_anchor, icon_x, icon_y);
         }
 
         if(s.keep && !s.failed)

@@ -1932,6 +1932,14 @@ int jwin_initlist_proc(int msg,DIALOG *d,int c)
 // the bomb item does not give 8 free bombs at quest start.
 // I don't like this solution one bit, but can't come up with anything better -DD
 
+#ifdef ZC_PLAYER_BUILD
+// 2.55/3.0: the custom counters' (7-106) init values, which zinitdata has no room for
+// (q255_init.cpp); upstream's resetItems sets their maximums before the items, the values after.
+extern word quest_header_zelda_version;
+word q30_init_counter(int c, bool max);
+enum { Q30_INIT_MAX_COUNTERS = 107 };
+#endif
+
 void resetItems(gamedata *game2, zinitdata *zinit2, bool lvlitems)
 {
     game2->set_maxlife(zinit2->hc*HP_PER_HEART);
@@ -1941,7 +1949,13 @@ void resetItems(gamedata *game2, zinitdata *zinit2, bool lvlitems)
     game2->set_maxarrows(zinit2->max_arrows);
     game2->set_maxcounter(zinit2->max_rupees, 1);
     game2->set_maxcounter(zinit2->max_keys, 5);
-    
+
+#ifdef ZC_PLAYER_BUILD
+    if(quest_header_zelda_version >= 0x255)
+        for(int c=7; c<Q30_INIT_MAX_COUNTERS; ++c)
+            game2->set_maxcounter(q30_init_counter(c, true), c);
+#endif
+
     //set up the items
     for(int i=0; i<MAXITEMS; i++)
     {
@@ -2004,7 +2018,13 @@ void resetItems(gamedata *game2, zinitdata *zinit2, bool lvlitems)
     game2->set_canslash(get_bit(zinit2->misc,idM_CANSLASH)?1:0);
     
     game2->set_arrows(zinit2->arrows);
-    
+
+#ifdef ZC_PLAYER_BUILD
+    if(quest_header_zelda_version >= 0x255)
+        for(int c=7; c<Q30_INIT_MAX_COUNTERS; ++c)
+            game2->set_counter(q30_init_counter(c, false), c);
+#endif
+
     //flush the cache again (in case bombs became illegal to use by setting bombs to 0)
     flushItemCache();
 }
