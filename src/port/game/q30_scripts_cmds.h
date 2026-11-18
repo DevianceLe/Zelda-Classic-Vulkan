@@ -1049,10 +1049,11 @@ static RGB z30_mix_color(const RGB &start, const RGB &end, double percent, int s
     }
 }
 
-static void z30_pal_load_cset(Z30PalData &p, int cset, int dataset)
-{
-    const byte *si = colordata + CSET(dataset) * 3;
+byte *q255_level_cset(int level, int k);    // q255_media.cpp: a level palette's own CSet 1, 5, 7 or 8
 
+// cset's 16 colours from si (6-bit, as colordata holds them)
+static void z30_pal_load_cset_from(Z30PalData &p, int cset, const byte *si)
+{
     for(int q = 0; q < 16; ++q, si += 3)
     {
         const int ind = CSET(cset) + q;
@@ -1061,6 +1062,11 @@ static void z30_pal_load_cset(Z30PalData &p, int cset, int dataset)
         p.c[ind].b = z30_color_to_script(si[2]);
         p.used[ind] = true;
     }
+}
+
+static void z30_pal_load_cset(Z30PalData &p, int cset, int dataset)
+{
+    z30_pal_load_cset_from(p, cset, colordata + CSET(dataset) * 3);
 }
 
 static void z30_pal_load_cset_main(Z30PalData &p, int cset)
@@ -1075,10 +1081,9 @@ static void z30_pal_load_cset_main(Z30PalData &p, int cset)
     }
 }
 
-// False if the cset holds what the colour data already does.
-static bool z30_pal_write_cset(const Z30PalData &p, int cset, int dataset)
+// False if the cset holds what si (16 colours, as colordata holds them) already does.
+static bool z30_pal_write_cset_to(const Z30PalData &p, int cset, byte *si)
 {
-    byte *si = colordata + CSET(dataset) * 3;
     bool changed = false;
 
     for(int q = 0; q < 16; ++q, si += 3)
@@ -1099,6 +1104,11 @@ static bool z30_pal_write_cset(const Z30PalData &p, int cset, int dataset)
     }
 
     return changed;
+}
+
+static bool z30_pal_write_cset(const Z30PalData &p, int cset, int dataset)
+{
+    return z30_pal_write_cset_to(p, cset, colordata + CSET(dataset) * 3);
 }
 
 static bool z30_pal_write_cset_main(const Z30PalData &p, int cset)
@@ -1158,11 +1168,17 @@ static void z30_paldata_load_level(long level)
     z30_pal_load_cset(*pd, 4, level * pdLEVEL + poLEVEL + 2);
     z30_pal_load_cset(*pd, 9, level * pdLEVEL + poLEVEL + 3);
 
-    // Upstream's level data also holds CSets 1, 5, 7 and 8; this engine keeps those only in the main palette.
-    z30_pal_load_cset(*pd, 1, 1);
-    z30_pal_load_cset(*pd, 5, 5);
-    z30_pal_load_cset(*pd, 7, 7);
-    z30_pal_load_cset(*pd, 8, 8);
+    // and the level's own CSets 1, 5, 7 and 8 (upstream's poNEWCSETS; q255_level_cset), or
+    // the main palette's for a quest without them
+    static const int csets[4] = { 1, 5, 7, 8 };
+
+    for(int k = 0; k < 4; ++k)
+    {
+        if(const byte *si = q255_level_cset(level, k))
+            z30_pal_load_cset_from(*pd, csets[k], si);
+        else
+            z30_pal_load_cset(*pd, csets[k], csets[k]);
+    }
 }
 
 static void z30_paldata_write_level(long level, bool one_cset, int cset)
@@ -1174,6 +1190,7 @@ static void z30_paldata_write_level(long level, bool one_cset, int cset)
 
     static const int csets[4] = { 2, 3, 4, 9 };
     static const int sets[4] = { 0, 1, 2, 3 };
+    static const int new_csets[4] = { 1, 5, 7, 8 };     // the level's own (upstream's poNEWCSETS)
     bool changed = false;
 
     for(int q = 0; q < 4; ++q)
@@ -1182,6 +1199,17 @@ static void z30_paldata_write_level(long level, bool one_cset, int cset)
             continue;
 
         if(z30_pal_write_cset(*pd, csets[q], level * pdLEVEL + poLEVEL + sets[q]))
+            changed = true;
+    }
+
+    for(int k = 0; k < 4; ++k)
+    {
+        byte *si = q255_level_cset(level, k);
+
+        if(!si || (one_cset && new_csets[k] != cset))
+            continue;
+
+        if(z30_pal_write_cset_to(*pd, new_csets[k], si))
             changed = true;
     }
 

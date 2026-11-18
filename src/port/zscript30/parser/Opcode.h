@@ -1,0 +1,547 @@
+#ifndef OPCODE_H_
+#define OPCODE_H_
+
+#include "Compiler.h"
+#include "components/zasm/defines.h"
+#include "components/zasm/serialize.h"
+
+#include <list>
+#include <memory>
+#include <string>
+#include <vector>
+
+int32_t StringToVar(std::string var);
+
+namespace ZScript
+{
+	class LiteralArgument;
+	class LabelVectorArgument;
+	class CompareArgument;
+	class VarArgument;
+	class LiteralVarArgument;
+	class LabelArgument;
+	class StringArgument;
+	class TypeArgument;
+	class VectorArgument;
+
+	class ArgumentVisitor
+	{
+	public:
+		virtual void caseLiteral(LiteralArgument&, void *){}
+		virtual void caseCompare(CompareArgument&, void *){}
+		virtual void caseString(StringArgument&, void *){}
+		virtual void caseType(TypeArgument&, void *){}
+		virtual void caseVector(VectorArgument&, void *){}
+		virtual void caseVar(VarArgument&, void *){}
+		virtual void caseLiteralVar(LiteralVarArgument&, void *){}
+		virtual void caseLabel(LabelArgument&, void *){}
+		virtual void caseLabelVector(LabelVectorArgument&, void *){}
+		void execute(std::vector<std::shared_ptr<Opcode>>& vec, void* param)
+		{
+			for (auto it = vec.begin(); it != vec.end(); ++it)
+			{
+				(*it)->execute(*this, param);
+			}
+		}
+		void execute(std::vector<std::shared_ptr<Opcode>> const& vec, void* param)
+		{
+			for (auto it = vec.cbegin(); it != vec.cend(); ++it)
+			{
+				(*it)->execute(*this, param);
+			}
+		}
+		void execute(const std::list<std::shared_ptr<Opcode>>& list, void* param)
+		{
+			for (auto it = list.cbegin(); it != list.cend(); ++it)
+			{
+				(*it)->execute(*this, param);
+			}
+		}
+		virtual ~ArgumentVisitor() {}
+	};
+
+	class Argument
+	{
+	public:
+		virtual std::string toString() const = 0;
+		virtual void execute(ArgumentVisitor &host, void *param)=0;
+		virtual Argument* clone() const = 0;
+		virtual ~Argument() {}
+
+		virtual bool equals(const Argument& other) const = 0;
+
+		bool operator==(Argument const& other) const
+		{
+			if (this == &other) return true;
+			if (typeid(*this) != typeid(other)) return false;
+			return equals(other);
+		}
+	};
+
+	class LiteralArgument : public Argument
+	{
+	public:
+		LiteralArgument(int32_t Value) : value(Value) {}
+		LiteralArgument(ScriptType Value) : value((int)Value) {}
+		std::string toString() const;
+		void execute(ArgumentVisitor &host, void *param)
+		{
+			host.caseLiteral(*this, param);
+		}
+		LiteralArgument* clone() const
+		{
+			return new LiteralArgument(value);
+		}
+
+		bool equals(const Argument& other) const
+		{
+			const auto& o = static_cast<const LiteralArgument&>(other);
+			return value == o.value;
+		}
+
+		int32_t value;
+	};
+
+	class TypeArgument : public Argument
+	{
+	public:
+		TypeArgument(const DataType* type) : script_object_type_id(type->getScriptObjectTypeId()) {}
+		std::string toString() const;
+		void execute(ArgumentVisitor &host, void *param)
+		{
+			host.caseType(*this, param);
+		}
+		TypeArgument* clone() const
+		{
+			return new TypeArgument(script_object_type_id);
+		}
+
+		bool equals(const Argument& other) const
+		{
+			const auto& o = static_cast<const TypeArgument&>(other);
+			return script_object_type_id == o.script_object_type_id;
+		}
+
+	private:
+		TypeArgument(script_object_type script_object_type_id) : script_object_type_id(script_object_type_id) {}
+		script_object_type script_object_type_id;
+	};
+	
+	class CompareArgument : public Argument
+	{
+	public:
+		CompareArgument(int32_t Value) : value(Value) {}
+		std::string toString() const;
+		void execute(ArgumentVisitor &host, void *param)
+		{
+			host.caseCompare(*this, param);
+		}
+		CompareArgument* clone() const
+		{
+			return new CompareArgument(value);
+		}
+
+		bool equals(const Argument& other) const
+		{
+			const auto& o = static_cast<const CompareArgument&>(other);
+			return value == o.value;
+		}
+
+		int32_t value;
+	};
+	
+	class StringArgument : public Argument
+	{
+	public:
+		StringArgument(std::string const& Value) : value(Value) {}
+		std::string toString() const;
+		void execute(ArgumentVisitor &host, void *param)
+		{
+			host.caseString(*this, param);
+		}
+		StringArgument* clone() const
+		{
+			return new StringArgument(value);
+		}
+
+		bool equals(const Argument& other) const
+		{
+			const auto& o = static_cast<const StringArgument&>(other);
+			return value == o.value;
+		}
+
+	private:
+		std::string value;
+	};
+	
+	class VectorArgument : public Argument
+	{
+	public:
+		VectorArgument(std::vector<int32_t> const& Value) : value(Value) {}
+		std::string toString() const;
+		void execute(ArgumentVisitor &host, void *param)
+		{
+			host.caseVector(*this, param);
+		}
+		VectorArgument* clone() const
+		{
+			return new VectorArgument(value);
+		}
+
+		bool equals(const Argument& other) const
+		{
+			const auto& o = static_cast<const VectorArgument&>(other);
+			return value == o.value;
+		}
+
+	private:
+		std::vector<int32_t> value;
+	};
+
+	std::string VarToString(int32_t ID);
+
+	class VarArgument : public Argument
+	{
+	public:
+		VarArgument(int32_t id) : ID(id) {}
+		std::string toString() const;
+		void execute(ArgumentVisitor &host, void *param)
+		{
+			host.caseVar(*this,param);
+		}
+		VarArgument* clone() const
+		{
+			return new VarArgument(ID);
+		}
+
+		bool equals(const Argument& other) const
+		{
+			const auto& o = static_cast<const VarArgument&>(other);
+			return ID == o.ID;
+		}
+
+		int32_t ID;
+	};
+
+	class LiteralVarArgument : public Argument
+	{
+	public:
+		LiteralVarArgument(int32_t id) : ID(id) {}
+		std::string toString() const;
+		void execute(ArgumentVisitor &host, void *param)
+		{
+			host.caseLiteralVar(*this,param);
+		}
+		LiteralVarArgument* clone() const
+		{
+			return new LiteralVarArgument(ID);
+		}
+
+		bool equals(const Argument& other) const
+		{
+			const auto& o = static_cast<const LiteralVarArgument&>(other);
+			return ID == o.ID;
+		}
+
+		int32_t ID;
+	};
+
+	// A vector argument some of whose entries are label ids, resolved to pcs by
+	// SetLabels like LabelArgument. The labels start at `first_label` and repeat
+	// every `stride` entries; the rest are plain values and are left alone.
+	// GOTOTABLE is {min_key, default_label, labels...} (first_label 1, stride 1);
+	// GOTORANGES is {default_label, start, end, label, ...} (0, stride 3).
+	class LabelVectorArgument : public Argument
+	{
+	public:
+		LabelVectorArgument(std::vector<int32_t> const& Value, size_t first_label, size_t stride = 1)
+			: value(Value), first_label(first_label), stride(stride) {}
+		std::string toString() const;
+		void execute(ArgumentVisitor &host, void *param)
+		{
+			host.caseLabelVector(*this, param);
+		}
+		LabelVectorArgument* clone() const
+		{
+			return new LabelVectorArgument(value, first_label, stride);
+		}
+
+		bool equals(const Argument& other) const
+		{
+			const auto& o = static_cast<const LabelVectorArgument&>(other);
+			return value == o.value && first_label == o.first_label && stride == o.stride;
+		}
+
+		size_t numLabels() const
+		{
+			return value.size() <= first_label ? 0 : (value.size() - first_label + stride - 1) / stride;
+		}
+		int32_t getLabel(size_t index) const { return value[first_label + index * stride]; }
+		void setLabel(size_t index, int32_t id) { value[first_label + index * stride] = id; }
+
+		// Every label id in the vector, for label bookkeeping (GetLabels/MergeLabels).
+		std::vector<int32_t> getLabels() const
+		{
+			std::vector<int32_t> labels;
+			for (size_t i = 0; i < numLabels(); i++)
+				labels.push_back(getLabel(i));
+			return labels;
+		}
+
+		std::vector<int32_t> value;
+		size_t first_label;
+		size_t stride;
+	};
+
+	class LabelArgument : public Argument
+	{
+	public:
+		LabelArgument(int32_t id, bool altstr = false) : ID(id), haslineno(false), altstr(altstr) {}
+		std::string toString() const;
+		void execute(ArgumentVisitor &host, void *param)
+		{
+			host.caseLabel(*this,param);
+		}
+		LabelArgument* clone() const
+		{
+			return new LabelArgument(ID, altstr);
+		}
+		void setID(int32_t newid)
+		{
+			ID = newid;
+		}
+		int32_t getID()
+		{
+			return ID;
+		}
+		void setLineNo(int32_t l)
+		{
+			haslineno=true;
+			lineno=l;
+		}
+
+		bool equals(const Argument& other) const
+		{
+			const auto& o = static_cast<const LabelArgument&>(other);
+			return ID == o.ID && altstr == o.altstr;
+		}
+
+	private:
+		int32_t ID;
+		int32_t lineno;
+		bool haslineno;
+		bool altstr;
+	};
+
+	template <ASM_DEFINE Command>
+	class Opcode0 : public Opcode
+	{
+	public:
+		Opcode0() {}
+		~Opcode0() {}
+		void execute([[maybe_unused]] ArgumentVisitor &host, [[maybe_unused]] void *param)
+		{
+		}
+		std::string toString() const
+		{
+			return zasm_op_to_string(Command);
+		}
+	protected:
+		Opcode* clone() const
+		{
+			return new Opcode0<Command>();
+		}
+	};
+
+	template <ASM_DEFINE Command, typename Arg>
+	class Opcode1 : public Opcode
+	{
+	public:
+		Opcode1(Arg *A) : a(A) {}
+		~Opcode1()
+		{
+			delete a;
+		}
+		Arg* getArgument()
+		{
+			return a;
+		}
+		Arg const* getArgument() const
+		{
+			return a;
+		}
+		Arg* takeArgument()
+		{
+			auto tmp = a;
+			a = nullptr;
+			return tmp;
+		}
+		void execute(ArgumentVisitor &host, void *param)
+		{
+			a->execute(host, param);
+		}
+		std::string toString() const
+		{
+			return fmt::format("{} {}", zasm_op_to_string(Command), a->toString());
+		}
+	protected:
+		Arg *a;
+
+		Opcode* clone() const
+		{
+			return new Opcode1<Command, Arg>(a->clone());
+		}
+	};
+
+	template <ASM_DEFINE Command, typename Arg1, typename Arg2>
+	class Opcode2 : public Opcode
+	{
+	public:
+		Opcode2(Arg1 *A, Arg2 *B) : a(A), b(B) {}
+		~Opcode2()
+		{
+			delete a;
+			delete b;
+		}
+		Arg1* getFirstArgument()
+		{
+			return a;
+		}
+		Arg1 const* getFirstArgument() const
+		{
+			return a;
+		}
+		Arg2* getSecondArgument()
+		{
+			return b;
+		}
+		Arg2 const* getSecondArgument() const
+		{
+			return b;
+		}
+		Arg1* takeFirstArgument()
+		{
+			auto tmp = a;
+			a = nullptr;
+			return tmp;
+		}
+		Arg2* takeSecondArgument()
+		{
+			auto tmp = b;
+			b = nullptr;
+			return tmp;
+		}
+		void execute(ArgumentVisitor &host, void *param)
+		{
+			a->execute(host, param);
+			b->execute(host, param);
+		}
+		std::string toString() const
+		{
+			return fmt::format("{} {} {}", zasm_op_to_string(Command), a->toString(), b->toString());
+		}
+	protected:
+		Arg1 *a;
+		Arg2 *b;
+
+		Opcode* clone() const
+		{
+			return new Opcode2<Command, Arg1, Arg2>(a->clone(), b->clone());
+		}
+	};
+
+	template <ASM_DEFINE Command, typename Arg1, typename Arg2, typename Arg3>
+	class Opcode3 : public Opcode
+	{
+	public:
+		Opcode3(Arg1 *A, Arg2 *B, Arg3 *C) : a(A), b(B), c(C) {}
+		~Opcode3()
+		{
+			delete a;
+			delete b;
+			delete c;
+		}
+		Arg1* getFirstArgument()
+		{
+			return a;
+		}
+		Arg1 const* getFirstArgument() const
+		{
+			return a;
+		}
+		Arg2* getSecondArgument()
+		{
+			return b;
+		}
+		Arg2 const* getSecondArgument() const
+		{
+			return b;
+		}
+		Arg3* getThirdArgument()
+		{
+			return c;
+		}
+		Arg3 const* getThirdArgument() const
+		{
+			return c;
+		}
+		Arg1* takeFirstArgument()
+		{
+			auto tmp = a;
+			a = nullptr;
+			return tmp;
+		}
+		Arg2* takeSecondArgument()
+		{
+			auto tmp = b;
+			b = nullptr;
+			return tmp;
+		}
+		Arg3* takeThirdArgument()
+		{
+			auto tmp = c;
+			c = nullptr;
+			return tmp;
+		}
+		void execute(ArgumentVisitor &host, void *param)
+		{
+			a->execute(host, param);
+			b->execute(host, param);
+			c->execute(host, param);
+		}
+		std::string toString() const
+		{
+			return fmt::format("{} {} {} {}", zasm_op_to_string(Command), a->toString(), b->toString(), c->toString());
+		}
+	protected:
+		Arg1 *a;
+		Arg2 *b;
+		Arg3 *c;
+
+		Opcode* clone() const
+		{
+			return new Opcode3<Command, Arg1, Arg2, Arg3>(a->clone(), b->clone(), c->clone());
+		}
+	};
+
+	class RawOpcode : public Opcode
+	{
+	public:
+		RawOpcode(std::string str) : str(str) {}
+		void execute([[maybe_unused]] ArgumentVisitor &host, [[maybe_unused]] void *param)
+		{
+		}
+		std::string toString() const
+		{
+			return str;
+		}
+		Opcode* clone() const
+		{
+			return new RawOpcode(str);
+		}
+		std::string str;
+	};
+
+}
+
+#endif

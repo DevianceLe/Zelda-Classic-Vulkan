@@ -89,9 +89,10 @@ void q30_sub_widget(int list, int type, const char *label, int obj, int posflags
                     int pos, dword genflags, dword flags, int pg_mode, int pg_btns, int pg_targ);
 struct subscreen_object;
 // Page changes (upstream's ZCSubscreen page buttons, SubscrPageTransition, widget pg_*): the
-// subscreen's left/right page buttons and flags, a page's button transitions, and each page's
-// 2.53 objects (count of them in objs), kept so a page can be swapped in.
-void q30_sub_settings(int list, dword flags, int btn_left, int btn_right);
+// subscreen's left/right page buttons and flags (with the A, B, X and Y buttons' slots on a new
+// game, upstream's def_btns), a page's button transitions, and each page's 2.53 objects (count
+// of them in objs), kept so a page can be swapped in.
+void q30_sub_settings(int list, dword flags, int btn_left, int btn_right, const word *def_btns);
 void q30_sub_page_trans(int list, int btns, int mode, int targ, int flags);
 void q30_sub_page_objects(int list, const subscreen_object *objs, int count);
 

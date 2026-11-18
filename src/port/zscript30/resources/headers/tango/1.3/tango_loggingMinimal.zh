@@ -1,0 +1,29 @@
+// Minimal message logging.
+
+const int __TANGO_FULL_LOGGING = 0;
+
+void __Tango_LogMessage(int code, untyped data)
+{
+    // Ignore it
+}
+
+void __Tango_LogError(int error)
+{
+    if(__TANGO_LOGGING_LEVEL<1)
+        return;
+    
+    if(__TANGO_ONSCREEN_NOTIFICATION!=0)
+        __Tango_Data[__TDIDX_ERROR_NOTIFICATION]=300;
+
+    printf("tango.zh error: %d\n", error);
+}
+
+void __Tango_LogError(int error, untyped data)
+{
+    __Tango_LogError(error);
+}
+
+void __Tango_LogError(int error, untyped data1, untyped data2)
+{
+    __Tango_LogError(error);
+}

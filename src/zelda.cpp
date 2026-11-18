@@ -311,7 +311,7 @@ short    lensclk;
 int     lensid; // Lens's item id. -1 if lens is off.
 int    Bpos;
 byte screengrid[22];
-byte ffcgrid[4];
+byte ffcgrid[Q30_MAXFFCS / 8];  // a bit per FFC slot (2.53 uses the first 32)
 bool halt=false;
 bool screenscrolling=false;
 bool close_button_quit=false;
@@ -598,8 +598,6 @@ zctune tunes[MAXMIDIS] =
 
 bool q30_active();
 
-FONT *q30_upstream_font(int id);    // q30_fonts.cpp
-
 // q30_msg.cpp (q30.h): the message engine of 2.55/3.0 quests, upstream's message_string.cpp
 bool q30_msg_engine();
 void q30_msg_clear_display();
@@ -610,6 +608,8 @@ void q30_msg_draw_icons();
 void q30_msg_init();
 bool q30_msg_nofreeze();
 
+FONT *q30_font_newer(int id);       // q30_fonts.cpp (ZQuest's subscreen layout editor uses it too)
+
 // The fonts 3.0 numbers past 2.53's (upstream's core/fonts.h): font_nfont 71, font_sfont3 72
 // and font_nfont2 75 are in this engine's fonts.dat; the others (27-70, 73, 74, 76-100) are
 // built in from upstream's font data (q30_fonts.cpp). NULL for older quests, which draw the
@@ -619,19 +619,7 @@ FONT *q30_font(int index)
     if(!q30_active())
         return NULL;
 
-    switch(index)
-    {
-    case 71:
-        return nfont;               // "NFont", FONT_GUI_PROP
-
-    case 72:
-        return sfont3;              // "Small 3", FONT_12x8
-
-    case 75:
-        return (FONT*)fontsdata[FONT_GUI_MONO].dat;     // "NFont2"
-    }
-
-    return q30_upstream_font(index);
+    return q30_font_newer(index);
 }
 
 FONT *setmsgfont()
@@ -796,6 +784,7 @@ bool q30_quest_rule(int id);
 bool q30_show_bottom_8px();     // q30_triggers.cpp
 void q30_reset_subscr_speed();  // zc_subscr.cpp
 bool q30_msg_more_icon(int str, int *x, int *y, int *sprite);  // q30_core.cpp (q30.h)
+void q30_reset_step_statics();                             // link.cpp
 std::vector<long> q30_take_hi_counters(bool firstplay);    // q30_triggers.cpp
 void q30_put_hi_counters(const std::vector<long> &v);
 std::vector<long> q30_take_hi_items(bool firstplay);        // q30_triggers.cpp
@@ -2048,6 +2037,7 @@ int init_game()
     //ffscript_engine(true); Can't do this here! Global arrays haven't been allocated yet... ~Joe
     
     Link.init();
+    q30_reset_step_statics();    // link.cpp: upstream's HeroClass::reset_step_statics (2.55+ walking only)
     Link.resetflags(true);
 
     // ZC_TEST_START=dmap,screen,x,y: test runs only, Link starts at x,y there
@@ -2102,43 +2092,63 @@ int init_game()
     
     load_Sitems(&QMisc);
     
-//load the previous weapons -DD
+    // 2.55/3.0 under qr_OLD_SUBSCR, a new game: no button has a slot yet (upstream's init_game),
+    // so a button nothing fits stays empty, and the subscreen's cursor starts on the other one's
+    // item, where 2.53 keeps the new save's slot 0.
+    bool q30_old_subscreens();      // q255_basic.cpp
+    if(firstplay && q30_old_subscreens())
+        game->awpn = game->bwpn = 255;
+
+    // 2.55/3.0 with the newer subscreens (upstream's init_game): a new game's buttons start on the
+    // subscreen's default slots, a loaded one's on its own, each slot on its page, with no search
+    // for an item (link.cpp q30_init_paged_buttons). The rest keep 2.53's start.
+    const bool q30_paged = q30_paged_buttons();
     bool usesaved = (game->get_quest() == 0xFF); //What was wrong with firstplay?
-    int apos = 0;
-    int bpos = 0;
-    
-    if(!get_bit(quest_rules,qr_SELECTAWPN))
-    {
-        // Nothing else sets these without qr_SELECTAWPN, so don't keep an item from
-        // a quest played earlier in this session on the A button.
-        directItem = -1;
-        directItemA = -1;
-        Awpn = selectSword();
-        apos = -1;
-        bpos = selectWpn_new(SEL_VERIFY_RIGHT, usesaved ? game->bwpn : 0xFF, -1);
-    }
+
+    if(q30_paged)
+        q30_init_paged_buttons(firstplay);
     else
     {
-        apos = selectWpn_new(SEL_VERIFY_RIGHT, usesaved ? game->awpn : 0xFF);
-        bpos = selectWpn_new(SEL_VERIFY_RIGHT, usesaved ? game->bwpn : 0xFF, apos);
-        
-        if(bpos==0xFF)
-        {
-            bpos=apos;
-            apos=-1;
-        }
-        
-        Awpn = Bweapon(apos);
-        directItemA = directItem;
-    }
-    
-    game->awpn = apos;
-    game->bwpn = bpos;
-    Bwpn = Bweapon(bpos);
-    q30_load_extra_buttons();
-    directItemB = directItem;
+//load the previous weapons -DD
+        int apos = 0;
+        int bpos = 0;
 
-    if(usesaved)
+        if(!get_bit(quest_rules,qr_SELECTAWPN))
+        {
+            // Nothing else sets these without qr_SELECTAWPN, so don't keep an item from
+            // a quest played earlier in this session on the A button.
+            directItem = -1;
+            directItemA = -1;
+            Awpn = selectSword();
+            apos = -1;
+            bpos = selectWpn_new(SEL_VERIFY_RIGHT, usesaved ? game->bwpn : 0xFF, -1);
+        }
+        else
+        {
+            apos = selectWpn_new(SEL_VERIFY_RIGHT, usesaved ? game->awpn : 0xFF);
+            bpos = selectWpn_new(SEL_VERIFY_RIGHT, usesaved ? game->bwpn : 0xFF, apos);
+
+            if(bpos==0xFF)
+            {
+                bpos=apos;
+                apos=-1;
+            }
+
+            Awpn = Bweapon(apos);
+            directItemA = directItem;
+        }
+
+        game->awpn = apos;
+        game->bwpn = bpos;
+        Bwpn = Bweapon(bpos);
+        q30_load_extra_buttons();
+        directItemB = directItem;
+    }
+
+    void q30_btnsel_trace(const char *where);   // link.cpp (ZC_Q30_BTNSEL)
+    q30_btnsel_trace("init_game");
+
+    if(usesaved && !q30_paged)  // (q30_init_paged_buttons restores what an older save kept)
     {
         void q30_restore_buttons();     // 2.55/3.0: items set on a later subscreen page
         q30_restore_buttons();
@@ -2701,7 +2711,7 @@ void show_ffscript_names()
 {
     int ypos = 8;
     
-    for(int i=0; i< MAXFFCS; i++)
+    for(int i=0; i< tmpscr->ffc_count(); i++)
     {
         if(tmpscr->ffscript[i])
         {
@@ -3252,7 +3262,7 @@ void game_loop()
     
     bool freeze = false;
     
-    for(int i=0; i<32; i++)
+    for(int i=0; i<tmpscr->ffc_count(); i++)
     {
         if(combobuf[tmpscr->ffdata[i]].type==cSCREENFREEZE) freeze=true;
         

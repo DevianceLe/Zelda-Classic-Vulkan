@@ -1,0 +1,18 @@
+// Contains various debug-only functionality.
+//
+// Access with `Debug->`.
+//
+// @deprecated
+class Debug {
+	// @delete
+	internal Debug();
+
+	// Returns true if this instance of ZC was launched from the 'Quest->Test'
+	// option in ZQ.
+	//
+	// @deprecated Use [Game->Testing] instead.
+	// @zasm_var DEBUGTESTING
+	internal const bool Testing;
+}
+
+internal const Debug Debug;

@@ -34,10 +34,12 @@
 #include "q30_triggers.h"
 #include "zq_q255_store.h"
 #include "zqn_255.h"
+#include "zq_autocombo.h"
 
 extern newcombo *combobuf;
 extern combo_alias combo_aliases[MAXCOMBOALIASES];
 extern byte quest_rules[QUESTRULES_SIZE];
+extern int q255_header_version[3];     // the open quest's program version (q255_basic.cpp)
 
 // q255_combos.cpp, for ZQuest only: one combo read as the 2.55 loader reads it, keeping nothing.
 int q255_editor_read_combo(Q255Section &s, newcombo *c, Q30Combo *x);
@@ -1912,6 +1914,13 @@ int write_combos_255(PACKFILE *f, const ZqPartContext &ctx)
             if(have_raw && v > 32)
                 keep_has = v < 55 ? raw[0] : (word)(raw[0] | (raw[1] << 8));
 
+            // A lift group kept only because the original record had one would write weapon
+            // data for a combo that now has none of its own (an import or a paste over a
+            // liftable combo), and upstream takes weapon data it is given as the combo's, not
+            // as what it gives a lifted combo by default: the group goes with the data.
+            if(v >= 55 && (keep_has & CHAS_LIFT) && x.lift_weap.data_version < 0 && !(combo_groups(v, c, x, tile) & CHAS_LIFT))
+                keep_has &= ~CHAS_LIFT;
+
             if(weap_version < 0)
                 weap_version = section_weap_version();
 
@@ -1931,6 +1940,30 @@ int write_combos_255(PACKFILE *f, const ZqPartContext &ctx)
                 q30_canon(x, a);
                 q30_canon(gx, b);
                 ok = same_combo(c, gc) && a.b == b.b;
+
+                // The original record's groups kept (keep_has) don't always read back as a combo
+                // that now has none of them would (a combo imported blank over one that had
+                // triggers, say): then it is laid out with only the groups it needs.
+                if(!ok && keep_has && v > 32)
+                {
+                    Out e2;
+                    newcombo gc2;
+                    Q30Combo gx2;
+                    size_t end2 = 0;
+
+                    if(encode_grouped(e2, v, c, ux, tile, 0, weap_version) && !e2.b.empty() &&
+                       read_combo_255x(e2.b, 0, v, &end2, gc2, gx2) && end2 == e2.b.size())
+                    {
+                        Out b2;
+                        q30_canon(gx2, b2);
+
+                        if(same_combo(c, gc2) && a.b == b2.b)
+                        {
+                            e.b.swap(e2.b);
+                            ok = true;
+                        }
+                    }
+                }
 
                 // ZQW_DEBUG_COMBO: where the newer part read back differently (its canonical bytes)
                 if(!ok && getenv("ZQW_DEBUG_COMBO"))
@@ -1955,9 +1988,26 @@ int write_combos_255(PACKFILE *f, const ZqPartContext &ctx)
                 Out want;
                 q30_canon(x, want);
 
+                // The flat format's second tile field (o_tile) is one of those bytes for a combo
+                // that isn't animated, but upstream shows it whenever it isn't 0: with a new tile
+                // (an import over the combo, a tile picked in the combo editor) it stays the new
+                // tile, as the encoder wrote it.
+                size_t new_from = 0, new_to = 0;
+
+                if(v <= 32)
+                {
+                    const FlatLayout l = flat_layout(v);
+
+                    if(l.o_tile && memcmp(&e.b[0], &raw[0], l.tile_bytes) != 0)
+                    {
+                        new_from = l.o_tile;
+                        new_to = l.o_tile + 4;
+                    }
+                }
+
                 for(size_t k = 0; k < e.b.size(); ++k)
                 {
-                    if(e.b[k] == raw[k])
+                    if(e.b[k] == raw[k] || (k >= new_from && k < new_to))
                         continue;
 
                     const byte mine = e.b[k];
@@ -2043,6 +2093,70 @@ ZqWriterRegistration g_reg_combos_255(ID_COMBOS, write_combos_255, "combos, 2.55
 // version, update_combo), then written as 3.0's version 73 (the groups a combo has, weapon data
 // as its version 5). 3.0 writes the combos up to the last one with a tile (count_combos).
 
+// readcombo_loop before version 55: a liftable combo's thrown weapon is its parent item's when
+// that's a bomb, else one that breaks when it lands (and on solid ground with the combo's flag);
+// it falls, and glows as the combo said. items: each item as 3.0 holds it (zqn255_items_loaded).
+void lift_weapon_from_parent(Q30Combo &x, const std::vector<Zqn255ItemWeapon> &items)
+{
+    Q30WeaponData &w = x.lift_weap;
+    const long ptype = x.lift_parent_item < items.size() ? items[x.lift_parent_item].type : 66;  // itype_misc
+
+    if(ptype == 27 || ptype == 28)  // itype_bomb, itype_sbomb
+    {
+        const byte glow = w.light_rads[0];
+        const Zqn255Weapon &d = items[x.lift_parent_item].wd;
+        w.flags = d.flags;
+        w.moveflags = d.moveflags;
+        w.wflags = d.wflags;
+
+        for(int q = 0; q < 5; ++q)
+        {
+            w.burnsprs[q] = d.burnsprs[q];
+            w.light_rads[q] = d.light_rads[q];
+            w.light_offsets[q] = d.light_offsets[q];
+        }
+
+        w.glow_shape = d.glow;
+        w.override_flags = d.override_flags;
+        w.tilew = d.tilew; w.tileh = d.tileh; w.hxsz = d.hxsz; w.hysz = d.hysz; w.hzsz = d.hzsz;
+        w.hxofs = d.hxofs; w.hyofs = d.hyofs; w.xofs = d.xofs; w.yofs = d.yofs;
+        w.step = d.step;
+        w.unblockable = d.unblockable;
+        w.timeout = d.timeout;
+        w.imitate_weapon = d.imitate;
+        w.default_defense = d.defdef;
+        w.lift_level = d.lift_level;
+        w.lift_time = d.lift_time;
+        w.lift_height = d.lift_height;
+        w.script = d.sc.script;
+
+        for(int q = 0; q < 8; ++q)
+            w.initd[q] = d.sc.args[q];
+
+        w.pierce_count = d.pierce;
+        w.bounce_mult = d.bounce_mult;
+        w.bounce_add = d.bounce_add;
+        w.viewport_suspend_range = d.vp_suspend;
+        w.viewport_despawn_range = d.vp_despawn;
+
+        if(!(w.wflags & 0x200))     // WFLAG_UPDATE_IGNITE_SPRITE
+        {
+            w.flags |= 1;           // wdata_glow_rad
+            w.light_rads[0] = glow;
+        }
+    }
+    else
+    {
+        w.wflags |= 2;              // WFLAG_BREAK_WHEN_LANDING
+        w.flags |= 1;               // wdata_glow_rad
+    }
+
+    w.moveflags |= 3;               // move_obeys_grav | move_can_pitfall
+
+    if(x.liftflags & 0x40)          // LF_BREAKONSOLID
+        w.wflags |= 4;              // WFLAG_BREAK_ON_SOLID
+}
+
 int zqn255_combos(PACKFILE *f, const ZqNewerContext &ctx)
 {
     // (version 73, 3.0's own, from 3.0 prereleases: read and written again the same way)
@@ -2103,63 +2217,7 @@ int zqn255_combos(PACKFILE *f, const ZqNewerContext &ctx)
                     items.clear();
             }
 
-            Q30WeaponData &w = x.lift_weap;
-            const long ptype = x.lift_parent_item < items.size() ? items[x.lift_parent_item].type : 66;  // itype_misc
-
-            if(ptype == 27 || ptype == 28)  // itype_bomb, itype_sbomb
-            {
-                const byte glow = w.light_rads[0];
-                const Zqn255Weapon &d = items[x.lift_parent_item].wd;
-                w.flags = d.flags;
-                w.moveflags = d.moveflags;
-                w.wflags = d.wflags;
-
-                for(int q = 0; q < 5; ++q)
-                {
-                    w.burnsprs[q] = d.burnsprs[q];
-                    w.light_rads[q] = d.light_rads[q];
-                    w.light_offsets[q] = d.light_offsets[q];
-                }
-
-                w.glow_shape = d.glow;
-                w.override_flags = d.override_flags;
-                w.tilew = d.tilew; w.tileh = d.tileh; w.hxsz = d.hxsz; w.hysz = d.hysz; w.hzsz = d.hzsz;
-                w.hxofs = d.hxofs; w.hyofs = d.hyofs; w.xofs = d.xofs; w.yofs = d.yofs;
-                w.step = d.step;
-                w.unblockable = d.unblockable;
-                w.timeout = d.timeout;
-                w.imitate_weapon = d.imitate;
-                w.default_defense = d.defdef;
-                w.lift_level = d.lift_level;
-                w.lift_time = d.lift_time;
-                w.lift_height = d.lift_height;
-                w.script = d.sc.script;
-
-                for(int q = 0; q < 8; ++q)
-                    w.initd[q] = d.sc.args[q];
-
-                w.pierce_count = d.pierce;
-                w.bounce_mult = d.bounce_mult;
-                w.bounce_add = d.bounce_add;
-                w.viewport_suspend_range = d.vp_suspend;
-                w.viewport_despawn_range = d.vp_despawn;
-
-                if(!(w.wflags & 0x200))     // WFLAG_UPDATE_IGNITE_SPRITE
-                {
-                    w.flags |= 1;           // wdata_glow_rad
-                    w.light_rads[0] = glow;
-                }
-            }
-            else
-            {
-                w.wflags |= 2;              // WFLAG_BREAK_WHEN_LANDING
-                w.flags |= 1;               // wdata_glow_rad
-            }
-
-            w.moveflags |= 3;               // move_obeys_grav | move_can_pitfall
-
-            if(x.liftflags & 0x40)          // LF_BREAKONSOLID
-                w.wflags |= 4;              // WFLAG_BREAK_ON_SOLID
+            lift_weapon_from_parent(x, items);
         }
 
         // after the combos (readcombos_old, readcombos): water before version 16 does 4 damage,
@@ -2499,7 +2557,26 @@ int write_aliases(PACKFILE *f, const ZqPartContext &ctx)
         if(!alias_unchanged(j) && refuse(ID_COMBOALIASES, j, false, "is past what this version holds"))
             return ERR_CANT_HOLD;
 
-    o.copy(orig, in.pos, orig.size());     // 2.55's combo pools and autocombos
+    // 2.55's combo pools and autocombos: as they were, or as the pool and autocombo editors left
+    // them (zq_cpool.cpp), if the section's version holds them
+    if(ctx.zelda_version == 0x255)
+    {
+        const std::vector<byte> tail(orig.begin() + in.pos, orig.end());
+        std::vector<byte> out;
+        std::string why;
+
+        if(!zq_cpool_section_tail(v, tail, out, why))
+        {
+            zqw_last_error = why;
+            return ERR_CANT_HOLD;
+        }
+
+        if(!out.empty())
+            o.pn(&out[0], out.size());
+    }
+    else
+        o.copy(orig, in.pos, orig.size());
+
     return put_part(f, ctx.part->id, orig, o);
 }
 
@@ -2514,4 +2591,222 @@ bool zq255_q30_same(const Q30Combo &a, const Q30Combo &b)
     q30_canon(a, x);
     q30_canon(b, y);
     return x.b == y.b;
+}
+
+// ---- .zcombo files: export and import (zq_exports.cpp) ------------------------------------
+//
+// A .zcombo file holds combos as the combo section does, one record after another (upstream's
+// writecombo_loop, readcombo_loop), from version 33 on; its older files had a format of their
+// own (readcombofile_old), which these don't write or read.
+
+// The records of combos first..first+count-1 as a .zcombo file holds them: each one's record in
+// the combo section's version as the quest's own save writes it now, and past the section's last
+// combo, blank combos (no groups), as upstream writes a cleared combo. A section older than version
+// 33 gives 2.55.17's version 45, as saving the quest as 2.55.17 converts it. version: the records'.
+bool zq255_combo_export(int first, int count, std::vector<byte> &recs, word *version, std::string &why)
+{
+    const ZqQuestPart *part = zq_find_part(ID_COMBOS);
+    std::vector<byte> all;
+    recs.clear();
+
+    if(!part || !zq_own_part_bytes(*part, all) || all.size() < 10)
+    {
+        why = "this quest's combos couldn't be read";
+        return false;
+    }
+
+    word v = (word)(all[0] | (all[1] << 8));
+
+    if(v >= 7 && v < 33)
+    {
+        std::vector<byte> conv;
+
+        if(!zq_newer_section_bytes(ID_COMBOS, ZQ_NEWER_255, conv, why) || conv.size() < 14)
+            return false;
+
+        all.assign(conv.begin() + 4, conv.end());
+        v = (word)(all[0] | (all[1] << 8));
+    }
+
+    if(v < 33 || v > 73)
+    {
+        why = "this quest's combos aren't in a format a .zcombo file holds";
+        return false;
+    }
+
+    const std::vector<byte> body(all.begin() + 8, all.end());
+    In in(body, 0);
+    const int n = in.g16();
+    size_t pos = 2;
+    std::vector<size_t> at;
+    newcombo c;
+
+    for(int i = 0; i < n; ++i)
+    {
+        size_t end = pos;
+        at.push_back(pos);
+
+        if(!read_combo_255(body, pos, v, &end, c))
+        {
+            why = "a combo of this quest's combo section couldn't be read";
+            return false;
+        }
+
+        pos = end;
+    }
+
+    at.push_back(pos);
+    const size_t blank = v < 55 ? 1 : 2;   // the "has" field, all clear
+
+    for(int i = first; i < first + count && i < MAXCOMBOS; ++i)
+    {
+        if(i < n)
+            recs.insert(recs.end(), body.begin() + at[i], body.begin() + at[i + 1]);
+        else
+            recs.insert(recs.end(), blank, (byte)0);
+    }
+
+    *version = v;
+    return true;
+}
+
+// Combos from a file's records (count of them, version v: a .zcombo file's, or with whole a
+// .zgp's combo section, which may be in the old flat format) put at dest and after, each as
+// upstream's import reads it: newcombo and its newer part. Those past the last combo are dropped.
+// What its readers convert in a record older than the quest's combo section, and the quest's
+// loader won't convert again, is converted here:
+// - upstream's imports read with no quest header, so the cuttables' fix for combos from before
+//   2.55.14 (the trigger's "combo type effects" flag) always applies before version 67;
+// - a liftable combo from before version 55 in a quest from 55 on: its thrown weapon comes from
+//   its parent item in this quest (lift_weapon_from_parent);
+// - whole (readcombos): water before version 16 does 4 damage; every combo past the file's last
+//   one is cleared; combo 0 is plain unless the quest lets it be edited.
+// False (why says) when a record doesn't read; nothing is changed then. placed: how many went in.
+bool zq255_combo_import(const std::vector<byte> &data, word v, int count, int dest, bool whole, int *placed, std::string &why)
+{
+    if(v < (whole ? 7 : 33) || v > 73)
+    {
+        why = v < 33 ? "its combos are in an early 2.55 format, which ZQuest doesn't read" : "its combos are in a format newer than ZQuest reads";
+        return false;
+    }
+
+    const ZqQuestPart *part = zq_find_part(ID_COMBOS);
+    word qv = 0, qcv = 0;
+
+    if(!part || !zq_part_versions(*part, &qv, &qcv))
+    {
+        why = "this quest's combos can't be replaced this way";
+        return false;
+    }
+
+    // the reader skips the cuttables' fix for a quest saved by 2.55.14 or later: not for a file
+    struct NoHeader
+    {
+        int patch;
+        NoHeader() : patch(q255_header_version[2]) { q255_header_version[2] = 0; }
+        ~NoHeader() { q255_header_version[2] = patch; }
+    } no_header;
+
+    const int target = q255_header_version[0] >= 3 ? ZQ_NEWER_30 : ZQ_NEWER_255;
+    std::vector<newcombo> cs;
+    std::vector<Q30Combo> xs;
+    std::vector<Zqn255ItemWeapon> items;
+    bool items_read = false;
+    size_t pos = 0;
+
+    for(int k = 0; k < count; ++k)
+    {
+        size_t end = pos;
+        newcombo c;
+        Q30Combo x;
+
+        if(!read_combo_255x(data, pos, v, &end, c, x))
+        {
+            char b[64];
+            snprintf(b, sizeof(b), "combo %d of the file doesn't read", k);
+            why = b;
+            return false;
+        }
+
+        if(v >= 33 && v < 55 && qv >= 55 && (data[pos] & 0x40))    // CHAS_LIFT
+        {
+            if(!items_read)
+            {
+                items_read = true;
+
+                if(!zqn255_items_loaded(ZQ_NEWER_30, items))
+                    items.clear();
+            }
+
+            lift_weapon_from_parent(x, items);
+        }
+
+        if(whole && v < 16 && qv >= 16 && x.type == 3)      // cWATER
+            x.attributes[0] = 4 * 10000;
+
+        pos = end;
+
+        if(dest + k < MAXCOMBOS)
+        {
+            cs.push_back(c);
+            xs.push_back(x);
+        }
+    }
+
+    if(whole)
+    {
+        // what a cleared combo reads as: a record with no groups
+        const std::vector<byte> none(2, 0);
+        size_t end = 0;
+        newcombo c;
+        Q30Combo x;
+
+        if(!read_combo_255x(none, 0, v < 33 ? 45 : v, &end, c, x))
+        {
+            why = "a blank combo couldn't be made";
+            return false;
+        }
+
+        while(dest + (int)cs.size() < MAXCOMBOS)
+        {
+            cs.push_back(c);
+            xs.push_back(x);
+        }
+
+        std::vector<byte> rules;
+
+        if(dest == 0 && !cs.empty() && zqn255_rules_loaded(target, rules) && rules.size() > (230 >> 3) &&
+           !((rules[230 >> 3] >> (230 & 7)) & 1))      // qr_ALLOW_EDITING_COMBO_0
+        {
+            xs[0].walk = 0xF0;
+            xs[0].type = 0;
+            xs[0].flag = 0;
+            cs[0].walk = 0;
+            cs[0].type = 0;
+            cs[0].flag = 0;
+        }
+    }
+
+    reset_combo_animations();
+    reset_combo_animations2();
+    static const Q30Combo none;
+
+    for(size_t k = 0; k < cs.size(); ++k)
+    {
+        const int i = dest + (int)k;
+        combobuf[i] = cs[k];
+
+        if(zq255_q30_same(xs[k], none))
+            zq255_combo_clear(i);
+        else
+            q30_combo_store(i, new Q30Combo(xs[k]));
+    }
+
+    setup_combo_animations();
+    setup_combo_animations2();
+
+    if(placed)
+        *placed = count < (int)cs.size() ? count : (int)cs.size();
+
+    return true;
 }

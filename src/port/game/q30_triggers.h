@@ -414,6 +414,12 @@ int q30_item_cost_counter(int item, int which);
 // whether Link can pay both of the item's costs, from any counter (upstream's checkmagiccost
 // without its timers; the player only)
 bool q30_item_costs_payable(int item);
+void q30_pay_item_costs(int item);           // upstream paymagiccost: both costs, any counters
+// upstream's check_bomb / check_sbomb (q30_scripts_subscr.h): whether a subscreen slot naming the
+// bomb or super bomb item iid (-1: naming the class) can be shown and chosen; the player only
+bool q30_bomb_slot_usable(int iid, bool super);
+void q30_item_error();                      // startwpn: the quest's error sound (2.55/3.0 only)
+bool q30_old_subscreens();                  // q255_basic.cpp: a 2.55/3.0 quest under qr_OLD_SUBSCR
 // rules that became item flags in 2.55: the item's flag for 2.55/3.0 quests, the rule for 2.53
 bool q30_slash_flip(int itemid);            // qr_SLASHFLIPFIX
 bool q30_quick_sword(int itemid);           // qr_QUICKSWORD (the sword or wand in use)
@@ -448,8 +454,7 @@ bool q30_has_bridge_at(int x, int y, int layer);
 bool q30_has_bridge_above(int x, int y, int target_layer);
 int q30_link_mapcombo(int x, int y);        // MAPCOMBO, but 0 where a bridge covers the screen combo
 bool q30_walkflag(int x, int y, int cnt);   // _walkflag for 2.55+ quests
-void q30_walk_speed(int x, int y, int z, int &dx, int &dy);  // combo walk-speed modifiers
-double q30_walk_speed_scale(int x, int y, int z, double step);   // same, for a fractional step
+double q30_walk_speed_scale(int x, int y, int z, double step);   // combo walk-speed modifiers on a step
 // link.cpp: the Hero step rate in 1/100 pixel a frame (upstream's steprate; Hero->Step), used
 // under qr_NEW_HERO_MOVEMENT/2; the quest's init data sets it as it loads, Link's init resets it.
 void q30_set_init_hero_step(int step);
@@ -494,6 +499,17 @@ void q30_passive_buttons();                 // LinkClass::animate, before the it
 int q30_startwpn(int itemid);               // -1: not handled, 2: the bug net, else startwpn's return
 void q30_thrown_frame(weapon *w);
 void q30_draw_lift(BITMAP *dest);
+// Link's lift animation (upstream's action lifting): true while a lift plays, and on the frame it
+// ends; clk/tclk are upstream's liftclk/tliftclk for picking the frame.
+bool q30_lift_anim(int *clk, int *tclk);
+// A pit's fall, played as a drowning here (upstream's fallclk): true while it runs.
+bool q30_pit_falling();
+// Whether the drowning under Link is in lava (the water combo's flag 1: upstream's Drown(1)).
+bool q30_lava_drowning();
+// 2.55/3.0 hero sprite sets the player draws (q255_init.cpp): tile/flip/extend per direction.
+enum { Q255HS_DROWN, Q255HS_LAVADROWN, Q255HS_FALLING, Q255HS_LIFTING, Q255HS_LIFTWALK, Q255HS_REVSLASH, Q255HS_MAX };
+const int *q255_hero_sprite(int set, int dir);
+int q255_hero_lift_frames(int dir);          // liftingspr's frame count, 1-255
 void q30_draw_darkness(BITMAP *dest);
 // The same through a scroll (LinkClass::scrollscr, its view at sx, sy): the old and new screens.
 void q30_draw_scroll_darkness(BITMAP *dest, int sx, int sy);

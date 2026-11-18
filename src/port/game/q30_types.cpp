@@ -123,3 +123,28 @@ Q30Combo::Q30Combo()
     delay = 0;
     cs2_flash_duration = 0;
 }
+
+// Upstream's readrules turns these on for quests saved before the rule existed (core/qst_rules.cpp:
+// "if(compatrule_version < N) set_qr(...)"), so a clear bit in such a file doesn't mean the new
+// behaviour was asked for: the compat rule version from which a clear bit means off, 0 for rules
+// it never turns on. The player's q30_compat_rule (q30_triggers.cpp) and ZQuest's subscreen layout
+// editor (zq_subscr_layout.cpp) both ask here.
+dword q30_compat_rule_since(int id)
+{
+    switch(id)
+    {
+    case Q30_QR_ENEMIES_SECRET_ONLY_16_31: return 1;
+    case Q30_QR_STEPTEMP_SECRET_ONLY_16_31: return 6;
+    case Q30_QR_ALLTRIG_PERMSEC_NO_TEMP: return 7;
+    case Q30_QR_DMAP_0_CONTINUE_BUG: return 24;
+    case 348: return 31;        // qr_FFCPRELOAD_BUGGED_LOAD
+    case Q30_QR_PUSHBLOCK_SPRITE_LAYER: return 51;
+    case Q30_QR_BROKEN_PUSHBLOCK_TOP_HALF_SOLIDS: return 71;
+    case Q30_QR_BROKEN_PUSHBLOCK_FLAG_CLONING: return 72;
+    case 433: return 61;        // qr_BROKEN_BOMB_AMMO_COSTS
+    case 450: return 79;        // qr_BROKEN_SYSTEM_COLORS
+    case 561: return 58;        // qr_OLD_DMAP_INTRO_STRINGS
+    case 570: return 103;       // qr_OLD_ITEM_HITBOXES
+    default: return 0;
+    }
+}

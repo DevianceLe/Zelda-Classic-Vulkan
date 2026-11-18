@@ -51,10 +51,13 @@ void walk_save_menus(TapeParser &p)
 
             if(v >= 22)
             {
-                p.rskip(2);
+                const int script = (int)p.rd(2);
+                const size_t args_at = p.pos;
                 const size_t args = (size_t)p.rd(2);
                 p.rskip((args < 8 ? args : 8) * 4);
+                const size_t inst_at = p.pos;
                 p.rskip((size_t)p.rd(2) * (2 + 4));
+                zq_tape_raw_config_hook(p, "misc.save_menu", script, args_at, inst_at);
             }
             else
                 p.rskip(2);

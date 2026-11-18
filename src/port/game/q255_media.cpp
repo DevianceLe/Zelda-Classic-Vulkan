@@ -1,9 +1,13 @@
 // The 2.55 readers for misc colours, game icons, CSets, tiles, weapon sprites,
 // sound effects and tunes. See q255.h.
 //
-// Read and dropped, because 2.53 has no field or room for them:
+// Kept outside 2.53's colour data, which has no room for them:
 //   CSET v5-6: the 4 extra CSets at the end of each of the 512 level palettes
-//            (2.55's per-level copies of main CSets 1, 5, 7 and 8; pdLEVEL is 17 there)
+//            (2.55's per-level copies of main CSets 1, 5, 7 and 8; pdLEVEL is 17 there),
+//            in q255_level_cset; the player loads them with the level palette when the
+//            quest's "CSet N is level-specific" rules say so (q30_triggers.cpp)
+//
+// Read and dropped, because 2.53 has no field or room for them:
 //   TILE:    tiles from NEWMAXTILES on; 2.55 allows 214500
 //   WPN:     weapon sprites from MAXWPNS (256) on; 2.55 allows 8192
 //   SFX v9:  channels past the second; the sample rate and length of OGG sounds
@@ -71,6 +75,34 @@ static tile_id narrow_tile(dword id)
 {
     q255_note_tile("misc or weapon", id);
     return id >= (dword)NEWMAXTILES ? (tile_id)0 : (tile_id)id;
+}
+
+// The 4 CSets a v5 level palette holds past this engine's 13 (upstream's poNEWCSETS: its own
+// CSets 1, 5, 7 and 8), per level, 6-bit like colordata. Only a v5-6 block fills them.
+static byte level_csets[MAXLEVELS][4][CSET_BYTES];
+static bool level_csets_read = false;
+
+byte *q255_level_cset(int level, int k)
+{
+    if(!level_csets_read || level < 0 || level >= MAXLEVELS || k < 0 || k >= 4)
+        return NULL;
+
+    return level_csets[level][k];
+}
+
+// Where in level_csets CSet i of a v5 block goes, or NULL if it isn't one of those.
+static byte *v5_level_cset(int i)
+{
+    if(i < pdFULL || i >= V5_SPRITE_START)
+        return NULL;
+
+    int level = (i - pdFULL) / V5_LEVEL_CSETS;
+    int cset = (i - pdFULL) % V5_LEVEL_CSETS;
+
+    if(cset < pdLEVEL || level >= MAXLEVELS)
+        return NULL;
+
+    return level_csets[level][cset - pdLEVEL];
 }
 
 // Where CSet i of a v5 block lives in colordata, or -1 if it has no home.
@@ -422,13 +454,20 @@ int q255_read_csets(Q255Section &s)
 
     // v4 is this engine's own layout, v6 has v5's. v6 holds 8-bit values (upstream
     // scales the older versions up with _rgb_scale_6); 2.53 holds them 6-bit.
+    if(s.keep)
+    {
+        memset(level_csets, 0, sizeof(level_csets));
+        level_csets_read = v5;
+    }
+
     for(int i = 0; i < total; ++i)
     {
         int home = v5 ? v5_cset_home(i) : i;
+        byte *extra = v5 ? v5_level_cset(i) : NULL;
 
-        if(s.keep && home >= 0)
+        if(s.keep && (home >= 0 || extra))
         {
-            byte *cset = colordata + home * CSET_BYTES;
+            byte *cset = home >= 0 ? colordata + home * CSET_BYTES : extra;
             s.read(cset, CSET_BYTES);
 
             if(s.version >= 6)

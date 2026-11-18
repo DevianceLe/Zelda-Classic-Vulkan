@@ -1,0 +1,183 @@
+// Used with [ffc::Flags].
+enum FFCFlag
+{
+	FFCF_OVERLAY                   = 0,  // Draw Over (draw between layers 4 and 5).
+	FFCF_TRANS                     = 1,  // Translucent.
+	FFCF_SOLID                     = 2,  // Solidity
+	FFCF_CARRYOVER                 = 3,  // Carry Over.
+	FFCF_STATIONARY                = 4,  // Stationary.
+	FFCF_CHANGER                   = 5,  // Is A Changer.
+	FFCF_PRELOAD                   = 6,  // Run Script On Screen Init.
+	FFCF_LENSVIS                   = 7,  // Only Visible to Lens of Truth.
+	FFCF_RESET                     = 8,  // Script Resets When Carried Over.
+	FFCF_ETHEREAL                  = 9,  // The FFC's Combo Type is ignored.
+	FFCF_IGNOREHOLDUP              = 10, // The FFC is updated while Link is holding up an item.
+	FFCF_IGNORECHANGER             = 11, // The FFC ignores changers.
+	FFCF_IMPRECISIONCHANGER        = 12, // The FFC is affected by changers if it is within 1px on both axis, not subpixel alignment.
+	FFCF_LENSINVIS                 = 13, // Not visible to the lens of truth.
+	// Acts as a 'Platform'
+	// @versionadded 3.0
+	FFCF_PLATFORM                  = 14,
+	// Solidity only if the FFC's combo has some solid part
+	// @versionadded 3.0
+	FFCF_SOLID_IF_COMBO_SOLID      = 15,
+	
+	// Changer: Become This Combo+CSet
+	// @versionadded 3.0
+	FFCF_CHANGE_COMBO              = 27,
+	// Changer: Become Previous Combo
+	// @versionadded 3.0
+	FFCF_PREV_COMBO                = 28,
+	// Changer: Become Next Combo
+	// @versionadded 3.0
+	FFCF_NEXT_COMBO                = 29,
+	// Changer: Swap w/ Prev FFC
+	// @versionadded 3.0
+	FFCF_PREV_FFC                  = 30,
+	// Changer: Swap w/ Next FFC
+	// @versionadded 3.0
+	FFCF_NEXT_FFC                  = 31,
+};
+
+const int MIN_FFC = 1;
+
+// The highest FFC ID possible for the current [Region].
+//
+// @zasm_var MAX_FFC_ID
+internal const int MAX_FFC;
+
+// "Freeform combo" (FFC) represent combos that may move freely around the
+// screen, not tied to the grid.
+//
+// Load with [Screen->LoadFFC].
+//
+// @zasm_ref REFFFC
+// @extends sprite
+class ffc {
+	// @delete
+	internal ffc();
+
+	// The FFC's ID. Valid values are between 1 and [MAX_FFC].
+	//
+	// The general formula for an FFC's ID is the following:
+	//
+	// >  id = (screen region offset)*128 + (index into screen's ffc array) + 1
+	//
+	// where "screen region offset" refers to the index of the screen in the
+	// current region, like so:
+	//
+	// ```
+	//   0 1 2
+	//   3 4 5
+	//   6 7 8
+	// ```
+	//
+	// @zasm_var FFCID
+	internal const int ID;
+	
+	// The FFC's index within the current screen (0-indexed).
+	//
+	// @versionadded 3.0
+	// @zasm_var FFCINDEX
+	internal const int ScreenFFCIndex;
+
+	// The combo ID used by the FFC for its visuals and type.
+	//
+	// @zasm_var DATA
+	internal int Data;
+
+	// The layer the FFC draws on. Unused if [FFCF_OVERLAY] is set.
+	//
+	// @versionadded 3.0
+	// @zasm_var FFCLAYER
+	internal int Layer;
+
+	// The FFC script ID running on this FFC.
+	//
+	// @zasm_var FFSCRIPT
+	internal int Script;
+
+	// The time in frames before the FFC will begin moving.
+	//
+	// @zasm_var DELAY
+	internal int Delay;
+
+	// X velocity.
+	//
+	// @zasm_var XD
+	internal int Vx;
+
+	// Y velocity.
+
+	// @zasm_var YD
+	internal int Vy;
+
+	// X acceleration.
+	//
+	// @zasm_var XD2
+	internal int Ax;
+
+	// Y acceleration.
+	//
+	// @zasm_var YD2
+	internal int Ay;
+	
+	// Flags for the FFC.
+	//
+	// @index [enum FFCFlag]
+	// @zasm_var FFFLAGSD
+	internal bool Flags[];
+	
+	// The position-specific states for this ffc.
+	//
+	// @length 8
+	// @versionadded 3.0
+	// @zasm_var FFC_POSSTATE
+	internal bool PosState[];
+
+	// The hitbox width, in pixels (1 to 64), of the FFC. Unless the FFC is
+	// [ffc::Flags], the type of its combo will affect this area. NOTE: Not all
+	// combo types function when placed on FFCs.
+	//
+	// @zasm_var FFCWIDTH
+	internal int EffectWidth;
+
+	// The hitbox height, in pixels (1 to 64), of the FFC. Unless the FFC is
+	// [ffc::Flags], the type of its combo will affect this area. NOTE: Not all
+	// combo types function when placed on FFCs.
+	//
+	// @zasm_var FFCHEIGHT
+	internal int EffectHeight;
+
+	// The number of another FFC on the same screen that this one is 'linked'
+	// to (1 to 128), or 0 if not linked. While linked, this FFC moves with
+	// the linked FFC's velocity instead of its own.
+	//
+	// Note: this is the FFC's 1-indexed position within its own screen (one
+	// more than [ScreenFFCIndex]), not an [ID] - the two only coincide for
+	// the first screen of a region.
+	//
+	// @zasm_var FFLINK
+	internal int Link;
+
+	// The 8 InitD[] parameters for the FFC's script.
+	//
+	// @zasm_var FFINITDD
+	internal untyped InitD[];
+
+	// @zasm_var FFCLASTCHANGERX
+	internal int LastChangerX;
+
+	// @zasm_var FFCLASTCHANGERY
+	internal int LastChangerY;
+	
+	// Attempts to trigger the ffc's combo with it's trigger number 'trig_index'.
+	// Returns true on success, false on failure.
+	//
+	// @versionadded 3.0
+	// @zasm
+	//   POP D2
+	//   POP REFFFC
+	//   FFCTRIGGER D2
+	internal bool Trigger(int trig_index = 0);
+}

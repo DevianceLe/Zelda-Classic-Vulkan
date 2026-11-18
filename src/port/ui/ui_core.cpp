@@ -20,6 +20,7 @@ struct SDL_Window;   // no SDL on Switch: the context is fed by platform_switch.
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -142,7 +143,8 @@ void apply_style(float scale)
     s.FontScaleDpi = scale;
 }
 
-// A clean UI font: the system's Segoe UI on Windows, ImGui's own otherwise.
+// A clean UI font: the system's Segoe UI on Windows, the system's own UI font on
+// Android and the Switch, a common sans-serif on Linux and macOS, ImGui's own otherwise.
 void load_fonts()
 {
     ImGuiIO &io = ImGui::GetIO();
@@ -167,6 +169,45 @@ void load_fonts()
         {
             fclose(probe);
             f = io.Fonts->AddFontFromFileTTF(candidates[i]);
+        }
+    }
+#elif defined(__APPLE__) || defined(__linux__)
+    // A system sans-serif font like Segoe UI where one is installed: on Linux Noto Sans,
+    // DejaVu Sans or Liberation Sans, where the common distributions put them; on macOS
+    // Arial or Helvetica. (Plain .ttf/.ttc files only: ImGui's reader takes face 0 of a
+    // collection.) None of them: ImGui's own font, as before.
+    static const char *const candidates[] = {
+#if defined(__APPLE__)
+        "/System/Library/Fonts/Supplemental/Arial.ttf", "/Library/Fonts/Arial.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+#else
+        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+        "/usr/share/fonts/noto/NotoSans-Regular.ttf",
+        "/usr/share/fonts/google-noto/NotoSans-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/liberation-sans/LiberationSans-Regular.ttf",
+#endif
+        NULL };
+    // ZC_UI_FONT=default keeps ImGui's own font; any other value names a font file to try first.
+    const char *wanted = getenv("ZC_UI_FONT");
+    if(!(wanted && !strcmp(wanted, "default")))
+    {
+        ImFontConfig cfg;
+        cfg.Flags |= ImFontFlags_NoLoadError;
+        if(wanted && *wanted)
+            f = io.Fonts->AddFontFromFileTTF(wanted, 0.0f, &cfg);
+        for(int i = 0; !f && candidates[i]; ++i)
+        {
+            if(FILE *probe = fopen(candidates[i], "rb"))
+            {
+                fclose(probe);
+                f = io.Fonts->AddFontFromFileTTF(candidates[i], 0.0f, &cfg);
+            }
         }
     }
 #elif defined(__SWITCH__)

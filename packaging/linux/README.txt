@@ -1,4 +1,4 @@
-ZC Vulkan 2.53.444.7
+ZC Vulkan 2.53.444.8
 Linux, 64-bit
 
 The Zelda Classic player and the ZQuest quest editor, ported to SDL3 and
@@ -7,8 +7,10 @@ and the 3.0 Nightly builds. ZQuest opens quests of every version, saves each in
 the version it was made in, and can save older quests as 2.55.17 or 3.0
 Nightly. ZQuest on Linux is new: keep backups of your quests.
 
-  zplayer    the game
-  zqeditor   ZQuest, the quest editor
+  zplayer            the game
+  zqeditor           ZQuest, the quest editor
+  zscript255         the 2.55.17 ZScript compiler (headers in zscript255_files)
+  zscript30/         the 3.0 Nightly ZScript compiler and its headers
 
 What you need
   A 64-bit Linux with glibc 2.30 or newer, which covers nearly every current
@@ -23,11 +25,20 @@ What you need
 
 Running it
   Unpack this folder somewhere you can write to, then run ./zplayer (or
-  ./zqeditor to edit quests) from inside it. To play a quest directly:
+  ./zqeditor to edit quests) from inside it, or start them from your file
+  manager or another folder: they find their data in their own folder. To
+  play a quest directly:
 
     ./zplayer -windowed -standalone "My Quest.qst"
 
-  JPEG images can't be imported into ZQuest on Linux yet (PNG and BMP can).
+  ZQuest's settings are stored in zquest.cfg in this folder; its file dialog
+  lists your Desktop, Documents and Downloads folders and mounted drives
+  (/media, /run/media, /mnt). A display is needed: started with none (over
+  ssh, for example) the programs say so and stop.
+
+  ZQuest compiles 2.55 and 3.0 Nightly quests' scripts with zscript255 and
+  zscript30: keep them, zscript255_files and the zscript30 folder beside
+  zqeditor.
 
   Put a quest's music next to the .qst file or in a Music folder beside it.
 
@@ -49,7 +60,7 @@ Linux.
 Credits and licenses
 Zelda Classic is by Armageddon Games and its contributors, and is licensed under
 GPLv3 (licenses/ZeldaClassic-GPL3.txt). This port is by Deviance. The complete
-source code is in the matching ZC-2.53.444.7-Vulkan-Source.zip.
+source code is in the matching ZC-2.53.444.8-Vulkan-Source.zip.
 
 The ZC 3.0 Nightly intro uses the ZQuest Classic logo by Eduardc and the music
 "ZC Forever" by Beatscribe. Their terms are in assets/zc/LICENSE.txt and are

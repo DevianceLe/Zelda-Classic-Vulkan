@@ -14,6 +14,7 @@
 #include "zq_writers.h"
 #include "zq_q255.h"
 #include "zq_tile_refs.h"
+#include "zq_zinfo.h"
 #include "zqn_255.h"
 
 #include <algorithm>
@@ -161,11 +162,18 @@ ZqWriterRegistration::ZqWriterRegistration(dword id, ZqPartWriter writer, const 
     r.insert(r.begin() + at, e);
 }
 
+// A section standing in for the open quest's own while a converter runs (zq_newer_convert_section):
+// its id, and the section as a file holds it after the id (version, cversion, size, data).
+static dword g_stand_in_id = 0;
+static const std::vector<byte> *g_stand_in = NULL;
+
 bool zq_part_versions(const ZqQuestPart &p, word *version, word *cversion)
 {
     byte b[4];
 
-    if(zq_part_is_raw(p.id) || !zq_part_read(p, 0, b, 4))
+    if(g_stand_in && p.id == g_stand_in_id && g_stand_in->size() >= 4)
+        memcpy(b, &(*g_stand_in)[0], 4);
+    else if(zq_part_is_raw(p.id) || !zq_part_read(p, 0, b, 4))
     {
         *version = *cversion = 0;
         return false;
@@ -448,6 +456,29 @@ bool replace_file(const char *from, const char *to)
     return true;
 }
 
+// The editor names' file beside a quest saved as quest_file (zq_zinfo.h): the bytes as they are,
+// unpacked, as upstream's save writes it (pack_fopen_password(..., F_WRITE, "")). It goes to a
+// temporary file first, which then replaces it.
+bool write_zinfo_side(const char *quest_file, const std::vector<byte> &bytes, std::string &why)
+{
+    const std::string path = zq_zinfo_path(quest_file), tmp = path + ".zqsave.tmp";
+    FILE *f = fopen(tmp.c_str(), "wb");
+    bool ok = f != NULL && (bytes.empty() || fwrite(&bytes[0], 1, bytes.size(), f) == bytes.size());
+
+    if(f && fclose(f) != 0)
+        ok = false;
+
+    if(ok && !replace_file(tmp.c_str(), path.c_str()))
+        ok = false;
+
+    remove(tmp.c_str());
+
+    if(!ok)
+        why = "The quest's editor names couldn't be written to " + path + ".";
+
+    return ok;
+}
+
 bool copy_part(PACKFILE *f, const ZqQuestPart &p)
 {
     if(!zq_part_is_raw(p.id) && pack_mputl((long)p.id, f) == EOF)
@@ -529,6 +560,12 @@ bool zq_own_part_bytes(const ZqQuestPart &p, std::vector<byte> &out)
 {
     out.clear();
 
+    if(g_stand_in && p.id == g_stand_in_id)
+    {
+        out = *g_stand_in;
+        return true;
+    }
+
     if(!needs_writing(p, flat_pair_changed()))
     {
         if(p.length <= 0)
@@ -594,6 +631,34 @@ void zq_own_format_blockers(std::vector<std::string> &names)
 int zq_save_own_format(const char *filename, bool encode, std::string &why)
 {
     return zq_save_own_format_ex(filename, encode, false, why);
+}
+
+namespace
+{
+int g_pack_override = -1;       // zq_save_own_format_packed: -1 as the quest's file, 0 or 1
+}
+
+int zq_save_own_format_packed(const char *filename, bool pack, std::string &why)
+{
+    g_pack_override = pack ? 1 : 0;
+    int r = zq_save_own_format_ex(filename, false, false, why);
+    g_pack_override = -1;
+    return r;
+}
+
+bool zq_changed_since_save()
+{
+    std::vector<std::string> absent;
+    zq_absent_changed(absent);
+
+    if(!absent.empty())
+        return true;
+
+    for(size_t i = 0; i < zq_quest_file.parts.size(); ++i)
+        if(zq_part_changed(zq_quest_file.parts[i]))
+            return true;
+
+    return false;
 }
 
 int zq_save_own_format_ex(const char *filename, bool encode, bool all_parts, std::string &why)
@@ -666,8 +731,10 @@ int zq_save_own_format_ex(const char *filename, bool encode, bool all_parts, std
         target = tmpname;
     }
 
-    PACKFILE *f = pack_fopen_password(target, zq_quest_file.compressed ? F_WRITE_PACKED : F_WRITE,
-                                      zq_quest_file.enc_method >= 0 ? datapwd : "");
+    // (zq_save_own_format_packed: no password, as upstream stores its files)
+    const bool packed = g_pack_override >= 0 ? g_pack_override == 1 : zq_quest_file.compressed;
+    PACKFILE *f = pack_fopen_password(target, packed ? F_WRITE_PACKED : F_WRITE,
+                                      (zq_quest_file.enc_method >= 0 && g_pack_override < 0) ? datapwd : "");
 
     if(!f)
     {
@@ -719,6 +786,14 @@ int zq_save_own_format_ex(const char *filename, bool encode, bool all_parts, std
 
     if(encoded)
         delete_file(tmpname);
+
+    // A quest that keeps its editor names beside it (zq_zinfo.h): the file it was opened with
+    // goes beside the saved quest as it was, like any part nobody changed. One that had none
+    // still has none (its own version's loader gives it no names, as before).
+    std::vector<byte> side;
+
+    if(!ret && zq_zinfo_side(&side, NULL) && !write_zinfo_side(filename, side, why))
+        ret = 7;
 
     if(!ret && !replace_file(out_tmp.c_str(), filename))
     {
@@ -958,6 +1033,7 @@ int zq_roundtrip_check(const char *filename, const char *report)
     fprintf(out, "same %d, different %d\n", same, different);
     fclose(out);
     delete_file(rt.c_str());
+    remove(zq_zinfo_path(rt.c_str()).c_str());      // the editor names' file the save wrote beside it, if any
     return different ? 1 : 0;
 }
 
@@ -1303,6 +1379,63 @@ bool zq_newer_upgrades(int target)
     return older;
 }
 
+bool zq_newer_section_bytes(dword id, int target, std::vector<byte> &out, std::string &why)
+{
+    out.clear();
+    const NewerEntry *e = newer_writer(id, target);
+
+    if(!e)
+    {
+        why = id_name(id) + " can't be written as " + zq_newer_target_name(target) + " yet";
+        return false;
+    }
+
+    PACKFILE *f = zq_open_vector_sink(&out);
+
+    if(!f)
+    {
+        why = "out of memory";
+        return false;
+    }
+
+    zqw_last_error.clear();
+    int rc = e->writer(f, newer_context(id, target));
+    pack_fclose(f);
+
+    if(rc != ZQW_OK)
+    {
+        why = id_name(id) + " can't be written as " + zq_newer_target_name(target) +
+              (zqw_last_error.empty() ? std::string("") : ": " + zqw_last_error);
+        out.clear();
+        return false;
+    }
+
+    return true;
+}
+
+bool zq_newer_converting_file()
+{
+    return g_stand_in != NULL;
+}
+
+bool zq_newer_convert_section(dword id, int target, const std::vector<byte> &section, std::vector<byte> &out, std::string &why)
+{
+    out.clear();
+
+    if(!zq_find_part(id) || section.size() < 8)
+    {
+        why = id_name(id) + " can't be converted";
+        return false;
+    }
+
+    g_stand_in_id = id;
+    g_stand_in = &section;
+    const bool ok = zq_newer_section_bytes(id, target, out, why);
+    g_stand_in = NULL;
+    g_stand_in_id = 0;
+    return ok;
+}
+
 int zq_save_newer(const char *filename, int target, std::string &why)
 {
     std::vector<dword> order = newer_order(target);
@@ -1362,6 +1495,14 @@ int zq_save_newer(const char *filename, int target, std::string &why)
                 too_new.push_back(id_name(order[i]));
         }
 
+        // the editor names in a .zinfo file beside the quest (zq_zinfo.h): its section version
+        int side_version = 0;
+        word zv = 0, zcv = 0;
+        zqn255_newest(tag_id('Z', 'I', 'N', 'F'), target, &zv, &zcv);
+
+        if(zq_zinfo_side(NULL, &side_version) && side_version > (int)zv)
+            too_new.push_back("ZINF (its .zinfo file)");
+
         // parts the target's files have no place for (AMUS as 2.55.17): they would be dropped
         std::vector<dword> lacks = parts_target_lacks(target);
 
@@ -1405,11 +1546,34 @@ int zq_save_newer(const char *filename, int target, std::string &why)
 
     int ret = 0;
     std::string from_ref;
+    // A 2.55 quest whose header keeps its editor names beside it: the target's save keeps the
+    // header's flag (zqn_header) and writes the ZINF section to '<file>.zinfo' instead of the
+    // quest file, unpacked (upstream's save_quest: if(header.external_zinfo) ... writezinfo).
+    const dword zinfo_id = tag_id('Z', 'I', 'N', 'F');
+    const bool side = zq_quest_file.zelda_version >= 0x255 && zq_zinfo_external();
+    std::vector<byte> side_bytes;
 
     for(size_t i = 0; i < order.size() && !ret; ++i)
     {
         const NewerEntry *e = newer_writer(order[i], target);
         zqw_last_error.clear();
+
+        if(side && order[i] == zinfo_id && e)
+        {
+            PACKFILE *sf = zq_open_vector_sink(&side_bytes);
+            int rc = sf ? e->writer(sf, newer_context(order[i], target)) : 1;
+
+            if(sf)
+                pack_fclose(sf);
+
+            if(rc != ZQW_OK)
+            {
+                why = "Writing " + id_name(order[i]) + " failed" + (zqw_last_error.empty() ? std::string(".") : ": " + zqw_last_error + ".");
+                ret = 5;
+            }
+
+            continue;
+        }
 
         if(!e && use_ref)
         {
@@ -1438,6 +1602,9 @@ int zq_save_newer(const char *filename, int target, std::string &why)
 
     if(!ret && use_ref)
         why = "from the reference: " + from_ref;
+
+    if(!ret && side && !write_zinfo_side(filename, side_bytes, why))
+        ret = 7;
 
     if(!ret && !replace_file(out_tmp.c_str(), filename))
     {

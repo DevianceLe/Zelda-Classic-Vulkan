@@ -1,7 +1,8 @@
 // Generated from upstream ZQuestClassic (3.0 Nightly, commit ef321f8) by tools/zq_gen_combo_names.py:
 // combo type and map flag names, the combo types' help, and the combo editor's per-type labels
 // for attributes and flags (ComboEditorDialog::loadComboType). Upstream's numbers, which
-// 2.55 and 3.0 quests use. Regenerate rather than edit by hand.
+// 2.55 and 3.0 quests use; the open quest's own names (zq_zinfo.h) show in their place, as
+// upstream's zinfo getters do. Regenerate rather than edit by hand.
 
 #include "precompiled.h" //always first
 
@@ -11,6 +12,7 @@
 
 #include "zq_combo_names.h"
 #include "zq_q255_store.h"
+#include "zq_zinfo.h"
 
 namespace
 {
@@ -1914,19 +1916,41 @@ const char *q30_trigflag_name(int f)
 int q30_ctype_count(bool is30) { return is30 ? (int)up30::cMAX : 183; }
 int q30_mflag_count(bool is30) { return is30 ? (int)up30::mfMAX : 256; }
 
+// The names and help below are the open quest's own (its ZInfo, zq_zinfo_name) where it has
+// them for an entry in use, as upstream's ZI.get... functions give them, and upstream's otherwise.
 const char *q30_ctype_name(int t)
 {
-    return t >= 0 && t < (int)up30::cMAX ? up30::g_ctype_names[t] : "";
+    if(t < 0 || t >= (int)up30::cMAX)
+        return "";
+
+    const char *d = up30::g_ctype_names[t];
+    const char *custom = d[0] && d[0] != '-' ? zq_zinfo_name(ZQZ_COMBOTYPE, t) : NULL;
+    return custom ? custom : d;
 }
 
 const char *q30_ctype_help(int t)
 {
-    return t >= 0 && t < (int)up30::cMAX && up30::g_ctype_help[t] ? up30::g_ctype_help[t] : "";
+    if(t < 0 || t >= (int)up30::cMAX)
+        return "";
+
+    const char *custom = zq_zinfo_help(ZQZ_COMBOTYPE, t);
+    return custom ? custom : up30::g_ctype_help[t] ? up30::g_ctype_help[t] : "";
 }
 
 const char *q30_mflag_name(int f)
 {
-    return f >= 0 && f < (int)up30::mfMAX ? up30::g_mflag_names[f] : "";
+    if(f < 0 || f >= (int)up30::mfMAX)
+        return "";
+
+    const char *d = up30::g_mflag_names[f];
+    const char *custom = d[0] && d[0] != '-' ? zq_zinfo_name(ZQZ_MAPFLAG, f) : NULL;
+    return custom ? custom : d;
+}
+
+const char *q30_mflag_help(int f)
+{
+    const char *custom = f >= 0 && f < (int)up30::mfMAX ? zq_zinfo_help(ZQZ_MAPFLAG, f) : NULL;
+    return custom ? custom : "";
 }
 
 void q30_combo_labels(const Q30Combo &x, std::string *l_attribute, std::string *h_attribute, std::string *l_flag,

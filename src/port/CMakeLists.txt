@@ -461,6 +461,18 @@ endif()
 # --- zqeditor: ZQuest on the port (Windows) ------------------------------------
 include(${CMAKE_CURRENT_LIST_DIR}/zqeditor.cmake)
 
+# --- zscript30: the 3.0 ZScript compiler (built on request) ----------------------
+if(NOT NINTENDO_SWITCH AND NOT ANDROID)
+    add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/zscript30 ${CMAKE_CURRENT_BINARY_DIR}/zscript30)
+    # zqeditor runs it to compile 3.0 quests' scripts (zqeditor/zq_compile.cpp)
+    if(TARGET zqeditor AND TARGET zscript30)
+        add_dependencies(zqeditor zscript30)
+    endif()
+endif()
+
+# --- zscript255: the 2.55.17 ZScript compiler (zqeditor runs it for 2.55 quests) ---
+include(${CMAKE_CURRENT_LIST_DIR}/zscript255/zscript255.cmake)
+
 # --- conformance harness -------------------------------------------------------
 if(EXISTS ${CMAKE_SOURCE_DIR}/tests/conformance/CMakeLists.txt AND NOT NINTENDO_SWITCH)
     add_subdirectory(${CMAKE_SOURCE_DIR}/tests/conformance ${CMAKE_BINARY_DIR}/conformance)

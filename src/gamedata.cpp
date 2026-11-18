@@ -32,9 +32,13 @@ long q30_hi_counter(gamedata *g, int c, int kind);
 void q30_set_hi_counter(gamedata *g, int c, int kind, long value);
 #define HI_COUNTER(c, kind) return (word)q30_hi_counter(this, c, kind)
 #define SET_HI_COUNTER(c, kind, v) q30_set_hi_counter(this, c, kind, v)
+// 2.55/3.0: a counter that changes checks the buttons' items again (link.cpp; nothing for 2.53)
+void q30_counter_changed();
+#define COUNTER_CHANGED() q30_counter_changed()
 #else
 #define HI_COUNTER(c, kind) return 0
 #define SET_HI_COUNTER(c, kind, v)
+#define COUNTER_CHANGED()
 #endif
 
 // Debug variables: these log certain operations on gamedata when active.
@@ -202,14 +206,16 @@ void gamedata::set_counter(word change, byte c)
     if(c>=32)  // Sanity check
     {
         SET_HI_COUNTER(c, 0, change);
+        COUNTER_CHANGED();
         return;
     }
-        
+
     if(game!=NULL)
     {
         int ringID=current_item_id(itype_ring, true);
         _counter[c]=zc_max(change, 0);
-        
+        COUNTER_CHANGED();
+
         // ringcolor is very slow, so make sure the ring has actually changed
         if(ringID!=current_item_id(itype_ring, true))
             ringcolor(false);
@@ -229,14 +235,16 @@ void gamedata::change_counter(short change, byte c)
     if(c>=32)  // Sanity check
     {
         SET_HI_COUNTER(c, 0, vbound((int)get_counter(c)+change, 0, (int)get_maxcounter(c)));
+        COUNTER_CHANGED();
         return;
     }
-        
+
     if(game!=NULL)
     {
         int ringID=current_item_id(itype_ring, true);
         _counter[c]=vbound(_counter[c]+change, 0, _maxcounter[c]);
-        
+        COUNTER_CHANGED();
+
         if(ringID!=current_item_id(itype_ring, true))
             ringcolor(false);
     }

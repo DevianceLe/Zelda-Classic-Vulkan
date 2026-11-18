@@ -164,6 +164,12 @@ struct subscreen_object
     void  *dp1;
 };
 
+// A 2.55/3.0 gauge widget (life/magic gauge objects' d10): drawn as upstream's SW_GaugePiece,
+// with its grid in frames/speed (columns-1/rows-1), delay/colortype3 (spacing), color3/frame
+// (offsets), units per frame in d10's top byte and the animation value in d9's high half.
+#define SSO_GAUGE_NEWER      0x10000
+#define SSO_GAUGE_NEWLAYOUT  0x20000
+
 struct subscreen_group
 {
     byte             ss_type;

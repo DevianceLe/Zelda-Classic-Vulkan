@@ -1,7 +1,8 @@
 // Generated from upstream ZQuestClassic (3.0 Nightly, commit ef321f8) by tools/zq_gen_item_names.py: item
 // class, counter, weapon and enemy class names, item class help, and the item editor's labels
 // for each class (itemeditor.cpp loadinfo). Upstream's numbers, which 2.55 and 3.0 quests
-// use. Regenerate rather than edit by hand.
+// use; the open quest's own names (zq_zinfo.h) show in their place, as upstream's zinfo getters
+// do. Regenerate rather than edit by hand.
 
 #include "precompiled.h" //always first
 
@@ -9,6 +10,8 @@
 
 #include "zq_item_names.h"
 #include "zq_combo_names.h"
+#include "zq_zinfo.h"
+#include "zq_q255.h"
 
 namespace
 {
@@ -721,7 +724,15 @@ const NameVal g_anims[] =
     { "4-Frame 4-Dir Big + Firing", 55 }
 };
 
-const char *weap_name(int w) { return w >= 0 && w < (int)wMax ? g_weap_names[w] : ""; }
+// ZI.getWeapName: the quest's own name (ZInfo) for a weapon type in use, or upstream's
+const char *weap_name(int w)
+{
+    if(w < 0 || w >= (int)wMax)
+        return "";
+
+    const char *custom = g_weap_names[w][0] && g_weap_names[w][0] != '-' ? zq_zinfo_name(ZQZ_WEAPON, w) : NULL;
+    return custom ? custom : g_weap_names[w];
+}
 
 void item_labels(int type, unsigned flags, Q30ItemLabels &inf)
 {
@@ -1399,8 +1410,8 @@ void item_labels(int type, unsigned flags, Q30ItemLabels &inf)
 		}
 		case itype_whistle:
 		{
-			auto windname = weap_name(wWind);
-			auto whistlename = weap_name(wWhistle);
+			auto windname = q30_weapon_type_name(wWind);
+			auto whistlename = q30_weapon_type_name(wWhistle);
 			_SET(misc[0], zq_fmt("{} Direction:", windname), zq_fmt("Direction the {} faces. 0 = Up, 1 = Down, 2 = Left, 3 = Right, 4 = Opposite the Hero", windname));
 			_SET(misc[1], "Warp Ring:", "Which warp ring to use when warping the Hero");
 			if(FLAG(2))
@@ -2496,31 +2507,52 @@ int q30_itemclass_count(bool is30) { return is30 ? 285 : 280; }
 int q30_enemyclass_count(bool is30) { return is30 ? 73 : 73; }
 int q30_counter_count() { return (int)up30::MAX_COUNTERS; }
 
+// The names and help below are the open quest's own (its ZInfo, zq_zinfo_name) where it has
+// them for an entry in use, as upstream's ZI.get... functions give them, and upstream's otherwise.
 const char *q30_itemclass_name(int t)
 {
-    return t >= 0 && t < (int)up30::itype_max ? up30::g_itype_names[t] : "";
+    if(t < 0 || t >= (int)up30::itype_max)
+        return "";
+
+    const char *d = up30::g_itype_names[t];
+    const char *custom = d[0] && d[0] != '-' ? zq_zinfo_name(ZQZ_ITEMCLASS, t) : NULL;
+    return custom ? custom : d;
 }
 
 const char *q30_itemclass_help(int t)
 {
-    return t >= 0 && t < (int)up30::itype_max && up30::g_itype_help[t] ? up30::g_itype_help[t] : "";
+    if(t < 0 || t >= (int)up30::itype_max)
+        return "";
+
+    const char *custom = zq_zinfo_help(ZQZ_ITEMCLASS, t);
+    return custom ? custom : up30::g_itype_help[t] ? up30::g_itype_help[t] : "";
 }
 
 const char *q30_counter_name(int c)
 {
     if(c < 0)
         return "(None)";
-    return c < (int)up30::MAX_COUNTERS ? up30::g_ctr_names[c] : "";
+
+    if(c >= (int)up30::MAX_COUNTERS)
+        return "";
+
+    const char *custom = zq_zinfo_name(ZQZ_COUNTER, c);
+    return custom ? custom : up30::g_ctr_names[c];
 }
 
 const char *q30_enemyclass_name(int e)
 {
-    return e >= 0 && e < (int)up30::eeMAX ? up30::g_etype_names[e] : "";
+    if(e < 0 || e >= (int)up30::eeMAX)
+        return "";
+
+    const char *d = up30::g_etype_names[e];
+    const char *custom = d[0] && d[0] != '-' ? zq_zinfo_name(ZQZ_ENEMYCLASS, e) : NULL;
+    return custom ? custom : d;
 }
 
 const char *q30_weapon_type_name(int w)
 {
-    return up30::weap_name(w);
+    return up30::weap_name(w);     // the quest's own name (zq_zinfo_name) where it has one
 }
 
 int q30_defense_count() { return 28; }

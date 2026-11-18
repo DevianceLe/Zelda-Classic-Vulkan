@@ -339,6 +339,10 @@ typedef word tile_id;
 #define MAXSUBSCREENITEMS	256
 #define MAXCUSTOMSUBSCREENS 128
 #define MAXFFCS			 32
+// 2.55/3.0 quests have up to 128 FFCs a screen (upstream's MAXFFCS); 2.53 quests and ZQuest
+// only ever have MAXFFCS. In the player the ones past MAXFFCS live beside each screen's first
+// MAXFFCS (ffc_field), on the screens that have them.
+#define Q30_MAXFFCS      128
 
 #define MAXFAVORITECOMMANDS 8
 #define MAXFAVORITECOMBOS 100
@@ -1272,6 +1276,88 @@ public:
     }
 };
 
+#ifdef ZC_PLAYER_BUILD
+// One per-FFC field of a screen in the player: FFCs 1-32 in place, as mapscr always kept them,
+// and 33-128 (2.55/3.0 quests) in a block that only the screens given it carry (extend()), so
+// 2.53 quests and most screens cost what they did. Without the block, past 32 reads 0 and a
+// write there is lost (a scratch). A copy copies the block along.
+template<typename T> class ffc_field
+{
+public:
+    ffc_field() : more(NULL) {}
+    ffc_field(const ffc_field &o) : more(NULL) { copy(o); }
+    ~ffc_field() { delete [] more; }
+
+    ffc_field &operator=(const ffc_field &o)
+    {
+        if(this != &o)
+            copy(o);
+
+        return *this;
+    }
+
+    T &operator[](int i)
+    {
+        if(i < MAXFFCS)
+            return in[i];
+
+        return past(i);
+    }
+
+    const T &operator[](int i) const
+    {
+        if(i < MAXFFCS)
+            return in[i];
+
+        return const_cast<ffc_field *>(this)->past(i);
+    }
+
+    bool extended() const { return more != NULL; }
+
+    void extend()
+    {
+        if(!more)
+        {
+            more = new T[Q30_MAXFFCS - MAXFFCS];
+            memset(more, 0, sizeof(T) * (Q30_MAXFFCS - MAXFFCS));
+        }
+    }
+
+    void drop()
+    {
+        delete [] more;
+        more = NULL;
+    }
+
+private:
+    T in[MAXFFCS];
+    T *more;
+
+    T &past(int i)
+    {
+        if(more && i < Q30_MAXFFCS)
+            return more[i - MAXFFCS];
+
+        static T scratch;
+        memset(&scratch, 0, sizeof(T));
+        return scratch;
+    }
+
+    void copy(const ffc_field &o)
+    {
+        memcpy(in, o.in, sizeof(in));
+
+        if(o.more)
+        {
+            extend();
+            memcpy(more, o.more, sizeof(T) * (Q30_MAXFFCS - MAXFFCS));
+        }
+        else
+            drop();
+    }
+};
+#endif
+
 
 struct mapscr
 {
@@ -1349,6 +1435,29 @@ struct mapscr
     
     //Why doesn't ffc get to be its own class?
     dword numff;
+#ifdef ZC_PLAYER_BUILD
+    // the same fields, with room for FFCs 33-128 of 2.55/3.0 screens (ffc_field, ffc_count())
+    ffc_field<word> ffdata;
+    ffc_field<byte> ffcset;
+    ffc_field<word> ffdelay;
+    ffc_field<long> ffx;
+    ffc_field<long> ffy;
+    ffc_field<long> ffxdelta;
+    ffc_field<long> ffydelta;
+    ffc_field<long> ffxdelta2;
+    ffc_field<long> ffydelta2;
+    ffc_field<dword> ffflags;
+    ffc_field<byte> ffwidth;
+    ffc_field<byte> ffheight;
+    ffc_field<byte> fflink;
+
+    ffc_field<word> ffscript;
+    ffc_field<long[8]> initd;
+    ffc_field<long[2]> inita;
+    ffc_field<bool> initialized;
+    // a 2.55/3.0 FFC's draw layer (-7..7) minus 1: 0 is layer 1, where 2.53 draws them all
+    ffc_field<signed char> fflayer;
+#else
     word ffdata[32];
     byte ffcset[32];
     word ffdelay[32];
@@ -1362,13 +1471,14 @@ struct mapscr
     byte ffwidth[32];
     byte ffheight[32];
     byte fflink[32];
-    
+
     //ffc script attachments
     word ffscript[32];
     long initd[32][8];
     long inita[32][2];
     bool initialized[32];
-    
+#endif
+
     /*long d[32][8];
     long a[32][2];
     word pc[32];
@@ -1536,8 +1646,14 @@ struct mapscr
             ffheight[i]=0;
             fflink[i]=0;
             ffscript[i]=0;
+#ifdef ZC_PLAYER_BUILD
+            fflayer[i]=0;
+#endif
         }
-        
+#ifdef ZC_PLAYER_BUILD
+        q30_drop_ffcs();    // (a cleared screen has 2.53's 32 FFCs)
+#endif
+
         /*	  for(int i(0);i<256;i++)
         	  {
         	   map_stack[i]=0;
@@ -1584,7 +1700,37 @@ struct mapscr
         cset.resize(176,0);
         zero_memory();
     }
-    
+
+    // The FFC slots the screen has: MAXFFCS (32), or in the player Q30_MAXFFCS (128) once a
+    // 2.55/3.0 screen has been given the rest (q30_extend_ffcs). Loops over FFCs go this far.
+    int ffc_count() const
+    {
+#ifdef ZC_PLAYER_BUILD
+        return ffdata.extended() ? Q30_MAXFFCS : MAXFFCS;
+#else
+        return MAXFFCS;
+#endif
+    }
+
+#ifdef ZC_PLAYER_BUILD
+    // FFCs 33-128 for a 2.55/3.0 screen (all 0 when new), or back to 32 (q30_drop_ffcs).
+    void q30_extend_ffcs()
+    {
+        ffdata.extend(); ffcset.extend(); ffdelay.extend(); ffx.extend(); ffy.extend();
+        ffxdelta.extend(); ffydelta.extend(); ffxdelta2.extend(); ffydelta2.extend();
+        ffflags.extend(); ffwidth.extend(); ffheight.extend(); fflink.extend();
+        ffscript.extend(); initd.extend(); inita.extend(); initialized.extend(); fflayer.extend();
+    }
+
+    void q30_drop_ffcs()
+    {
+        ffdata.drop(); ffcset.drop(); ffdelay.drop(); ffx.drop(); ffy.drop();
+        ffxdelta.drop(); ffydelta.drop(); ffxdelta2.drop(); ffydelta2.drop();
+        ffflags.drop(); ffwidth.drop(); ffheight.drop(); fflink.drop();
+        ffscript.drop(); initd.drop(); inita.drop(); initialized.drop(); fflayer.drop();
+    }
+#endif
+
 };
 
 // A screen's item number: item, or in the player a 2.55/3.0 quest's item of 256 and up.

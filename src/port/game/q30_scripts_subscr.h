@@ -11,6 +11,7 @@
 #ifndef ZC_Q30_SCRIPTS_SUBSCR_H
 #define ZC_Q30_SCRIPTS_SUBSCR_H
 
+#include <set>
 #include <string>
 #include <vector>
 
@@ -71,6 +72,7 @@ struct Z30Subscreen
     Q30SubTrans tr_left, tr_right;  // their animations
     dword flags;                // upstream's SUBFLAG_ (0x1: no page wrap)
     int curpage;                // the page in custom_subscreen[slot]
+    int def_btns[4];            // A, B, X, Y on a new game: pos << 8 | page (page 255: none)
 };
 
 // active, passive, overlay, map: upstream's sstACTIVE..sstMAP
@@ -133,6 +135,8 @@ void q30_sub_begin(int list, int slot, const char *name)
     memset(&s.tr_right, 0, sizeof(s.tr_right));
     s.flags = 0;
     s.curpage = 0;
+    for(int q = 0; q < 4; ++q)
+        s.def_btns[q] = 255;
     zasm30_subs[list].push_back(s);
 }
 
@@ -164,7 +168,7 @@ void q30_sub_trans(int list, int which, const Q30SubTrans &t)
                  (int)zasm30_subs[list].size() - 1, which, t.type, t.sfx, t.arg[0], t.arg[1], t.arg[2], t.arg[3]);
 }
 
-void q30_sub_settings(int list, dword flags, int btn_left, int btn_right)
+void q30_sub_settings(int list, dword flags, int btn_left, int btn_right, const word *def_btns)
 {
     if(list < 0 || list >= 4 || zasm30_subs[list].empty())
         return;
@@ -174,9 +178,13 @@ void q30_sub_settings(int list, dword flags, int btn_left, int btn_right)
     s.btn_left = btn_left;
     s.btn_right = btn_right;
 
+    for(int q = 0; q < 4; ++q)
+        s.def_btns[q] = def_btns ? def_btns[q] : 255;
+
     if(getenv("ZC_Q30_SUBLOG"))     // diagnostics only
-        al_trace("q30 subscreen: list %d sub %d (slot %d) page buttons left 0x%02x right 0x%02x flags 0x%x\n", list,
-                 (int)zasm30_subs[list].size() - 1, s.slot, btn_left, btn_right, (unsigned)flags);
+        al_trace("q30 subscreen: list %d sub %d (slot %d) page buttons left 0x%02x right 0x%02x flags 0x%x, default buttons 0x%04x 0x%04x 0x%04x 0x%04x\n",
+                 list, (int)zasm30_subs[list].size() - 1, s.slot, btn_left, btn_right, (unsigned)flags,
+                 s.def_btns[0], s.def_btns[1], s.def_btns[2], s.def_btns[3]);
 }
 
 static bool z30_sub_has_text(int sso);
@@ -978,7 +986,8 @@ void q30_subscreen_pages(int btns, int &pos)
 }
 
 // Upstream keeps each page's cursor while the subscreen is closed (and only goes back to the
-// first page with qr_OLD_SUBSCR); the first page keeps 2.53's cursor from the equipped item.
+// first page with qr_OLD_SUBSCR, where 2.53's cursor from the equipped item stands). With the
+// newer subscreens the buttons never move it: it opens where it was left, on any page.
 void q30_subscreen_cursor(bool open, int &pos)
 {
     if(!q30_active())
@@ -998,8 +1007,391 @@ void q30_subscreen_cursor(bool open, int &pos)
         int keep = pos;     // qr_OLD_SUBSCR: back to the first page, cursor as 2.53 set it
         z30_page_change(*s, 3, 0, true, keep);
     }
-    else if(s->curpage != 0)
-        pos = s->pages[s->curpage].cursor_pos;
+    else if(s->curpage != 0 || q30_subscreen_lr_are_buttons())
+        pos = s->pages[s->curpage].cursor_pos;  // (newer subscreens: on any page; the buttons don't move it)
+}
+
+// ---- the item buttons' slots by page (2.55/3.0 with the newer subscreens) ---------------------
+// Upstream keeps each item button as a slot of the active subscreen, pos << 8 | page (page 255:
+// none), and checks and moves it on that page: SubscrPage::movepos_legacy and get_item_pos, and
+// ZCSubscreen::get_item_pos and get_page_pos. A page other than the one in custom_subscreen[] is
+// looked at through its kept objects. link.cpp keeps the buttons (q30_btn).
+
+extern int directItem;      // link.cpp: the item Bweapon chose directly, -1 for a class's
+
+// The quest's subscreens are the newer ones read into pages (not 2.55's older subscreen format).
+bool q30_sub_new_format()
+{
+    return !zasm30_subs[0].empty();
+}
+
+int q30_btn_pages()
+{
+    const Z30Subscreen *s = z30_shown_active();
+    return s ? (int)s->pages.size() : 0;
+}
+
+int q30_btn_curpage()
+{
+    const Z30Subscreen *s = z30_shown_active();
+    return (s && s->curpage >= 0 && s->curpage < (int)s->pages.size()) ? s->curpage : 0;
+}
+
+// A new game's slot for button b (0-3: A, B, X, Y): the active subscreen's def_btns, none for a
+// page it doesn't have (upstream's init_game).
+int q30_btn_default(int b)
+{
+    const Z30Subscreen *s = z30_shown_active();
+
+    if(!s || b < 0 || b >= 4 || (s->def_btns[b] & 0xFF) >= (int)s->pages.size())
+        return 255;
+
+    return s->def_btns[b] & 0xFFFF;
+}
+
+// Page pg's objects as they are now (n of them): custom_subscreen[]'s for the page in it, else
+// its kept copy.
+static const subscreen_object *z30_btn_objects(const Z30Subscreen &s, int pg, int &n)
+{
+    n = 0;
+
+    if(pg == s.curpage && s.slot >= 0 && s.slot < MAXCUSTOMSUBSCREENS)
+    {
+        const subscreen_object *o = custom_subscreen[s.slot].objects;
+
+        while(n < MAXSUBSCREENITEMS && o[n].type != ssoNULL)
+            ++n;
+
+        return o;
+    }
+
+    const Z30SubPage &p = s.pages[pg];
+    n = (int)p.objs.size();
+    return n ? &p.objs[0] : NULL;
+}
+
+// Upstream's widget tests for object i: an item slot (the reader's cursor stops for other
+// selectable widgets have no class), selectable, shown by its display conditions, and
+// SUBSCR_CURITM_NONEQP (its widget's flag 0x2).
+static bool z30_btn_is_slot(const subscreen_object &o)
+{
+    return o.type == ssoCURRENTITEM && o.d1 != -1;
+}
+
+static bool z30_btn_selectable(const subscreen_object &o)
+{
+    return o.type == ssoCURRENTITEM && o.d3 >= 0;
+}
+
+static bool z30_btn_cond(const Z30SubPage &p, int i)
+{
+    if(!z30_sub_any_cond || i >= (int)p.obj_cond.size() || p.obj_cond[i] < 0 || p.obj_cond[i] >= (int)p.conds.size())
+        return true;
+
+    return z30_cond_ok(p.conds[p.obj_cond[i]]);
+}
+
+static bool z30_btn_noneqp(const Z30SubPage &p, int i)
+{
+    for(size_t k = 0; k < p.widgets.size(); ++k)
+        if(p.widgets[k].obj == i && p.widgets[k].type == Z30W_ITEMSLOT)
+            return (p.widgets[k].flags & 0x2) != 0;
+
+    return false;
+}
+
+// The item a slot holds now (upstream's getItemVal), as Bweapon gives it (0 for none; directItem
+// set): Bweapon is asked with the one object standing in for the active subscreen.
+static subscreen_group z30_btn_tmp;
+
+static int z30_btn_item_of(const subscreen_object &o)
+{
+    directItem = -1;
+
+    if(!z30_btn_is_slot(o) || o.d3 < 0)
+        return 0;
+
+    subscreen_group *keep = current_subscreen_active;
+    z30_btn_tmp.objects[0] = o;
+    z30_btn_tmp.objects[0].dp1 = NULL;
+    z30_btn_tmp.objects[1].type = ssoNULL;
+    current_subscreen_active = &z30_btn_tmp;
+    const int ret = Bweapon(o.d3);
+    current_subscreen_active = keep;
+    return ret;
+}
+
+// SubscrPage::get_widg_pos: the first selectable object at pos (item_only: not a non-equippable slot).
+static int z30_btn_widg_pos(const Z30SubPage &p, const subscreen_object *objs, int n, int pos, bool item_only)
+{
+    for(int i = 0; i < n; ++i)
+    {
+        if(!z30_btn_selectable(objs[i]))
+            continue;
+
+        if(item_only && z30_btn_is_slot(objs[i]) && z30_btn_noneqp(p, i))
+            continue;
+
+        if(objs[i].d3 == pos)
+            return i;
+    }
+
+    return -1;
+}
+
+// SubscrPage::get_item_pos on page pg.
+static int z30_btn_item_at(const Z30Subscreen &s, int pg, int pos, bool item_only)
+{
+    directItem = -1;
+
+    if(pg < 0 || pg >= (int)s.pages.size())
+        return 0;
+
+    int n;
+    const subscreen_object *objs = z30_btn_objects(s, pg, n);
+    const int w = z30_btn_widg_pos(s.pages[pg], objs, n, pos, item_only);
+    return w < 0 ? 0 : z30_btn_item_of(objs[w]);
+}
+
+// SubscrPage::movepos_legacy on page index (dir SEL_*; startp and the forbidden fp words as
+// pos << 8 | page).
+static int z30_btn_movepos(const Z30Subscreen &s, int index, int dir, int startp, int fp, int fp2, int fp3,
+                           bool equip_only, bool item_only)
+{
+    enum { QR_FREEFORM_SUBSCREEN_CURSOR = 416, QR_NO_BUTTON_VERIFY = 424 };
+    const Z30SubPage &p = s.pages[index];
+    int n;
+    const subscreen_object *objs = z30_btn_objects(s, index, n);
+
+    //what will be returned when all else fails.
+    //don't return the forbiddenpos... no matter what -DD
+    int failpos;
+    const bool start_empty = (startp & 0xFF) == 0xFF;
+
+    if(start_empty)
+    {
+        failpos = startp;
+        startp = 0;
+    }
+    else if(startp == fp || startp == fp2 || startp == fp3)
+        failpos = 0xFF;
+    else
+        failpos = startp;
+
+    item_only = item_only || !q30_quest_rule(QR_FREEFORM_SUBSCREEN_CURSOR);
+    const bool verify = dir == SEL_VERIFY_RIGHT || dir == SEL_VERIFY_LEFT;
+
+    if(verify)
+    {
+        equip_only = true;
+        item_only = !q30_quest_rule(QR_NO_BUTTON_VERIFY);
+
+        if(start_empty && !item_only)
+            return startp;  //empty is valid
+
+        if(startp != fp && startp != fp2 && startp != fp3)
+        {
+            const int w = z30_btn_widg_pos(p, objs, n, (startp >> 8) & 0xFF, item_only);
+
+            if(w >= 0 && z30_btn_is_slot(objs[w]) && z30_btn_cond(p, w) && !z30_btn_noneqp(p, w) &&
+               (!item_only || z30_btn_item_of(objs[w]) != 0))
+                return startp;  //Valid selectable slot
+        }
+    }
+
+    int at = -1, first_valid = -1, first_equip = -1;
+    int curpos = (startp >> 8) & 0xFF;
+    int cp2 = (curpos << 8) | index;
+
+    for(int i = 0; i < n; ++i)
+    {
+        if(z30_btn_is_slot(objs[i]) && z30_btn_selectable(objs[i]) && z30_btn_cond(p, i))
+        {
+            if(first_valid == -1)
+                first_valid = i;
+
+            if(first_equip == -1 && (!equip_only || !z30_btn_noneqp(p, i)))
+                first_equip = i;
+
+            if(objs[i].d3 == curpos)
+                at = i;
+
+            if(at > -1 && first_valid > -1 && first_equip > -1)
+                break;
+        }
+    }
+
+    if(at == -1)
+    {
+        //can't find the current position
+        // Switch to a valid weapon if there is one; otherwise,
+        // the selector can simply disappear
+        if(first_equip >= 0)
+            return ((objs[first_equip].d3 & 0xFF) << 8) | index;
+
+        if(first_valid >= 0)
+            return ((objs[first_valid].d3 & 0xFF) << 8) | index;
+
+        return failpos;     //FAILURE
+    }
+
+    //remember we've been here
+    std::set<int> old_positions;
+    old_positions.insert(cp2);
+
+    for(;;)
+    {
+        const subscreen_object &here = objs[at];
+
+        switch(dir)
+        {
+        case SEL_LEFT:
+        case SEL_VERIFY_LEFT:
+            curpos = here.d6 & 0xFF;
+            break;
+
+        case SEL_RIGHT:
+        case SEL_VERIFY_RIGHT:
+            curpos = here.d7 & 0xFF;
+            break;
+
+        case SEL_DOWN:
+            curpos = here.d5 & 0xFF;
+            break;
+
+        case SEL_UP:
+            curpos = here.d4 & 0xFF;
+            break;
+        }
+
+        cp2 = (curpos << 8) | index;
+        at = z30_btn_widg_pos(p, objs, n, curpos, false);  //find our new position
+
+        if(at < 0)
+            return failpos;
+
+        //if we've already been here, give up
+        if(old_positions.find(cp2) != old_positions.end())
+            return failpos;
+
+        old_positions.insert(cp2);
+
+        //Valid stop point?
+        if(z30_btn_cond(p, at) && cp2 != fp && cp2 != fp2 && cp2 != fp3 &&
+           (!equip_only || !z30_btn_is_slot(objs[at]) || !z30_btn_noneqp(p, at)) &&
+           (!item_only || z30_btn_item_of(objs[at]) != 0))
+            return cp2;
+    }
+}
+
+// The forbidden slot f as upstream passes it for button slot w on page pgn: only a slot on the
+// same page counts, any slot when w is empty.
+static int z30_btn_forbid(int f, int pgn, bool empty)
+{
+    if((f & 0xFF) == 0xFF)
+        return 255;
+
+    return (empty || (f & 0xFF) == pgn) ? f : 255;
+}
+
+// hero.cpp's verifyWpn (dir SEL_VERIFY_RIGHT), selectNextBTNWpn (any dir) and deselectbombsWPN
+// (SEL_VERIFY_LEFT, deselect) for a button at slot w, the other buttons at f1-f3: false when
+// upstream leaves the button's item as it is (no active subscreen; an empty button under
+// qr_NO_BUTTON_VERIFY; a page the subscreen doesn't have, which deselect empties); otherwise w
+// is the new slot and item what it holds (Bweapon's form, 0 for none; directItem set).
+bool q30_btn_move(int dir, int &w, int f1, int f2, int f3, int &item, bool deselect)
+{
+    enum { QR_NO_BUTTON_VERIFY = 424 };
+    const Z30Subscreen *s = z30_shown_active();
+
+    if(!s)
+        return false;
+
+    const int pgn = w & 0xFF;
+    const bool empty = pgn == 0xFF;
+
+    if(empty && q30_quest_rule(QR_NO_BUTTON_VERIFY))
+        return false;   //intentional nothingness
+
+    const int pg = empty ? q30_btn_curpage() : pgn;
+
+    if(pg >= (int)s->pages.size())
+    {
+        if(deselect)
+            w = 255;    //set to nothingness
+
+        return false;
+    }
+
+    w = z30_btn_movepos(*s, pg, dir, w, z30_btn_forbid(f1, pgn, empty), z30_btn_forbid(f2, pgn, empty),
+                        z30_btn_forbid(f3, pgn, empty), true, true) & 0xFFFF;
+
+    if((w & 0xFF) == 0xFF)
+    {
+        directItem = -1;
+        item = 0;
+    }
+    else
+        item = z30_btn_item_at(*s, pg, (w >> 8) & 0xFF, true);     // (the page looked on, as upstream)
+
+    return true;
+}
+
+// ZCSubscreen::get_item_pos: what slot w holds now (0 for none; directItem set).
+int q30_btn_item(int w)
+{
+    const Z30Subscreen *s = z30_shown_active();
+    directItem = -1;
+
+    if(!s || (w & 0xFF) >= (int)s->pages.size())
+        return 0;
+
+    return z30_btn_item_at(*s, w & 0xFF, (w >> 8) & 0xFF, false);
+}
+
+// The subscreen loop (dosubscr): the flags of the item slot under the cursor (pos, on the page
+// shown), 0 if it isn't one. Upstream's can_equip is false with SUBSCR_CURITM_NONEQP (0x2), and
+// its can_unequip (qr_NO_BUTTON_VERIFY) with SUBSCR_CURITM_NO_UNEQUIP (0x40).
+dword q30_btn_slot_flags_at(int pos)
+{
+    const Z30Subscreen *s = z30_shown_active();
+
+    if(!s || s->curpage < 0 || s->curpage >= (int)s->pages.size())
+        return 0;
+
+    const Z30SubPage &p = s->pages[s->curpage];
+    int n;
+    const subscreen_object *objs = z30_btn_objects(*s, s->curpage, n);
+    const int w = z30_btn_widg_pos(p, objs, n, pos, false);
+
+    if(w < 0 || !z30_btn_is_slot(objs[w]))
+        return 0;
+
+    for(size_t k = 0; k < p.widgets.size(); ++k)
+        if(p.widgets[k].obj == w && p.widgets[k].type == Z30W_ITEMSLOT)
+            return p.widgets[k].flags;
+
+    return 0;
+}
+
+// ZCSubscreen::get_page_pos: the first slot, page by page, holding item id; 255 for none.
+int q30_btn_find_item(int id)
+{
+    const Z30Subscreen *s = z30_shown_active();
+
+    for(int pg = 0; s && pg < (int)s->pages.size(); ++pg)
+    {
+        int n;
+        const subscreen_object *objs = z30_btn_objects(*s, pg, n);
+
+        for(int i = 0; i < n; ++i)
+        {
+            if(z30_btn_is_slot(objs[i]) && z30_btn_item_of(objs[i]) == id)
+                return ((objs[i].d3 & 0xFF) << 8) | pg;
+        }
+    }
+
+    return 255;
 }
 
 // ---- overlay and map subscreens ---------------------------------------------------------------
@@ -1093,6 +1485,16 @@ static void zasm30_subdump_tick()
         }
     }
 
+    // ZC_Q30_SUBDUMP_PAGE=n: page n (from 0) of the active subscreen instead of the one it opens at
+    if(const char *pg = getenv("ZC_Q30_SUBDUMP_PAGE"))
+    {
+        if(Z30Subscreen *s = z30_shown_active())
+        {
+            int pos = 0;
+            z30_page_change(*s, 3, atoi(pg), true, pos);
+        }
+    }
+
     BITMAP *b = create_bitmap_ex(8, 256, 176);
 
     if(!b)
@@ -1113,25 +1515,50 @@ static void zasm30_subdump_tick()
 
 static bool z30_sub_check_bomb_inner(int iid, bool super);
 
-// upstream's check_bomb / check_sbomb (new_subscr.cpp) for an item slot naming a bomb item;
-// ZC_Q30_BOMBSLOT=1 logs each change of what it decides for an item
+// upstream's check_bomb / check_sbomb (new_subscr.cpp) for an item slot naming a bomb item, or
+// with iid -1 one naming the bomb or super bomb class; ZC_Q30_BOMBSLOT=1 logs each change of
+// what it decides for an item (or class)
 static bool z30_sub_check_bomb(int iid, bool super)
 {
     const bool shown = z30_sub_check_bomb_inner(iid, super);
 
     static const bool log = getenv("ZC_Q30_BOMBSLOT") != NULL;
     static std::map<int, bool> last;
+    const int key = iid >= 0 ? iid : (super ? -2 : -1);
 
-    if(log && (last.find(iid) == last.end() || last[iid] != shown))
+    if(log && (last.find(key) == last.end() || last[key] != shown))
     {
-        last[iid] = shown;
-        al_trace("q30 bomb slot: item %d (%s) %s: rule 433 %d (compat %d), bombs %d, super bombs %d, cost counters %d %d (payable %d)\n",
+        last[key] = shown;
+        al_trace("q30 bomb slot: item %d (%s) %s: rule 433 %d (compat %d), rule 161 %d, bombs %d, super bombs %d, cost counters %d %d (payable %d)\n",
                  iid, super ? "super" : "bomb", shown ? "shown" : "hidden", q30_compat_rule(433) ? 1 : 0,
-                 (int)q255_compat_rule_version, game->get_bombs(), game->get_sbombs(),
+                 (int)q255_compat_rule_version, q30_quest_rule(161) ? 1 : 0, game->get_bombs(), game->get_sbombs(),
                  q30_item_cost_counter(iid, 0), q30_item_cost_counter(iid, 1), q30_item_costs_payable(iid) ? 1 : 0);
     }
 
     return shown;
+}
+
+// The selection (Bweapon, link.cpp) and the class slots' display (displaysubscreenitem, subscr.cpp)
+// of a 2.55/3.0 quest ask this, as upstream's SW_ItemSlot getItemVal and getDisplayItem do.
+bool q30_bomb_slot_usable(int iid, bool super)
+{
+    return z30_sub_check_bomb(iid, super);
+}
+
+// upstream's current_item_id(itype_bomb or itype_sbomb, true) > -1: Link has one of the class
+// whose costs he can pay, any counter (2.53's checkmagiccost knows only magic and rupees)
+static bool z30_sub_bomb_class_payable(bool super)
+{
+    const int fam = super ? itype_sbomb : itype_bomb;
+
+    for(int i = 0; i < q30_items_end(); ++i)
+    {
+        if(itemsbuf[i].family == fam && game->get_item(i) && !item_disabled(i) && q30_item_costs_payable(i) &&
+           q30_bunny_allows(i))
+            return true;
+    }
+
+    return false;
 }
 
 static bool z30_sub_check_bomb_inner(int iid, bool super)
@@ -1155,13 +1582,15 @@ static bool z30_sub_check_bomb_inner(int iid, bool super)
     // qr_BROKEN_BOMB_AMMO_COSTS, which upstream turns on for quests saved before compat version
     // 61: shown while Link has bombs. Otherwise while he can pay the item's own costs, any
     // counter (a bomb's second cost is usually one bomb): 2.53's checkmagiccost knows only magic
-    // and rupees.
+    // and rupees. A class slot asks it of the class's items.
     if(q30_compat_rule(QR_BROKEN_BOMB_AMMO_COSTS) ? (super ? game->get_sbombs() : game->get_bombs()) != 0
-       : q30_item_costs_payable(iid))
+       : (iid >= 0 ? q30_item_costs_payable(iid) : z30_sub_bomb_class_payable(super)))
         return true;
 
-    // remote bombs: still usable with one out
-    return itemsbuf[iid].misc1 == 0 && Lwpns.idCount(super ? wLitSBomb : wLitBomb) > 0;
+    // remote bombs: still usable with one out (a class slot: the best one Link has, costs not asked)
+    const int remote = iid >= 0 ? iid : current_item_id(super ? itype_sbomb : itype_bomb, false);
+
+    return remote >= 0 && itemsbuf[remote].misc1 == 0 && Lwpns.idCount(super ? wLitSBomb : wLitBomb) > 0;
 }
 
 // show_custom_subscreen's ssoCURRENTITEM in a 2.55/3.0 quest, for a slot that names its item (the
@@ -1364,7 +1793,9 @@ static void z30_sub_apply_flags(const Z30SubWidget &w, subscreen_object &o)
     case Z30W_TILEBLOCK: o.d3 = f1; o.d4 = f2; break;
     case Z30W_MINITILE: o.d5 = f1; o.d6 = f2; break;
     case Z30W_SELECTOR: o.type = f4 ? ssoSELECTOR2 : ssoSELECTOR1; o.d4 = f1; o.d5 = f2; break;
-    case Z30W_LGAUGE: case Z30W_MGAUGE: o.d10 = (int)(w.flags & 0x1F); break;
+    case Z30W_LGAUGE: case Z30W_MGAUGE:
+        o.d10 = (o.d10 & SSO_GAUGE_NEWER) ? ((o.d10 & ~0xFFFF) | (int)(w.flags & 0xF3FF)) : (int)(w.flags & 0x1F);
+        break;
     case Z30W_TEXTBOX: case Z30W_SELECTEDTEXT: o.d4 = f1; break;
     }
 }

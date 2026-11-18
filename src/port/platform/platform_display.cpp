@@ -219,7 +219,7 @@ void max_client(SDL_DisplayID id, int *w, int *h)
 void center_on(SDL_Window *win, SDL_DisplayID id, int *ox, int *oy)
 {
    SDL_Rect work;
-   if (!SDL_GetDisplayUsableBounds(id, &work))
+   if (!zcport_sdl::test_screen(&work) && !SDL_GetDisplayUsableBounds(id, &work))
       SDL_GetDisplayBounds(id, &work);
    int top = 0, left = 0, bottom = 0, right = 0;
    SDL_GetWindowBordersSize(win, &top, &left, &bottom, &right);
@@ -288,6 +288,8 @@ void configure_window(Settings &s, bool opening, int lw, int lh)
    SDL_Window *win = zcport_sdl::window();
    if (!win)
       return;
+   if (zcport_sdl::test_run())   // test runs: always a window the tiler can arrange
+      s.mode = zcdisplay::MODE_WINDOWED;
    static bool shown_once = false;
    const SDL_WindowFlags flags = SDL_GetWindowFlags(win);
    bool fullscreen_now = (flags & SDL_WINDOW_FULLSCREEN) != 0;
@@ -297,6 +299,12 @@ void configure_window(Settings &s, bool opening, int lw, int lh)
       target = (opening && !shown_once) ? SDL_GetPrimaryDisplay() : current;
    if (!target)
       target = SDL_GetPrimaryDisplay();
+   SDL_Rect ts;   // test runs: always the test screen, whatever monitor the settings remember
+   if (zcport_sdl::test_screen(&ts)) {
+      SDL_DisplayID td = SDL_GetDisplayForRect(&ts);
+      if (td)
+         target = td;
+   }
    const float den = pixel_density(win);
 
    if (s.mode == zcdisplay::MODE_WINDOWED) {

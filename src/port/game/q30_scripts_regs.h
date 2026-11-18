@@ -104,10 +104,11 @@ static int z30_ffc_hit_h(int i) { return (tmpscr->ffheight[i] & 0x3F) + 1; }
 static int z30_ffc_tile_w(int i) { return (tmpscr->ffwidth[i] >> 6) + 1; }
 static int z30_ffc_tile_h(int i) { return (tmpscr->ffheight[i] >> 6) + 1; }
 
-// The fractional part of a sprite position is kept only for 3.0 quests with qr_SPRITEXY_IS_FLOAT.
+// The fractional part of a sprite position is kept only under qr_SPRITEXY_IS_FLOAT (644), and so
+// far only for the Hero (as ffscript.cpp's Link->X/Y/Z); other sprites report whole pixels.
 static long z30_fixreg(fix f, bool as_float)
 {
-    return as_float ? (long)(double(f) * 10000.0) : long(int(f)) * 10000;
+    return as_float ? (long)floor(double(f) * 10000.0 + 0.5) : long(int(f)) * 10000;
 }
 
 static long z30_fl(fix f) { return (long)(double(f) * 10000.0); }
@@ -158,15 +159,15 @@ static bool zasm30_sprite_read(const long arg, long &ret, const Z30Sprite &r)
     // FFCs keep theirs as they are here (see the FFC position code).
     case Z30R_SPRITE_X:
         if(isffc) ret = tmpscr->ffx[f];
-        else ret = z30_fixreg(s->x, false) + q30_region_origin_x() * 10000L;
+        else ret = z30_fixreg(s->x, r.kind == Z30S_HERO && q30_quest_rule(644)) + q30_region_origin_x() * 10000L;
         return true;
     case Z30R_SPRITE_Y:
         if(isffc) ret = tmpscr->ffy[f];
-        else ret = z30_fixreg(s->y, false) + q30_region_origin_y() * 10000L;
+        else ret = z30_fixreg(s->y, r.kind == Z30S_HERO && q30_quest_rule(644)) + q30_region_origin_y() * 10000L;
         return true;
     case Z30R_SPRITE_Z:
         if(isffc) ret = 0;
-        else ret = z30_fixreg(s->z, false);
+        else ret = z30_fixreg(s->z, r.kind == Z30S_HERO && q30_quest_rule(644));
         return true;
     case Z30R_SPRITE_FAKE_Z: ret = st ? st->fakez : 0; return true;
     case Z30R_SPRITE_X_OFFSET: ret = s ? long(int(s->xofs)) * 10000 : 0; return true;
@@ -321,11 +322,13 @@ static bool zasm30_sprite_write(const long arg, const long value, const Z30Sprit
     // (region pixels in a scrolling region: the current screen's offset comes off)
     case Z30R_SPRITE_X:
         if(isffc) tmpscr->ffx[f] = value;
+        else if(ishero && q30_quest_rule(644)) Link.setXfix(fix(value / 10000.0 - q30_region_origin_x()));
         else if(ishero) Link.setX(value / 10000 - q30_region_origin_x());
         else s->x = fix(value / 10000 - q30_region_origin_x());
         return true;
     case Z30R_SPRITE_Y:
         if(isffc) tmpscr->ffy[f] = value;
+        else if(ishero && q30_quest_rule(644)) Link.setYfix(fix(value / 10000.0 - q30_region_origin_y()));
         else if(ishero) Link.setY(value / 10000 - q30_region_origin_y());
         else
         {
@@ -338,6 +341,7 @@ static bool zasm30_sprite_write(const long arg, const long value, const Z30Sprit
         return true;
     case Z30R_SPRITE_Z:
         if(isffc) return true;
+        if(ishero && q30_quest_rule(644)) { Link.setZfix(fix(value / 10000.0)); return true; }
         if(ishero) { Link.setZ(value / 10000); return true; }
         if(r.kind == Z30S_NPC && never_in_air(s->id)) return true;
         s->z = fix(value / 10000);
@@ -658,7 +662,18 @@ static int z30_flashing_cset(enemy *e)
 
 static mapscr *z30_mapdata_now() { return z30_mapdata(Z30_REF(MAPDATA)); }
 
-static const int Z30_FFC_COUNT = 32;
+// a mapdata's FFC slots, as upstream's (a stored screen without FFCs past 32 reads 0 there)
+static const int Z30_FFC_COUNT = Q30_MAXFFCS;
+
+// Before a mapdata write to FFC slot n: a screen that had only 32 gets the rest, as upstream's
+// screens grow to the FFC a script names.
+static mapscr *z30_ffc_room(mapscr *m, long n)
+{
+    if(m && n >= m->ffc_count() && n < Q30_MAXFFCS)
+        m->q30_extend_ffcs();
+
+    return m;
+}
 
 // Which map screen a mapdata reference is, for state kept per screen; -1 if it has none.
 static int z30_mapdata_mi(long ref)
@@ -1469,10 +1484,17 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_GAMEASUBYOFF: ret = zasm30_store_get(arg, 0, 0) * 10000; return true;
     case Z30R_FFRULE: ret = (Z30_INDEX >= 0 && Z30_INDEX < QUESTRULES_SIZE * 8) ? (get_bit(quest_rules, Z30_INDEX) ? 10000 : 0) : 0; return true;
     // (in a 3.0 scrolling region an FFC's ID goes across the region, 128 to a screen as upstream's:
-    // q30_scripts_region.h; outside one, its slot + 1)
-    case Z30R_FFCID: ret = (zasm30_selected_ffc_ref() - Z30_FFC_BASE + 1) * 10000; return true;
-    case Z30R_FFCLAYER: ret = zasm30_store_get(arg, ri->ffcref, 0) * 10000; return true;
-    case Z30R_MAX_FFC_ID: ret = (q30_region_on() ? q30_region_screens_wide() * q30_region_screens_high() * 128 : MAXFFCS) * 10000; return true;
+    // q30_scripts_region.h; outside one, its slot + 1; 0 for no FFC, as upstream's)
+    case Z30R_FFCID:
+    {
+        const long ref = zasm30_selected_ffc_ref();
+        ret = ref ? (ref - Z30_FFC_BASE + 1) * 10000 : 0;
+        return true;
+    }
+    // the FFC's draw layer (mapscr fflayer, upstream's ffcdata::layer)
+    case Z30R_FFCLAYER: ret = (ri->ffcref >= 0 && ri->ffcref < tmpscr->ffc_count()) ? (tmpscr->fflayer[ri->ffcref] + 1) * 10000 : 0; return true;
+    // upstream's MAX_FFCID + 1: 128 FFCs a screen, so every screen of a scrolling region's
+    case Z30R_MAX_FFC_ID: ret = (q30_region_on() ? q30_region_screens_wide() * q30_region_screens_high() : 1) * Q30_MAXFFCS * 10000; return true;
     case Z30R_DISTANCE:
     {
         double x = Z30_D(6) / 10000.0 - Z30_D(1) / 10000.0;
@@ -1637,6 +1659,9 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     {
         Zasm30SpriteState *st = zasm30_sprite_state_if(Link.getUID());
         ret = st ? st->fakez : 0;
+
+        if(!q30_quest_rule(644))    // whole pixels without qr_SPRITEXY_IS_FLOAT, as upstream's
+            ret = ret / 10000 * 10000;
         return true;
     }
     case Z30R_HEROFAKEJUMP:
@@ -2301,8 +2326,8 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     case Z30R_LOADMAPDATA: return true;
     case Z30R_MAPDATAINTID:
     {
-        mapscr *m = z30_mapdata_now();
         const long f = ri->d[0] / 10000, d = ri->d[1] / 10000;
+        mapscr *m = z30_ffc_room(z30_mapdata_now(), f);
         if(m && f >= 0 && f < Z30_FFC_COUNT && d >= 0 && d < 8)
             m->initd[f][d] = value;
         return true;
@@ -2465,7 +2490,7 @@ static bool zasm30_set_register_inner(const long arg, const long value)
             zasm30_event_data[Z30_INDEX] = value;
         return true;
     case Z30R_FFRULE: if(Z30_INDEX >= 0 && Z30_INDEX < QUESTRULES_SIZE * 8) set_bit(quest_rules, Z30_INDEX, value ? 1 : 0); return true;
-    case Z30R_FFCLAYER: zasm30_store_set(arg, ri->ffcref, 0, value / 10000); return true;
+    case Z30R_FFCLAYER: if(ri->ffcref >= 0 && ri->ffcref < tmpscr->ffc_count()) tmpscr->fflayer[ri->ffcref] = (signed char)(vbound(value / 10000, 0, 7) - 1); return true;
     case Z30R_FFCID:
     case Z30R_MAX_FFC_ID:
     case Z30R_DISTANCE:
@@ -2633,7 +2658,9 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     case Z30R_LINKSCRIPFLIP: zasm30_hero_script_flip = vbound(value / 10000, -1, 256); return true;
     case Z30R_HEROSCRIPTCSET: zasm30_hero_script_cset = vbound(value / 10000, -1, 15); return true;
     case Z30R_HEROMOVEFLAGS: z30_flag_set(zasm30_hero_move_flags, Z30_INDEX, 11, value != 0); return true;
-    case Z30R_HEROFAKEZ: zasm30_sprite_state(Link.getUID()).fakez = zc_max(value, 0L); return true;
+    case Z30R_HEROFAKEZ:    // (upstream's setFakeZ takes whole pixels without qr_SPRITEXY_IS_FLOAT)
+        zasm30_sprite_state(Link.getUID()).fakez = zc_max(q30_quest_rule(644) ? value : value / 10000 * 10000, 0L);
+        return true;
     case Z30R_HEROFAKEJUMP: zasm30_sprite_state(Link.getUID()).fakefall = z30_fake_jump_write(value); return true;
 
     // Screen and game state
@@ -2729,24 +2756,24 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     }
     case Z30R_MAPDATAFFSCRIPT:
     {
-        mapscr *m = z30_mapdata_now();
         const long n = Z30_INDEX, v = value / 10000;
+        mapscr *m = z30_ffc_room(z30_mapdata_now(), n);
         if(m && n >= 0 && n < Z30_FFC_COUNT && v >= 0 && v < NUMSCRIPTFFC)
             m->ffscript[n] = (word)v;
         return true;
     }
     case Z30R_MAPDATAFFX:
     {
-        mapscr *m = z30_mapdata_now();
         const long n = Z30_INDEX;
+        mapscr *m = z30_ffc_room(z30_mapdata_now(), n);
         if(m && n >= 0 && n < Z30_FFC_COUNT)
             m->ffx[n] = value;
         return true;
     }
     case Z30R_MAPDATAFFY:
     {
-        mapscr *m = z30_mapdata_now();
         const long n = Z30_INDEX;
+        mapscr *m = z30_ffc_room(z30_mapdata_now(), n);
         if(m && n >= 0 && n < Z30_FFC_COUNT)
             m->ffy[n] = value;
         return true;

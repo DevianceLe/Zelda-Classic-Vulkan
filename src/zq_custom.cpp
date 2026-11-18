@@ -4397,8 +4397,21 @@ static DIALOG linktile_dlg[] =
 
 
 
+bool zq_edit_hero_newer(bool *shown);     // port/zqeditor/zq_hero_editor.cpp
+
 int onCustomLink()
 {
+    // A 2.55 or 3.0 Nightly quest's hero data holds every animation those versions added, its
+    // defenses and settings: it gets the hero editor of its own version.
+    if(zq255_quest_is_newer())
+    {
+        bool shown = false;
+        zq_edit_hero_newer(&shown);
+
+        if(shown)
+            return D_O_K;
+    }
+
     //setuplinktiles(zinit.linkanimationstyle);
     if(zinit.linkanimationstyle==las_zelda3slow)
     {

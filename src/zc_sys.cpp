@@ -1712,7 +1712,12 @@ int choose_opening_shape()
     // Shouldn't happen...
     if(numBits==0)
         return bosCIRCLE;
-        
+
+    // Test switch: force one of the quest's wipes (upstream's pick depends on its own random seed)
+    static const char *force = getenv("ZC_WIPE_SHAPE");
+    if(force && (COOLSCROLL & (1 << atoi(force))))
+        return atoi(force);
+
     // Pick a bit
     bitCounter=rand()%numBits+1;
     

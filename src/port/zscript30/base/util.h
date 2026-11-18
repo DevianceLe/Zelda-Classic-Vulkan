@@ -1,0 +1,218 @@
+/**
+ * A file for basic utility functions
+ */
+#ifndef UTIL_H_
+#define UTIL_H_
+
+#include "base/zfix.h"
+#include "base/headers.h"
+#include <algorithm>
+#include <array>
+#include <cstdint>
+#include <filesystem>
+#include <functional>
+#include <map>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <string_view>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <vector>
+
+#ifndef _WIN32
+#include <stdlib.h>
+#else
+typedef int32_t mode_t;
+#endif
+
+#ifdef _WIN32
+#define PATH_SLASH '\\'
+#define WRONG_PATH_SLASH '/'
+#else
+#define PATH_SLASH '/'
+#define WRONG_PATH_SLASH '\\'
+#endif
+
+namespace fs = std::filesystem;
+
+namespace util
+{
+	template <typename T>
+	bool contains(const std::vector<T>& vec, const T& item)
+	{
+		auto it = std::find(vec.begin(), vec.end(), item);
+		return it != vec.end();
+	}
+
+	template <typename T>
+	bool remove_if_exists(std::vector<T>& vec, const T& item)
+	{
+		auto it = std::remove(vec.begin(), vec.end(), item);
+		if (it == vec.end())
+			return false;
+
+		vec.erase(it, vec.end());
+		return true;
+	}
+
+	template<class K, class V>
+	V* find(std::map<K, V>& map, const K& key)
+	{
+		auto it = map.find(key);
+		if (it != map.end())
+			return &(it->second);
+		else
+			return nullptr;
+	}
+
+	template<typename TInputIter>
+	std::string make_hex_string(TInputIter first, TInputIter last)
+	{
+		std::ostringstream ss;
+		ss << std::hex << std::setfill('0') << std::uppercase;
+		while (first != last)
+		{
+			ss << std::setw(2) << static_cast<int>(*first++);
+		}
+		return ss.str();
+	}
+
+	template<int_type T, uint_type T2>
+	T move_towards(T val, T dest, T2 by)
+	{
+		T ret = val;
+		if (ret < dest)
+		{
+			ret += by;
+			if (ret > dest || ret < val)
+				return dest;
+		}
+		else if (ret > dest)
+		{
+			ret -= by;
+			if (ret < dest || ret > val)
+				return dest;
+		}
+		return ret;
+	}
+
+	std::string snip(std::string const& str, size_t length, std::string trail = "...");
+	void upperstr(std::string& str);
+	void lowerstr(std::string& str);
+	void trimstr(std::string& str);
+	void trimstr_trailing(std::string& str);
+	void sanitize(std::string& str);
+	void sanitize_spaces_ok(std::string& str);
+	size_t split(const std::string &txt, std::vector<std::string> &strs, char ch);
+	std::vector<std::string> split(const std::string& str, const std::string& delim);
+	std::vector<std::string> split_args(const std::string &str);
+	std::string longest_common_prefix(const std::string& str1, const std::string& str2);
+	// Scores how well `pattern` matches `str` as a case-insensitive
+	// subsequence: every pattern character must appear in `str`, in order.
+	// Adjacent matches, a match at the start, and matches right after a
+	// separator (/ \ _ .) score higher; gaps and longer strings score
+	// lower. Higher is better, and scores are comparable across strings for
+	// one pattern. Empty if there is no match; an empty pattern matches
+	// everything with 0.
+	std::optional<int> fuzzy_match_score(std::string_view pattern, std::string_view str);
+	std::string read_text_file(fs::path path);
+	std::istream &portable_get_line(std::istream &is, std::string &t);
+	std::string cropPath(std::string filepath);
+	void replstr(std::string& str, std::string const& from, std::string const& to);
+	void replace_first(std::string& s, std::string const& toReplace, std::string const& replaceWith);
+	std::string escape_characters(std::string const& str);
+	std::string disallow_escapes(std::string const& str);
+	std::string unescape_characters(std::string const& str);
+	void replchar(std::string& str, char from, char to);
+	void replchar(char* buf, char from, char to);
+	void removechar(std::string& str, char to_delete);
+	std::string get_ext(std::string const& path);
+	void regulate_path(char* buf);
+	void regulate_path(std::string& buf);
+	// Returns true if `path` is a relative path. Unlike the platform filesystem
+	// APIs, this recognizes both unix ("/foo") and Windows ("C:\foo") absolute
+	// paths no matter what platform is running, which matters for paths that were
+	// saved to disk on another platform.
+	bool is_relative_path(std::string_view path);
+	bool make_dirs_for_file(std::string& path);
+	char* zc_itoa(int32_t value, char* str, int32_t base = 10);
+	int64_t zc_atoi64(const char *str);
+	int64_t zc_xtoi64(const char *hexstr);
+	int32_t zc_xtoi(const char *hexstr);
+	int32_t ffparse2(const char *string, bool do_except = false);
+	int32_t ffparse2(std::string const& string, bool do_except = false);
+	int32_t xtoi(char *hexstr);
+	int32_t zc_chmod(const char* path, mode_t mode);
+	bool checkPath(const char* path, const bool is_dir);
+	bool zc_isalpha(int c);
+	std::string escape_string(char const* str);
+	std::string escape_string(std::string const& str);
+	std::string unescape_string(char const* str);
+	std::string unescape_string(std::string const& str);
+	size_t escstr_size(char const* str);
+	std::string stringify_vector(std::vector<int32_t> const& vec, bool dec);
+	void unstringify_vector(std::vector<int32_t>& vec, std::string const& str, bool dec);
+	void unstringify_vector(std::vector<int32_t>& vec, char const* str, bool dec);
+	size_t vecstr_size(char const* str);
+	std::filesystem::path create_new_file_path(std::filesystem::path dir, std::string filename_prefix, std::string ext, bool force_suffix = false);
+	std::string create_temp_file_path(std::string final_destination);
+	bool is_subpath_of(const fs::path& base, const fs::path& sub);
+	std::string get_filename(const fs::path& path);
+	// Walks up from `dir` until it finds a directory that exists. Returns an
+	// empty path if none of its ancestors do either.
+	fs::path nearest_existing_directory(const fs::path& dir);
+	void open_web_link(std::string url);
+	std::array<uint8_t, 16> md5_hash_bytes(const std::string& data);
+	// Hash of a file's contents, or nullopt if it can't be read.
+	std::optional<std::array<uint8_t, 16>> md5_file(const fs::path& path);
+
+	template <typename T, std::size_t R, std::size_t C>
+	inline void copy_2d_array(T source[R][C] , T dest[R][C])
+	{
+		std::copy(&source[0][0], &source[0][0] + (R*C)/sizeof(source[0][0]), &dest[0][0]);
+	}
+
+	uint8_t nibble(uint8_t byte, bool high);
+	uint8_t nibble_set_lower_byte(uint8_t orig, uint8_t nibble);
+	uint8_t nibble_set_upper_byte(uint8_t orig, uint8_t nibble);
+}
+
+std::string dayextension(int32_t dy);
+bool fileexists(const char *filename);
+
+int32_t compare(int32_t a, int32_t b);
+
+char const* get_snap_str();
+
+struct InfoTextHintData
+{
+	std::map<uint8_t, std::set<int>> hints;
+	std::vector<std::pair<std::string, std::string>> urls;
+};
+std::string QRHINT(std::vector<int> qrs);
+std::string RULETMPL_HINT(std::vector<int> tmpls);
+std::string INFO_URL(std::string const& text, std::string const& url);
+void erase_hint_text(std::string& str);
+InfoTextHintData parse_hint_text(std::string& str);
+enum //special insert types
+{
+	INFOHINT_T_QR,
+	INFOHINT_T_RULETMPL,
+	INFOHINT_T_MAX
+};
+
+enum
+{
+	BSEARCH_FAIL,
+	BSEARCH_SUCCEED,
+	BSEARCH_CONTINUE_UP,
+	BSEARCH_CONTINUE_DOWN,
+	BSEARCH_CONTINUE_AWAY0,
+	BSEARCH_CONTINUE_TOWARD0
+};
+int binary_search_int(int b1, int b2, std::function<int(int,int&)> proc, int defval = 0);
+zfix binary_search_zfix(zfix b1, zfix b2, std::function<int(zfix,zfix&)> proc, zfix defval = 0);
+
+#endif
+

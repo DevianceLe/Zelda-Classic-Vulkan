@@ -1,4 +1,4 @@
-# ZC Vulkan 2.53.444.7
+# ZC Vulkan 2.53.444.8
 
 [![Build](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml/badge.svg)](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml)
 
@@ -10,7 +10,7 @@ Zelda Classic is a game engine and quest editor for making and playing custom ad
 | Program | What it is | Runs on |
 |---|---|---|
 | `zplayer` | The game. Plays 2.53, 2.55 and 3.0 Nightly quests. | Windows 10/11 (32-bit, 64-bit, ARM64\*), Linux (64-bit x86_64, ARM64\*), macOS 11+ (Apple Silicon and Intel\*), Nintendo Switch (homebrew), Android 8.0+ (in progress) |
-| `zqeditor` | ZQuest, the quest editor. Opens quests of every version, saves each in its own version, and saves older quests as 2.55.17 or 3.0 Nightly. | Windows 10/11 (32-bit, 64-bit, ARM64\*), Linux (64-bit x86_64, ARM64\*), macOS 11+ (Apple Silicon and Intel\*) |
+| `zqeditor` | ZQuest, the quest editor. Opens quests of every version, saves each in its own version, and saves older quests as 2.55.17 or 3.0 Nightly. Compiles 2.55 and 3.0 Nightly quests' ZScript with those versions' own compilers (`zscript255`, `zscript30`). | Windows 10/11 (32-bit, 64-bit, ARM64\*), Linux (64-bit x86_64, ARM64\*), macOS 11+ (Apple Silicon and Intel\*) |
 
 \* New and untested on real hardware: Windows on ARM, Linux on ARM and macOS are only built, on GitHub's build machines.
 
@@ -100,7 +100,7 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A Win32 -DBISON_EXECUTABLE="$PWD
 cmake --build build --config Release --target zplayer zqeditor
 ```
 
-The programs are written to `build/Release`. They need the game data beside them (`zelda.dat`, `zquest.dat`, `sfx.dat`, `fonts.dat`, `qst.dat` and the default quests), which you can copy from `packaging/windows/`.
+The programs are written to `build/Release`. They need the game data beside them (`zelda.dat`, `zquest.dat`, `sfx.dat`, `fonts.dat`, `qst.dat` and the default quests), which you can copy from `packaging/windows/`. Building `zqeditor` also builds its ZScript compilers for 2.55 and 3.0 Nightly quests into the same folder: `zscript255` with its `zscript255_files` folder, and the `zscript30` folder (they need flex and bison 3 and a C++20 compiler).
 
 For 64-bit Windows, use `-A x64` instead of `-A Win32` (and a separate build folder). For Windows on ARM, use `-A ARM64`, which needs Visual Studio's ARM64 C++ tools.
 

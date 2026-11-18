@@ -29,4 +29,17 @@ void zq255_combo_clear(int i);
 void zq255_combos_undo_note();      // with go_combos()
 void zq255_combos_undo_restore();   // with comeback_combos()
 
+// The editor names (ZInfo, the ZINF section) of the open 2.55/3.0 quest: its own name, help or
+// abbreviation for an entry of one of upstream's lists, or NULL where it keeps upstream's
+// default (and for every older quest). zqw_zinfo.cpp.
+enum ZqZinfoKind
+{
+    ZQZ_ITEMCLASS, ZQZ_COMBOTYPE, ZQZ_MAPFLAG, ZQZ_COUNTER, ZQZ_WEAPON, ZQZ_ENEMYCLASS, ZQZ_LEVELITEM, ZQZ_KINDS
+};
+const char *zq_zinfo_name(int kind, int index);
+const char *zq_zinfo_help(int kind, int index);
+const char *zq_zinfo_abbr(int index);      // level items only
+bool zq_zinfo_old_mapflag(int f);           // a 2.55 name for map flag f in a ZINF v0 quest (zq_zinfo_name gives it)
+void zq_zinfo_defaults_only(bool on);       // on: the above give NULL (upstream's names show)
+
 #endif

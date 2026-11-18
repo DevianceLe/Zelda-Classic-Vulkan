@@ -95,6 +95,15 @@ static const int Q255_MAX_SFX_ID = 255;
 static bool g_old_string_frame = true;
 static bool g_old_subscr = true;
 static const int Q255_QR_OLD_SUBSCR = 422;
+// qr_OLD_GAUGE_TILE_LAYOUT (set by upstream for compat rule versions before 53): gauge widgets
+// use 2.53's tile order (full, then empty at +4) instead of empty, partial..., full.
+static bool g_old_gauge_layout = true;
+static const int Q255_QR_OLD_GAUGE_TILE_LAYOUT = 425;
+
+bool q255_old_gauge_layout()
+{
+    return g_old_gauge_layout;
+}
 // qr_OLD_STRING_EDITOR_MARGINS: every string uses upstream's old_margins {8, 0, 8, -8}.
 static bool g_old_string_margins = true;
 static const int Q255_QR_OLD_STRING_EDITOR_MARGINS = 202;
@@ -103,6 +112,13 @@ bool q30_passive_on_top()
 {
     extern word quest_header_zelda_version;
     return quest_header_zelda_version >= 0x255 && !g_old_subscr;
+}
+
+// A 2.55/3.0 quest under upstream's qr_OLD_SUBSCR (one page, the buttons' slots as 2.53 keeps them)
+bool q30_old_subscreens()
+{
+    extern word quest_header_zelda_version;
+    return quest_header_zelda_version >= 0x255 && g_old_subscr;
 }
 
 // ---- message text ---------------------------------------------------------------
@@ -1011,6 +1027,12 @@ static void note_built_with(const int *id, bool nightly, const std::string &text
 // load fixes that depend on them.
 int q255_header_build = 0;
 int q255_header_version[3] = {0, 0, 0};
+// All of the header's version numbers (major, minor, patch, fourth, alpha, beta, gamma, release),
+// whether it says Nightly, and its version text (header v9), as upstream names its timed saves
+// by them; ZQuest only.
+int q255_header_version_ids[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+bool q255_header_nightly = false;
+std::string q255_header_version_text;
 
 int q255_read_header(Q255Section &s, byte *map_count, byte *midi_flags)
 {
@@ -1097,6 +1119,13 @@ int q255_read_header(Q255Section &s, byte *map_count, byte *midi_flags)
         q255_header_version[1] = (version_id[0] == 2 && version_id[1] == 56 && version_id[4] == 86) ? 55 : version_id[1];
         q255_header_version[2] = version_id[2];
 
+        for(int i = 0; i < 8; ++i)
+            q255_header_version_ids[i] = version_id[i];
+
+        q255_header_version_ids[1] = q255_header_version[1];
+        q255_header_nightly = nightly;
+        q255_header_version_text = version_text;
+
         if(map_count)
             *map_count = maps;
 
@@ -1157,6 +1186,7 @@ int q255_read_rules(Q255Section &s)
         extern dword q255_compat_rule_version;
         const dword compat = s.version > 16 ? q255_compat_rule_version : 0;
         g_old_subscr = compat < 53 || get_bit(rules, Q255_QR_OLD_SUBSCR) != 0;
+        g_old_gauge_layout = compat < 53 || get_bit(rules, Q255_QR_OLD_GAUGE_TILE_LAYOUT) != 0;
         al_trace("2.55 rules: compat version %d, old subscreen order %d\n", (int)compat, g_old_subscr ? 1 : 0);
 
         if(getenv("ZC_Q255_DUMP_USE"))

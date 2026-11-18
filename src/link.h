@@ -252,6 +252,8 @@ class LinkClass : public sprite
     bool q30_move_xy(double dx, double dy, bool shove);
     bool q30_solid_coord(double tx, double ty, int sdir, int mdir, double earlyterm, double &out);
     void q30_free_walk(int push);
+    bool q30_step_blocked(int d, double s, int cd, double cs);
+    bool q30_fit_step(int d, double &step, int cd, double cs);
     void q30_board_raft(int tx, int ty);
     void q30_slash_layer(int bx, int by, int layer);
     void q30_pound_layer(int bx, int by, int layer);
@@ -377,7 +379,10 @@ public:
     int  getLadderY();
     void setX(int new_x);
     void setY(int new_y);
+    void setXfix(fix new_x);    // 2.55/3.0: a script's Link->X/Y under qr_SPRITEXY_IS_FLOAT
+    void setYfix(fix new_y);
     void setZ(int new_Z);
+    void setZfix(fix new_z);    // 2.55/3.0: a script's Link->Z under qr_SPRITEXY_IS_FLOAT
     void setFall(fix new_fall);
     void setClimbCoverX(int new_x);
     void setClimbCoverY(int new_y);
@@ -480,10 +485,21 @@ bool q30_use_y_button();
 void q30_set_button_item(bool x, int wpn);
 void q30_set_ab_item(bool a, int val);      // Hero->ItemA / ItemB (link.cpp)
 extern int q30_forced_awpn, q30_forced_bwpn;
-void q30_set_button_slot(bool x, int wpn, int pos, int direct);
+// slot: with the newer subscreens, the button's slot by page (below); -1 for pos on the page shown
+void q30_set_button_slot(bool x, int wpn, int pos, int direct, int slot = -1);
 void q30_verify_extra_buttons();
 void q30_load_extra_buttons();
 void q30_select_next_button_item(bool x, int type);
+// 2.55/3.0 with the newer subscreens: each item button's slot as upstream keeps it, pos << 8 |
+// page (page 255: none); game->awpn, game->bwpn, q30_xpos and q30_ypos keep the pos alone
+enum { Q30_BTN_A, Q30_BTN_B, Q30_BTN_X, Q30_BTN_Y };
+extern int q30_btn[4];
+bool q30_paged_buttons();
+void q30_btn_shift(int b, int dir, bool deselect);  // upstream's selectNextBTNWpn / deselectbombsWPN
+void q30_btn_copy(int b, int from);     // dosubscr: button b takes button from's slot
+void q30_btn_here(int b, int pos);      // dosubscr: button b takes slot pos of the page shown
+void q30_init_paged_buttons(bool firstplay);    // init_game
+bool q30_set_equipment(int seta, int setb);     // a script's Hero->Equipment; false: 2.53's way
 void verifyAWpn();
 void verifyBWpn();
 bool canget(int id);

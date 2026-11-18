@@ -1,3 +1,32 @@
+## What's new in 2.53.444.8
+
+**2.55 and 3.0 quests in the player**
+
+- **Subscreen gauges** (life, magic and counter gauges) are drawn as in 3.0, counting the quest's own HP per heart and magic per block. Tales of Zelsteria shows its hearts in a column as it should
+- **Buttons on the newer subscreens**: A, B, X and Y start on the items the quest's subscreen sets, each button stays on its own subscreen page as in 3.0, and a bomb button moves on when the bombs run out and comes back when you get more. A 3.0 quest's starting B item now matches 3.0's (the bomb in the 1st Quest Master/Hero Mode remakes)
+- **Item costs** are paid as in 3.0: both of an item's costs, with the wallet, quiver, bomb bags and magic ring counted. An item you can't pay for plays the quest's error sound
+- **Hero sprites** 2.55 and 3.0 added: drowning, drowning in lava, falling into pits, lifting, walking while carrying, and the bug net's backswing
+- **Walking** under the newer movement rules takes 3.0's steps, from a new game's first step to slipping into a corridor when Link is slightly off. Scripts that move Link by fractions of a pixel work (Mystical Harps' floor spinners), and Link's height keeps its fraction when the quest asks for it
+- **FFCs**: every screen has 3.0's 128 FFC slots, scripts that look through all of them no longer flood allegro.log, and each FFC is drawn on its own layer as in 3.0
+- **New dark rooms** keep the screen's colors and draw the darkness over them, as 3.0 does
+
+**ZQuest: 2.55 and 3.0 quests, start to finish**
+
+- **Compile ZScript** (Quest > Scripts) for 2.55 and 3.0 quests. ZQuest now comes with those versions' own compilers, zscript255 (2.55.17) and zscript30 (3.0 Nightly), and uses the one that matches the open quest. The new dialog has the script buffer, the compile log and slot assignment for every kind of script, and the compiled scripts are saved in the quest's own version. Each compiler's headers (std.zh and the rest) come with it; the Windows, Linux and macOS downloads include them. Keep `zscript255`, its `zscript255_files` folder and the `zscript30` folder beside zqeditor
+- **Scrolling regions** for 3.0 quests (Quest > Scrolling Regions), and **combo pools** and **autocombos** for 2.55.17 and 3.0 quests, with the map editor's Combo Pool and Autocombo drawing modes (mountains, dense forest, fences, dungeon carving, relational, tiling and the rest of 3.0's patterns)
+- **Music**, **hero settings** and **ZInfo** (the names and help ZQuest shows for item classes, combo types, map flags, counters, weapons and enemy classes), saved in the quest's own version. A quest whose names are kept in a separate `.zinfo` file keeps that file beside it when saved, Save As included
+- **File > Export and Import** for 2.55 and 3.0 quests write and read the same files that version's ZQuest does: DMaps, string tables, combos and combo aliases, tiles, items, enemies, maps, palettes and more. **Timed auto-saves** keep the quest's own version
+- **Subscreen layout editor** for 2.55 and 3.0 quests: place and edit the widgets of active, passive, overlay and map subscreens page by page, with their conditions, page buttons and page-turn transitions
+- **ZQuest on Linux and macOS**: zplayer and zqeditor can be started from a file manager or another folder, quest file names are found whatever their case, JPEG images can be imported, and with no display the programs say so and stop.
+
+**Tested:** 2.53 quests are unchanged: the 1st, 2nd and 5th quest and Dreams re-save byte for byte, and the recorded 1st Quest run plays the same (all 2,478 frames). All 93 2.55 and 3.0 Nightly quests in the PureZC collection open and save back unchanged from ZQuest, and their openings, compared with ZC 3.0's, got no worse and several better (Soldier's Test now matches exactly). Every new editor was opened and saved on a test quest.
+
+**Not done yet:**
+
+- ZQuest, for 2.55 and 3.0 quests: the subscreen wizards and adding new subscreens, previewing a music track's loop, the autocombo preview under the cursor, remapping script variables, and single item and enemy files (`.zitem`, `.znpc`)
+- In the player: swimming sprites in sideview areas, and the drawing order of FFCs on the overlay layer can differ from 3.0's
+- macOS, Windows on ARM and Linux on ARM are only built on GitHub's build machines and haven't been tried on real hardware
+
 ## What's new in 2.53.444.7
 
 **3.0 quests: scrolling regions and Mystical Harps**
@@ -99,7 +128,8 @@
 
 - Z-heights
 - Pages that a quest's own script turns (barato's card game) haven't been played through, and B and A items set on a later page haven't been checked after saving and loading
-- Saving a 2.55 quest as 3.0 Nightly, editing the features only 2.55 and 3.0 Nightly have, and compiling 2.55 scripts
+- In ZQuest, for 2.55 and 3.0 Nightly quests: the subscreen wizards and adding new subscreens, previewing a music track's loop, the autocombo preview under the cursor, remapping script variables, and `.zitem` and `.znpc` files
+- Swimming sprites in sideview areas, and the drawing order of FFCs on the overlay layer
 - Linux was tested only in virtual machines, Android hasn't been tried with 2.55 or 3.0 Nightly quests, and the Switch build only in the Eden emulator
 
 The full list is on the [compatibility page](https://github.com/DevianceLe/Zelda-Classic-Vulkan/blob/main/COMPATIBILITY.md#what-still-doesnt-work).

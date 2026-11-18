@@ -112,7 +112,7 @@ switch = switch.replace('inf->', 'inf.').replace('ref.type', 'type')
 switch = switch.replace('fmt::format(', 'zq_fmt(')
 switch = re.sub(r'QRHINT\(\{[^}]*\}\)', 'std::string()', switch)
 switch = switch.replace('ZI.getItemClassName(', 'q30_itemclass_name(').replace('ZI.getMapFlagName(', 'q30_mflag_name(')
-switch = switch.replace('ZI.getWeapName(', 'weap_name(')
+switch = switch.replace('ZI.getWeapName(', 'q30_weapon_type_name(')
 switch = switch.replace('[[fallthrough]];', '// fall through')
 assert 'ref.' not in switch, switch[switch.index('ref.') - 100: switch.index('ref.') + 50]
 assert 'ZI.' not in switch
@@ -204,7 +204,8 @@ etype_names = fix(etype_names, 'const char etype_default_names[eeMAX][255]', 'co
 src = '''// Generated from upstream ZQuestClassic (3.0 Nightly, commit ef321f8) by tools/zq_gen_item_names.py: item
 // class, counter, weapon and enemy class names, item class help, and the item editor's labels
 // for each class (itemeditor.cpp loadinfo). Upstream's numbers, which 2.55 and 3.0 quests
-// use. Regenerate rather than edit by hand.
+// use; the open quest's own names (zq_zinfo.h) show in their place, as upstream's zinfo getters
+// do. Regenerate rather than edit by hand.
 
 #include "precompiled.h" //always first
 
@@ -212,6 +213,7 @@ src = '''// Generated from upstream ZQuestClassic (3.0 Nightly, commit ef321f8) 
 
 #include "zq_item_names.h"
 #include "zq_combo_names.h"
+#include "zq_zinfo.h"
 
 namespace
 {
@@ -358,31 +360,46 @@ int q30_itemclass_count(bool is30) { return is30 ? %(n30)d : %(n255)d; }
 int q30_enemyclass_count(bool is30) { return is30 ? %(e30)d : %(e255)d; }
 int q30_counter_count() { return (int)up30::MAX_COUNTERS; }
 
+// The open quest's own name in place of upstream's (zinfo.cpp's getters), for what upstream's
+// lists offer: its isUsable* checks pass a default name that isn't empty and doesn't start
+// with '-'.
+static const char *quest_or(int kind, int index, const char *own)
+{
+    const char *q = own[0] && own[0] != '-' ? zq_quest_name(kind, index) : NULL;
+    return q ? q : own;
+}
+
 const char *q30_itemclass_name(int t)
 {
-    return t >= 0 && t < (int)up30::itype_max ? up30::g_itype_names[t] : "";
+    return t >= 0 && t < (int)up30::itype_max ? quest_or(ZQN_ITEMCLASS, t, up30::g_itype_names[t]) : "";
 }
 
 const char *q30_itemclass_help(int t)
 {
-    return t >= 0 && t < (int)up30::itype_max && up30::g_itype_help[t] ? up30::g_itype_help[t] : "";
+    if(t < 0 || t >= (int)up30::itype_max)
+        return "";
+    const char *q = zq_quest_name(ZQN_ITEMCLASS_HELP, t);
+    return q ? q : up30::g_itype_help[t] ? up30::g_itype_help[t] : "";
 }
 
 const char *q30_counter_name(int c)
 {
     if(c < 0)
         return "(None)";
-    return c < (int)up30::MAX_COUNTERS ? up30::g_ctr_names[c] : "";
+    if(c >= (int)up30::MAX_COUNTERS)
+        return "";
+    const char *q = zq_quest_name(ZQN_COUNTER, c);     // every counter is usable
+    return q ? q : up30::g_ctr_names[c];
 }
 
 const char *q30_enemyclass_name(int e)
 {
-    return e >= 0 && e < (int)up30::eeMAX ? up30::g_etype_names[e] : "";
+    return e >= 0 && e < (int)up30::eeMAX ? quest_or(ZQN_ENEMYCLASS, e, up30::g_etype_names[e]) : "";
 }
 
 const char *q30_weapon_type_name(int w)
 {
-    return up30::weap_name(w);
+    return w >= 0 && w < (int)up30::wMax ? quest_or(ZQN_WEAPON, w, up30::weap_name(w)) : "";
 }
 
 int q30_defense_count() { return %(n_def)d; }

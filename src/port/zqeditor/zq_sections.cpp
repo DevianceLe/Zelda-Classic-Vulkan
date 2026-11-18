@@ -12,7 +12,6 @@
 #include <process.h>
 #else
 #include <unistd.h>
-#define _getpid getpid
 #endif
 
 #include "zdefs.h"
@@ -103,10 +102,57 @@ void store_at_exit()
     store_close();
 }
 
+#ifndef _WIN32
+// Linux and macOS: a new file made by mkstemp() in TMPDIR (macOS gives each user one of
+// their own), else /tmp. Only this user can read it, and its name is one nobody can take
+// first in a shared /tmp. The name is removed at once: the open file stays usable and
+// goes away with the program, even one that is killed (g_store_path stays empty here).
+// (TEMP and TMP are Windows names: unset here, the file used to land in the program's
+// folder, named ".\zq_parts_<pid>.tmp".)
+FILE *store_create()
+{
+    const char *tmpdir = getenv("TMPDIR");
+    const char *dirs[2] = { tmpdir, "/tmp" };
+
+    for(int i = 0; i < 2; ++i)
+    {
+        if(!dirs[i] || !*dirs[i])
+            continue;
+
+        std::string dir = dirs[i];
+
+        while(dir.size() > 1 && dir[dir.size() - 1] == '/')
+            dir.erase(dir.size() - 1);
+
+        std::string pattern = dir + "/zq_parts_XXXXXX";
+        std::vector<char> name(pattern.begin(), pattern.end());
+        name.push_back(0);
+        int fd = mkstemp(&name[0]);
+
+        if(fd < 0)
+            continue;
+
+        FILE *f = fdopen(fd, "w+b");
+        unlink(&name[0]);
+
+        if(!f)
+        {
+            close(fd);
+            continue;
+        }
+
+        return f;
+    }
+
+    return NULL;
+}
+#endif
+
 bool store_open()
 {
     store_close();
 
+#ifdef _WIN32
     if(g_store_path.empty())
     {
         const char *dir = getenv("TEMP");
@@ -118,6 +164,7 @@ bool store_open()
         sprintf(name, "zq_parts_%lu.tmp", (unsigned long)_getpid());
         g_store_path = std::string(dir && *dir ? dir : ".") + "\\" + name;
     }
+#endif
 
     if(!g_store_cleanup_set)
     {
@@ -125,7 +172,11 @@ bool store_open()
         g_store_cleanup_set = true;
     }
 
+#ifdef _WIN32
     g_store = fopen(g_store_path.c_str(), "w+b");
+#else
+    g_store = store_create();
+#endif
     return g_store != NULL;
 }
 
@@ -483,6 +534,16 @@ int fingerprint(dword id, uint64_t *out)
 {
     bool has_writer = false;
 
+    // Parts only 2.55 and 3.0 files have (the editor names, the music objects): 2.53's writers
+    // hold none of their data, so only what ZQuest's store keeps of them tells a change.
+    if(id == ZC_ID('Z', 'I', 'N', 'F') || id == ZC_ID('A', 'M', 'U', 'S'))
+    {
+        uint64_t h = 14695981039346656037ULL;
+        zq_hash_store(id, &h);
+        *out = h;
+        return FP_OK;
+    }
+
     if(id == ID_HEADER || id == 0)
         has_writer = true;
     else
@@ -655,6 +716,45 @@ void zq_sections_note_loaded()
     }
 
     note_absent();
+}
+
+namespace
+{
+const std::vector<byte> *g_rebase_bytes = NULL;     // zq_part_rebase: what the part becomes
+
+int write_rebase_bytes(PACKFILE *f, const ZqQuestPart &)
+{
+    if(g_rebase_bytes->empty())
+        return 0;
+
+    return pfwrite((void *)&(*g_rebase_bytes)[0], (long)g_rebase_bytes->size(), f) ? 0 : 1;
+}
+}
+
+bool zq_part_rebase(dword id, const std::vector<byte> &bytes)
+{
+    for(size_t i = 0; i < zq_quest_file.parts.size(); ++i)
+    {
+        ZqQuestPart &p = zq_quest_file.parts[i];
+
+        if(p.id != id)
+            continue;
+
+        g_rebase_bytes = &bytes;
+        int rc = 0;
+        bool ok = zq_part_replace(p, write_rebase_bytes, &rc);
+        g_rebase_bytes = NULL;
+
+        if(!ok)
+            return false;
+
+        int r = fingerprint(p.id, &p.fingerprint);
+        p.has_fingerprint = r != FP_NONE;
+        p.fingerprint_failed = r == FP_FAILED;
+        return true;
+    }
+
+    return false;
 }
 
 bool zq_part_changed(const ZqQuestPart &p)

@@ -1110,6 +1110,35 @@ bool zq255_item_record(int i, std::vector<byte> &rec, int *version)
     return true;
 }
 
+// Every record the file has as it stands, also those past 2.53's MAXITEMS (which ZQuest keeps
+// as loaded), read in one pass: for read-only walks over the quest (zq_compile.cpp).
+bool zq255_item_records_all(std::vector<std::vector<byte> > &recs, int *version)
+{
+    std::vector<byte> orig, body;
+    Layout255 L;
+    recs.clear();
+
+    if(!item_layout(orig, body, L))
+        return false;
+
+    if(version)
+        *version = L.version;
+
+    recs.resize(L.count);
+
+    for(int i = 0; i < L.count; ++i)
+    {
+        std::map<int, std::vector<byte> >::const_iterator it = zq255.item_records.find(i);
+
+        if(it != zq255.item_records.end())
+            recs[i] = it->second;
+        else
+            recs[i].assign(body.begin() + L.rec_at[i], body.begin() + L.rec_at[i + 1]);
+    }
+
+    return true;
+}
+
 // Puts an edited record in: the section is read with record i replaced, and item i takes
 // what the reader makes of it (itemsbuf, its name, the newer data the store keeps). Returns
 // false (why says) if the reader doesn't take it.
@@ -1187,4 +1216,108 @@ void zq255_forget_item_edits()
     }
 
     zq255.item_records.clear();
+}
+
+// ---- the item section of a .zgp file (zq_exports.cpp) ------------------------------------
+
+// The ITEM section's version of the open quest and how many records it has (0: not a 2.55 / 3.0
+// item section).
+int zq255_items_version(int *count)
+{
+    std::vector<byte> orig, body;
+    Layout255 L;
+
+    if(!item_layout(orig, body, L))
+        return 0;
+
+    if(count)
+        *count = L.count;
+
+    return L.version;
+}
+
+// A whole item section in the quest's own version (a .zgp file's: version, cversion, size and
+// data) in place of the quest's, as upstream's import replaces every item (and how many there
+// are): the reader takes the file's section, so itemsbuf, the names and the newer data the store
+// keeps are the file's, and the quest's item part becomes the file's section (zq_part_rebase), so
+// a save writes it as it is. False (why says) when it isn't in the quest's version or doesn't
+// read; nothing is changed then.
+bool zq255_items_take(const std::vector<byte> &sec, std::string &why)
+{
+    std::vector<byte> orig, body;
+    Layout255 L;
+
+    if(!item_layout(orig, body, L))
+    {
+        why = "this quest's items can't be replaced this way";
+        return false;
+    }
+
+    if(sec.size() < 8 || get_le(sec, 0, 2) != L.version || get_le(sec, 4, 4) != sec.size() - 8)
+    {
+        why = "its items aren't in this quest's format";
+        return false;
+    }
+
+    Layout255 F;
+    F.version = L.version;
+    F.cversion = L.cversion;
+
+    if(!walk_255(std::vector<byte>(sec.begin() + 8, sec.end()), F))
+    {
+        why = "its items don't read as their format says";
+        return false;
+    }
+
+    // the file's data under the quest's own version and cversion, as the part will hold it
+    std::vector<byte> out(orig.begin(), orig.begin() + 8);
+    out.insert(out.end(), sec.begin() + 8, sec.end());
+    set_le(out, 4, (dword)(out.size() - 8), 4);
+
+    ZqPartContext ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.zelda_version = header.zelda_version;
+    ctx.build = header.build;
+    ctx.version = L.version;
+    ctx.cversion = L.cversion;
+    Read255 got;
+
+    if(!read_back_255(out, ctx, got))
+    {
+        why = "the item reader doesn't take its items";
+        return false;
+    }
+
+    std::vector<byte> part;     // the id first, big-endian, as the file has it
+    part.push_back((byte)(ID_ITEMS >> 24));
+    part.push_back((byte)(ID_ITEMS >> 16));
+    part.push_back((byte)(ID_ITEMS >> 8));
+    part.push_back((byte)ID_ITEMS);
+    part.insert(part.end(), out.begin(), out.end());
+
+    memcpy(itemsbuf, &got.d[0], sizeof(itemdata) * MAXITEMS);
+
+    for(int i = 0; i < ITEMCNT; ++i)
+    {
+        strncpy(item_string[i], got.names[i].c_str(), 63);
+        item_string[i][63] = 0;
+    }
+
+    zq255.item_family = got.family;
+    zq255.item_usesound2 = got.usesound2;
+    zq255.item_override_flags = got.override_flags;
+    zq255.item_display_name = got.display_name;
+    zq255.item_passive_script = got.passive;
+    zq255.item_sprite_script = got.sprite;
+    zq255.item_weapon_script = got.weapon;
+    zq255.item_records.clear();
+    snapshot();
+
+    if(!zq_part_rebase(ID_ITEMS, part))
+    {
+        why = "this quest's item part couldn't be replaced";
+        return false;
+    }
+
+    return true;
 }

@@ -595,7 +595,7 @@ static void zasm30_drop_all_state()
 
     zasm30_instances.clear();
     zasm30_sprite_states.clear();
-    zasm30_ffc_waitdraw = 0;
+    zasm30_ffc_waitdraw.clear();
 }
 
 extern void (*q30_sprite_destroy_hook)(long);
@@ -1267,19 +1267,19 @@ void q30_run_combo_scripts(bool waitdraw)
 // region, each screen of it in turn).
 static void zasm30_ffc_waitdraw_here(int)
 {
-    if(!zasm30_ffc_waitdraw)
+    if(!zasm30_ffc_waitdraw.any())
         return;
 
-    for(byte i = 0; i < MAXFFCS; i++)
+    for(int i = 0; i < tmpscr->ffc_count(); i++)
     {
-        if((zasm30_ffc_waitdraw & (1u << i)) && tmpscr->ffscript[i])
+        if(zasm30_ffc_waitdraw.has(i) && tmpscr->ffscript[i])
         {
-            zasm30_ffc_waitdraw &= ~(1u << i);
+            zasm30_ffc_waitdraw.unset(i);
             ZScriptVersion::RunScript(SCRIPT_FFC, tmpscr->ffscript[i], i);
         }
     }
 
-    zasm30_ffc_waitdraw = 0;
+    zasm30_ffc_waitdraw.clear();
 }
 
 void q30_run_ffc_waitdraw()

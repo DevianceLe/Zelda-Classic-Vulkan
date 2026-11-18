@@ -1,0 +1,1240 @@
+#include "ZScript.h"
+
+#include <sstream>
+#include "CompilerUtils.h"
+#include "CompileError.h"
+#include "DataStructs.h"
+#include "Types.h"
+#include "Scope.h"
+#include "base/check.h"
+#include "base/zapp.h"
+#include "components/zasm/table.h"
+#include <fmt/ranges.h>
+
+
+using namespace ZScript;
+using std::vector;
+using std::string;
+using std::ostringstream;
+using std::shared_ptr;
+
+extern bool is_json_output;
+
+////////////////////////////////////////////////////////////////
+// ZScript::Program
+
+Program::Program(ASTFile& root, CompileErrorHandler* errorHandler_)
+	: rootScope_(new RootScope(typeStore_)), root_(root)
+{
+	// Create the ~Init script.
+	if (Script* initScript =
+	    	createScript(
+				*this, *rootScope_, ParserScriptType::global,
+				"~Init", errorHandler_))
+	{
+		scripts.push_back(initScript);
+		scriptsByName_[initScript->getName()] = initScript;
+	}
+
+	errorHandler = errorHandler_;
+}
+
+Program::~Program()
+{
+	deleteElements(scripts);
+	delete rootScope_;
+}
+
+Script* Program::getScript(string const& name) const
+{
+	return find<Script*>(scriptsByName_, name).value_or(std::add_pointer<Script>::type());
+}
+
+Script* Program::getScript(ASTScript* node) const
+{
+	return find<Script*>(scriptsByNode_, node).value_or(std::add_pointer<Script>::type());
+}
+
+Script* Program::addScript(
+		ASTScript& node, Scope& parentScope, CompileErrorHandler* handler)
+{
+	Script* script = createScript(*this, parentScope, node, handler);
+	if (!script) return NULL;
+
+	scripts.push_back(script);
+	scriptsByName_[script->getName()] = script;
+	scriptsByNode_[&node] = script;
+	return script;
+}
+
+UserClass* Program::getClass(string const& name) const
+{
+	return find<UserClass*>(classesByName_, name).value_or(std::add_pointer<UserClass>::type());
+}
+
+UserClass* Program::getClass(ASTClass* node) const
+{
+	return find<UserClass*>(classesByNode_, node).value_or(std::add_pointer<UserClass>::type());
+}
+UserClass* Program::addClass(
+		ASTClass& node, Scope& parentScope, UserClass* baseClass, CompileErrorHandler* handler)
+{
+	UserClass* user_class = createClass(*this, parentScope, node, baseClass, handler);
+	if (!user_class) return NULL;
+
+	classes.push_back(user_class);
+	classesByName_[user_class->getName()] = user_class;
+	classesByNode_[&node] = user_class;
+	return user_class;
+}
+
+Namespace* Program::addNamespace(ASTNamespace& node, Scope& parentScope, CompileErrorHandler* handler)
+{
+	Namespace* namesp = createNamespace(*this, parentScope, node, handler);
+	if(!namesp) return NULL;
+	
+	for(vector<Namespace*>::iterator it = namespaces.begin();
+		it != namespaces.end(); ++it)
+		if(namesp == *it) return namesp; //Already registered, don't re-register.
+	namespaces.push_back(namesp);
+	return namesp;
+}
+
+vector<Function*> Program::getUserGlobalFunctions() const
+{
+	vector<Function*> functions = rootScope_->getLocalFunctions();
+	for (vector<Function*>::iterator it = functions.begin();
+	     it != functions.end();)
+	{
+		Function& function = **it;
+		if (!function.node) it = functions.erase(it);
+		else ++it;
+	}
+	return functions;
+}
+
+vector<Function*> Program::getUserFunctions() const
+{
+	vector<Function*> functions = getFunctions(*this);
+	for (vector<Function*>::iterator it = functions.begin();
+	     it != functions.end();)
+	{
+		Function& function = **it;
+		if (function.isInternal()) it = functions.erase(it);
+		else ++it;
+	}
+	return functions;
+}
+
+// Includes delegation entries (see Function::make_delegation_entry), including those of
+// template constructors' instantiations (but not the instantiations themselves).
+vector<Function*> Program::getUserClassConstructors() const
+{
+	vector<Function*> functions;
+	for(auto it = classes.begin(); it != classes.end(); ++it)
+	{
+		UserClass* user_class = *it;
+		for (Function* ctor : user_class->getScope().getConstructors())
+		{
+			functions.push_back(ctor);
+			if (ctor->delegation_entry)
+				functions.push_back(ctor->delegation_entry.get());
+			for (auto& applied : ctor->get_applied_funcs())
+			{
+				if (applied->delegation_entry)
+					functions.push_back(applied->delegation_entry.get());
+			}
+		}
+	}
+	return functions;
+}
+vector<Function*> Program::getUserClassDestructors() const
+{
+	vector<Function*> functions;
+	for(auto it = classes.begin(); it != classes.end(); ++it)
+	{
+		UserClass* user_class = *it;
+		appendElements(functions, user_class->getScope().getDestructor());
+	}
+	return functions;
+}
+
+std::vector<std::string>& Program::getFiles()
+{
+	return files_;
+}
+
+vector<Function*> ZScript::getFunctions(Program const& program)
+{
+	vector<Function*> functions = getFunctionsInBranch(program.getScope());
+	return functions;
+}
+
+////////////////////////////////////////////////////////////////
+// ZScript::UserClass
+
+UserClass::UserClass(Program& program, ASTClass& node, UserClass* base_class)
+	: classType(nullptr), node(node), baseClass(base_class)
+{
+	(void)program;
+	members.push_back(0);
+}
+
+UserClass::~UserClass()
+{}
+
+DataTypeCustom* UserClass::getTemplateInstance(DataType const* arg)
+{
+	if (template_types.empty() || !arg)
+		return nullptr;
+
+	if (arg->isConstant())
+		arg = arg->getMutType();
+
+	// An `untyped` argument is just the base class type (so plain `stack` and
+	// `stack<untyped>` are the same type).
+	if (*arg == DataType::UNTYPED)
+		return static_cast<DataTypeCustom*>(classType);
+
+	if (auto it = templ_instantiations.find(arg); it != templ_instantiations.end())
+		return it->second;
+
+	// Keep our own copy of the argument type: `arg` may be owned by an AST node
+	// that is freed during type resolution.
+	DataType const* bound = arg->clone();
+	owned_bound_types.emplace_back(bound);
+
+	std::string name = fmt::format("{}<{}>", getName(), bound->getName());
+	auto base = static_cast<DataTypeCustom*>(classType);
+	DataTypeCustomConst* constType = new DataTypeCustomConst("const " + name, this);
+	// Before constructing the mutable type, since it keeps a copy of its const type.
+	constType->setTemplateInstance(base, bound);
+	DataTypeCustom* type = new DataTypeCustom(name, constType, this, constType->getCustomId());
+	DataType::addCustom(type);
+	type->setTemplateInstance(base, bound);
+	templ_instantiations[bound] = type;
+	return type;
+}
+
+UserClass* ZScript::createClass(
+		Program& program, Scope& parentScope, ASTClass& node, UserClass* baseClass,
+		CompileErrorHandler* errorHandler)
+{
+	UserClass* user_class = new UserClass(program, node, baseClass);
+
+	ClassScope* scope = parentScope.makeClassChild(*user_class);
+	if (!scope)
+	{
+		if (errorHandler)
+			errorHandler->handleError(
+				CompileError::ClassRedef(node.identifier.get(), user_class->getName().c_str()));
+		delete user_class;
+		return NULL;
+	}
+	user_class->scope = scope;
+	
+	return user_class;
+}
+
+////////////////////////////////////////////////////////////////
+// ZScript::Script
+
+// ZScript::Script
+
+Script::Script(Program& program)
+	: runFunc(NULL)
+{
+	(void)program;
+}
+
+Script::~Script()
+{
+	//deleteElements(code);
+}
+
+bool Script::isPrototypeRun() const
+{
+	if(runFunc && runFunc->prototype) return true;
+	return false;
+}
+
+// ZScript::UserScript
+
+UserScript::UserScript(Program& program, ASTScript& node)
+	: Script(program), node(node)
+{}
+
+ParserScriptType UserScript::getType() const
+{
+	return resolveScriptType(*node.type, *scope->getParent());
+}
+
+void UserScript::register_instance_var(Variable* v, optional<int32_t> value)
+{
+	if (!v) return;
+	if (v->is_static) return;
+	assert(!v->getRegisterId());
+	
+	instance_var_data.emplace_back(v, value);
+}
+static bool compare_inst_var_data(UserScript::InstanceVarData const& s1, UserScript::InstanceVarData const& s2)
+{
+	auto* v1 = s1.first;
+	auto* v2 = s2.first;
+	DCHECK(v1 && v1->getNode());
+	DCHECK(v2 && v2->getNode());
+	auto& loc1 = v1->getNode()->location;
+	auto& loc2 = v2->getNode()->location;
+	// comparing the location fname is not required, since instance vars
+	// are always in the same file as others in the same instance.
+	if (loc1.first_line < loc2.first_line)
+		return true;
+	if (loc2.first_line < loc1.first_line)
+		return false;
+	if (loc1.first_column < loc2.first_column)
+		return true;
+	if (loc2.first_column < loc1.first_column)
+		return false;
+	return false;
+}
+void UserScript::process_instance_vars(CompileErrorHandler* handler)
+{
+	if (instance_var_data.empty())
+		return;
+	
+	sort(instance_var_data.begin(), instance_var_data.end(), compare_inst_var_data);
+	exported_variable const* last_export_data = nullptr;
+	for (auto& [v, value] : instance_var_data)
+	{
+		assert(v && !v->is_static && !v->registerId);
+		auto id = getUniqueInstanceID();
+		v->registerId = SCRIPT_INST_VARS(id);
+		
+		if (value)
+			script_d_init[id] = *value;
+		
+		auto* decl_list = v->node.list;
+		if (decl_list && decl_list->was_exported)
+		{
+			auto& export_data = decl_list->export_data;
+			auto& engine_type = export_data.engine_type;
+			if (engine_type != special_engine_export::none)
+			{
+				auto req_prev_engine_type = special_engine_export::none;
+				switch (engine_type)
+				{
+					case special_engine_export::tile_cset:
+						req_prev_engine_type = special_engine_export::tile;
+						break;
+					case special_engine_export::combo_cset:
+						req_prev_engine_type = special_engine_export::combo;
+						break;
+				}
+				if (req_prev_engine_type != special_engine_export::none)
+				{
+					if (!last_export_data || last_export_data->engine_type != req_prev_engine_type)
+					{
+						handler->handleError(CompileError::ExportError(&v->node,
+							fmt::format("@ExportEngineValue(\"{}\") must be used on a variable immediately after"
+							" a variable exported using @ExportEngineValue(\"{}\")!",
+							get_special_engine_export_name(engine_type),
+							get_special_engine_export_name(req_prev_engine_type))));
+						engine_type = special_engine_export::none;
+					}
+				}
+			}
+			script_d_exports[id] = export_data;
+			last_export_data = &export_data;
+		}
+		else last_export_data = nullptr;
+	}
+	// no need to hang onto this data
+	// and clearing it makes sure we don't ever re-process these too
+	instance_var_data.clear();
+}
+void UserScript::apply_data(disassembled_script_data& dest)
+{
+	dest.script_d_init = script_d_init;
+	dest.script_d_exports = script_d_exports;
+}
+
+// ZScript::BuiltinScript
+const string BuiltinScript::builtin_author = "ZQ_PARSER";
+BuiltinScript::BuiltinScript(
+		Program& program, ParserScriptType type, string const& name)
+	: Script(program), type(type), name(name)
+{}
+
+// ZScript
+
+UserScript* ZScript::createScript(
+		Program& program, Scope& parentScope, ASTScript& node,
+		CompileErrorHandler* errorHandler)
+{
+	UserScript* script = new UserScript(program, node);
+
+	ScriptScope* scope = parentScope.makeScriptChild(*script);
+	if (!scope)
+	{
+		if (errorHandler)
+			errorHandler->handleError(
+				CompileError::ScriptRedef(&node, script->getName().c_str()));
+		delete script;
+		return NULL;
+	}
+	script->scope = scope;
+
+	if (!resolveScriptType(*node.type, parentScope).isValid())
+	{
+		if (errorHandler)
+			errorHandler->handleError(
+				CompileError::ScriptBadType(&node, script->getName().c_str()));
+		delete script;
+		return NULL;
+	}
+
+	return script;
+}
+
+BuiltinScript* ZScript::createScript(
+		Program& program, Scope& parentScope, ParserScriptType type,
+		string const& name, CompileErrorHandler* errorHandler)
+{
+	BuiltinScript* script = new BuiltinScript(program, type, name);
+
+	ScriptScope* scope = parentScope.makeScriptChild(*script);
+	if (!scope)
+	{
+		if (errorHandler)
+			errorHandler->handleError(CompileError::ScriptRedef(NULL, name));
+		delete script;
+		return NULL;
+	}
+	script->scope = scope;
+
+	if (!type.isValid())
+	{
+		if (errorHandler)
+			errorHandler->handleError(
+				CompileError::ScriptBadType(NULL, name));
+		delete script;
+		return NULL;
+	}
+
+	return script;
+}
+
+std::optional<int32_t> ZScript::getLabel(Script const& script)
+{
+	if (Function* run = script.getRun())
+		return run->getLabel();
+	return std::nullopt;
+}
+
+////////////////////////////////////////////////////////////////
+// ZScript::Namespace
+
+Namespace::Namespace(ASTNamespace& namesp)
+	: name(namesp.getName())
+{}
+
+Namespace* ZScript::createNamespace(Program&, Scope& parentScope, ASTNamespace& node, CompileErrorHandler*)
+{
+	NamespaceScope* scope = parentScope.makeNamespaceChild(node);
+	if (!scope) return nullptr;
+	Namespace* namesp = scope->namesp;
+
+	return namesp;
+}
+
+////////////////////////////////////////////////////////////////
+// ZScript::Datum
+
+Datum::Datum(Scope& scope, DataType const& type)
+	: scope(scope), type(type), id(ScriptParser::getUniqueVarID()),
+	erased(false), is_static(false)
+{}
+
+bool Datum::tryAddToScope(CompileErrorHandler* errorHandler)
+{
+	return scope.add(*this, errorHandler);
+}
+
+bool ZScript::isGlobal(Datum const& datum)
+{
+	return datum.is_static && datum.getName();
+}
+
+std::optional<int32_t> ZScript::getStackOffset(Datum const& datum)
+{
+	if(datum.is_erased())
+		return nullopt;
+	return lookupStackPosition(datum.scope, datum);
+}
+int32_t Datum::getStackOffset(bool i10k) const
+{
+	return (i10k ? 10000 : 1) * ZScript::getStackOffset(*this).value();
+}
+optional<int32_t> Datum::getGlobalId() const
+{
+	auto ret = getRegisterId();
+	if (ret)
+	{
+		*ret -= GD(0);
+		if (unsigned(*ret) >= MAX_GLOBAL_VARIABLES)
+			return nullopt;
+	}
+	return ret;
+}
+optional<int32_t> Datum::getScriptId() const
+{
+	auto ret = getRegisterId();
+	if (ret)
+	{
+		*ret -= SCRIPT_INST_VARS(0);
+		if (unsigned(*ret) >= MAX_SCRIPT_INST_VARIABLES)
+			return nullopt;
+	}
+	return ret;
+}
+
+// ZScript::Variable
+
+Variable* Variable::create(
+		Scope& scope, ASTDataDecl& node, DataType const& type,
+		CompileErrorHandler* errorHandler)
+{
+	Variable* variable = new Variable(scope, node, type);
+	if (variable->tryAddToScope(errorHandler)) return variable;
+	delete variable;
+	return NULL;
+}
+
+Variable::Variable(
+		Scope& scope, ASTDataDecl& node, DataType const& type)
+	: Datum(scope, type), node(node),
+	  registerId(nullopt)
+{
+	node.manager = this;
+	is_static = node.is_static();
+	if (is_static)
+		registerId = GD(ScriptParser::getUniqueGlobalID());
+}
+
+std::optional<int32_t> Variable::getCompileTimeValue(bool getinitvalue) const
+{
+	if(getinitvalue)
+	{
+		ASTExpr* init = node.getInitializer();
+		if (auto expr_const = dynamic_cast<ASTExprVarInitializer*>(init))
+			return expr_const->value;
+		return std::nullopt;
+	}
+	return std::nullopt;
+}
+
+// ZScript::InternalVariable
+
+InternalVariable* InternalVariable::create(
+		Scope& scope, ASTDataDecl& node, DataType const& type,
+		CompileErrorHandler* errorHandler)
+{
+	InternalVariable* variable = new InternalVariable(scope, node, type);
+	if (variable->tryAddToScope(errorHandler)) return variable;
+	delete variable;
+	return NULL;
+}
+
+InternalVariable::InternalVariable(Scope& scope, ASTDataDecl& node, DataType const& type)
+	: Datum(scope, type), readfn(nullptr), writefn(nullptr), node(node)
+{
+	node.manager = this;
+	is_static = (node.is_static());
+}
+
+// ZScript::UserClassVar
+
+UserClassVar* UserClassVar::create(
+		Scope& scope, ASTDataDecl& node, DataType const& type,
+		CompileErrorHandler* errorHandler)
+{
+	UserClassVar* ucv = new UserClassVar(scope, node, type);
+	if (ucv->tryAddToScope(errorHandler))
+	{
+		ucv->is_readonly = node.list->readonly;
+		ucv->is_arr = node.resolvedType->isArray();
+
+		if (node.list->internal)
+		{
+			ucv->is_internal = true;
+			return ucv;
+		}
+
+		ClassScope* cscope = scope.getClassScope();
+		UserClass& user_class = cscope->user_class;
+		if(ucv->is_arr)
+		{
+			int32_t totalSize = -1;
+			if (node.extraArrays.empty())
+				totalSize = 0;
+			else if (auto size = node.extraArrays[0]->getCompileTimeSize(errorHandler, &scope))
+				totalSize = *size;
+			user_class.members.push_back(totalSize);
+		}
+		else
+		{
+			user_class.members[0]++;
+		}
+		return ucv;
+	}
+	delete ucv;
+	return NULL;
+}
+UserClassVar::UserClassVar(
+		Scope& scope, ASTDataDecl& node, DataType const& type)
+	: Datum(scope, type), is_arr(false),
+	  is_internal(false), is_readonly(false), zasm_register(-1), _index(0), node(node)
+{
+	node.manager = this;
+}
+
+int UserClassVar::getZasmRegister()
+{
+	// Should usually already be set. One exception is @alias variable.
+	// TODO: clean up how internal UserClassVar registers are initialized to make this not
+	// necessary.
+	if (zasm_register == -1)
+	{
+		if (node.list->internal)
+		{
+			auto parsed_comment = node.list->getParsedComment();
+			if (auto zasm_var = parsed_comment.get_tag("zasm_var"))
+			{
+				if (auto sv = get_script_variable(*zasm_var))
+					zasm_register = *sv;
+			}
+		}
+	}
+
+	return zasm_register;
+}
+
+// ZScript::BuiltinVariable
+
+BuiltinVariable* BuiltinVariable::create(
+		Scope& scope, DataType const& type, string const& name,
+		CompileErrorHandler* errorHandler, optional<int32_t> rid)
+{
+	BuiltinVariable* builtin = new BuiltinVariable(scope, type, name, rid);
+	if (builtin->tryAddToScope(errorHandler)) return builtin;
+	delete builtin;
+	return NULL;
+}
+
+BuiltinVariable::BuiltinVariable(Scope& scope, DataType const& type,
+	string const& name, optional<int32_t> rid)
+	: Datum(scope, type), name(name),
+	  registerId(rid)
+{}
+
+// ZScript::Constant
+
+Constant* Constant::create(
+		Scope& scope, ASTDataDecl& node, DataType const& type, int32_t value,
+		CompileErrorHandler* errorHandler)
+{
+	Constant* constant = new Constant(scope, node, type, value);
+	if (constant->tryAddToScope(errorHandler)) return constant;
+	delete constant;
+	return NULL;
+}
+
+Constant::Constant(
+		Scope& scope, ASTDataDecl& node, DataType const& type, int32_t value)
+	: Datum(scope, type), node(node), value(value)
+{
+	node.manager = this;
+	is_static = (node.is_static());
+}
+
+std::optional<string> Constant::getName() const {return node.getName();}
+
+
+// ZScript::FunctionSignature
+
+FunctionSignature::FunctionSignature(string const& name,
+	vector<DataType const*> const& parameterTypes, DataType const* returnType )
+	: name(name), prefix(false), destructor(false), vargs(false),
+	returnType(returnType), parameterTypes(parameterTypes)
+{}
+
+FunctionSignature::FunctionSignature(Function const& function, bool useret)
+	: name(function.name), prefix(function.hasPrefixType), destructor(function.getFlag(FUNCFLAG_DESTRUCTOR)), vargs(function.getFlag(FUNCFLAG_VARARGS)),
+	returnType(useret ? function.returnType : nullptr), parameterTypes(function.paramTypes)
+{
+	if (function.getClass())
+		name = function.getClass()->getName() + "::" + name;
+}
+		
+int32_t FunctionSignature::compare(FunctionSignature const& other) const
+{
+	int32_t c = name.compare(other.name);
+	if (c) return c;
+	c = parameterTypes.size() - other.parameterTypes.size();
+	if (c) return c;
+	for (int32_t i = 0; i < (int32_t)parameterTypes.size(); ++i)
+	{
+		c = parameterTypes[i]->compare(*other.parameterTypes[i]);
+		if (c) return c;
+	}
+	if(returnType && other.returnType)
+	{
+		c = returnType->compare(*other.returnType);
+		if (c) return c;
+	}
+	c = destructor - other.destructor;
+	if (c) return c;
+	c = vargs - other.vargs;
+	if (c) return c;
+	return 0;
+}
+
+bool FunctionSignature::operator==(FunctionSignature const& other) const
+{
+	return compare(other) == 0;
+}
+
+bool FunctionSignature::operator<(FunctionSignature const& other) const
+{
+	return compare(other) < 0;
+}
+
+string FunctionSignature::asString() const
+{
+	ostringstream oss;
+	if(returnType)
+		oss << returnType->getName() << " ";
+	vector<DataType const*>::const_iterator it = parameterTypes.begin();
+	if(prefix)
+	{
+		oss << (*it)->getName() << "->";
+		++it;
+	}
+	if(destructor)
+		oss << "~";
+	oss << name << "(";
+	if(it != parameterTypes.end())
+	{
+		//Add the first type; the loop adds a comma before it.
+		if (vargs && it + 1 == parameterTypes.end())
+			oss << "...";
+		oss << (*it)->getName();
+		++it;
+	}
+	for (; it != parameterTypes.end(); ++it)
+	{
+		oss << ", ";
+		if (vargs && it + 1 == parameterTypes.end())
+			oss << "...";
+		oss << (*it)->getName();
+	}
+	oss << ")";
+	return oss.str();
+}
+
+// ZScript::Function
+
+Function::Function(DataType const* returnType, string const& name,
+				   vector<DataType const*> paramTypes, vector<shared_ptr<const string>> paramNames, int32_t id,
+				   int32_t flags, int32_t internal_flags, bool prototype, optional<int32_t> defaultReturn)
+	: returnType(returnType), name(name), hasPrefixType(false), isFromTypeTemplate(false),
+	  paramTypes(paramTypes), paramNames(paramNames), paramDatum(), templ_bound_ts(),
+	  numOptionalParams(), id(id), node(NULL), aliased_func(nullptr),
+	  data_decl_source_node(NULL), prototype(prototype),
+	  defaultReturn(defaultReturn), prologue_end_label(std::nullopt), label(std::nullopt), flags(flags),
+	  internal_flags(internal_flags), internalScope(NULL), externalScope(NULL)
+{
+	assert(returnType);
+}
+
+std::vector<std::shared_ptr<Opcode>> Function::takeCode()
+{
+	if(aliased_func)
+		return aliased_func->takeCode();
+
+	return std::move(ownedCode);
+}
+
+void Function::giveCode(vector<shared_ptr<Opcode>>& code)
+{
+	if(aliased_func)
+		return aliased_func->giveCode(code);
+
+	ownedCode = std::move(code);
+}
+
+Script* Function::getScript() const
+{
+	if (!getExternalScope()) return NULL;
+	Scope* parentScope = getExternalScope()->getParent();
+	if (!parentScope) return NULL;
+	if (!parentScope->isScript()) return NULL;
+	ScriptScope* scriptScope =
+		dynamic_cast<ScriptScope*>(parentScope);
+	return &scriptScope->script;
+}
+UserClass* Function::getClass() const
+{
+	if (!getExternalScope()) return NULL;
+	Scope* parentScope = getExternalScope()->getParent();
+	if (!parentScope) return NULL;
+	if (!parentScope->isClass()) return NULL;
+	ClassScope* classScope =
+		dynamic_cast<ClassScope*>(parentScope);
+	return &classScope->user_class;
+}
+
+int32_t Function::getLabel() const
+{
+	if(aliased_func)
+		return aliased_func->getLabel();
+	if (!label) label = ScriptParser::getUniqueLabelID();
+	return *label;
+}
+int32_t Function::getPrologueEndLabel() const
+{
+	if(aliased_func)
+		return aliased_func->getPrologueEndLabel();
+	if (!prologue_end_label) prologue_end_label = ScriptParser::getUniqueLabelID();
+	return *prologue_end_label;
+}
+void Function::setPrologueEndLabel(int label)
+{
+	if(aliased_func)
+		return aliased_func->setPrologueEndLabel(label);
+	prologue_end_label = label;
+}
+
+bool Function::isTracing() const
+{
+	std::string prefix = name.substr(0, 5);
+	return *returnType == DataType::ZVOID
+		&& (prefix == "Trace" || prefix == "print");
+}
+
+bool Function::shouldShowDepr() const
+{
+	return getFlag(FUNCFLAG_DEPRECATED);
+}
+
+Function* Function::createAlias(std::string name)
+{
+	auto alias_fn = new Function();
+	aliases.push_back(alias_fn);
+	alias_fn->name = name;
+	alias_fn->alias(this);
+	return alias_fn;
+}
+
+void Function::alias(Function* func, bool force)
+{
+	assert(!aliased_func); //Should never change once set
+	aliased_func = func;
+	
+	if(!returnType)
+		force = true;
+	if(force)
+	{
+		for(auto type_ptr : paramTypes)
+			delete type_ptr;
+		paramTypes.clear();
+		for(auto type_ptr : func->paramTypes)
+			paramTypes.push_back(type_ptr->clone());
+		hasPrefixType = func->hasPrefixType;
+		delete returnType;
+		returnType = func->returnType;
+		ownedCode.clear();
+		label.reset();
+		prologue_end_label.reset();
+	}
+	else
+	{
+		//Ensure the function is a valid match
+		assert(paramTypes.size() == func->paramTypes.size());
+		for(size_t q = 0; q < paramTypes.size(); ++q)
+		{
+			assert(paramTypes[q]->canCastTo(*func->paramTypes[q], func->internalScope));
+		}
+		assert(hasPrefixType == func->hasPrefixType);
+		assert(returnType->canCastTo(*func->returnType, func->internalScope));
+		//Ensure the function had no owned info of its' own
+		assert(ownedCode.empty());
+		assert(!label);
+	}
+}
+
+static void type_replace(DataType const** ptr, DataType const& to_repl, DataType const& new_type)
+{
+	DataType const* new_const_ty = new_type.isConstant() ? &new_type : new_type.getConstType();
+	DataType const* new_mut_ty = new_type.isConstant() ? new_type.getMutType() : &new_type;
+	if (**ptr == to_repl)
+	{
+		if ((*ptr)->isConstant())
+			*ptr = new_const_ty;
+		else *ptr = new_mut_ty;
+	}
+	else
+	{
+		uint depth = 0;
+		auto ty = *ptr;
+		while(auto arrptr = dynamic_cast<DataTypeArray const*>(ty))
+		{
+			ty = &arrptr->getElementType();
+			++depth;
+			if(*ty == to_repl)
+				break;
+		}
+		if (*ty == to_repl)
+		{
+			if(ty->isConstant())
+				*ptr = DataTypeArray::create_depth(*new_const_ty, depth);
+			else *ptr = DataTypeArray::create_depth(*new_mut_ty, depth);
+		}
+		// A class template bound to the template type (ex: `stack<T>`).
+		else if (auto custom = dynamic_cast<DataTypeCustom const*>(ty);
+			custom && custom->getBoundType() && *custom->getBoundType() == to_repl)
+		{
+			DataType const* inst = custom->getUsrClass()->getTemplateInstance(new_mut_ty);
+			if (ty->isConstant())
+				inst = inst->getConstType();
+			*ptr = depth ? DataTypeArray::create_depth(*inst, depth) : inst;
+		}
+	}
+}
+std::optional<Function::InstantiationRefusal> Function::instantiation_refused;
+
+// How many array / class template layers wrap a type (ex: `stack<int[]>[]` is 3).
+static int typeNestingDepth(DataType const& type)
+{
+	if (auto arr = dynamic_cast<DataTypeArray const*>(&type))
+		return 1 + typeNestingDepth(arr->getElementType());
+	if (auto custom = dynamic_cast<DataTypeCustom const*>(&type))
+		if (auto bound = custom->getBoundType())
+			return 1 + typeNestingDepth(*bound);
+	return 0;
+}
+
+Function* Function::apply_templ_func(vector<DataType const*> const& bound_ts)
+{
+	for (auto* funcs : {&applied_funcs, &candidate_funcs})
+	{
+		for(shared_ptr<Function> const& func : *funcs)
+		{
+			bool mismatch = false;
+			if(bound_ts.size() != func->templ_bound_ts.size())
+				continue;
+			for(size_t q = 0; q < bound_ts.size(); ++q)
+				if(*bound_ts[q] != *func->templ_bound_ts[q])
+				{
+					mismatch = true;
+					break;
+				}
+			if(!mismatch)
+				return func.get();
+		}
+	}
+	// A template function (as opposed to a member of a class template, ex: `stack<T>`).
+	bool is_template_function = node && !node->templates.empty();
+	if (is_template_function)
+	{
+		for (auto type : bound_ts)
+		{
+			if (typeNestingDepth(*type) > MAX_TEMPLATE_TYPE_NESTING)
+			{
+				instantiation_refused = {this, type};
+				return nullptr;
+			}
+		}
+		if (applied_funcs.size() + candidate_funcs.size() >= MAX_TEMPLATE_INSTANTIATIONS)
+		{
+			instantiation_refused = {this, nullptr};
+			return nullptr;
+		}
+	}
+	Scope *outside, *external;
+	Function* templ = new Function(*this);
+	templ->id = ScriptParser::getUniqueFuncID();
+	bool skip = isTemplateSkip();
+	if(skip)
+	{
+		outside = externalScope->getParent();
+		external = outside->makeChild();
+		templ->setExternalScope(external);
+	}
+	for(size_t q = 0; q < node->template_types.size(); ++q)
+	{
+		DataTypeTemplate* tmp_type = node->template_types[q].get();
+		DataType const* new_type = bound_ts[q];
+		
+		//Typedef the template to the real type, for the internals of the func
+		if(skip)
+			external->addDataType(tmp_type->getName(), new_type, nullptr);
+		//Replace template types in the signature
+		type_replace(&templ->returnType, *tmp_type, *new_type);
+		for(size_t q = 0; q < paramTypes.size(); ++q)
+			type_replace(&templ->paramTypes[q], *tmp_type, *new_type);
+	}
+	templ->isFromTypeTemplate = true;
+	templ->instantiated_from = this;
+	templ->templ_bound_ts = bound_ts;
+	if(!skip)
+	{
+		templ->aliased_func = this;
+	}
+	else
+	{
+		templ->setInternalScope(external->makeFunctionChild(*templ));
+		templ->node = templ->clone_instantiation_decl().release();
+		templ->node->func = templ;
+	}
+	if (is_template_function)
+		candidate_funcs.emplace_back(templ);
+	else
+		applied_funcs.emplace_back(templ);
+	return templ;
+}
+
+std::unique_ptr<ASTFuncDecl> Function::clone_instantiation_decl() const
+{
+	CHECK(instantiated_from && instantiated_from->node);
+	std::unique_ptr<ASTFuncDecl> decl(instantiated_from->node->clone());
+	decl->parentScope = externalScope;
+	decl->parameters = decl->param_template;
+	for (size_t q = 0; q < paramTypes.size(); ++q)
+		decl->parameters[q]->resolvedType = paramTypes[q];
+	return decl;
+}
+
+void Function::make_delegation_entry(std::shared_ptr<ASTFuncDecl> node)
+{
+	assert(!delegation_entry);
+	auto entry = std::make_shared<Function>(*this);
+	entry->id = ScriptParser::getUniqueFuncID();
+	entry->label.reset();
+	entry->prologue_end_label.reset();
+	entry->paramDatum.clear();
+	entry->aliases.clear();
+	entry->ownedCode.clear();
+	entry->delegation_entry_of = this;
+	entry->owned_node = std::move(node);
+	entry->node = entry->owned_node.get();
+	entry->node->func = entry.get();
+	entry->setInternalScope(externalScope->makeFunctionChild(*entry));
+	delegation_entry = entry;
+}
+
+void Function::use_instantiation(Function* func)
+{
+	Function* templ = func->instantiated_from;
+	if (!templ)
+		return;
+
+	auto& candidates = templ->candidate_funcs;
+	auto it = std::find_if(candidates.begin(), candidates.end(),
+		[&](auto const& candidate) { return candidate.get() == func; });
+	if (it == candidates.end())
+		return;
+
+	templ->applied_funcs.push_back(std::move(*it));
+	candidates.erase(it);
+}
+
+bool ZScript::isRun(Function const& function)
+{
+	return function.getExternalScope()->getParent()->isScript()
+		&& *function.returnType == DataType::ZVOID
+		&& (!( strcmp(function.name.c_str(), "run" )))
+		&& (!(function.getFlag(FUNCFLAG_INLINE))) ;
+}
+
+int32_t ZScript::getStackSize(Function const& function)
+{
+	return *lookupStackSize(*function.getInternalScope());
+}
+
+int32_t ZScript::getParameterCount(Function const& function)
+{
+	return function.paramTypes.size();
+}
+
+bool ZScript::is_test()
+{
+	static bool state = std::getenv("TEST_ZSCRIPT") != nullptr;
+	return state;
+}
+
+extern bool emit_inlined_functions;
+bool ZScript::debug_data_should_emit_inlined_functions()
+{
+	// Only for test purposes: to exclude unrelated code from the outputed "expected.txt" files, or
+	// from the webapp playground ZASM output.
+	return emit_inlined_functions;
+}
+
+extern bool codegen;
+bool ZScript::do_codegen()
+{
+	return codegen;
+}
+
+struct cache_entry
+{
+	cache_entry() : has_made_lines(false) {}
+	cache_entry(std::string c) : contents(std::move(c)), has_made_lines(false) {}
+
+	std::string contents;
+
+	const std::vector<uint32_t>& getLines()
+	{
+		if (!has_made_lines)
+		{
+			uint32_t count = 0;
+			std::vector<std::string> line_strings = util::split(contents, "\n");
+			for (auto& line : line_strings)
+			{
+				lines.push_back(count);
+				count += line.size() + 1;
+			}
+			lines.push_back(count);
+			has_made_lines = true;
+		}
+
+		return lines;
+	}
+
+private:
+	std::vector<uint32_t> lines;
+	bool has_made_lines;
+};
+
+static std::map<std::string, cache_entry> sourceContentsCache;
+void ZScript::clearSourceCodeCache()
+{
+	sourceContentsCache.clear();
+}
+static cache_entry* getSourceCodeCacheEntry(const std::string& fname)
+{
+	auto it = sourceContentsCache.find(fname);
+	if (it != sourceContentsCache.end())
+		return &it->second;
+
+	sourceContentsCache[fname] = {util::read_text_file(fname)};
+	return &sourceContentsCache[fname];
+}
+
+int ZScript::getSourceCodeNumLines(const std::string& fname)
+{
+	return getSourceCodeCacheEntry(fname)->getLines().size();
+}
+
+const std::string& ZScript::getSourceCodeContents(const std::string& fname)
+{
+	return getSourceCodeCacheEntry(fname)->contents;
+}
+
+std::string ZScript::getSourceCodeSnippet(const LocationData& loc)
+{
+	auto entry = getSourceCodeCacheEntry(loc.fname);
+	auto& lines = entry->getLines();
+	uint32_t start = lines[loc.first_line - 1] + loc.first_column - 1;
+	uint32_t end = loc.last_line - 1 < lines.size() ?
+		lines[loc.last_line - 1] + loc.last_column - 1 :
+		entry->contents.size();
+	return entry->contents.substr(start, end - start);
+}
+
+std::string ZScript::getErrorContext(const LocationData& loc)
+{
+	// Don't print context for IDE usages (ex: vscode extension), too much work and is not needed.
+	bool should_print_context = !is_json_output || is_test();
+	if (!should_print_context)
+		return "";
+
+	int num_lines_context = 2;
+	int num_lines_prev = std::min(loc.first_line - 1, num_lines_context);
+
+	LocationData expanded_loc = loc;
+	expanded_loc.first_line -= num_lines_prev;
+	expanded_loc.last_line = std::min(expanded_loc.last_line, getSourceCodeNumLines(loc.fname)) + 1;
+	expanded_loc.first_column = 1;
+	expanded_loc.last_column = 1;
+
+	std::string context = getSourceCodeSnippet(expanded_loc);
+	if (context.empty())
+		return "";
+
+	auto lines = util::split(context, "\n");
+
+	// Add underline. Example:
+	//    auto[][] numbers6 = {1, 2, 3};
+	//             ^~~~~~~~
+	bool show_underline = loc.first_line == loc.last_line;
+	if (show_underline)
+	{
+		// Increase width by "num of leading tabs * 3" of target line.
+		int prefix_w = loc.first_column - 1;
+		const std::string& target_line = lines[num_lines_prev];
+		for (int i = 0; i < loc.first_column; i++)
+		{
+			char c = target_line[i];
+			if (c == '\t') prefix_w += 3;
+			else if (!isspace(c)) break;
+		}
+
+		std::string underline =
+			fmt::format("{}{:~<{}}", std::string(prefix_w, ' '), "^", loc.last_column - loc.first_column);
+		lines.push_back(underline);
+	}
+
+	for (auto& line : lines)
+		util::replstr(line, "\t", "    ");
+
+	// Trim leading whitespace.
+	int min_ws = INT_MAX;
+	for (const auto& line : lines)
+	{
+		int ws = 0;
+		for (const char& c : line)
+		{
+			if (c == ' ')
+				ws++;
+			else break;
+		}
+		min_ws = std::min(min_ws, ws);
+	}
+	if (min_ws > 0)
+	{
+		for (auto& line : lines)
+			line = line.substr(min_ws);
+	}
+
+	// Add line numbers.
+	int prefix_w = fmt::format("{}", expanded_loc.last_line).size();
+	int line_num = expanded_loc.first_line;
+	bool ignore_next = false;
+	for (auto& line : lines)
+	{
+		if (ignore_next)
+		{
+			line = fmt::format("{: >{}}    {}", "", prefix_w, line);
+			ignore_next = false;
+			continue;
+		}
+
+		line = fmt::format("{: >{}}    {}", line_num, prefix_w, line);
+		ignore_next = show_underline && line_num == loc.first_line;
+		line_num += 1;
+	}
+
+	return fmt::format("\n\n{}\n\n", fmt::join(lines, "\n"));
+}

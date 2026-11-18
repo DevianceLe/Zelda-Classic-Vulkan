@@ -81,7 +81,9 @@ enum TapeList
     TL_SIZEFLAGS,   // size and offset overrides
     TL_PSTRFLAGS,   // an item's pickup string flags
     TL_FFCFLAGS,    // a freeform combo's flags
-    TL_ROOMFLAGS    // a screen's room flags
+    TL_ROOMFLAGS,   // a screen's room flags
+    TL_MUSIC,       // a quest music object (3.0's AMUS), 0 for none
+    TL_SCRMUSIC     // a screen's music: -1 the DMap's, 0 none, or a quest music object
 };
 
 struct TapeField
@@ -209,6 +211,17 @@ std::vector<byte> zq_bitstr_store(const std::vector<byte> &bits, unsigned size =
 unsigned zq_bitstr_size(const std::vector<byte> &stored);
 
 // The schemas: one record of the section in version v, from pos. False if it ran past the end.
+// Told about every script config a schema reads (reading only, not rebuilding), so a caller
+// can see which placed scripts hold run arguments and instance values (zq_compile.cpp, before
+// a recompile moves a script's exported variables). key: the config's field key, or for the
+// configs init and misc data keep as raw bytes "init.global", "init.hero", "init.gen_inst",
+// "init.gen_initd" and "misc.save_menu"; script: its slot number; initd: 8 run arguments
+// (NULL: none); inst: pairs of a word variable id and an int value, 6 bytes each.
+typedef void (*ZqTapeInstHook)(const char *key, int script, const long *initd, const byte *inst, size_t pairs);
+extern ZqTapeInstHook zq_tape_inst_hook;    // NULL: nobody listens
+// for a raw walker: the config whose run arguments start at args_at and instance values at inst_at
+void zq_tape_raw_config_hook(TapeParser &p, const char *key, int script, size_t args_at, size_t inst_at);
+
 bool zq_tape_item(TapeParser &p, int v);
 bool zq_tape_guy(TapeParser &p, int v);
 bool zq_tape_dmap(TapeParser &p, int v);
@@ -217,5 +230,8 @@ bool zq_tape_init(TapeParser &p, int v);    // the whole INIT section (versions 
 bool zq_tape_misc(TapeParser &p, int v);    // the whole MISC section (versions 7-23), zq_tape_misc.cpp
 bool zq_tape_strings(TapeParser &p, int v); // the whole STR section (versions 5-13), zq_tape_strings.cpp
 bool zq_tape_subscreens(TapeParser &p, int v);  // the whole SUBS section (versions 8-21), zq_tape_subscreens.cpp
+bool zq_tape_link(TapeParser &p, int v);        // the whole LINK section (versions 5-16), zq_tape_link.cpp
+// one widget of it, its type byte first, keys under pre ("w.x"); page1: on a first page
+bool zq_tape_subscreen_widget(TapeParser &p, int v, const char *pre, bool page1);
 
 #endif

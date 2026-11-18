@@ -140,6 +140,22 @@ struct ZqNewerRegistration
 // target holds (why lists them; it is never written older). Anything else: failed (why says what).
 int zq_save_newer(const char *filename, int target, std::string &why);
 
+// One section of the open quest as saving it as the target would write it (its id first), from
+// what the quest's own-version save writes now. False (why says) when no writer takes it.
+bool zq_newer_section_bytes(dword id, int target, std::vector<byte> &out, std::string &why);
+
+// A section from a file (as it follows its id: version, cversion, size, data), converted the way
+// saving a quest made in 2.55 as the target converts that section of the quest: the file's section
+// stands in for the quest's own while its converter runs, so it is read as the target's loader
+// reads a section of that version (with the open quest's rules, items and so on where the loader
+// looks at them) and comes out in the target's newest format, its id first. For imports of files
+// older than the quest's section. False (why says) when no converter takes that version.
+bool zq_newer_convert_section(dword id, int target, const std::vector<byte> &section, std::vector<byte> &out, std::string &why);
+
+// True while zq_newer_convert_section runs: a converter then leaves out what upstream's loader
+// does to a whole quest after its sections are read, which its imports don't do.
+bool zq_newer_converting_file();
+
 // Whether saving the open quest (made in 2.55 or later) as the target would bring some of its
 // parts up to newer versions: some part is older than the target's newest and none is newer.
 // A quest made in a 3.0 prerelease is then still offered 3.0 Nightly (it is a newer version).
@@ -155,6 +171,15 @@ bool zq_own_part_bytes(const ZqQuestPart &p, std::vector<byte> &out);
 
 // all_parts: every part that has a writer goes through it, changed or not (for the checks).
 int zq_save_own_format_ex(const char *filename, bool encode, bool all_parts, std::string &why);
+
+// zq_save_own_format, stored as upstream stores a .qst (pack 1: packed) and a .qsu (pack 0: not
+// packed), with no encoding and no password, whatever the quest's file was: the exports of
+// 2.55 / 3.0 quests and their timed saves.
+int zq_save_own_format_packed(const char *filename, bool pack, std::string &why);
+
+// True when ZQuest's data differs from what the last load or own-format save left (some part
+// changed, or data a section the file lacks would hold): what a timed save is for.
+bool zq_changed_since_save();
 
 // -qst-rewrite-check in.qst report.txt: every part goes through its writer, as if changed,
 // and is compared with the original bytes. Returns 0 when every written part is identical.

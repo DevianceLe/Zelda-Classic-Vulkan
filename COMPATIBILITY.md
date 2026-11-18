@@ -45,7 +45,8 @@ The final run was stopped before its last 11 quests. Their results are from the 
 - `Game->IncrementQuest`, which a 2.53.1 script uses to go straight on to the next numbered quest.
 - A script-moved viewport, and saving global script variables past 255. No quest in this collection needs the second one.
 - Quests made in ZC 1.00 and 1.50 can't be opened. None are in this collection.
-- A 2.55 script compiler: ZQuest can't compile ZScript for 2.55 and 3.0 Nightly quests yet. ZQuest on Linux and macOS is new and has hardly been tried.
+- In ZQuest, for 2.55 and 3.0 Nightly quests: the subscreen wizards and adding new subscreens, previewing a music track's loop, the autocombo preview under the cursor, remapping script variables, and single item and enemy files (`.zitem`, `.znpc`).
+- Swimming sprites in sideview areas. FFCs on the overlay layer can be drawn in a different order than in 3.0.
 
 **Built, but tried in only a few quests**
 
@@ -83,6 +84,7 @@ The final run was stopped before its last 11 quests. Their results are from the 
 
 **Platforms**
 
+- ZQuest's ZScript compilers for 2.55 and 3.0 Nightly quests (zscript255 and zscript30, built from those versions' own compilers) and its new editors for those quests (scrolling regions, combo pools, autocombos, music, hero settings, ZInfo, subscreen layouts, exports and imports): each editor was opened and saved on a test quest, and all 93 newer quests in this collection still save back unchanged.
 - Linux has been tested on Debian 13 and Arch Linux, in virtual machines with Mesa's software Vulkan driver. Real graphics cards and controllers are untested. EndeavourOS froze while booting in the test virtual machine, before the game could run, so it hasn't been tested.
 - Android starts, but 2.55 and 3.0 Nightly quests haven't been tested on it.
 - Without Vulkan, the player and ZQuest draw through Direct3D, OpenGL or Metal instead, with all their menus (Video Settings > Renderer can also choose it, or software drawing). That has been tried on Windows only.
@@ -91,7 +93,7 @@ The final run was stopped before its last 11 quests. Their results are from the 
 
 ## ZQuest
 
-ZQuest (on Windows; new and hardly tried on Linux and macOS) opens quests made in every version from 1.90 to 3.0 Nightly and saves each one in the version it was made in. File > Save As can also save it as a newer version: 2.53.1, 2.55.17 or 3.0 Nightly. It never saves a quest as an older version. A change the chosen version can't hold stops the save with the reason, and the file is left as it was.
+ZQuest (on Windows; on Linux tried only in virtual machines, on macOS only built) opens quests made in every version from 1.90 to 3.0 Nightly and saves each one in the version it was made in. File > Save As can also save it as a newer version: 2.53.1, 2.55.17 or 3.0 Nightly. It never saves a quest as an older version. A change the chosen version can't hold stops the save with the reason, and the file is left as it was.
 
 | Check, on ZC Vulkan 2.53.444.4 | Quests | Result |
 |---|---|---|
@@ -104,7 +106,7 @@ ZQuest (on Windows; new and hardly tried on Linux and macOS) opens quests made i
 
 A rule a newer version always resets (rule 157 in 2.50 quests) can't be changed in a save as that version; ZQuest says so and saves nothing.
 
-2.55 and 3.0 Nightly quests are edited with their own version's features: combos, items, enemies, DMaps, screens, init data, quest rules, misc data, strings and subscreens. On 2.53.444.7, all 85 quests in this collection made in 2.55 save as 2.55.17 and as 3.0 Nightly identical to the real ZC's own conversion, apart from the header and ZInfo of the two whose editor names are kept in a separate file. The 8 3.0 Nightly prerelease quests save as 3.0 Nightly.
+2.55 and 3.0 Nightly quests are edited with their own version's features: combos, items, enemies, DMaps, screens, init data, quest rules, misc data, strings and subscreens. Since 2.53.444.8 ZQuest also compiles their ZScript with that version's own compiler (zscript255 for 2.55, zscript30 for 3.0 Nightly) and edits their scrolling regions, combo pools, autocombos, music, hero settings, ZInfo names and subscreen layouts; File > Export and Import use that version's own files, and timed auto-saves keep the version. On 2.53.444.7, all 85 quests in this collection made in 2.55 save as 2.55.17 and as 3.0 Nightly identical to the real ZC's own conversion, apart from the header and ZInfo of the two whose editor names are kept in a separate file. The 8 3.0 Nightly prerelease quests save as 3.0 Nightly.
 
 ## Played by hand
 

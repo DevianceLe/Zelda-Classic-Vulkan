@@ -47,6 +47,7 @@
 #include "port/zqeditor/zq_q255.h"
 #include "port/zqeditor/zq_sections.h"
 #include "port/zqeditor/zq_tile_refs.h"
+#include "port/zqeditor/zq_zinfo.h"
 #include "port/game/quest_version.h"
 #endif
 
@@ -6040,6 +6041,7 @@ int load_quest(const char *filename, bool compressed, bool encrypted)
     int ret=loadquest(filename,&header,&misc,customtunes,true,compressed,encrypted,true,skip_flags);
 #ifdef ZC_ZQEDITOR
     zq_sections_end_load(ret==qe_OK);
+    zq_zinfo_loaded(ret==qe_OK ? filename : NULL);  // its editor names, from beside it too (port/zqeditor/zq_zinfo.h)
 #endif
 //  setPackfilePassword(NULL);
 

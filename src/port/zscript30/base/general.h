@@ -1,0 +1,654 @@
+#ifndef GENERAL_H_
+#define GENERAL_H_
+
+#include "base/ints.h"
+#include "base/zfix.h"
+
+#include <string>
+#include <utility>
+#include <vector>
+#include <map>
+#include <array>
+
+using warnings = std::vector<std::string>;
+
+template <typename T>
+using value_and_warnings = std::pair<T, warnings>;
+
+int32_t get_bit(byte const* bitstr,int32_t bit);
+void set_bit(byte *bitstr,int32_t bit,bool val);
+bool toggle_bit(byte *bitstr,int32_t bit);
+int32_t get_bitl(int32_t bitstr,int32_t bit);
+void set_bitl(int32_t bitstr,int32_t bit,bool val);
+
+template <class T>
+static constexpr inline T sign(T a)
+{
+    return T(a < 0 ? -1: 1);
+}
+template <class T>
+static inline T sign2(T a)
+{
+	if (a == 0) return 0;
+    return T(a < 0 ? -1: 1);
+}
+template <class T>
+static constexpr inline void zc_swap(T &a,T &b)
+{
+    T c = a;
+    a = b;
+    b = c;
+}
+template <class T1, class T2>
+static constexpr inline void zc_swap(T1 &a,T2 &b)
+{
+    T2 c = a;
+    a = b;
+    b = c;
+}
+template <class T>
+static constexpr inline void zc_swap_mv(T &a,T &b)
+{
+    T c = std::move(a);
+    a = std::move(b);
+    b = std::move(c);
+}
+
+int vbound(int val, int low, int high);
+double vbound(double val, double low, double high);
+zfix vbound(zfix val, zfix low, zfix high);
+zfix vbound(zfix val, int low, zfix high);
+zfix vbound(zfix val, zfix low, int high);
+zfix vbound(zfix val, int low, int high);
+
+#define zc_max(a,b) (((a) < (b)) ? (b) : (a))
+#define zc_min(a,b) (((a) < (b)) ? (a) : (b))
+
+#define SETFLAG(v, fl, b) \
+do { \
+	if(b) v |= (fl); else v &= ~(fl); \
+} while(false)
+
+#define TOGGLEFLAG(v, fl) \
+do { \
+	v ^= (fl); \
+} while(false)
+
+#define CPYFLAG(v, fl, other) \
+do { \
+	v = (v&~(fl))|(other&(fl)); \
+} while(false)
+
+// exclusive of high
+int wrap(int x,int low,int high);
+// inclusive
+double wrap_float(double x,double low,double high);
+
+#define GLOBAL_SCRIPT_INIT         0
+#define GLOBAL_SCRIPT_GAME         1
+#define GLOBAL_SCRIPT_END          2
+#define GLOBAL_SCRIPT_ONSAVELOAD   3
+#define GLOBAL_SCRIPT_ONLAUNCH     4
+#define GLOBAL_SCRIPT_ONCONTGAME   5
+#define GLOBAL_SCRIPT_F6           6
+#define GLOBAL_SCRIPT_ONSAVE       7
+
+#define NUMSCRIPTGLOBAL            8
+
+#define NUMSCRIPTGLOBAL255OLD      7
+#define NUMSCRIPTGLOBAL253         4
+#define NUMSCRIPTGLOBALOLD         3
+
+#define SCRIPT_HERO_INIT    1
+#define SCRIPT_HERO_ACTIVE  2
+#define SCRIPT_HERO_DEATH   3
+#define SCRIPT_HERO_WIN     4
+
+#define NUMSCRIPTHERO       5
+
+#define NUMSCRIPTHEROOLD    3
+
+//Script Counts
+#define NUMSCRIPTFFC               512
+#define NUMSCRIPTFFCOLD            256
+#define NUMSCRIPTITEM              256
+#define NUMSCRIPTGUYS              256
+#define NUMSCRIPTWEAPONS           256
+#define NUMSCRIPTSCREEN            256
+#define NUMSCRIPTSDMAP             256
+#define NUMSCRIPTSITEMSPRITE       256
+#define NUMSCRIPTSCOMBODATA        512
+#define NUMSCRIPTSGENERIC          512
+#define NUMSCRIPTSSUBSCREEN        256
+
+//Script-related
+#define INITIAL_D                  8
+#define FFSCRIPT_MISC              32
+#define MAX_STACK_SIZE             5120
+#define MAX_CALL_FRAMES            1024
+#define MAX_GLOBAL_VARIABLES       1024
+#define MAX_SCRIPT_INST_VARIABLES  256
+#define MAX_PC                     dword(-1)
+
+//Sizes
+#define MAX_SIGNED_32              (2147483647)
+#define MIN_SIGNED_32              (-2147483647-1)
+#define MAX_ZSCRIPT_INT            (214748)
+#define MIN_ZSCRIPT_INT            (-214748)
+#define MAX_DWORD                  dword(-1)
+#define MIN_DWORD                  0
+
+#define STANDING_Z_MAX             214748.3647_zf
+
+#define SINGLE_TILE_SIZE           128
+#define TILES_PER_ROW              20
+#define TILE_ROWS_PER_PAGE         13
+#define TILES_PER_PAGE             (TILES_PER_ROW*TILE_ROWS_PER_PAGE)
+#define MAXTILEROWS                (TILE_ROWS_PER_PAGE*TILE_PAGES)   //Last row that we can show when trying to grab tiles from  .QST file. -Z
+
+#define TILEROW(tile)              ((tile)/TILES_PER_ROW)
+#define TILECOL(tile)              ((tile)%TILES_PER_ROW)
+#define TILEPAGE(tile)             ((tile)/TILES_PER_PAGE)
+
+#define TILE_PAGES                 825
+#define TILE_PAGES_ZC250           252 //2.50.x
+
+#define OLDMAXTILES                (TILES_PER_PAGE*6)                // 1560 tiles
+#define NEWMAXTILES                (TILES_PER_PAGE*TILE_PAGES)       // 214500 tiles
+#define ZC250MAXTILES              (TILES_PER_PAGE*TILE_PAGES_ZC250) // 32760 tiles
+
+#define NEWTILE_SIZE2              (NEWMAXTILES*SINGLE_TILE_SIZE)    // 27456000 bytes 
+#define ZC250TILESIZE              (ZC250MAXTILES*SINGLE_TILE_SIZE)  // 4193280 bytes (new packed format, 6 pages)
+#define OLDTILE_SIZE2              (OLDMAXTILES*SINGLE_TILE_SIZE)    // 199680 bytes (new packed format, 6 pages)
+
+#define TILEBUF_SIZE               (320*480)                         // 153600 bytes (old unpacked format)
+
+#define COMBOS_PER_ROW             20
+
+#define MAXFFCS                    128
+#define MAX_FFCID                  (region_scr_count * MAXFFCS - 1)
+#define MAXSCREENS                 128
+
+#define ZC_MIDI_DUNGEON                  0
+#define ZC_MIDI_ENDING                   1
+#define ZC_MIDI_GAMEOVER                 2
+#define ZC_MIDI_LEVEL9                   3
+#define ZC_MIDI_OVERWORLD                4
+#define ZC_MIDI_TITLE                    5
+#define ZC_MIDI_TRIFORCE                 6
+#define ZC_MIDI_COUNT                    7
+
+#define MAXCUSTOMMIDIS192b177  32
+#define MAXCUSTOMMIDIS         512
+#define MAXMIDIS               (ZC_MIDI_COUNT+MAXCUSTOMMIDIS)
+#define MIDI_NAME_LENGTH       300
+
+#define MAX_SFX                1024
+//Midi offsets
+//The offset from dmap/mapscr-> midi/screen_midi to currmidi
+#define MIDIOFFSET_DMAP            (ZC_MIDI_COUNT-4)
+#define MIDIOFFSET_MAPSCR          (ZC_MIDI_COUNT-4)
+//The offset from currmidi to ZScript MIDI values
+#define MIDIOFFSET_ZSCRIPT         (ZC_MIDI_COUNT-1)
+//Use together as `(MIDIOFFSET_DMAP-MIDIOFFSET_ZSCRIPT)` to go from `dmap` directly to `zscript`
+
+#define MAXMAPS                    255 // 4 times the old number
+#define MAPSCRSNORMAL              128
+#define MAPSCRS192b136             132
+#define MAPSCRS                    136
+#define MAXSCRSNORMAL              (MAXMAPS*MAPSCRSNORMAL)
+#define MAXSCRS                    (MAXMAPS*MAPSCRS)
+
+#define TEMPLATES                  8
+#define TEMPLATE                   131
+#define TEMPLATE2                  132
+
+#define MAXMSGS                    65535
+#define MAXDOORCOMBOSETS           256
+#define MAXDMAPS                   512 //this and
+#define MAXLEVELS                  512 //this should be the same number (was 32)
+#define OLDMAXLEVELS               256
+#define OLDMAXDMAPS                256
+#define MAXITEMS                   1024
+#define MAXSPRITES                 8192
+#define OLDBETAMAXGUYS             256 //max 2.5 guys through beta 20
+#define MAXGUYS                    512
+#define MAXITEMDROPSETS            256
+#define COMBOS_PER_PAGE            256
+#define COMBO_PAGES                255
+#define MAXCOMBOS                  (COMBO_PAGES*COMBOS_PER_PAGE)
+#define BOUND_COMBO(c)             vbound(c, 0, MAXCOMBOS)
+#define OLD_MAXSUBSCREENITEMS      256 // old subscreens
+#define NEW_MAXSUBSCREENITEMS      0x2000 // zscript only has this much space in the pointer- bitmask is 0x1FFF for widgets
+#define OLD_MAXCUSTOMSUBSCREENS    128 // old subscreens
+#define NEW_MAXCUSTOMSUBSCREENS    255 // count is a byte in the qst file
+#define MAXNPCS                    512
+
+#define MAXFAVORITECOMMANDS        64
+#define MAXFAVORITECOMBOS          (FAVORITECOMBO_PER_PAGE * FAVORITECOMBO_PAGES)
+
+#define FAVORITECOMBO_PER_ROW      20
+#define FAVORITECOMBO_PER_COLUMN   7
+#define FAVORITECOMBO_PER_PAGE     140
+#define FAVORITECOMBO_PAGES        9
+
+#define OLDMAXCOMBOALIASES         256
+#define MAX250COMBOALIASES         2048
+#define MAXCOMBOALIASES            8192
+#define MAXCOMBOPOOLS              8192
+#define MAXAUTOCOMBOS              8192
+
+#define PALNAMESIZE                17
+
+#define NUM_SHOPS                  256
+#define NUM_INFOS                  256
+#define NUM_PAL_CYCLES             256
+#define NUM_WARP_RINGS             9
+#define NUM_BOTTLE_TYPES           64
+#define NUM_BOTTLE_SHOPS           256
+#define NUM_BOTTLE_SLOTS           256
+#define NUM_SAVE_MENUS             32
+
+#define NUM_COMBO_ATTRIBUTES       24
+
+#define QSTPWD_LEN                 256
+
+#define NUM_GSWITCHES 256
+#define MAX_MI (MAXDMAPS*MAPSCRSNORMAL)
+
+// Args for 'getInput()'
+#define INPUT_PRESS                0x01
+#define INPUT_DRUNK                0x02
+#define INPUT_IGNORE_DISABLE       0x04
+#define INPUT_EAT_ENTIRELY         0x08
+#define INPUT_PEEK                 0x10
+#define INPUT_HERO_ACTION          0x20
+enum controls
+{
+	//control_state indeces
+	btnUp, btnDown, btnLeft, btnRight, // movement directions
+	btnA, btnB, btnS, btnL, btnR, btnP,
+	btnEx1, btnEx2, btnEx3, btnEx4,
+	btnAxisUp, btnAxisDown, btnAxisLeft, btnAxisRight, // secondary stick directions
+	btnLast,
+};
+
+#define INT_BTN_A       0x01
+#define INT_BTN_B       0x02
+#define INT_BTN_L       0x04
+#define INT_BTN_R       0x08
+#define INT_BTN_EX1     0x10
+#define INT_BTN_EX2     0x20
+#define INT_BTN_EX3     0x40
+#define INT_BTN_EX4     0x80
+#define INT_BTN_X       INT_BTN_EX1
+#define INT_BTN_Y       INT_BTN_EX2
+
+// system colors
+#define lc1(x) ((x)+192)                                    // offset to 'level bg color' x (row 12)
+#define lc2(x) ((x)+208)                                    // offset to 'level fg color' x (row 13)
+#define vc(x)  ((x)+224)                                    // offset to 'VGA color' x (row 14)
+#define dvc(x) ((x)+240)                                    // offset to dark 'VGA color' x (row 15)
+#define r_lc1(x) ((x)-192)
+#define r_lc2(x) ((x)-208)
+#define r_vc(x)  ((x)-224)
+#define r_dvc(x) ((x)-240)
+#define BLACK         253
+#define WHITE         254
+byte zq_fix_ui_color(byte color);
+
+// These values must remain stable.
+// Also must update getScriptObjectTypeId in Types.h
+// The 'none' type indicates that this type is not an object.
+// The 'untyped' type indicates that this type _may_ be an object (but only for elements of an array).
+//    Note: I attempted to make all untyped variables (not just arrays) dynamically retain objects, but
+//          it didn't go well. I left a messy branch of work at "zscript-untyped".
+// Everything else always holds an object reference.
+enum class script_object_type : byte
+{
+	none,
+	bitmap,
+	dir,
+	file,
+	paldata,
+	rng,
+	stack,
+	websocket,
+	object,
+	array,
+	untyped,
+	weapondata,
+	last = weapondata,
+};
+
+enum // used for gamedata ITEMS
+{
+	// 0
+	itype_sword, itype_brang, itype_arrow, itype_candle, itype_whistle,
+	itype_bait, itype_letter, itype_potion, itype_wand, itype_ring,
+	itype_wallet, itype_amulet, itype_shield, itype_bow, itype_raft,
+	itype_ladder, itype_book, itype_magickey, itype_bracelet, itype_flippers,
+	// 20
+	itype_boots, itype_hookshot, itype_lens, itype_hammer, itype_divinefire,
+	itype_divineescape, itype_divineprotection, itype_bomb, itype_sbomb, itype_clock,
+	itype_key, itype_magiccontainer, itype_triforcepiece, itype_map, itype_compass,
+	itype_bosskey, itype_quiver, itype_lkey, itype_cbyrna, itype_rupee,
+	// 40
+	itype_arrowammo, itype_fairy, itype_magic, itype_heart, itype_heartcontainer,
+	itype_heartpiece, itype_killem, itype_bombammo, itype_bombbag, itype_rocs,
+	itype_hoverboots, itype_spinscroll,itype_crossscroll, itype_quakescroll,itype_whispring,
+	itype_chargering, itype_perilscroll, itype_wealthmedal,itype_heartring,itype_magicring,
+	// 60
+	itype_spinscroll2, itype_quakescroll2, itype_agony, itype_stompboots, itype_whimsicalring,
+	itype_perilring, itype_misc,
+	// 67
+	itype_custom1, itype_custom2, itype_custom3, itype_custom4, itype_custom5,
+	itype_custom6, itype_custom7, itype_custom8, itype_custom9, itype_custom10,
+	itype_custom11, itype_custom12, itype_custom13, itype_custom14, itype_custom15,
+	itype_custom16, itype_custom17, itype_custom18, itype_custom19, itype_custom20,
+	// 87
+	itype_bowandarrow, itype_letterpotion,
+	itype_last, 
+	itype_script1 = 256, //Scripted Weapons
+	itype_script2, itype_script3, itype_script4, itype_script5, itype_script6, itype_script7, itype_script8, itype_script9, itype_script10,
+	itype_icerod, itype_atkring, itype_lantern, itype_pearl, itype_bottle, itype_bottlefill, itype_bugnet,
+	itype_mirror, itype_switchhook, itype_itmbundle, itype_progressive_itm, itype_note, itype_refill,
+	itype_liftglove, itype_gravity_boots, itype_gravity_up_boots, itype_gravity_down_boots,
+	itype_cooldown_ring, itype_enemy_ambush,
+	/*
+	itype_templast,
+	itype_ether, itype_bombos, itype_quake, 
+	itype_powder,
+	itype_trowel,
+	itype_instrument,
+	itype_sword180,
+	itype_sword_gb,
+	itype_firerod,
+	itype_scripted_001 = 400, 
+	itype_scripted_002,
+	itype_scripted_003,
+	itype_scripted_004,
+	itype_scripted_005,
+	itype_scripted_006,
+	itype_scripted_007,
+	itype_scripted_008,
+	itype_scripted_009,
+	itype_scripted_010,
+	*/
+
+	
+	itype_maxusable,
+	itype_max=512
+};
+
+enum
+{
+	crNONE = -1,
+	crLIFE, crMONEY, crBOMBS, crARROWS, crMAGIC,
+	crKEYS, crSBOMBS, crCUSTOM1, crCUSTOM2, crCUSTOM3,
+	crCUSTOM4, crCUSTOM5, crCUSTOM6, crCUSTOM7, crCUSTOM8,
+	crCUSTOM9, crCUSTOM10, crCUSTOM11, crCUSTOM12, crCUSTOM13,
+	crCUSTOM14, crCUSTOM15, crCUSTOM16, crCUSTOM17, crCUSTOM18,
+	crCUSTOM19, crCUSTOM20, crCUSTOM21, crCUSTOM22, crCUSTOM23,
+	crCUSTOM24, crCUSTOM25, crCUSTOM26, crCUSTOM27, crCUSTOM28,
+	crCUSTOM29, crCUSTOM30, crCUSTOM31, crCUSTOM32, crCUSTOM33,
+	crCUSTOM34, crCUSTOM35, crCUSTOM36, crCUSTOM37, crCUSTOM38,
+	crCUSTOM39, crCUSTOM40, crCUSTOM41, crCUSTOM42, crCUSTOM43,
+	crCUSTOM44, crCUSTOM45, crCUSTOM46, crCUSTOM47, crCUSTOM48,
+	crCUSTOM49, crCUSTOM50, crCUSTOM51, crCUSTOM52, crCUSTOM53,
+	crCUSTOM54, crCUSTOM55, crCUSTOM56, crCUSTOM57, crCUSTOM58,
+	crCUSTOM59, crCUSTOM60, crCUSTOM61, crCUSTOM62, crCUSTOM63,
+	crCUSTOM64, crCUSTOM65, crCUSTOM66, crCUSTOM67, crCUSTOM68,
+	crCUSTOM69, crCUSTOM70, crCUSTOM71, crCUSTOM72, crCUSTOM73,
+	crCUSTOM74, crCUSTOM75, crCUSTOM76, crCUSTOM77, crCUSTOM78,
+	crCUSTOM79, crCUSTOM80, crCUSTOM81, crCUSTOM82, crCUSTOM83,
+	crCUSTOM84, crCUSTOM85, crCUSTOM86, crCUSTOM87, crCUSTOM88,
+	crCUSTOM89, crCUSTOM90, crCUSTOM91, crCUSTOM92, crCUSTOM93,
+	crCUSTOM94, crCUSTOM95, crCUSTOM96, crCUSTOM97, crCUSTOM98,
+	crCUSTOM99, crCUSTOM100, MAX_COUNTERS
+};
+
+enum generic_ind //game->generic[]
+{
+	genHCP, genMDRAINRATE, genCANSLASH, genWLEVEL,
+	genHCP_PER_HC, genCONTHP, genCONTHP_IS_PERC, genHP_PER_HEART,
+	genMP_PER_BLOCK, genHERO_DMG_MULT, genENE_DMG_MULT,
+	genDITH_TYPE, genDITH_ARG, genDITH_PERC, genLIGHT_RAD,genTDARK_PERC,genDARK_COL,
+	genWATER_GRAV, genSIDESWIM_UP, genSIDESWIM_SIDE, genSIDESWIM_DOWN, genSIDESWIM_JUMP,
+	genBUNNY_LTM, genSWITCHSTYLE, genSPRITEFLICKERSPEED, genSPRITEFLICKERCOLOR,
+	genSPRITEFLICKERTRANSP, genLIGHT_WAVE_RATE, genLIGHT_WAVE_SIZE, genREGIONMAPPING,
+	genITEM_SPAWN_FLICKER, genITEM_TIMEOUT_TIME, genITEM_TIMEOUT_FLICKER,
+	genITEM_FLICKER_SPEED,
+	genLAST,
+	genMAX = 256
+};
+
+enum class ScriptType {
+	None,
+	Global,
+	FFC,
+	Screen,
+	Hero,
+	Item,
+	Lwpn,
+	NPC,
+	Subscreen,
+	Ewpn,
+	DMap,
+	ItemSprite,
+	ScriptedActiveSubscreen,
+	ScriptedPassiveSubscreen,
+	Combo,
+	OnMap,
+	Generic,
+	GenericFrozen,
+	EngineSubscreen,
+	// Update the following when adding a new script type:
+	// - const char* ScriptTypeToString(ScriptType type)
+	// - string get_script_name(ScriptType type)
+	// - ScriptType get_script_type(string const& name)
+	First = Global,
+	Last = EngineSubscreen,
+};
+
+enum cutscene_effect_types : byte
+{
+	CUTEFF_PLAYER_WALK,
+	CUTEFF_CAMERA,
+	CUTEFF_MAX
+};
+
+enum //text alignment
+{
+	ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT, ALIGN_MAX
+};
+enum //text styles ('shadow types')
+{
+	sstsNORMAL, sstsSHADOW, sstsSHADOWU, sstsOUTLINE8, sstsOUTLINEPLUS,
+	sstsOUTLINEX, sstsSHADOWED, sstsSHADOWEDU, sstsOUTLINED8, sstsOUTLINEDPLUS,
+	sstsOUTLINEDX, sstsMAX
+};
+
+//Music Update States
+//Used for determining when music should update on warps
+enum
+{
+	MUSIC_UPDATE_SCREEN,
+	MUSIC_UPDATE_DMAP,
+	MUSIC_UPDATE_LEVEL,
+	MUSIC_UPDATE_NEVER,
+	MUSIC_UPDATE_REGION,
+};
+enum
+{
+	MUSIC_UPDATE_FLAG_NOCUT  = 0x1, //Music persists through things that would normally cut to silence (such as entrance exit warps)
+	MUSIC_UPDATE_FLAG_REVERT = 0x2 //State reverts to screen on music switch
+};
+
+// directions
+enum direction { dir_invalid = -1, up, down, left, right, l_up, r_up, l_down, r_down };
+static const char* dirstr[] = {"up","down","left","right","up-left","up-right","down-left","down-right"};
+static const char* dirstr_proper[] = {"Up","Down","Left","Right","Up-Left","Up-Right","Down-Left","Down-Right"};
+inline constexpr direction oppositeDir[] = {down, up, right, left, r_down, l_down, r_up, l_up};
+inline constexpr direction normalDir[] = {up,down,left,right,l_up,r_up,l_down,r_down,up,r_up,right,r_down,down,l_down,left,l_up};
+inline constexpr direction xDir[] = { dir_invalid,dir_invalid,left,right,left,right,left,right };
+inline constexpr direction yDir[] = { up,down,dir_invalid,dir_invalid,up,up,down,down };
+direction X_DIR(int32_t dir);
+direction Y_DIR(int32_t dir);
+direction XY_DIR(int32_t xdir, int32_t ydir);
+direction GET_XDIR(zfix const& sign);
+direction GET_YDIR(zfix const& sign);
+direction GET_DIR(zfix const& dx, zfix const& dy);
+direction XY_DELTA_TO_DIR(int32_t dx, int32_t dy);
+#define NORMAL_DIR(dir)    ((dir >= 0 && dir < 16) ? normalDir[dir] : dir_invalid)
+
+struct viewport_t
+{
+	int32_t x;
+	int32_t y;
+	int32_t w;
+	// Note: height does not take into account that the bottom 8 pixels are not visible, for historical reasons.
+	// For that, use `viewport.visible_height(show_bottom_8px)` instead.
+	int32_t h;
+
+	bool intersects_with(int x, int y, int w, int h) const;
+	bool contains_point(int x, int y) const;
+	bool contains_or_on(const viewport_t& other) const;
+	int32_t visible_height(bool show_bottom_8px) const;
+	int32_t left() const;
+	int32_t right() const;
+	int32_t top() const;
+	int32_t bottom() const;
+};
+
+enum class ViewportMode
+{
+	CenterAndBound = 0,
+	Center = 1,
+	Script = 2,
+
+	First = CenterAndBound,
+	Last = Script,
+};
+
+// Bounds are half-open: [l, r) x [t, b). r = l+w, b = t+h (exclusive right/bottom).
+struct rect_t
+{
+	int l, r, t, b;
+
+	rect_t() = default;
+	rect_t(int x, int y, int w, int h) : l(x), r(x+w), t(y), b(y+h) {}
+	explicit rect_t(const viewport_t& viewport) : l(viewport.left()), r(viewport.right()), t(viewport.top()), b(viewport.bottom()) {}
+
+	void union_with(const rect_t& other);
+
+	void intersect_with(const rect_t& other);
+	bool intersects_with(int x, int y, int w, int h) const;
+	bool intersects_with(const rect_t& other) const;
+
+	int left() const;
+	int right() const;
+	int top() const;
+	int bottom() const;
+	int width() const;
+	int height() const;
+	
+	void expand(int dist);
+	rect_t expanded(int dist) const;
+};
+
+struct CheckListInfo
+{
+	std::string name, info;
+	byte flags;
+	static constexpr byte DISABLED = 0x1;
+	
+	CheckListInfo(std::string name = "", std::string info = "")
+		: name(std::move(name)), info(std::move(info)), flags(0)
+	{}
+	CheckListInfo(byte flags, std::string name = "", std::string info = "")
+		: name(std::move(name)), info(std::move(info)), flags(flags)
+	{}
+};
+typedef std::vector<CheckListInfo> CheckList;
+
+enum
+{
+	nswapDEC, nswapHEX, nswapLDEC, nswapLHEX, nswapBOOL, nswapMAX
+};
+extern const char* swp_strs[nswapMAX];
+
+enum class special_engine_export : uint16_t
+{
+	none,
+	
+	tile, tile_cset, combo, combo_cset, color,
+	
+	item, enemy, counter, sprite, sfx,
+	midi, music, save_menu, message_string,
+	weapon_type, lweapon_type, eweapon_type,
+	dropset, font_id, bottle_type, combo_type,
+	combo_flag, level_item,
+	
+	max_value
+};
+enum class var_custom_export_type : uint8_t
+{
+	none,
+	custom_dropdown,
+	custom_bitflags,
+	custom_long_bitflags,
+	
+	max_value
+};
+extern const std::array<std::string, size_t(special_engine_export::max_value)> special_engine_export_names;
+std::string get_special_engine_export_name(special_engine_export idx);
+#define EXPDISP_UNDERSCORE_SPACES   0x01
+#define EXPDISP_PROPER_CASE         0x02
+#define EXPDISP_TRIM_PREFIXES       0x04
+#define EXPDISP_ALL                 (EXPDISP_UNDERSCORE_SPACES | EXPDISP_PROPER_CASE | EXPDISP_TRIM_PREFIXES)
+#define EXPDISP_DEFAULT             EXPDISP_ALL
+
+
+struct exported_variable
+{
+	std::string name {};
+	std::string helptext {};
+	// -1 = unset; defaulted from the variable's type at compile time.
+	int8_t btn_type = -1;
+	special_engine_export engine_type = special_engine_export::none;
+	var_custom_export_type export_custom_type = var_custom_export_type::none;
+	std::map<zfix, std::string> custom_export_names {};
+	zfix min = -214748.3648_zf, max = 214748.3647_zf;
+	bool operator==(const exported_variable& other) const = default;
+};
+
+struct script_config
+{
+	word script;
+	std::array<int, 8> run_args;
+	std::map<word, int> inst_init;
+	
+	script_config(word script = 0);
+	script_config(script_config const& other);
+	script_config(script_config&& other) noexcept;
+	script_config& operator=(script_config const& other);
+	script_config& operator=(script_config&& other) noexcept;
+	bool operator==(const script_config& other) const = default;
+	bool empty() const;
+	void clear();
+};
+
+// Exists for p_putvar / p_getvar resolution to skip saving the script
+struct script_config_nosavescript : public script_config{};
+
+struct ScopeExitHandler
+{
+	ScopeExitHandler(std::function<void()>&& proc);
+	~ScopeExitHandler();
+private:
+	std::function<void()> proc;
+};
+
+#endif
+

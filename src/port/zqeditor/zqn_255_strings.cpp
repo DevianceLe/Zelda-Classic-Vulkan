@@ -118,8 +118,14 @@ int write_strings(PACKFILE *f, const ZqNewerContext &ctx)
     }
 
     MoreIcon more;
+    more.x = more.y = 0;
+    more.offset = more.from_init = false;
 
-    if(t30 && !more_icon(ctx.target, more))
+    // (a string file being imported: upstream's import reads the strings alone, and theirs keep
+    // the reader's own "more" icon, none; the init data's is given by its quest loader)
+    const bool file = zq_newer_converting_file();
+
+    if(t30 && !file && !more_icon(ctx.target, more))
     {
         zqw_last_error = "its init data (the strings' 'more' icon) isn't laid out as expected";
         return 2;
@@ -215,10 +221,20 @@ int write_strings(PACKFILE *f, const ZqNewerContext &ctx)
 
         if(t30)
         {
-            o.w(43);                    // iwMore
-            o.c(more.offset ? 10 : 9);  // screen_y_offset, screen
-            o.w(more.x);
-            o.w(more.y < 160 ? more.y : 160);
+            if(file)
+            {
+                o.w(0xFFFF);            // no icon, as the reader leaves it
+                o.c(7);
+                o.w(0);
+                o.w(0);
+            }
+            else
+            {
+                o.w(43);                    // iwMore
+                o.c(more.offset ? 10 : 9);  // screen_y_offset, screen
+                o.w(more.x);
+                o.w(more.y < 160 ? more.y : 160);
+            }
 
             for(int q = 0; q < 2; ++q)  // scroll up and down: none
             {

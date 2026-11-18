@@ -47,6 +47,9 @@ void setup_combo_animations();
 void setup_combo_animations2();
 bool zq255_q30_same(const Q30Combo &a, const Q30Combo &b);   // zqw_combos.cpp
 
+bool zq255_has_music_objects();             // zq_music_editor.cpp: the quest keeps music objects
+std::string zq_music_label(int n);          // ... and the list text of entry n
+
 namespace
 {
 
@@ -280,6 +283,33 @@ void type_combo()
     }
 }
 
+// A trigger's "Play music": the quest's music objects by name, as upstream's trigger editor
+// lists them (-2 does nothing, -1 plays the screen's or DMap's music, 0 stops the music). A
+// quest without music objects, and a number past its list, keep the plain number field.
+void trigger_music(long &v)
+{
+    const int n = (int)zq255.music.size();
+
+    if(!zq255_has_music_objects() || v < -2 || v > n)
+    {
+        in_s32("Play music", v);
+        return;
+    }
+
+    static const char *const fixed[3] = { "(None) (-002)", "(Play Screen/DMap Music) (-001)", "(Stop Music) (000)" };
+    const std::string cur = v <= 0 ? std::string(fixed[v + 2]) : zq_music_label((int)v);
+    ImGui::SetNextItemWidth(field_w() * 2.6f);
+
+    if(ImGui::BeginCombo("Play music", cur.c_str(), ImGuiComboFlags_HeightLarge))
+    {
+        for(int k = -2; k <= n; ++k)
+            if(ImGui::Selectable(k <= 0 ? fixed[k + 2] : zq_music_label(k).c_str(), k == v))
+                v = k;
+
+        ImGui::EndCombo();
+    }
+}
+
 void flag_combo()
 {
     const int n = q30_mflag_count(g_ed.is30);
@@ -318,6 +348,7 @@ void tab_basic()
     type_combo();
     help(q30_ctype_help(x.type));
     flag_combo();
+    help(q30_mflag_help(x.flag));      // the quest's own help for it (ZInfo), if any
 
     {
         Gate g(flat() ? at(12) : true);
@@ -682,7 +713,7 @@ void trigger_fields(Q30Trigger &t)
         { r.next(); AV(56, 0); in_s32("Force ice Y speed", t.force_ice_vy); }
         { r.next(); AV(58, 0); in_s32("Gravity", t.trig_gravity); }
         { r.next(); AV(58, 0); in_s32("Terminal velocity", t.trig_terminal_v); }
-        { r.next(); AV(62, 0); in_s32("Play music", t.play_music); }
+        { r.next(); AV(62, 0); trigger_music(t.play_music); }
         { r.next(); AV(62, 0); in_s8("Music refresh", t.set_music_refresh); }
         { r.next(); AV(68, 0); in_s16("Sound pan", t.sfx_pan); }
         { r.next(); AV(68, 0); in_u8("Sound volume", t.sfx_volume); }

@@ -457,12 +457,15 @@ void TapeParser::bitstr(const char *key, const char *label, int list)
     }
 }
 
+ZqTapeInstHook zq_tape_inst_hook = NULL;
+
 void TapeParser::script_config(const char *key, const char *label)
 {
     char k[96], l[96];
+    long initd[8] = { 0 };
     snprintf(k, sizeof(k), "%s.script", key);
     snprintf(l, sizeof(l), "%s", label);
-    u(k, l, 2);
+    const int64_t script = u(k, l, 2);
     snprintf(k, sizeof(k), "%s.argc", key);
     const int64_t argc = def(8).hidden(k, 2);
 
@@ -470,13 +473,41 @@ void TapeParser::script_config(const char *key, const char *label)
     {
         snprintf(k, sizeof(k), "%s.initd%d", key, (int)q);
         snprintf(l, sizeof(l), "%s InitD[%d]", label, (int)q);
-        s(k, l, 4);
+        const int64_t a = s(k, l, 4);
+
+        if(q < 8)
+            initd[q] = (long)a;
     }
 
     snprintf(k, sizeof(k), "%s.instc", key);
     const int64_t inst = hidden(k, 2);
+    const size_t at = pos;
     snprintf(k, sizeof(k), "%s.inst", key);
     blob(k, "instance values", (size_t)inst * 6);
+
+    if(zq_tape_inst_hook && !src && !bad && pos == at + (size_t)inst * 6)
+        zq_tape_inst_hook(key, (int)script, initd, d + at, (size_t)inst);
+}
+
+// The hook for a script config kept in raw bytes, after the walker read past it: run arguments
+// at args_at (a word count, then that many ints, at most 8 stored), instance values at inst_at
+// (a word count, then the pairs).
+void zq_tape_raw_config_hook(TapeParser &p, const char *key, int script, size_t args_at, size_t inst_at)
+{
+    if(!zq_tape_inst_hook || p.src || p.bad)
+        return;
+
+    long initd[8] = { 0 };
+    const size_t n = (size_t)(p.d[args_at] | (p.d[args_at + 1] << 8));
+
+    for(size_t q = 0; q < n && q < 8; ++q)
+    {
+        const byte *b = p.d + args_at + 2 + q * 4;
+        initd[q] = (long)(int32_t)((dword)b[0] | ((dword)b[1] << 8) | ((dword)b[2] << 16) | ((dword)b[3] << 24));
+    }
+
+    const size_t pairs = (size_t)(p.d[inst_at] | (p.d[inst_at + 1] << 8));
+    zq_tape_inst_hook(key, script, initd, p.d + inst_at + 2, pairs);
 }
 
 // read_weap_data: a weapon's data with its own format version
@@ -1388,7 +1419,7 @@ bool zq_tape_dmap(TapeParser &p, int v)
     if(v >= 25)
     {
         p.group("Music");
-        p.u("music", "Music (quest music object)", 2);
+        p.u("music", "Music", 2, TL_MUSIC);
     }
 
     return !p.bad;
@@ -1857,7 +1888,7 @@ bool zq_tape_screen(TapeParser &p, int v)
         else
         {
             p.extra(true);
-            p.def(-1).s("music", "Music (-2 silence, -1 the DMap's, or a quest music object)", 4);
+            p.def(-1).s("music", "Screen music", 4, TL_SCRMUSIC);
             p.extra(false);
         }
 
@@ -1956,14 +1987,33 @@ static void walk_gen_initd(TapeParser &p)
 
     for(size_t q = 0; q < count && !p.bad; ++q)
     {
-        if(pairs)
-            p.rskip(2);
+        const int slot = pairs ? (int)p.rd(2) : (int)q;
 
         if(!p.rd(1))
             continue;
 
         const uint64_t vpairs = p.rd(1);
-        walk_count(p, (size_t)p.rd(1), vpairs ? 5 : 4);
+        const size_t at = p.pos + 1;
+        const size_t n = (size_t)p.rd(1);
+        walk_count(p, n, vpairs ? 5 : 4);
+
+        // the hook gets these InitD (by their index byte when paired) as run arguments
+        if(zq_tape_inst_hook && !p.src && !p.bad)
+        {
+            long initd[8] = { 0 };
+
+            for(size_t e = 0; e < n; ++e)
+            {
+                const byte *b = p.d + at + e * (vpairs ? 5 : 4);
+                const size_t idx = vpairs ? b[0] : e;
+                const byte *vb = vpairs ? b + 1 : b;
+
+                if(idx < 8)
+                    initd[idx] = (long)(int32_t)((dword)vb[0] | ((dword)vb[1] << 8) | ((dword)vb[2] << 16) | ((dword)vb[3] << 24));
+            }
+
+            zq_tape_inst_hook("init.gen_initd", slot, initd, NULL, 0);
+        }
     }
 }
 
@@ -2022,30 +2072,37 @@ static void walk_gen_inst(TapeParser &p)
 
     for(size_t q = 0; q < count && !p.bad; ++q)
     {
-        if(pairs)
-            p.rskip(2);
+        const int slot = pairs ? (int)p.rd(2) : (int)q;
+        const size_t at = p.pos + 4;
+        const size_t n = (size_t)p.rd(4);
+        walk_count(p, n, 6);
 
-        walk_count(p, (size_t)p.rd(4), 6);
+        if(zq_tape_inst_hook && !p.src && !p.bad)
+            zq_tape_inst_hook("init.gen_inst", slot, NULL, p.d + at, n);
     }
 }
 
-static void walk_script_args(TapeParser &p)
+static void walk_script_args(TapeParser &p, const char *key, int slot)
 {
+    const size_t args_at = p.pos;
     const size_t n = (size_t)p.rd(2);
     p.rskip((n < 8 ? n : 8) * 4);
+    const size_t inst_at = p.pos;
     walk_count(p, (size_t)p.rd(2), 6);
+    zq_tape_raw_config_hook(p, key, slot, args_at, inst_at);
 }
 
-static void walk_script_array(TapeParser &p, size_t capacity)
+// one config per slot, the slot being its index (as upstream's for_each_inst_init has them)
+static void walk_script_array(TapeParser &p, size_t capacity, const char *key)
 {
     const size_t n = (size_t)p.rd(2);
 
     for(size_t q = 0; q < n && q < capacity && !p.bad; ++q)
-        walk_script_args(p);
+        walk_script_args(p, key, (int)q);
 }
 
-static void walk_global_scripts(TapeParser &p) { walk_script_array(p, 8); }
-static void walk_hero_scripts(TapeParser &p) { walk_script_array(p, 5); }
+static void walk_global_scripts(TapeParser &p) { walk_script_array(p, 8, "init.global"); }
+static void walk_hero_scripts(TapeParser &p) { walk_script_array(p, 5, "init.hero"); }
 
 // before v37: the generic scripts, one record per slot that has data
 static void walk_old_generic(TapeParser &p)

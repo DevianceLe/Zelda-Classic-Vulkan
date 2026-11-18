@@ -1,4 +1,4 @@
-ZC Vulkan 2.53.444.7
+ZC Vulkan 2.53.444.8
 Windows, 32-bit
 
 The Zelda Classic 2.53 player and the ZQuest 2.53 quest editor, ported to SDL3
@@ -6,8 +6,10 @@ and Vulkan, with no Allegro. Both work with existing 2.53 quests, and the player
 also plays quests made in 2.55 and the 3.0 Nightly builds. This is a new port,
 so keep backups of any quest you care about.
 
-  zplayer.exe    the game
-  zqeditor.exe   ZQuest, the quest editor
+  zplayer.exe        the game
+  zqeditor.exe       ZQuest, the quest editor
+  zscript255.exe     the 2.55.17 ZScript compiler (headers in zscript255_files)
+  zscript30\         the 3.0 Nightly ZScript compiler and its headers
 
 What's new
 - Vulkan rendering, with window sizes, resolutions, scaling and fullscreen modes
@@ -46,8 +48,11 @@ In ZQuest, use File > Open and browse to a .qst file. Etc > Video Settings has
 the display options. The ZScript headers (std.zh, the std_zh folder, string.zh
 and others) are included.
 
-ZQuest edits quests up to 2.53.1. Until the 2.55/3.0 editor is finished, it
-refuses newer quests with a message and closes. They still play in zplayer.exe.
+ZQuest opens quests of every version up to 3.0 Nightly and saves each in the
+version it was made in (File > Save As can also save it as a newer version).
+For 2.55 and 3.0 Nightly quests, Quest > Scripts > Compile ZScript runs that
+version's own compiler: zscript255.exe for 2.55 quests and the one in the
+zscript30 folder for 3.0 Nightly quests. Keep them beside zqeditor.exe.
 
 Default player controls
   Arrows    Move
@@ -67,7 +72,7 @@ Credits and licenses
 Zelda Classic and ZQuest are by Armageddon Games and its contributors, and are
 licensed under GPLv3 (licenses/ZeldaClassic-GPL3.txt). This port is by
 Deviance. The complete source code is in the matching
-ZC-2.53.444.7-Vulkan-Source.zip.
+ZC-2.53.444.8-Vulkan-Source.zip.
 
 The ZC 3.0 Nightly intro uses the ZQuest Classic logo by Eduardc and the music
 "ZC Forever" by Beatscribe. Their terms are in assets\zc\LICENSE.txt and are

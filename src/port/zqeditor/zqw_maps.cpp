@@ -2440,8 +2440,17 @@ int write_maps_255(PACKFILE *f, const ZqPartContext &ctx)
             for(int j = 0; j < MAPSCRS && !any_changed; ++j)
                 any_changed = !screen_unchanged((size_t)i * MAPSCRS + j);
 
+        // the map's scrolling region ids as the region editor left them (zq_cpool.cpp); the
+        // reader keeps every valid map's, so an unedited map's come out as they were
+        const bool region_kept = v >= 31 && (size_t)i < q255_map_region_ids.size() && q255_map_region_ids[i].size() == 64;
+
         if(map_in_raw && (mh.valid || !any_changed))
+        {
             o.copy(body, head_at, head_end);
+
+            if(region_kept && mh.valid)
+                memcpy(&o.b[o.b.size() - 64], &q255_map_region_ids[i][0], 64);
+        }
         else
         {
             if(v > 22) o.p8(1);
@@ -2450,7 +2459,7 @@ int write_maps_255(PACKFILE *f, const ZqPartContext &ctx)
                 for(int q = 0; q < 6; ++q) o.p16(0);
                 if(v >= 36) o.p16(0);
             }
-            if(v >= 31) for(int q = 0; q < 64; ++q) o.p8(0);
+            if(v >= 31) for(int q = 0; q < 64; ++q) o.p8(region_kept ? q255_map_region_ids[i][q] : 0);
         }
 
         if(map_in_raw && !mh.valid && !any_changed)
@@ -2827,7 +2836,12 @@ int write_dmaps_255(PACKFILE *f, const ZqPartContext &ctx)
     In in(body, 0);
     const int old_count = in.g16();
     const int count = dmap_count(old_count < MAXDMAPS ? old_count : MAXDMAPS);
-    const int total = old_count > count ? old_count : count;
+    int total = old_count > count ? old_count : count;
+
+    // an imported DMap past the file's last one (zq255_dmap_commit) goes in as its record
+    if(!zq255.dmap_records.empty() && zq255.dmap_records.rbegin()->first >= total)
+        total = zq255.dmap_records.rbegin()->first + 1;
+
     Out o;
     o.p16((word)total);
     size_t pos = 2;
@@ -3052,6 +3066,95 @@ bool screen_raw(size_t index, std::vector<byte> &rec, word &v)
 // ---- the record editor's access (zq_record_editor.cpp) ---------------------------------
 
 // DMap i's record as it stands (edited, or as loaded) and the section version.
+// Every DMap record zq255_dmap_record gives, read in one pass (zq_compile.cpp's walk).
+bool zq255_dmap_records_all(std::vector<std::vector<byte> > &recs, int *version)
+{
+    std::vector<byte> orig, body;
+    std::vector<size_t> rec_at;
+    word v = 0;
+    recs.clear();
+
+    if(!dmap_layout(orig, body, v, rec_at))
+        return false;
+
+    if(version)
+        *version = v;
+
+    for(int i = 0; i < MAXDMAPS && i + 1 < (int)rec_at.size(); ++i)
+    {
+        std::map<int, std::vector<byte> >::const_iterator it = zq255.dmap_records.find(i);
+        recs.push_back(it != zq255.dmap_records.end() ? it->second :
+                       std::vector<byte>(body.begin() + rec_at[i], body.begin() + rec_at[i + 1]));
+    }
+
+    return true;
+}
+
+// Every screen record the file has (as zq255_screen_record gives them), read in one pass.
+bool zq255_screen_records_all(std::vector<std::vector<byte> > &recs, int *version)
+{
+    recs.clear();
+    const ZqQuestPart *part = find_part(ID_MAPS);
+    std::vector<byte> orig;
+
+    if(!part || header.zelda_version != 0x255 || !part_bytes(*part, orig) || orig.size() < 10)
+        return false;
+
+    const word v = (word)(orig[0] | (orig[1] << 8));
+
+    if(v < 18 || v > 41)
+        return false;
+
+    if(version)
+        *version = v;
+
+    const std::vector<byte> body(orig.begin() + 8, orig.end());
+    In in(body, 0);
+    const int maps = in.g16();
+    mapscr scratch;
+
+    for(int i = 0; i < maps; ++i)
+    {
+        byte valid = 1;
+        word autolayers[6] = { 0, 0, 0, 0, 0, 0 };
+        word autopalette = 0;
+
+        if(v > 22)
+            valid = in.g8();
+
+        if(valid)
+        {
+            if(v > 25)
+            {
+                for(int q = 0; q < 6; ++q) autolayers[q] = in.g16();
+                if(v >= 36) autopalette = in.g16();
+            }
+
+            if(v >= 31)
+                in.skip(64);
+        }
+
+        if(in.bad)
+            return false;
+
+        if(!valid)
+            continue;
+
+        for(int j = 0; j < MAPSCRS; ++j)
+        {
+            const size_t used = read_screen_255(body, in.pos, v, j, autolayers, autopalette, scratch);
+
+            if(!used)
+                return false;
+
+            recs.push_back(std::vector<byte>(body.begin() + in.pos, body.begin() + in.pos + used));
+            in.pos += used;
+        }
+    }
+
+    return true;
+}
+
 bool zq255_dmap_record(int i, std::vector<byte> &rec, int *version)
 {
     std::vector<byte> orig, body;
@@ -3082,24 +3185,44 @@ bool zq255_dmap_commit(int i, const std::vector<byte> &rec, std::string &why)
     std::vector<size_t> rec_at;
     word v = 0;
 
-    if(i < 0 || i >= MAXDMAPS || !dmap_layout(orig, body, v, rec_at) || i + 1 >= (int)rec_at.size())
+    if(i < 0 || i >= MAXDMAPS || !dmap_layout(orig, body, v, rec_at))
     {
         why = "this quest's DMaps can't be edited this way";
         return false;
     }
 
-    std::vector<byte> sec(body.begin(), body.begin() + 2);
+    // A DMap past the file's last one (an import): the DMaps between go in as they stand (an
+    // edited record, or ZQuest's DMap encoded), as the writer will write them.
+    const int in_file = (int)rec_at.size() - 1;
+    const int n = i + 1 > in_file ? i + 1 : in_file;
+    std::vector<byte> sec;
+    sec.push_back((byte)n);
+    sec.push_back((byte)(n >> 8));
 
-    for(size_t k = 0; k + 1 < rec_at.size(); ++k)
+    for(int k = 0; k < n; ++k)
     {
-        std::map<int, std::vector<byte> >::const_iterator it = zq255.dmap_records.find((int)k);
+        std::map<int, std::vector<byte> >::const_iterator it = zq255.dmap_records.find(k);
 
-        if((int)k == i)
+        if(k == i)
             sec.insert(sec.end(), rec.begin(), rec.end());
         else if(it != zq255.dmap_records.end())
             sec.insert(sec.end(), it->second.begin(), it->second.end());
-        else
+        else if(k < in_file)
             sec.insert(sec.end(), body.begin() + rec_at[k], body.begin() + rec_at[k + 1]);
+        else
+        {
+            dmap blank;
+            blank_dmap_253(blank);
+            Out o;
+
+            if(!put_dmap_255(o, v, DMaps[k], blank, std::vector<byte>(), false))
+            {
+                why = "a DMap before it can't be laid out in this version";
+                return false;
+            }
+
+            sec.insert(sec.end(), o.b.begin(), o.b.end());
+        }
     }
 
     sec.insert(sec.end(), body.begin() + rec_at.back(), body.end());
@@ -3255,5 +3378,120 @@ bool zq255_test_lens_edit(int index, int show)
     e.value = show;
     zq255.screen_fields[index]["lens_show"] = e;
     zq255_screen_fields_sync(index, false, true);
+    return true;
+}
+
+// ---- .zdmap files: export and import (zq_exports.cpp) -------------------------------------
+//
+// A .zdmap file holds DMaps as the DMap section does, one record after another (upstream's
+// write_one_dmap, read_one_dmap), with the section's version and cversion in its header.
+
+// DMaps first..last as a .zdmap file holds them: each one's record in the DMap section's own
+// version as the quest's own save writes it now. DMaps past the section's last one are blank
+// (blank when loaded, and unchanged since: the save writes any changed one) and are encoded as
+// they stand in that version. version, cversion: the section's.
+bool zq255_dmap_export(int first, int last, std::vector<byte> &recs, word *version, word *cversion, std::string &why)
+{
+    const ZqQuestPart *part = find_part(ID_DMAPS);
+    std::vector<byte> all;
+    recs.clear();
+
+    if(!part || header.zelda_version != 0x255 || !zq_own_part_bytes(*part, all) || all.size() < 10)
+    {
+        why = "this quest's DMaps couldn't be read";
+        return false;
+    }
+
+    const word v = (word)(all[0] | (all[1] << 8));
+
+    if(v < 9 || v > 28)
+    {
+        why = "this quest's DMaps aren't in a format a .zdmap file holds";
+        return false;
+    }
+
+    const std::vector<byte> body(all.begin() + 8, all.end());
+    const int n = body[0] | (body[1] << 8);
+    std::vector<size_t> at;
+    size_t pos = 2;
+    dmap d;
+
+    for(int i = 0; i < n; ++i)
+    {
+        size_t end = 0;
+        at.push_back(pos);
+
+        if(!read_dmap_255(body, pos, v, &end, d))
+        {
+            why = "a DMap of this quest's DMap section couldn't be read";
+            return false;
+        }
+
+        pos = end;
+    }
+
+    at.push_back(pos);
+
+    for(int i = first; i <= last && i < MAXDMAPS; ++i)
+    {
+        if(i < n)
+        {
+            recs.insert(recs.end(), body.begin() + at[i], body.begin() + at[i + 1]);
+            continue;
+        }
+
+        dmap blank, got;
+        blank_dmap_253(blank);
+        Out o;
+        size_t back = 0;
+
+        if(!put_dmap_255(o, v, DMaps[i], blank, std::vector<byte>(), false) || !read_dmap_255(o.b, 0, v, &back, got) ||
+           back != o.b.size() || !same_dmap(DMaps[i], got, false))
+        {
+            char b[64];
+            snprintf(b, sizeof(b), "DMap %d can't be written in this quest's version", i);
+            why = b;
+            return false;
+        }
+
+        recs.insert(recs.end(), o.b.begin(), o.b.end());
+    }
+
+    *version = v;
+    *cversion = (word)(all[2] | (all[3] << 8));
+    return true;
+}
+
+// The DMap section's version of the open quest (0: not a 2.55 / 3.0 DMap section).
+int zq255_dmap_version()
+{
+    std::vector<byte> orig, body;
+    std::vector<size_t> rec_at;
+    word v = 0;
+    return dmap_layout(orig, body, v, rec_at) ? v : 0;
+}
+
+// n DMap records of version v laid end to end (a .zdmap file's), split from data[at...]; false if
+// they don't read as that version.
+bool zq255_dmap_split(const std::vector<byte> &data, size_t at, word v, int n, std::vector<std::vector<byte> > &recs)
+{
+    recs.clear();
+
+    if(v < 9 || v > 28)
+        return false;
+
+    dmap d;
+
+    for(int i = 0; i < n; ++i)
+    {
+        size_t end = 0;
+
+        if(!read_dmap_255(data, at, v, &end, d))
+            return false;
+
+        recs.push_back(std::vector<byte>(data.begin() + at, data.begin() + end));
+        at = end;
+    }
+
     return true;
 }

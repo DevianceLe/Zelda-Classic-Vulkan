@@ -416,7 +416,7 @@ void dump_loaded_data()
                      m.sidewarpdmap[i], m.sidewarpscr[i], m.sidewarptype[i]);
         al_trace("dump: sidewarpindex %d item %d hasitem %d at %d,%d catchall %d enemyflags %x\n", m.sidewarpindex, mapscr_item(&m), m.hasitem,
                  m.itemx, m.itemy, m.catchall, m.enemyflags);
-        for(int i = 0; i < 32; ++i)
+        for(int i = 0; i < m.ffc_count(); ++i)
             if(m.ffscript[i] || m.ffdata[i])
                 al_trace("dump: ffc %d data %d script %d flags %lx x %ld y %ld vx %ld vy %ld ax %ld ay %ld delay %d link %d combo type %d initd %ld %ld %ld %ld %ld %ld %ld %ld\n", i, m.ffdata[i], m.ffscript[i], (unsigned long)m.ffflags[i],
                          (long)m.ffx[i], (long)m.ffy[i], (long)m.ffxdelta[i], (long)m.ffydelta[i], (long)m.ffxdelta2[i], (long)m.ffydelta2[i], m.ffdelay[i], m.fflink[i], combobuf[m.ffdata[i]].type,
@@ -465,7 +465,7 @@ void dump_loaded_data()
                 continue;
             char ffcs[120];
             ffcs[0] = 0;
-            for(int k = 0; k < 32; ++k)
+            for(int k = 0; k < m.ffc_count(); ++k)
                 if(m.ffscript[k] && strlen(ffcs) < 100)
                     sprintf(ffcs + strlen(ffcs), " %d", m.ffscript[k]);
             al_trace("strscr map %d scr %d: str %d room %d guy %d timed %d flags3 %x side0 dmap %d scr %d type %d | ffc%s | dmaps", i / MAPSCRS, i % MAPSCRS, m.str, m.room, m.guy, m.timedwarptics, m.flags3,
@@ -515,7 +515,7 @@ void dump_loaded_data()
         {
             const mapscr &m = TheMaps[n];
             if(!(m.valid & mVALID)) continue;
-            for(int i = 0; i < 32; ++i)
+            for(int i = 0; i < m.ffc_count(); ++i)
                 for(int j = 0; j < 8 && m.ffscript[i]; ++j)
                     for(size_t w = 0; w < want.size(); ++w)
                         if(m.initd[i][j] == want[w] * 10000)
@@ -546,7 +546,7 @@ void dump_loaded_data()
         const mapscr &m = TheMaps[at];
         char ffcs[120];
         ffcs[0] = 0;
-        for(int k = 0; k < 32; ++k)
+        for(int k = 0; k < m.ffc_count(); ++k)
             if(m.ffscript[k] && strlen(ffcs) < 100)
                 sprintf(ffcs + strlen(ffcs), " %d", m.ffscript[k]);
         al_trace("chain scr %d: valid %x str %d timed %d flags3 %x flags4 %x flags5 %x side0 dmap %d scr %d type %d | side1 dmap %d scr %d | ffc%s\n",
@@ -583,7 +583,7 @@ void dump_loaded_data()
             for(size_t p = 0; p < m.data.size(); ++p)
                 ++combos[q30_combo_type(m.data[p])];
 
-            for(int i = 0; i < 32; ++i)
+            for(int i = 0; i < m.ffc_count(); ++i)
                 if(m.ffdata[i])
                     ++ffcs[q30_combo_type(m.ffdata[i])];
 

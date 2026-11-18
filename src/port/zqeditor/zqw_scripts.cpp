@@ -13,6 +13,8 @@
 //     written from ZQuest's copy of it; a slot can only keep its stub, or lose its script.
 //   Slots 2.53 has no place for (global 4-7, hero, weapon, DMap, combo, generic and
 //     subscreen scripts), their name tables, and the debugger's tables are copied.
+// A compile assigned in ZQuest's compile dialog (zq_compile.cpp) replaces all of this: the
+// section is then written whole, in the format of the quest's generation.
 // What these can't hold, and the save refuses: 2.53 code in a 3.0 quest's slots, a 3.0
 // script given back to a slot that had none, and Link scripts in a 2.55 or 3.0 quest (the
 // 2.55 reader doesn't give them to 2.53's Link slots).
@@ -31,6 +33,7 @@
 #include "zq_sections.h"
 #include "zq_writers.h"
 #include "zqw_init.h"
+#include "zq_compile.h"
 
 extern ffscript *ffscripts[512];
 extern ffscript *itemscripts[256];
@@ -949,6 +952,23 @@ int write_ffscript(PACKFILE *f, const ZqPartContext &ctx)
 {
     const int v = ctx.version;
     bool q255 = ctx.zelda_version >= 0x255;
+
+    // Scripts compiled and assigned in ZQuest (zq_compile.cpp) since the load: the whole section
+    // as the quest's generation writes it after a compile (2.55.17's version 22, 3.0's 31),
+    // with the script buffer and slot names as they are now.
+    if(q255 && zq_compile_pending())
+    {
+        std::vector<byte> sec;
+        std::string reason;
+
+        if(!zq_compile_section(sec, reason))
+            return cant_hold(zq_part_name(*ctx.part), reason);
+
+        if(pack_fwrite(&sec[0], (long)sec.size(), f) != (long)sec.size())
+            return 1;
+
+        return ZQW_OK;
+    }
 
     if(header_is_253(ctx) && v == V_FFSCRIPT && ctx.cversion == CV_FFSCRIPT)
         return ZQW_UNSUPPORTED;

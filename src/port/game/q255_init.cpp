@@ -443,7 +443,16 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
     temp.hcp_per_hc = s.getc();
     word cont_heart = s.igetw();
     byte hp_per_heart = s.getc();
-    s.skip(1);  // magic per block
+    byte magic_per_block = s.getc();
+
+    if(s.keep)
+    {
+        // what upstream's gauge widgets count per container (subscr.cpp newer_gauge)
+        extern int q255_gauge_hp_per_heart, q255_gauge_magic_per_block;
+        q255_gauge_hp_per_heart = hp_per_heart ? hp_per_heart : 16;
+        q255_gauge_magic_per_block = magic_per_block;
+    }
+
     s.skip(2);  // Link and enemy damage multipliers
     read_init_light(s, 6);  // dither, light radius, transdark, darkness colour
 
@@ -1002,6 +1011,54 @@ static void skip_sprites(Q255Section &s, int count)
     s.skip((size_t)count * sprite_size(s));
 }
 
+// The 2.55/3.0 hero sprites the player draws (upstream's drowningspr, drowning_lavaspr,
+// fallingspr, liftingspr with its frame counts, liftingwalkspr and revslashspr), read with the
+// rest of the set; link.cpp picks them through q255_hero_sprite.
+static int g_hero_spr[Q255HS_MAX][4][3];
+static int g_lift_frames[4];
+
+const int *q255_hero_sprite(int set, int dir)
+{
+    if(set < 0 || set >= Q255HS_MAX || dir < 0 || dir > 3)
+        return NULL;
+
+    return g_hero_spr[set][dir];
+}
+
+int q255_hero_lift_frames(int dir)
+{
+    return (dir < 0 || dir > 3) ? 1 : zc_max(1, zc_min(255, g_lift_frames[dir]));
+}
+
+// v7+: 23 four-direction sets, the ones drawn here kept (lifting has a frame count after each).
+static void get_newer_sets(Q255Section &s)
+{
+    static const signed char keep_as[23] =
+    {
+        -1, -1, -1, -1, -1, -1, -1, -1,     // frozen, frozen water, on fire, on fire water, digging, rod, cane, pushing
+        Q255HS_LIFTING, Q255HS_LIFTWALK,
+        -1, -1,                             // stunned, stunned water
+        Q255HS_DROWN, Q255HS_LAVADROWN, Q255HS_FALLING,
+        -1, -1, -1, -1, -1, -1, -1, -1      // shocked, shocked water, pull sword, reading, slash 180, slash Z4, dash, bonk
+    };
+    int dummy[3];
+
+    for(int set = 0; set < 23 && !s.failed; ++set)
+    {
+        for(int d = 0; d < 4; ++d)
+        {
+            get_sprite(s, keep_as[set] >= 0 ? g_hero_spr[(int)keep_as[set]][d] : dummy);
+
+            if(set == 8 && s.version > 15)
+            {
+                byte frames = s.getc();
+                if(s.keep && !s.failed)
+                    g_lift_frames[d] = frames;
+            }
+        }
+    }
+}
+
 int q255_read_linksprites(Q255Section &s)
 {
     if(s.version < 5 || s.version > 16)
@@ -1013,6 +1070,8 @@ int q255_read_linksprites(Q255Section &s)
     {
         zinit.link_swim_speed = 67; //default
         setuplinktiles(zinit.linkanimationstyle);
+        memset(g_hero_spr, 0, sizeof(g_hero_spr));
+        memset(g_lift_frames, 0, sizeof(g_lift_frames));
     }
 
     get_sprites(s, walkspr, 4);
@@ -1039,9 +1098,16 @@ int q255_read_linksprites(Q255Section &s)
         zinit.link_swim_speed = swim_speed;
 
     if(v > 6)
-        skip_sprites(s, 23 * 4 + 3);    // 23 four-direction sets, 3 medallion sprites
-    if(v > 15)
-        s.skip(4);                      // lifting sprite frame counts, one byte each
+    {
+        get_newer_sets(s);
+        skip_sprites(s, 3);             // 3 medallion sprites
+    }
+    else if(s.keep)
+    {
+        // as upstream: no newer sets, and drowning (on land or in lava) uses the diving sprites
+        memcpy(g_hero_spr[Q255HS_DROWN], divespr, sizeof(divespr));
+        memcpy(g_hero_spr[Q255HS_LAVADROWN], divespr, sizeof(divespr));
+    }
     if(v > 8)
         skip_sprites(s, 4);             // sideswim
     if(v > 9)
@@ -1055,9 +1121,18 @@ int q255_read_linksprites(Q255Section &s)
     if(v > 13)
         skip_sprites(s, 4);             // side drowning
     if(v > 14)
-        skip_sprites(s, 4);             // reverse slash
+    {
+        for(int d = 0; d < 4; ++d)      // reverse slash
+            get_sprite(s, g_hero_spr[Q255HS_REVSLASH][d]);
+    }
     if(v > 7)
         s.skip(146);                    // Link defenses (wMax when the format was set)
+
+    if(s.keep && getenv("ZC_Q30_TRACE"))   // diagnostics: the newer sprite sets as read
+        for(int set = 0; set < Q255HS_MAX; ++set)
+            al_trace("q255: hero sprite set %d (v%d): tiles %d %d %d %d, extend %d, lift frames %d, dive %d\n", set, v,
+                     g_hero_spr[set][0][spr_tile], g_hero_spr[set][1][spr_tile], g_hero_spr[set][2][spr_tile],
+                     g_hero_spr[set][3][spr_tile], g_hero_spr[set][0][spr_extend], g_lift_frames[0], divespr[0][spr_tile]);
 
     return s.failed ? qe_invalid : 0;
 }
@@ -1250,6 +1325,23 @@ static void put_sub_cset(subscreen_object &t, const SubColor255 &c)
     t.color1 = c.color;
 }
 
+// q255_widget_object: converting a widget as the player draws it, for ZQuest's subscreen layout
+// editor, which draws it the same way (fonts past 2.53's, counters past 32, items past 255, newer
+// minimap titles and item slots, disabled widgets). The player always converts that way.
+static bool g_widget_draw = false;
+
+#ifdef ZC_PLAYER_BUILD
+static inline bool player_widgets()
+{
+    return true;
+}
+#else
+static inline bool player_widgets()
+{
+    return g_widget_draw;
+}
+#endif
+
 // Upstream stores its font ids; 2.53 wants its own ssf numbers.
 static int sub_font(long font)
 {
@@ -1301,8 +1393,9 @@ static int sub_font(long font)
         return ssfPROP;
     }
 
-    // The player draws every other font upstream has (ss_font); ZQuest keeps the default.
-    if(!q255_keep_for_editor && font >= 0 && font < Q30_FONT_COUNT)
+    // The player draws every other font upstream has (ss_font); ZQuest keeps the default, except
+    // where its subscreen layout editor draws a widget as the player does.
+    if((!q255_keep_for_editor || g_widget_draw) && font >= 0 && font < Q30_FONT_COUNT)
         return Q30_SSF_FONTS + (int)font;
 
     return ssfZELDA;
@@ -1341,15 +1434,17 @@ static int sub_counter(long ctr)
     if(ctr >= 7 && ctr <= 31)
         return sscSCRIPT1 + (int)(ctr - 7);
 
-#ifdef ZC_PLAYER_BUILD
     // the player's counter() shows any other counter as Q30_SSC_COUNTER + its number: life (0),
     // magic (4) and counters 32-106 (upstream's crCUSTOM26 and up)
-    if(ctr == 0 || ctr == 4 || (ctr >= 32 && ctr < Q30_MAX_COUNTERS))
+    if(player_widgets() && (ctr == 0 || ctr == 4 || (ctr >= 32 && ctr < Q30_MAX_COUNTERS)))
         return Q30_SSC_COUNTER + (int)ctr;
-#endif
 
     return -1;
 }
+
+// The quest's HP per heart and magic per block (init data), for the gauge widgets.
+int q255_gauge_hp_per_heart = 16;
+int q255_gauge_magic_per_block = 32;
 
 static int sub_tile(long tile)
 {
@@ -1372,11 +1467,8 @@ static int sub_minitile(long tilecrn)
 // keeps a newer quest's items past 255 too; ZQuest's subscreen writer holds 2.53's.)
 static int sub_item(long item)
 {
-#ifdef ZC_PLAYER_BUILD
-    return (item < 0 || item >= Q30_MAXITEMS) ? 0 : (int)item;
-#else
-    return (item < 0 || item >= MAXITEMS) ? 0 : (int)item;
-#endif
+    const long items = player_widgets() ? Q30_MAXITEMS : MAXITEMS;
+    return (item < 0 || item >= items) ? 0 : (int)item;
 }
 
 // SubscrTransition::read
@@ -1554,14 +1646,22 @@ static void read_gauge(Q255Section &s, const SubWidget255 &b, subscreen_object &
     }
 
     word container = s.igetw();
-    s.skip(1);      // units per frame
+    byte unit_per_frame = s.getc();
     byte wid = s.getc();
     byte hei = s.getc();
+    byte hspace = 0, vspace = 0;
+    short grid_xoff = 0, grid_yoff = 0;
+    word anim_val = 0;
 
     if(wid || hei)
-        s.skip(1 + 1 + 2 + 2);  // grid spacing and offsets
+    {
+        hspace = s.getc();
+        vspace = s.getc();
+        grid_xoff = (short)s.igetw();
+        grid_yoff = (short)s.igetw();
+    }
     if(!no_anim)
-        s.skip(2);              // animation value
+        anim_val = s.igetw();
     if(!no_inf)
         s.skip(s.version < 18 ? 2 : 4); // infinite item
 
@@ -1578,6 +1678,31 @@ static void read_gauge(Q255Section &s, const SubWidget255 &b, subscreen_object &
     t.d7 = speed;
     t.d8 = delay;
     t.d10 = (int)(b.flags & 0x1F);  // MOD1-4, UNQLAST: the same bits as 2.53's d10
+
+    // Upstream's gauge piece (SW_GaugePiece::draw) beyond 2.53's: a grid of containers, full
+    // tiles, units per frame, animation and the new tile layout. subscr.cpp draws an object with
+    // SSO_GAUGE_NEWER set that way; the grid and the rest go in fields gauges don't use.
+#ifdef ZC_PLAYER_BUILD
+    // Player only: ZQuest keeps 2.53's gauge fields, which its SUBS writer encodes.
+    extern bool q255_old_gauge_layout();
+    t.d10 = (int)(b.flags & 0xF3FF) | SSO_GAUGE_NEWER | (q255_old_gauge_layout() ? 0 : SSO_GAUGE_NEWLAYOUT) |
+            ((int)unit_per_frame << 24);
+    t.frames = wid;
+    t.speed = hei;
+    t.delay = hspace;
+    t.colortype3 = vspace;
+    t.color3 = grid_xoff;
+    t.frame = (word)grid_yoff;
+    t.d9 = (int)anim_val << 16;     // the magic gauge's "show" goes in the low half
+#else
+    (void)unit_per_frame; (void)hspace; (void)vspace; (void)grid_xoff; (void)grid_yoff; (void)anim_val;
+#endif
+
+    static const bool sublog = getenv("ZC_Q30_SUBLOG") != NULL;     // diagnostics only
+    if(sublog && s.keep)
+        al_trace("q30 gauge at %d,%d: tiles %ld %ld %ld %ld frames %d container %d upf %d grid %dx%d space %d,%d offs %d,%d flags 0x%lx\n", b.x, b.y,
+                 tiles[0], tiles[1], tiles[2], tiles[3], (int)frames, (int)container, (int)unit_per_frame, (int)wid, (int)hei, (int)hspace, (int)vspace,
+                 (int)grid_xoff, (int)grid_yoff, (unsigned long)b.flags);
 }
 
 // Font, alignment and shadow style, which most text widgets start with.
@@ -1753,17 +1878,19 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
         get_sub_colors(s, c, 3);
         put_sub_colors(t, c);
         t.d4 = f1;          // needs the map
-#ifdef ZC_PLAYER_BUILD
-        // upstream's own drawing (subscr.cpp): d5 marks a newer quest's title, d6 its one line
-        // (2) and word wrap (1) flags, d7 the tab size. Player only: ZQuest's subscreen writer
-        // turns these objects back into widgets and holds no such values.
-        t.d5 = 1;
-        t.d6 = (f2 ? 2 : 0) | (f4 ? 1 : 0);
-        t.d7 = s.version >= 10 ? s.getc() : 4;
-#else
-        if(s.version >= 10)
+
+        if(player_widgets())
+        {
+            // upstream's own drawing (subscr.cpp): d5 marks a newer quest's title, d6 its one line
+            // (2) and word wrap (1) flags, d7 the tab size. Not in ZQuest's own view: its
+            // subscreen writer turns these objects back into widgets and holds no such values.
+            t.d5 = 1;
+            t.d6 = (f2 ? 2 : 0) | (f4 ? 1 : 0);
+            t.d7 = s.version >= 10 ? s.getc() : 4;
+        }
+        else if(s.version >= 10)
             s.skip(1);      // tab size
-#endif
+
         break;
 
     case WIDG_MMAP:
@@ -1812,14 +1939,17 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
         t.d5 = selectable ? b.pos_down : -1;
         t.d6 = selectable ? b.pos_left : -1;
         t.d7 = selectable ? b.pos_right : -1;
-#ifdef ZC_PLAYER_BUILD
-        // the player: any item of the quest (256 and up too), and in d9 whether the slot ignores
-        // the special displays (upstream's SUBSCR_CURITM_IGNR_SP_DISPLAY) for q30_subscreen_item
-        t.d8 = (iid >= 0 && iid < Q30_MAXITEMS) ? (int)iid + 1 : 0;
-        t.d9 = (b.flags & 8) ? 1 : 0;
-#else
-        t.d8 = (iid >= 0 && iid < MAXITEMS) ? (int)iid + 1 : 0;
-#endif
+        if(player_widgets())
+        {
+            // the player: any item of the quest (256 and up too), and in d9 whether the slot
+            // ignores the special displays (upstream's SUBSCR_CURITM_IGNR_SP_DISPLAY) for
+            // q30_subscreen_item
+            t.d8 = (iid >= 0 && iid < Q30_MAXITEMS) ? (int)iid + 1 : 0;
+            t.d9 = (b.flags & 8) ? 1 : 0;
+        }
+        else
+            t.d8 = (iid >= 0 && iid < MAXITEMS) ? (int)iid + 1 : 0;
+
         // a class 2.53 has no family for (bottles, lanterns...): kept + 1 for q30_subscreen_item,
         // which picks the item the way upstream does; 2.53 never reads d10 of this object
         t.d10 = (iclass >= itype_max) ? (int)iclass + 1 : 0;
@@ -1922,7 +2052,7 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
         read_gauge(s, b, t);
         short show = s.igetw_s();
         // -1 is "always" in the new format, 2.53 uses 0 for that
-        t.d9 = show == -1 ? 0 : show;
+        t.d9 |= (show == -1 ? 0 : show) & 0xFFFF;
         break;
     }
 
@@ -1971,7 +2101,9 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
         break;
     }
 
-    return convert && !b.disabled && !s.failed;
+    // a widget disabled by script: the player draws nothing; ZQuest's layout editor draws it, as
+    // upstream's editor does (its conditions only apply in the player)
+    return convert && (!b.disabled || g_widget_draw) && !s.failed;
 }
 
 static void store_sub_object(subscreen_group &g, int &count, subscreen_object t, const std::string &text)
@@ -2024,6 +2156,86 @@ size_t q255_widget_extent(const byte *data, size_t size, int version, byte type)
     return s.failed ? 0 : s.pos;
 }
 
+// For ZQuest's subscreen layout editor (zq_subscr_layout.cpp): one widget of a version 8+ section
+// (data from just after its type byte) as the 2.53 object the player draws it as, converted the
+// way the player's load converts a page's widgets (player_widgets), with the fonts the player
+// draws. False when there is nothing to draw (a type 2.53 has no object for); a widget disabled
+// by script is drawn, as upstream's editor draws it. *extent: the widget's size, 0 if it doesn't
+// read. *sel_pos: its cursor position when it is selectable, else -1; *seltext: its selected text
+// override (q30_sub_selected_text). The globals a load fills are left as they were.
+bool q255_widget_object(const byte *data, size_t size, int version, byte type, subscreen_object &t, std::string &text,
+                        size_t *extent, int *sel_pos, std::string *seltext_out)
+{
+    if(extent)
+        *extent = 0;
+    if(sel_pos)
+        *sel_pos = -1;
+    if(seltext_out)
+        seltext_out->clear();
+
+    memset(&t, 0, sizeof(subscreen_object));
+    text.clear();
+
+    if(!data || !size)
+        return false;
+
+    const SubWidget255 last = g_sub_last;
+    const std::string label = g_sub_label, seltext = g_sub_seltext;
+    const Q30SubCond cond = g_sub_cond;
+    const Q30SubTrans trans = g_sub_widget_trans;
+    Q255Section s;
+    s.data = data;
+    s.size = size;
+    s.version = (word)version;
+    s.keep = false;
+    memset(&g_sub_last, 0, sizeof(g_sub_last));
+    g_widget_draw = true;
+    const bool drawn = read_widget(s, type, t, text);
+    g_widget_draw = false;
+
+    if(!s.failed && (g_sub_last.genflags & WIDG_SELECTABLE))
+    {
+        if(sel_pos)
+            *sel_pos = g_sub_last.pos;
+        if(seltext_out)
+            *seltext_out = g_sub_seltext;
+    }
+
+    g_sub_last = last;
+    g_sub_label = label;
+    g_sub_seltext = seltext;
+    g_sub_cond = cond;
+    g_sub_widget_trans = trans;
+
+    if(s.failed)
+        return false;
+
+    if(extent)
+        *extent = s.pos;
+
+    return drawn;
+}
+
+// SubscrPage::read's change transitions (version 16 on): buttons, mode, target and flags, then
+// the transition, for each.
+static void read_page_transitions(Q255Section &s)
+{
+    byte transitions = s.getc();
+
+    for(int i = 0; i < transitions && !s.failed; ++i)
+    {
+        byte btns = s.getc(), mode = s.getc(), targ = s.getc(), flags = s.getc();
+        Q30SubTrans tr;
+        read_sub_transition(s, &tr);
+
+        if(s.keep && !s.failed)
+        {
+            q30_sub_page_trans(g_sub_list, btns, mode, targ, flags);
+            q30_sub_trans(g_sub_list, 0, tr);
+        }
+    }
+}
+
 static void read_sub_page(Q255Section &s, subscreen_group *dest, bool first)
 {
     const long cursor_pos = s.igetl_s();
@@ -2059,8 +2271,8 @@ static void read_sub_page(Q255Section &s, subscreen_group *dest, bool first)
 
         static const bool sublog = getenv("ZC_Q30_SUBLOG") != NULL;     // diagnostics only
         if(sublog && s.keep && (b.genflags & WIDG_SELECTABLE) && (g_sub_list == 0 || g_sub_list == 3))
-            al_trace("q30 subscreen: list %d widget type %d at %d,%d: pos %d up %d down %d left %d right %d\n", g_sub_list, ty, b.x, b.y,
-                     b.pos, b.pos_up, b.pos_down, b.pos_left, b.pos_right);
+            al_trace("q30 subscreen: list %d widget type %d at %d,%d: pos %d up %d down %d left %d right %d flags 0x%lx\n", g_sub_list, ty, b.x, b.y,
+                     b.pos, b.pos_up, b.pos_down, b.pos_left, b.pos_right, (unsigned long)b.flags);
         if(sublog && s.keep && (g_sub_list == 1 || g_sub_list == 2))
             al_trace("q30 subscreen: list %d widget type %d at %d,%d size %dx%d posflags 0x%x flags 0x%lx genflags 0x%lx obj %d\n", g_sub_list, ty,
                      b.x, b.y, b.w, b.h, b.posflags, (unsigned long)b.flags, (unsigned long)b.genflags, obj);
@@ -2119,22 +2331,21 @@ static void read_sub_page(Q255Section &s, subscreen_group *dest, bool first)
     }
 
     if(s.version >= 16)
-    {
-        byte transitions = s.getc();
+        read_page_transitions(s);
+}
 
-        for(int i = 0; i < transitions && !s.failed; ++i)
-        {
-            byte btns = s.getc(), mode = s.getc(), targ = s.getc(), flags = s.getc();
-            Q30SubTrans tr;
-            read_sub_transition(s, &tr);
-
-            if(s.keep && !s.failed)
-            {
-                q30_sub_page_trans(g_sub_list, btns, mode, targ, flags);
-                q30_sub_trans(g_sub_list, 0, tr);
-            }
-        }
-    }
+// For ZQuest's subscreen layout editor (zq_subscr_layout.cpp): how many bytes a page's change
+// transitions take (version 16 on: their count, then each), from just after the page's last
+// widget; 0 if they don't read.
+size_t q255_page_trans_extent(const byte *data, size_t size, int version)
+{
+    Q255Section s;
+    s.data = data;
+    s.size = size;
+    s.version = (word)version;
+    s.keep = false;
+    read_page_transitions(s);
+    return s.failed ? 0 : s.pos;
 }
 
 // Empty slots end 2.53's search through the subscreens, so a kept one needs an object.
@@ -2144,26 +2355,41 @@ static void put_sub_placeholder(subscreen_group &g)
         g.objects[0].type = ssoNONE;
 }
 
-// ZCSubscreen::read. slot is where it goes in custom_subscreen, -1 if it isn't kept.
-static void read_new_subscreen(Q255Section &s, int slot, byte ss_type)
+// ZCSubscreen::read up to its page count: the name, file type, flags and (active and map
+// subscreens) the selector override, default and page buttons, page transitions and script.
+struct SubHead255
 {
-    std::string name = s.getcstr();
-    byte file_type = s.getc();
-    dword flags = s.igetl();
-    byte btn_left = 0, btn_right = 0;
+    std::string name;
+    byte file_type;
+    dword flags;
+    byte btn_left, btn_right;
+    // the A, B, X and Y buttons' slots on a new game (pos << 8 | page, page 255 for none;
+    // a page past the subscreen's last counts as none, as upstream checks once they're read)
+    word def_btns[4];
     Q30SubTrans trans_lr[2];
-    memset(trans_lr, 0, sizeof(trans_lr));
+};
 
-    if(file_type == 0 || file_type == 3)   // active and map subscreens
+static void read_sub_head(Q255Section &s, SubHead255 &h)
+{
+    h.name = s.getcstr();
+    h.file_type = s.getc();
+    h.flags = s.igetl();
+    h.btn_left = h.btn_right = 0;
+    for(int q = 0; q < 4; ++q)
+        h.def_btns[q] = 255;
+    memset(h.trans_lr, 0, sizeof(h.trans_lr));
+
+    if(h.file_type == 0 || h.file_type == 3)   // active and map subscreens
     {
-        if(flags & 2)                       // SUBFLAG_ACT_OVERRIDESEL
+        if(h.flags & 2)                     // SUBFLAG_ACT_OVERRIDESEL
             skip_selector_info(s);
 
-        s.skip(4 * 2);      // default buttons
-        btn_left = s.getc();    // page buttons
-        btn_right = s.getc();
-        read_sub_transition(s, &trans_lr[0]);
-        read_sub_transition(s, &trans_lr[1]);
+        for(int q = 0; q < 4; ++q)      // default buttons
+            h.def_btns[q] = s.igetw();
+        h.btn_left = s.getc();  // page buttons
+        h.btn_right = s.getc();
+        read_sub_transition(s, &h.trans_lr[0]);
+        read_sub_transition(s, &h.trans_lr[1]);
 
         if(s.version >= 21)
             skip_script_config(s);
@@ -2174,6 +2400,37 @@ static void read_new_subscreen(Q255Section &s, int slot, byte ss_type)
                 s.skip(8 * 4);
         }
     }
+}
+
+// For ZQuest's subscreen layout editor (zq_subscr_layout.cpp): how many bytes of a version 8+
+// section, from a subscreen's start, come before its page count (read_sub_head), 0 if they don't
+// read. *file_type: the subscreen's kind (0 active, 1 passive, 2 overlay, 3 map).
+size_t q255_subscreen_head_extent(const byte *data, size_t size, int version, int *file_type)
+{
+    Q255Section s;
+    s.data = data;
+    s.size = size;
+    s.version = (word)version;
+    s.keep = false;
+    SubHead255 h;
+    read_sub_head(s, h);
+
+    if(file_type)
+        *file_type = h.file_type;
+
+    return s.failed ? 0 : s.pos;
+}
+
+// ZCSubscreen::read. slot is where it goes in custom_subscreen, -1 if it isn't kept.
+static void read_new_subscreen(Q255Section &s, int slot, byte ss_type)
+{
+    SubHead255 head;
+    read_sub_head(s, head);
+    const std::string &name = head.name;
+    const dword flags = head.flags;
+    const byte btn_left = head.btn_left, btn_right = head.btn_right;
+    const Q30SubTrans *trans_lr = head.trans_lr;
+    const word *def_btns = head.def_btns;
 
     subscreen_group *g = NULL;
 
@@ -2181,7 +2438,7 @@ static void read_new_subscreen(Q255Section &s, int slot, byte ss_type)
     if(s.keep && !s.failed)
     {
         q30_sub_begin(ss_type, (s.keep && slot >= 0 && slot < MAXCUSTOMSUBSCREENS) ? slot : -1, name.c_str());
-        q30_sub_settings(ss_type, flags, btn_left, btn_right);
+        q30_sub_settings(ss_type, flags, btn_left, btn_right, def_btns);
         q30_sub_trans(ss_type, 2, trans_lr[0]);
         q30_sub_trans(ss_type, 3, trans_lr[1]);
     }

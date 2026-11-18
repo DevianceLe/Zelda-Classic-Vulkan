@@ -1293,8 +1293,10 @@ int get_qst_buffers()
     // fixed by ensuring there's actually itemdata there.
     // If you change this, be sure to update del_qst_buffers, too.
     
-#ifdef ZC_PLAYER_BUILD
-    // the player keeps room for a 2.55/3.0 quest's items past 2.53's 256 (q30_set_high_item)
+#if defined(ZC_PLAYER_BUILD) || defined(ZC_ZQEDITOR)
+    // the player keeps room for a 2.55/3.0 quest's items past 2.53's 256 (q30_set_high_item), and
+    // so does ZQuest, for its subscreen layout editor to draw them (q255_store_zq.cpp); ZQuest's
+    // item editors and writers still go up to 256
     const int item_slots = Q30_MAXITEMS;
 #else
     const int item_slots = MAXITEMS;

@@ -1,0 +1,352 @@
+// Used with [messagedata::Flags].
+enum MessageFlag
+{
+	MSGFLAG_WRAP,         // If the text wraps around the bounding box
+	MSGFLAG_CONT,         // If the message is the continuation of a previous one
+	MSGFLAG_CENTER,       // @deprecated Not implemented.
+	MSGFLAG_RIGHT,        // @deprecated Not implemented.
+	MSGFLAG_FULLTILE,     // If the background tile should be treated as the UL of a tile block,
+	                      // instead of the UL of a 2x2 adjustable frame
+	MSGFLAG_TRANS_BG,     // If the background should be translucent
+	MSGFLAG_TRANS_FG,     // If the text should be translucent
+	// If the string should ignore 'Messages Freeze All Action'.
+	// @versionadded 3.0
+	MSGFLAG_NOFREEZE,
+};
+
+// @versionadded 3.0
+enum MessageSegmentType
+{
+	MSG_SEGMENT_TYPE_INVALID,
+	MSG_SEGMENT_TYPE_LITERAL,
+	MSG_SEGMENT_TYPE_COMMAND,
+};
+
+// Anchor positions relative to message boxes, used for icons
+// ([messagedata::MoreIconAnchor], [messagedata::ScrollUpIconAnchor], [messagedata::ScrollDownIconAnchor])
+// @versionadded 3.0
+enum MessageAnchor
+{
+	MSG_ANCH_TOP,
+	MSG_ANCH_BOTTOM,
+	MSG_ANCH_LEFT,
+	MSG_ANCH_RIGHT,
+	MSG_ANCH_TOPLEFT,
+	MSG_ANCH_TOPRIGHT,
+	MSG_ANCH_BOTTOMLEFT,
+	MSG_ANCH_BOTTOMRIGHT,
+	MSG_ANCH_CENTER,
+	MSG_ANCH_SCREEN,
+	MSG_ANCH_SCREEN_YOFFSET,
+};
+
+// For accessing and editing message strings (`Quests > Strings`).
+// 
+// Load with [Game->LoadMessageData].
+//
+// @tutorial /tutorials/scc
+// @zasm_ref REFMSGDATA
+class messagedata {
+	// @delete
+	internal messagedata();
+
+	// The 'next' message, which will be automatically displayed when this
+	// message finishes.
+	//
+	// @zasm_var MESSAGEDATANEXT
+	internal int Next;
+
+	// The tile used for the background.
+	//
+	// @zasm_var MESSAGEDATATILE
+	internal int Tile;
+
+	// The CSet to draw the background in.
+	//
+	// @zasm_var MESSAGEDATACSET
+	internal int CSet;
+
+	// The font to display the message in.
+	//
+	// @value [enum Font]
+
+	// @zasm_var MESSAGEDATAFONT
+	internal int Font;
+
+	// The X position of the message box.
+	//
+	// @zasm_var MESSAGEDATAX
+	internal int X;
+
+	// The Y position of the message box.
+	//
+	// @zasm_var MESSAGEDATAY
+	internal int Y;
+
+	// The width of the message box, in pixels.
+	//
+	// @zasm_var MESSAGEDATAW
+	internal int Width;
+
+	// The height of the message box, in pixels.
+	//
+	// @zasm_var MESSAGEDATAH
+	internal int Height;
+
+	// The SFX to play when a new character is drawn (including spaces).
+	//
+	// @zasm_var MESSAGEDATASFX
+	internal int Sound;
+
+	// The SFX to play when player input advances the text.
+	//
+	// @versionadded 3.0
+	// @zasm_var MESSAGEDATA_ADVSFX
+	internal int SoundAdvance;
+
+	// The SFX to play when player input changes the selected menu option.
+	//
+	// @versionadded 3.0
+	// @zasm_var MESSAGEDATA_MENUMOVE_SFX
+	internal int SoundMenuMove;
+
+	// The SFX to play when player input closes a menu.
+	//
+	// @versionadded 3.0
+	// @zasm_var MESSAGEDATA_MENUCLOSE_SFX
+	internal int SoundMenuClose;
+
+	// The list position of the messagedata as it is displayed in ZQ.
+	//
+	// @zasm_var MESSAGEDATALISTPOS
+	internal int ListPosition;
+
+	// The spacing between lines/characters, in pixels.
+	//
+	// @zasm_var MESSAGEDATAVSPACE
+	internal int VSpace;
+
+	// The spacing between lines/characters, in pixels.
+	//
+	// @zasm_var MESSAGEDATAHSPACE
+	internal int HSpace;
+
+	// @index [enum MessageFlag]
+	// @zasm_var MESSAGEDATAFLAGSARR
+	internal bool Flags[];
+
+	// The margins, in pixels, from each edge of the text box.
+	//
+	// Valid indices: [DIR_UP], [DIR_DOWN], [DIR_LEFT], [DIR_RIGHT]
+	//
+	// @zasm_var MESSAGEDATAMARGINS
+	internal int Margins[];
+
+	// The upper-left corner tile of the portrait. If set to 0, no portrait will
+	// be displayed.
+	//
+	// @zasm_var MESSAGEDATAPORTTILE
+	internal int PortraitTile;
+
+	// The CSet to draw the portrait in
+	//
+	// @zasm_var MESSAGEDATAPORTCSET
+	internal int PortraitCSet;
+
+	// The X/Y position of the portrait.
+	//
+	// @zasm_var MESSAGEDATAPORTX
+	internal int PortraitX;
+
+	// The X/Y position of the portrait.
+	//
+	// @zasm_var MESSAGEDATAPORTY
+	internal int PortraitY;
+
+	// The tile width/height of the portrait. Max 16 and 14 respectively. If
+	// either is `0`, no portrait will be displayed.
+	//
+	// @zasm_var MESSAGEDATAPORTWID
+	internal int PortraitTileWidth;
+
+	// The tile width/height of the portrait. Max 16 and 14 respectively. If
+	// either is `0`, no portrait will be displayed.
+	//
+	// @zasm_var MESSAGEDATAPORTHEI
+	internal int PortraitTileHeight;
+
+	// Returns the height, in pixels, of the message text - not including line
+	// wrap / breaks.
+	//
+	// Note: this is busted in the presence of commands, escaped characters, or
+	// excessive whitespace.
+	//
+	// @deprecated_getter TextHeight
+	// @zasm_var MESSAGEDATATEXTHEI
+	internal const int TextHeight;
+
+	// Returns the width, in pixels, of the message text - not including line
+	// wrap / breaks.
+	//
+	// Note: this is busted in the presence of commands, escaped characters, or
+	// excessive whitespace.
+	//
+	// @deprecated_getter TextWidth
+	// @zasm_var MESSAGEDATATEXTWID
+	internal const int TextWidth;
+
+	// The length, in bytes, of the underlying message data.
+	//
+	// Note: in the presence of commands or escaped characters this is not the same as the displayed
+	// number of characters. To get the true character length, see [Segments].
+	//
+	// @zasm_var MESSAGEDATATEXTLEN
+	internal const int Length;
+
+	// @deprecated Unused! Does nothing!
+	// @zasm_var MESSAGEDATATRANS
+	internal bool Transparent;
+
+	// @deprecated Use [Flags] instead!
+	// @zasm_var MESSAGEDATAFLAGS
+	internal int Flag;
+
+	// The result of parsing this string for SCCs and escaped characters.
+	//
+	// The data returned in the array is formatted like this:
+	//
+	// 1. segment type: [MessageSegmentType]
+	// 2. For text literals, there are two more values: start position in raw string, length. For commands, there are a varying number of values: start position, length, command code, # of args, ...args
+	//
+	// For example, the string "Hello \TextColor\1\2\ World" returns 3 segments:
+	//
+	// 1. 3 numbers: [MSG_SEGMENT_TYPE_LITERAL] 0 6 (`"Hello "`)
+	// 2. 7 numbers: [MSG_SEGMENT_TYPE_COMMAND] 6 12 1 2 1 2 (`\TextColor\1\2\<space>`)
+	// 3. 3 numbers: [MSG_SEGMENT_TYPE_LITERAL] 18 5 (`"World"`)
+	//
+	// Command args are returned at full precision: for the few commands that accept them,
+	// args may have decimal places (e.g. `\SetCurrentScreenD\0\26.5\` returns an arg of `26.5`).
+	//
+	// @versionadded 3.0
+	// @zasm_var MESSAGEDATASEGMENTS
+	internal const int[] Segments;
+	
+	// The type of shadow to use on the text.
+	// @versionadded 3.0
+	// @zasm_var MESSAGEDATA_SHADOW_TYPE
+	internal ShadowType ShadowType;
+	
+	// The color of shadow to use on the text.
+	// @versionadded 3.0
+	// @zasm_var MESSAGEDATA_SHADOW_COLOR
+	internal int ShadowColor;
+	
+	// The sprite to use for the 'More Icon'.
+	// The 'More Icon' is displayed when the user needs to press A/B to see more.
+	// @versionadded 3.0
+	// @zasm_var MESSAGEDATA_ICON_MORE_SPRITE
+	internal int MoreIconSprite;
+	
+	// The anchor to use for the 'More Icon'. This determines what part of the message box
+	// the [MoreIconX]/[MoreIconY] are relative to.
+	// The 'More Icon' is displayed when the user needs to press A/B to see more.
+	//
+	// @versionadded 3.0
+	// @zasm_var MESSAGEDATA_ICON_MORE_ANCHOR
+	internal MessageAnchor MoreIconAnchor;
+	
+	// The X (relative to the [MoreIconAnchor]) to draw the 'More Icon' at.
+	// The 'More Icon' is displayed when the user needs to press A/B to see more.
+	// @versionadded 3.0
+	// @zasm_var MESSAGEDATA_ICON_MORE_X
+	internal int MoreIconX;
+	
+	// The Y (relative to the [MoreIconAnchor]) to draw the 'More Icon' at.
+	// The 'More Icon' is displayed when the user needs to press A/B to see more.
+	// @versionadded 3.0
+	// @zasm_var MESSAGEDATA_ICON_MORE_Y
+	internal int MoreIconY;
+	
+	// The sprite to use for the 'Scroll Up Icon'.
+	// The 'Scroll Up Icon' is displayed when the user can press Up to scroll up.
+	// @versionadded 3.0
+	// @zasm_var MESSAGEDATA_ICON_SCROLLUP_SPRITE
+	internal int ScrollUpIconSprite;
+	
+	// The anchor to use for the 'Scroll Up Icon'. This determines what part of the message box
+	// the [ScrollUpIconX]/[ScrollUpIconY] are relative to.
+	// The 'Scroll Up Icon' is displayed when the user can press Up to scroll up.
+	//
+	// @versionadded 3.0
+	// @zasm_var MESSAGEDATA_ICON_SCROLLUP_ANCHOR
+	internal MessageAnchor ScrollUpIconAnchor;
+	
+	// The X (relative to the [ScrollUpIconAnchor]) to draw the 'Scroll Up Icon' at.
+	// The 'Scroll Up Icon' is displayed when the user can press Up to scroll up.
+	// @versionadded 3.0
+	// @zasm_var MESSAGEDATA_ICON_SCROLLUP_X
+	internal int ScrollUpIconX;
+	
+	// The Y (relative to the [ScrollUpIconAnchor]) to draw the 'Scroll Up Icon' at.
+	// The 'Scroll Up Icon' is displayed when the user can press Up to scroll up.
+	// @versionadded 3.0
+	// @zasm_var MESSAGEDATA_ICON_SCROLLUP_Y
+	internal int ScrollUpIconY;
+	
+	// The sprite to use for the 'Scroll Down Icon'.
+	// The 'Scroll Down Icon' is displayed when the user can press Down to scroll down.
+	// @versionadded 3.0
+	// @zasm_var MESSAGEDATA_ICON_SCROLLDOWN_SPRITE
+	internal int ScrollDownIconSprite;
+	
+	// The anchor to use for the 'Scroll Down Icon'. This determines what part of the message box
+	// the [ScrollDownIconX]/[ScrollDownIconY] are relative to.
+	// The 'Scroll Down Icon' is displayed when the user can press Down to scroll down.
+	//
+	// @versionadded 3.0
+	// @zasm_var MESSAGEDATA_ICON_SCROLLDOWN_ANCHOR
+	internal MessageAnchor ScrollDownIconAnchor;
+	
+	// The X (relative to the [ScrollDownIconAnchor]) to draw the 'Scroll Down Icon' at.
+	// The 'Scroll Down Icon' is displayed when the user can press Down to scroll down.
+	// @versionadded 3.0
+	// @zasm_var MESSAGEDATA_ICON_SCROLLDOWN_X
+	internal int ScrollDownIconX;
+	
+	// The Y (relative to the [ScrollDownIconAnchor]) to draw the 'Scroll Down Icon' at.
+	// The 'Scroll Down Icon' is displayed when the user can press Down to scroll down.
+	// @versionadded 3.0
+	// @zasm_var MESSAGEDATA_ICON_SCROLLDOWN_Y
+	internal int ScrollDownIconY;
+	
+	// The speed in pixels/frame that the string scrolls when the player is scrolling
+	// manually using the up/down buttons.
+	// @versionadded 3.0
+	// @zasm_var MESSAGEDATA_SCROLL_SPEED_ACTIVE
+	internal int ScrollSpeedActive;
+	
+	// The speed in pixels/frame that the string scrolls when scrolling to fit new text
+	// on screen, or to scroll a selected menu choice into view.
+	// @versionadded 3.0
+	// @zasm_var MESSAGEDATA_SCROLL_SPEED_PASSIVE
+	internal int ScrollSpeedPassive;
+
+	// Loads the raw message data into the provided string buffer.
+	//
+	// If the buffer is too small, it is resized to fit.
+	//
+	// @versionchanged 2.55.17 The buffer is now resized to fit if it is too small (it used to be truncated, with an error).
+	// @zasm
+	//   POP D3
+	//   POP REFMSGDATA
+	//   MESSAGEDATAGETSTRINGR D3
+	internal void Get(char32[] str);
+
+	// Sets the raw message data to the provided string.
+	//
+	// @zasm
+	//   POP D3
+	//   POP REFMSGDATA
+	//   MESSAGEDATASETSTRINGR D3
+	internal void Set(char32[] str);
+}

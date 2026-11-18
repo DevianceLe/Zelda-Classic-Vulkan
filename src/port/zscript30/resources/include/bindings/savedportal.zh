@@ -1,0 +1,49 @@
+// Data for a [portal] that is remembered in the save file for when you return to the screen.
+// 
+// Load with [Game->LoadSavedPortal], [Game->SavedPortals], or [Game->CreateSavedPortal]
+//
+// @zasm_ref REFSAVPORTAL
+class savedportal {
+	// @delete
+	internal savedportal();
+
+	// @zasm_var SAVEDPORTALX
+	internal int X;
+
+	// @zasm_var SAVEDPORTALY
+	internal int Y;
+
+	// @zasm_var SAVEDPORTALSRCDMAP
+	internal int SrcDMap;
+
+	// @zasm_var SAVEDPORTALDESTDMAP
+	internal int DestDMap;
+
+	// @zasm_var SAVEDPORTALSRCSCREEN
+	internal int SrcScreen;
+
+	// @zasm_var SAVEDPORTALDSTSCREEN
+	internal int DestScreen;
+
+	// @zasm_var SAVEDPORTALWARPSFX
+	internal int WarpSFX;
+
+	// @zasm_var SAVEDPORTALWARPVFX
+	internal int WarpEffect;
+
+	// @zasm_var SAVEDPORTALSPRITE
+	internal int Sprite;
+
+	// @zasm_var SAVEDPORTALPORTAL
+	internal portal Portal;
+
+	// @zasm
+	//   POP REFSAVPORTAL
+	//   SAVEDPORTALREMOVE
+	internal void Remove();
+
+	// @zasm
+	//   POP REFSAVPORTAL
+	//   SAVEDPORTALGENERATE
+	internal portal Generate();
+}

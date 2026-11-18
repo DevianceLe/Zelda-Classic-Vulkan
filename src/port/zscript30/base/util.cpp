@@ -1,0 +1,1410 @@
+#include "base/util.h"
+#include "base/general.h"
+#include "base/md5.h"
+#include "base/process_management.h"
+#include <climits>
+#include <cstdlib>
+#include <fstream>
+#include <sstream>
+#include <iomanip>
+#include <filesystem>
+#include <fmt/format.h>
+#include <fmt/ranges.h>
+#include <sys/stat.h>
+#include <regex>
+#include <system_error>
+
+#ifdef _WIN32
+#include <direct.h>
+#include <io.h>
+#endif
+
+#ifdef __EMSCRIPTEN__
+#include "base/emscripten_utils.h"
+#endif
+
+using namespace std;
+namespace fs = std::filesystem;
+
+#define PATH_MODE		0755
+
+namespace
+{
+
+// best(pi, si) is the best score for matching pattern[pi:] within
+// str[si:], where for pi > 0 pattern[pi-1] matched at si-1. Memoized
+// on (pi, si), so a pattern whose characters each occur many times in
+// `str` stays polynomial instead of exploring every combination.
+struct FuzzyMatcher
+{
+	std::string_view pattern, str;
+	std::vector<int> memo; // INT_MAX = not computed yet
+
+	FuzzyMatcher(std::string_view pattern, std::string_view str)
+		: pattern(pattern), str(str), memo(pattern.size() * (str.size() + 1), INT_MAX)
+	{}
+
+	int best(size_t pi, size_t si)
+	{
+		if (pi == pattern.size())
+			return 0;
+
+		int& slot = memo[pi * (str.size() + 1) + si];
+		if (slot != INT_MAX)
+			return slot;
+
+		char pc = tolower((uint8_t)pattern[pi]);
+		int result = INT_MIN;
+		for (size_t s = si; s < str.size(); s++)
+		{
+			if (tolower((uint8_t)str[s]) != pc)
+				continue;
+
+			// Penalize the gap since the previous match (or the start).
+			int step = -(int)(s - si);
+			// No gap: a match at the very start scores 15, one directly
+			// after the previous match scores 30.
+			if (s == si)
+				step += pi > 0 ? 30 : 15;
+			// After a separator - important for file paths.
+			if (s > si)
+			{
+				char prev = str[s - 1];
+				if (prev == '/' || prev == '\\' || prev == '_' || prev == '.')
+					step += 20;
+			}
+
+			int rest = best(pi + 1, s + 1);
+			if (rest != INT_MIN)
+				result = std::max(result, step + rest);
+		}
+
+		return slot = result;
+	}
+};
+
+} // end anonymous namespace
+
+namespace util
+{
+	string snip(string const& str, size_t length, string trail)
+	{
+		return str.size() > length ? str.substr(0,length)+trail : str;
+	}
+	
+	void upperstr(string& str)
+	{
+		for(int32_t q = str.size() - 1; q >= 0; --q)
+			str[q] = toupper(str[q]);
+	}
+
+	void lowerstr(string& str)
+	{
+		for(int32_t q = str.size() - 1; q >= 0; --q)
+			str[q] = tolower(str[q]);
+	}
+
+	void trimstr(string& str)
+	{
+		str.erase(0, str.find_first_not_of("\t\n\v\f\r "));
+		str.erase(str.find_last_not_of("\t\n\v\f\r ") + 1);
+	}
+
+	void trimstr_trailing(string& str)
+	{
+		str.erase(str.find_last_not_of("\t\n\v\f\r ") + 1);
+	}
+
+	void sanitize(string& str)
+	{
+		trimstr(str);
+		std::regex re(R"([^a-zA-Z0-9_+\-]+)");
+		str = std::regex_replace(str, re, "-");
+	}
+
+	// Returns the length of the UTF-8 encoded character at `i`, or 0 if it is not valid UTF-8
+	// (or is a C1 control character).
+	static size_t utf8_char_length(std::string_view str, size_t i)
+	{
+		auto byte = [&](size_t j) { return j < str.size() ? (unsigned char)str[j] : 0; };
+		unsigned char c = byte(i);
+		size_t len;
+		unsigned char min = 0x80, max = 0xBF; // Range of the byte after the first.
+		if (c >= 0xC2 && c <= 0xDF)
+		{
+			len = 2;
+			if (c == 0xC2) min = 0xA0; // C1 control characters.
+		}
+		else if (c >= 0xE0 && c <= 0xEF)
+		{
+			len = 3;
+			if (c == 0xE0) min = 0xA0; // Overlong.
+			if (c == 0xED) max = 0x9F; // Surrogates.
+		}
+		else if (c >= 0xF0 && c <= 0xF4)
+		{
+			len = 4;
+			if (c == 0xF0) min = 0x90; // Overlong.
+			if (c == 0xF4) max = 0x8F; // Past U+10FFFF.
+		}
+		else return 0;
+
+		if (byte(i + 1) < min || byte(i + 1) > max)
+			return 0;
+		for (size_t j = 2; j < len; j++)
+			if (byte(i + j) < 0x80 || byte(i + j) > 0xBF)
+				return 0;
+		return len;
+	}
+
+	// TODO: replace `sanitize` with this?
+	// Keeps characters outside ASCII (valid UTF-8 only), so names in any language survive.
+	void sanitize_spaces_ok(string& str)
+	{
+		trimstr(str);
+		str = std::regex_replace(str, std::regex(R"(\s+)"), " ");
+
+		string result;
+		bool replacing = false;
+		for (size_t i = 0; i < str.size();)
+		{
+			unsigned char c = str[i];
+			size_t len = 1;
+			bool keep;
+			if (c < 0x80)
+				keep = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+					|| c == '_' || c == '+' || c == '-' || c == ' ';
+			else
+				keep = (len = utf8_char_length(str, i)) > 0;
+
+			if (keep)
+			{
+				result.append(str, i, len);
+				replacing = false;
+			}
+			else if (!replacing)
+			{
+				result += '-';
+				replacing = true;
+			}
+			i += std::max<size_t>(len, 1);
+		}
+		str = result;
+	}
+
+	// https://stackoverflow.com/a/5888676/2788187
+	size_t split(const std::string &txt, std::vector<std::string> &strs, char ch)
+	{
+		size_t pos = txt.find( ch );
+		size_t initialPos = 0;
+		strs.clear();
+
+		// Decompose statement
+		while( pos != std::string::npos ) {
+			strs.push_back( txt.substr( initialPos, pos - initialPos ) );
+			initialPos = pos + 1;
+
+			pos = txt.find( ch, initialPos );
+		}
+
+		// Add the last one
+		strs.push_back( txt.substr( initialPos, std::min( pos, txt.size() ) - initialPos + 1 ) );
+
+		return strs.size();
+	}
+
+	std::vector<std::string> split(const std::string& str, const std::string& delim)
+	{
+		std::vector<std::string> result;
+		size_t start = 0;
+
+		for (size_t found = str.find(delim); found != string::npos; found = str.find(delim, start))
+		{
+			result.emplace_back(str.begin() + start, str.begin() + found);
+			start = found + delim.size();
+		}
+		if (start != str.size())
+			result.emplace_back(str.begin() + start, str.end());
+		return result;
+	}
+
+	std::vector<std::string> split_args(const std::string &str)
+	{
+		std::vector<std::string> result;
+
+		std::stringstream ss(str);
+		std::string word;
+		while (ss >> std::quoted(word)) {
+			result.push_back(word);
+		}
+
+		return result;
+	}
+
+	std::optional<int> fuzzy_match_score(std::string_view pattern, std::string_view str)
+	{
+		if (pattern.empty())
+			return 0;
+
+		int score = FuzzyMatcher(pattern, str).best(0, 0);
+		if (score == INT_MIN)
+			return std::nullopt;
+		// Prefer shorter strings: the same characters matched in a short
+		// string are a closer match.
+		return score - (int)str.size();
+	}
+
+	std::string longest_common_prefix(const std::string& str1, const std::string& str2)
+	{
+		int i = 0;
+		while (i < str1.length() && i < str2.length() && str1[i] == str2[i])
+			i++;
+		return str1.substr(0, i);
+	}
+
+	std::string read_text_file(fs::path path)
+	{
+		auto ss = std::ostringstream{};
+		std::ifstream file(path);
+		ss << file.rdbuf();
+		return ss.str();
+	}
+
+	// https://stackoverflow.com/a/6089413/2788187
+	std::istream &portable_get_line(std::istream &is, std::string &t)
+	{
+		t.clear();
+
+		// The characters in the stream are read one-by-one using a std::streambuf.
+		// That is faster than reading them one-by-one using the std::istream.
+		// Code that uses streambuf this way must be guarded by a sentry object.
+		// The sentry object performs various tasks,
+		// such as thread synchronization and updating the stream state.
+
+		std::istream::sentry se(is, true);
+		std::streambuf *sb = is.rdbuf();
+
+		for (;;)
+		{
+			int c = sb->sbumpc();
+			switch (c)
+			{
+			case '\n':
+				return is;
+			case '\r':
+				if (sb->sgetc() == '\n')
+					sb->sbumpc();
+				return is;
+			case std::streambuf::traits_type::eof():
+				// Also handle the case when the last line has no line ending
+				if (t.empty())
+					is.setstate(std::ios::eofbit);
+				return is;
+			default:
+				t += (char)c;
+			}
+		}
+	}
+	
+	string cropPath(string filepath)
+	{
+		size_t lastslash = filepath.find_last_of("/");
+		size_t lastbslash = filepath.find_last_of("\\");
+		size_t last = (lastslash == string::npos) ? lastbslash : (lastbslash == string::npos ? lastslash : (lastslash > lastbslash ? lastslash : lastbslash));
+		if(last != string::npos) filepath = filepath.substr(last+1);
+		return filepath;
+	}
+	
+	void replstr(std::string& str, std::string const& from, std::string const& to)
+	{
+		for(int32_t q = str.size() - from.size(); q >= 0; --q)
+		{
+			if(!str.compare(q,from.size(),from))
+			{
+				str = str.replace(q,from.size(),to);
+				q -= from.size()-1;
+			}
+		}
+	}
+
+	void replace_first(std::string& s, std::string const& needle, std::string const& with)
+	{
+		std::size_t pos = s.find(needle);
+		if (pos == std::string::npos) return;
+		s.replace(pos, needle.length(), with);
+	}
+	
+	std::string escape_characters(std::string const& str)
+	{
+		std::string temp = str;
+		replstr(temp, "\\", "\\\\");
+		replstr(temp, "\"", "\\\"");
+		replstr(temp, "'", "\\'");
+		replstr(temp, "\a", "\\a");
+		replstr(temp, "\b", "\\b");
+		replstr(temp, "\f", "\\f");
+		replstr(temp, "\n", "\\n");
+		replstr(temp, "\r", "\\r");
+		replstr(temp, "\t", "\\t");
+		replstr(temp, "\v", "\\v");
+		return temp;
+	}
+	// Like `unescape_characters`, but the escapes for control characters are
+	// dropped rather than turned back into the character. Must be a single pass
+	// for the same reason - see the comment there.
+	std::string disallow_escapes(std::string const& str)
+	{
+		std::string temp;
+		temp.reserve(str.size());
+		for(size_t q = 0; q < str.size(); ++q)
+		{
+			if(str[q] != '\\' || q+1 == str.size())
+			{
+				temp += str[q];
+				continue;
+			}
+
+			switch(str[++q])
+			{
+				case '\\': temp += '\\'; break;
+				case '"': temp += '"'; break;
+				case '\'': temp += '\''; break;
+				case 'a':
+				case 'b':
+				case 'f':
+				case 'n':
+				case 'r':
+				case 't':
+				case 'v':
+					break;
+				// Not an escape this understands - leave it alone.
+				default: temp += '\\'; temp += str[q]; break;
+			}
+		}
+		return temp;
+	}
+	// Undoes `escape_characters`. This has to consume the string in one pass -
+	// replacing each escape in turn would let the backslash freed by "\\\\" be
+	// eaten by a later pass, turning `C:\new` into `C:<newline>ew`.
+	std::string unescape_characters(std::string const& str)
+	{
+		std::string temp;
+		temp.reserve(str.size());
+		for(size_t q = 0; q < str.size(); ++q)
+		{
+			if(str[q] != '\\' || q+1 == str.size())
+			{
+				temp += str[q];
+				continue;
+			}
+
+			switch(str[++q])
+			{
+				case '\\': temp += '\\'; break;
+				case '"': temp += '"'; break;
+				case '\'': temp += '\''; break;
+				case 'a': temp += '\a'; break;
+				case 'b': temp += '\b'; break;
+				case 'f': temp += '\f'; break;
+				case 'n': temp += '\n'; break;
+				case 'r': temp += '\r'; break;
+				case 't': temp += '\t'; break;
+				case 'v': temp += '\v'; break;
+				// Not an escape this understands - leave it alone.
+				default: temp += '\\'; temp += str[q]; break;
+			}
+		}
+		return temp;
+	}
+	
+	void replchar(std::string& str, char from, char to)
+	{
+		for(int32_t q = str.size() - 1; q >= 0; --q)
+		{
+			if(str.at(q)==from)
+				str[q] = to;
+		}
+	}
+	
+	void replchar(char* buf, char from, char to)
+	{
+		for(int32_t i = 0; buf[i]!=0; ++i)
+		{
+			if(buf[i]==from)
+				buf[i] = to;
+		}
+	}
+	
+	void removechar(std::string& str, char to_delete)
+	{
+		size_t pos = str.find_first_of(to_delete);
+		while(pos != std::string::npos)
+		{
+			str.erase(pos,1);
+			pos = str.find_first_of(to_delete);
+		}
+	}
+	
+	string get_ext(string const& path)
+	{
+		string ext = std::filesystem::path(path).extension().string();
+		lowerstr(ext);
+		return ext;
+	}
+	
+	void regulate_path(char* buf)
+	{
+		for(int32_t q = 0; buf[q]; ++q)
+		{
+			if (buf[q] == WRONG_PATH_SLASH) buf[q] = PATH_SLASH;
+		}
+	}
+	
+	void regulate_path(string& buf)
+	{
+		for(int32_t q = 0; buf[q]; ++q)
+		{
+#ifdef _WIN32
+			if (buf[q] == '/') buf[q] = '\\';
+#else
+			if (buf[q] == '\\') buf[q] = '/';
+#endif
+		}
+	}
+	
+	bool is_relative_path(std::string_view path)
+	{
+		if (path.empty())
+			return true;
+
+		// Unix absolute path, or a Windows path rooted at the current drive.
+		if (path[0] == '/' || path[0] == '\\')
+			return false;
+
+		// Windows drive letter, ex: "C:".
+		if (path.size() >= 2 && path[1] == ':' && zc_isalpha(path[0]))
+			return false;
+
+		return true;
+	}
+
+	int32_t do_mkdir(const char* path, [[maybe_unused]] int32_t mode)
+	{
+#ifdef _WIN32
+		return _mkdir(path);
+#else
+		return mkdir(path,mode);
+#endif
+	}
+
+	bool make_dirs_for_file(std::string& path)
+	{
+		// A bare filename has no parent to create. Don't pass the empty
+		// path to create_directories, which reports an error for it.
+		auto parent = fs::path(path).parent_path();
+		if (parent.empty())
+			return true;
+
+		// TODO: give caller the error.
+		std::error_code ec;
+		fs::create_directories(parent, ec);
+		if (ec)
+			return false;
+
+		return true;
+	}
+
+	static void reverse( char *s )
+	{
+		if ( *s )
+		{
+			for ( char *first = s, *last = s + strlen( s ); first < --last; ++first )
+			{
+				char c = *first;
+				*first = *last;
+				*last = c;
+			}
+		}
+	}
+	
+	char* zc_itoa(int32_t value, char* str, int32_t base)
+	{
+#ifdef _WIN32
+		return _itoa(value, str, base);
+#else
+		static char dig[] =
+			"0123456789"
+			"abcdefghijklmnopqrstuvwxyz";
+		int32_t n = 0, neg = 0;
+		uint32_t v;
+		if (base == 10 && value < 0)
+		{
+			value = -value;
+			neg = 1;
+		}
+		v = value;
+		do 
+		{
+			str[n++] = dig[v%base];
+			v /= base;
+		} while (v);
+		if (neg)
+		{
+			str[n++] = '-';
+		}
+		str[n] = '\0';
+		reverse(str);
+		return str;
+#endif
+	}
+	
+	int64_t zc_atoi64(const char *str)
+	{
+		int64_t val=0;
+		bool neg = false;
+		if(*str == '-')
+		{
+			neg = true;
+			++str;
+		}
+		while(isdigit(*str))
+		{
+			val*=10;
+			
+			val += *str-'0';
+			
+			++str;
+		}
+		
+		return neg ? -val : val;
+	}
+	int64_t zc_xtoi64(const char *hexstr)
+	{
+		int64_t val=0;
+		bool neg = false;
+		if(*hexstr == '-')
+		{
+			neg = true;
+			++hexstr;
+		}
+		while(isxdigit(*hexstr))
+		{
+			val<<=4;
+			
+			if(*hexstr<='9')
+				val += (*hexstr-'0');
+			else val+= ((*hexstr)|0x20)-'a'+10;
+			++hexstr;
+		}
+		
+		return neg ? -val : val;
+	}
+	
+	int32_t zc_xtoi(const char *hexstr)
+	{
+		int32_t val=0;
+		bool neg = false;
+		if(*hexstr == '-')
+		{
+			neg = true;
+			++hexstr;
+		}
+		while(isxdigit(*hexstr))
+		{
+			val<<=4;
+			
+			if(*hexstr<='9')
+				val += *hexstr-'0';
+			else val+= ((*hexstr)|0x20)-'a'+10;
+			
+			++hexstr;
+		}
+		
+		return neg ? -val : val;
+	}
+	
+	// Reads the integer portion of a numeric string, saturating instead of
+	// overflowing on inputs too large for the type.
+	// zscript30: int64_t here and in ffparse2 where upstream writes 'long long' (the port's
+	// rule: no 'long long'); strtoll's result is 64 bits either way.
+	static int32_t parse_bounded_int(std::string const& str)
+	{
+		int64_t val = strtoll(str.c_str(), nullptr, 10);
+		if (val < -214748) return -214748;
+		if (val > 214748) return 214748;
+		return (int32_t)val;
+	}
+
+	int32_t ffparse2(const char *string, bool do_except) //if not 'do_except', bounds result safely between -214748.3648 and +214748.3647
+	{
+		std::string tempstring1 = string;
+
+		if(do_except)
+		{
+			bool dec = false;
+			for(size_t q = 0; q < tempstring1.size(); ++q)
+			{
+				char c = tempstring1[q];
+				if(c == '.')
+				{
+					if(dec)
+						throw std::invalid_argument("String contains invalid characters (more than one '.')");
+					else dec = true;
+				}
+				else if((c < '0' || c > '9') && !(c == '-' && q == 0))
+					throw std::invalid_argument(fmt::format("String contains invalid characters ('{}')", c));
+			}
+		}
+
+		size_t dot = tempstring1.find('.');
+		if(dot == std::string::npos)
+		{
+			if(do_except)
+			{
+				int64_t val = strtoll(tempstring1.c_str(), nullptr, 10);
+				if(val < -214748 || val > 214748)
+					throw std::out_of_range("Value out of 32bit range");
+			}
+			return parse_bounded_int(tempstring1)*10000;
+		}
+
+		int32_t ret=0;
+
+		std::string intpart = tempstring1.substr(0, dot);
+		std::string decpart = tempstring1.substr(dot+1);
+		if(do_except)
+		{
+			int64_t val = strtoll(intpart.c_str(), nullptr, 10);
+			if(val < -214748 || val > 214748)
+				throw std::out_of_range("Value out of 32bit range");
+			if(decpart.size() > 4)
+				throw std::out_of_range("Value has too many decimal places! Only 4 positions are supported!");
+		}
+		ret=parse_bounded_int(intpart)*10000;
+
+		// Pad (or truncate) to exactly 4 decimal places.
+		decpart.resize(4, '0');
+
+		int32_t decval = abs(atoi(decpart.c_str()));
+		if(tempstring1[0] == '-')
+		{
+			if(ret == -2147480000)
+			{
+				if(do_except && (decval < 0 || decval > 3648))
+					throw std::out_of_range("Value out of 32bit range");
+				decval = vbound(decval, 0, 3648);
+			}
+			ret-=decval;
+		}
+		else
+		{
+			if(ret == 2147480000)
+			{
+				if(do_except && (decval < 0 || decval > 3647))
+					throw std::out_of_range("Value out of 32bit range");
+				decval = vbound(decval, 0, 3647);
+			}
+			ret+=decval;
+		}
+		
+		return ret;
+	}
+	int32_t ffparse2(string const& str, bool do_except)
+	{
+		return ffparse2(str.c_str(), do_except);
+	}
+	int32_t zc_chmod(const char* path, mode_t mode)
+	{
+#ifdef _WIN32
+		return _chmod(path,mode);
+#else
+		return chmod(path,mode);
+#endif
+	}
+
+	bool checkPath(const char* path, const bool is_dir)
+	{
+		struct stat info;
+
+		if(stat( path, &info ) != 0)
+			return false;
+
+		mode_t type = info.st_mode & S_IFMT;
+		return is_dir ? type == S_IFDIR : type == S_IFREG;
+	}
+
+	bool zc_isalpha(int c)
+	{
+	    if(unsigned(c) > 255) return false;
+	    return isalpha((char)c);
+	}
+	
+	string escape_string(char const* str)
+	{
+		return escape_string(string(str));
+	}
+	string escape_string(string const& str)
+	{
+		ostringstream oss;
+		oss << "\"";
+		size_t len = str.size();
+		for(size_t q = 0; q < len; ++q)
+		{
+			char c = str[q];
+			switch(c)
+			{
+				case '\n': oss << "\\n"; break;
+				case '\t': oss << "\\t"; break;
+				case '\a': oss << "\\a"; break;
+				case '\b': oss << "\\b"; break;
+				case '\f': oss << "\\f"; break;
+				case '\r': oss << "\\r"; break;
+				case '\v': oss << "\\v"; break;
+				case '"': oss << "\\\""; break;
+				case '\\': oss << "\\\\"; break;
+				default:
+				{
+					if(c < ' ' || c > '~')
+						oss << "\\x" << std::setfill('0') << std::setw(2) << std::hex << (int32_t(c)&0xFF);
+					else oss << c;
+					break;
+				}
+			}
+		}
+		oss << "\"";
+		return oss.str();
+	}
+		
+	string unescape_string(char const* str)
+	{
+		ostringstream oss;
+		bool in_str = false;
+		size_t len = strlen(str);
+		for(size_t q = 0; q < len; ++q)
+		{
+			if(str[q] == '"')
+			{
+				if(in_str) break;
+				else in_str = true;
+			}
+			else if(in_str)
+			{
+				if(str[q] == '\\')
+				{
+					if(++q < len)
+					{
+						switch(str[q])
+						{
+							case 'n': oss << '\n'; break;
+							case 't': oss << '\t'; break;
+							case 'a': oss << '\a'; break;
+							case 'b': oss << '\b'; break;
+							case 'f': oss << '\f'; break;
+							case 'r': oss << '\r'; break;
+							case 'v': oss << '\v'; break;
+							case '\\': oss << '\\'; break;
+							case '"': oss << '"'; break;
+							case 'x':
+							{
+								if(q+2 < len)
+								{
+									char hb[3] = {str[q+1],str[q+2],0};
+									oss << char(zc_xtoi(hb));
+								}
+								q += 2;
+								break;
+							}
+							default: oss << str[q]; break;
+						}
+					}
+				}
+				else oss << str[q];
+			}
+		}
+		return oss.str();
+	}
+	string unescape_string(string const& str)
+	{
+		ostringstream oss;
+		bool in_str = false;
+		size_t len = str.size();
+		for(size_t q = 0; q < len; ++q)
+		{
+			if(str[q] == '"')
+			{
+				if(in_str) break;
+				else in_str = true;
+			}
+			else if(in_str)
+			{
+				if(str[q] == '\\')
+				{
+					if(++q < len)
+					{
+						switch(str[q])
+						{
+							case 'n': oss << '\n'; break;
+							case 't': oss << '\t'; break;
+							case 'a': oss << '\a'; break;
+							case 'b': oss << '\b'; break;
+							case 'f': oss << '\f'; break;
+							case 'r': oss << '\r'; break;
+							case 'v': oss << '\v'; break;
+							case '\\': oss << '\\'; break;
+							case '"': oss << '"'; break;
+							case 'x':
+							{
+								if(q+2 < len)
+								{
+									char hb[3] = {str[q+1],str[q+2],0};
+									oss << char(zc_xtoi(hb));
+								}
+								q += 2;
+								break;
+							}
+							default: oss << str[q]; break;
+						}
+					}
+				}
+				else oss << str[q];
+			}
+		}
+		return oss.str();
+	}
+	size_t escstr_size(char const* str)
+	{
+		bool in_str = false;
+		size_t len = strlen(str);
+		size_t start = 0, q;
+		bool complete = false;
+		for(q = 0; q < len; ++q)
+		{
+			if(str[q] == '"')
+			{
+				if(in_str)
+				{
+					complete = true;
+					break;
+				}
+				else
+				{
+					start = q;
+					in_str = true;
+				}
+			}
+			else if(in_str)
+			{
+				if(str[q] == '\\')
+				{
+					if(++q < len)
+					{
+						if(str[q] == 'x')
+						{
+							q += 2;
+						}
+					}
+				}
+			}
+		}
+		if(!complete) return 0;
+		if(!in_str) return 0;
+		return q-start+1;
+	}
+	
+	string stringify_vector(vector<int32_t> const& vec, bool dec)
+	{
+		ostringstream oss;
+		oss << "{";
+		for(size_t q = 0; q < vec.size(); ++q)
+		{
+			if(dec)
+			{
+				int32_t val = vec[q];
+				if(val % 10000)
+				{
+					char buf[16] = {0};
+					strcpy(buf, zslongToFix(val).str().c_str());
+					for(auto q = strlen(buf)-1; buf[q] == '0'; --q)
+					{
+						//Kill trailing zeroes
+						buf[q] = 0;
+					}
+					oss << buf;
+				}
+				else
+				{
+					oss << std::to_string(vec[q]/10000);
+				}
+			}
+			else oss << std::to_string(vec[q]);
+			if(q+1 < vec.size())
+				oss << ",";
+		}
+		oss << "}";
+		return oss.str();
+	}
+	void unstringify_vector(vector<int32_t>& vec, string const& str, bool dec)
+	{
+		vec.clear();
+		bool in_str = false;
+		size_t len = str.size();
+		for(size_t q = 0; q < len; ++q)
+		{
+			if(str[q] == '{')
+				in_str = true;
+			else if(str[q] == '}' && in_str)
+				break;
+			else if(in_str)
+			{
+				string buf;
+				while(str[q] == ',' && q+1 < len) ++q;
+				for(char c = str[q]; c != ',' && c != '}' && q+1 < len; c = str[++q])
+				{
+					buf += c;
+				}
+				if(buf.size())
+				{
+					if(dec)
+						vec.push_back(ffparse2(buf.c_str()));
+					else vec.push_back(atoi(buf.c_str()));
+				}
+				if(str[q] == '}') break;
+			}
+		}
+	}
+	void unstringify_vector(vector<int32_t>& vec, char const* str, bool dec)
+	{
+		unstringify_vector(vec, string(str), dec);
+	}
+	size_t vecstr_size(char const* str)
+	{
+		bool in_str = false;
+		size_t len = strlen(str);
+		size_t start = 0, q;
+		bool complete = false;
+		for(q = 0; q < len; ++q)
+		{
+			if(!in_str && str[q] == '{')
+			{
+				in_str = true;
+				start = q;
+			}
+			else if(in_str)
+			{
+				if(str[q] == '}')
+				{
+					complete = true;
+					break;
+				}
+				while(str[q] == ',' && q+1 < len) ++q;
+				for(char c = str[q]; c != ',' && c != '}' && q+1 < len; c = str[++q])
+				{}
+				if(str[q] == '}')
+				{
+					complete = true;
+					break;
+				}
+			}
+		}
+		if(!complete) return 0;
+		if(!in_str) return 0;
+		return q-start+1;
+	}
+
+	// Constructs a filename from `dir`, `filename_prefix`, and `ext` (includes dot) that does not yet exist on disk.
+	// Appends a numeric suffix if necessary.
+	std::filesystem::path create_new_file_path(std::filesystem::path dir, std::string filename_prefix, std::string ext, bool force_suffix)
+	{
+		auto path_prefix = dir / filename_prefix;
+		std::filesystem::path new_path;
+		int i = 1;
+
+		if (!force_suffix)
+		{
+			new_path = fmt::format("{}{}", path_prefix.string(), ext);
+			if (!std::filesystem::exists(new_path))
+				return new_path;
+			i += 1;
+		}
+
+		do {
+			new_path = fmt::format("{}-{:03}{}", path_prefix.string(), i, ext);
+			i += 1;
+		} while (std::filesystem::exists(new_path));
+		return new_path;
+	}
+
+	// Creates a temporary file path that may be moved by the caller.
+	// The purpose is to avoid crashes during overwriting important files, which would corrupt them.
+	std::string create_temp_file_path(std::string final_destination)
+	{
+		// This function has a lot of history. We don't use std::tmpnam because there is no guarentee
+		// that can be moved to the final destination (for example, it could be created in a tmpfs on Linux).
+		// Simplest approach, just append ".tmp" to the final location.
+		return final_destination + ".tmp";
+	}
+
+	fs::path normalized_trimed(const fs::path& p)
+	{
+		auto r = p.lexically_normal();
+		if (r.has_filename()) return r;
+		return r.parent_path();
+	}
+
+	bool is_subpath_of(const fs::path& base, const fs::path& sub)
+	{
+		auto b = normalized_trimed(base);
+		auto s = normalized_trimed(sub).parent_path();
+		auto m = std::mismatch(b.begin(), b.end(), 
+							s.begin(), s.end());
+		return m.first == b.end();
+	}
+
+	std::string get_filename(const fs::path& path)
+	{
+		return path.filename().string();
+	}
+
+	fs::path nearest_existing_directory(const fs::path& dir)
+	{
+		std::error_code ec;
+		fs::path result = dir;
+
+		while (!result.empty() && result != result.parent_path() && !fs::is_directory(result, ec))
+			result = result.parent_path();
+
+		return fs::is_directory(result, ec) ? result : fs::path();
+	}
+
+	void open_web_link(std::string url)
+	{
+#ifdef __EMSCRIPTEN__
+		em_open_link(url);
+#elif defined(_WIN32)
+		std::string cmd = "start " + url;
+		system(cmd.c_str());
+#elif defined(__APPLE__)
+		launch_process("open", {url});
+#else
+		launch_process("xdg-open", {url});
+#endif
+	}
+
+	std::array<uint8_t, 16> md5_hash_bytes(const std::string& data)
+	{
+		cvs_MD5Context ctx;
+		cvs_MD5Init(&ctx);
+		cvs_MD5Update(&ctx, (const uint8_t*)data.data(), data.size());
+		std::array<uint8_t, 16> md5sum;
+		cvs_MD5Final(md5sum.data(), &ctx);
+		return md5sum;
+	}
+
+	std::optional<std::array<uint8_t, 16>> md5_file(const fs::path& path)
+	{
+		std::ifstream file(path, std::ios::binary);
+		if (!file)
+			return std::nullopt;
+
+		cvs_MD5Context ctx;
+		cvs_MD5Init(&ctx);
+		char buf[64 * 1024];
+		while (file.read(buf, sizeof(buf)) || file.gcount())
+			cvs_MD5Update(&ctx, (const uint8_t*)buf, (unsigned)file.gcount());
+		if (file.bad())
+			return std::nullopt;
+
+		std::array<uint8_t, 16> md5sum;
+		cvs_MD5Final(md5sum.data(), &ctx);
+		return md5sum;
+	}
+
+	uint8_t nibble(uint8_t byte, bool high)
+	{
+		if (high) return byte >> 4 & 0xF;
+		else      return byte & 0xF;
+	}
+
+	uint8_t nibble_set_lower_byte(uint8_t orig, uint8_t nibble)
+	{
+		uint8_t res = orig;
+		res &= 0xF0; // Clear out the lower nibble
+		res |= (nibble & 0x0F); // OR in the desired mask
+		return res;
+	}
+
+	uint8_t nibble_set_upper_byte(uint8_t orig, uint8_t nibble)
+	{
+		uint8_t res = orig;
+		res &= 0x0F; // Clear out the upper nibble
+		res |= ((nibble << 4) & 0xF0); // OR in the desired mask
+		return res;
+	}
+}
+
+using namespace util;
+
+std::string dayextension(int32_t dy)
+{
+	char temp[6]; 
+	switch(dy)
+	{
+		//st
+		case 1:
+		case 21:
+		case 31:
+			snprintf(temp, sizeof(temp), "%d%s",dy,"st");
+			break;
+		//nd
+		case 2:
+		case 22:
+			snprintf(temp, sizeof(temp), "%d%s",dy,"nd");
+			break;
+		//rd
+		case 3:
+		case 23:
+			snprintf(temp, sizeof(temp), "%d%s",dy,"rd");
+			break;
+		//th
+		default:
+			snprintf(temp, sizeof(temp), "%d%s",dy,"th");
+			break;
+	}
+	
+	return std::string(temp); 
+}
+
+bool fileexists(const char *filename)
+{
+	std::ifstream ifile(filename);
+	if(ifile) return true;
+	return false;
+}
+
+int32_t compare(int32_t a, int32_t b)
+{
+	if(a > b) return 1;
+	if(a < b) return -1;
+	return 0;
+}
+
+char const* get_snap_str()
+{
+	static char snap[16] = "snapshots/";
+	static char nil[1] = {0};
+	if(snap[9]==WRONG_PATH_SLASH) snap[9] = PATH_SLASH;
+	if(checkPath("snapshots",true))
+		return snap;
+	do_mkdir("snapshots",PATH_MODE);
+	if(checkPath("snapshots",true))
+		return snap;
+	return nil;
+}
+
+static std::string HINT_TY(std::vector<int> vals, dword ty)
+{
+	if (vals.empty()) return "";
+	return fmt::format("$#{}#{}$", ty, fmt::join(vals, ","));
+}
+std::string QRHINT(std::vector<int> qrs)
+{
+	return HINT_TY(qrs,INFOHINT_T_QR);
+}
+std::string RULETMPL_HINT(std::vector<int> tmpls)
+{
+	return HINT_TY(tmpls,INFOHINT_T_RULETMPL);
+}
+std::string INFO_URL(std::string const& text, std::string const& url)
+{
+	if (text.empty() || url.empty())
+		return "";
+	return fmt::format("$[{}]({})$", text, url);
+}
+
+static void _handle_hint_text(string& str, InfoTextHintData* out_data)
+{
+	while(true)
+	{
+		size_t pos = str.find_first_of("$");
+		if(pos == string::npos)
+			break;
+		size_t nextpos = str.find_first_of("$",pos+1);
+		if(nextpos == string::npos)
+			break;
+		string sub = str.substr(pos+1,nextpos-pos-1);
+		str.erase(pos,nextpos-pos+1);
+		
+		if (!out_data)
+			continue;
+		auto& ret = *out_data;
+		
+		if (sub[0] == '[' && sub.back() == ')') // url parsing
+		{
+			size_t brackpos = sub.find_first_of("]");
+			size_t parenpos = sub.find_last_of("(");
+			if (brackpos == string::npos || parenpos == string::npos)
+				continue; //invalid
+			if (brackpos != parenpos - 1)
+				continue; // invalid
+			ret.urls.emplace_back(sub.substr(1, brackpos-1), sub.substr(parenpos+1, sub.size() - parenpos - 2));
+			continue; // done
+		}
+		
+		uint8_t special_type = INFOHINT_T_QR; //qr by default
+		if(sub[0] == '#') //Special type id given
+		{
+			auto nexthash = sub.find_first_of("#",1);
+			if(nexthash == string::npos || nexthash == 1)
+				continue; //invalid
+			if(sub.find_first_not_of("0123456789",1) != nexthash)
+				continue; //invalid
+			special_type = atoi(sub.substr(1,nexthash).c_str());
+			sub.erase(0,nexthash+1);
+		}
+		bool running = true;
+		while(running)
+		{
+			size_t commapos = sub.find_first_of(",");
+			string sub2;
+			if(commapos == string::npos)
+			{
+				running = false;
+				sub2 = sub;
+			}
+			else
+			{
+				sub2 = sub.substr(0,commapos);
+				sub.erase(0,commapos+1);
+			}
+			if(sub2.size() < 1 || sub2.find_first_not_of("0123456789") != string::npos)
+				continue; //invalid
+			int val = atoi(sub2.c_str());
+			ret.hints[special_type].insert(val);
+		}
+	}
+	
+}
+
+void erase_hint_text(string& str)
+{
+	_handle_hint_text(str, nullptr);
+}
+InfoTextHintData parse_hint_text(string& str)
+{
+	InfoTextHintData ret;
+	_handle_hint_text(str, &ret);
+	return ret;
+}
+
+int binary_search_int(int b1, int b2, std::function<int(int,int&)> proc, int defval)
+{
+	int ret = defval;
+	if(b2 < b1)
+		zc_swap(b1,b2);
+	int len = b2-b1;
+	bool running = true;
+	while(running)
+	{
+		int val;
+		if(len <= 0)
+		{
+			running = false;
+			val = b1;
+		}
+		else val = b1+(len/2);
+		
+		int res = proc(val,ret);
+		switch(res)
+		{
+			case BSEARCH_CONTINUE_AWAY0:
+				res = (val < 0 ? BSEARCH_CONTINUE_DOWN : BSEARCH_CONTINUE_UP);
+				break;
+			case BSEARCH_CONTINUE_TOWARD0:
+				res = (val < 0 ? BSEARCH_CONTINUE_UP : BSEARCH_CONTINUE_DOWN);
+				break;
+		}
+		switch(res)
+		{
+			case BSEARCH_FAIL:
+				return 0;
+			case BSEARCH_SUCCEED:
+				return ret;
+			case BSEARCH_CONTINUE_UP:
+				if(b1 == val)
+				{
+					running = false;
+					break;
+				}
+				b1 = val;
+				len = b2-b1;
+				break;
+			case BSEARCH_CONTINUE_DOWN:
+				if(b2 == val)
+				{
+					running = false;
+					break;
+				}
+				b2 = val;
+				len = b2-b1;
+				break;
+		}
+	}
+	return ret;
+}
+zfix binary_search_zfix(zfix b1, zfix b2, std::function<int(zfix,zfix&)> proc, zfix defval)
+{
+	zfix ret = defval;
+	if(b2 < b1)
+		zc_swap(b1,b2);
+	zfix len = b2-b1;
+	bool running = true;
+	while(running)
+	{
+		zfix val;
+		if(len <= 0)
+		{
+			running = false;
+			val = b1;
+		}
+		else val = b1+(len/2);
+		
+		int res = proc(val,ret);
+		switch(res)
+		{
+			case BSEARCH_CONTINUE_AWAY0:
+				res = (val < 0 ? BSEARCH_CONTINUE_DOWN : BSEARCH_CONTINUE_UP);
+				break;
+			case BSEARCH_CONTINUE_TOWARD0:
+				res = (val < 0 ? BSEARCH_CONTINUE_UP : BSEARCH_CONTINUE_DOWN);
+				break;
+		}
+		switch(res)
+		{
+			case BSEARCH_FAIL:
+				return 0;
+			case BSEARCH_SUCCEED:
+				return ret;
+			case BSEARCH_CONTINUE_UP:
+				if(b1 == val)
+				{
+					running = false;
+					break;
+				}
+				b1 = val;
+				len = b2-b1;
+				break;
+			case BSEARCH_CONTINUE_DOWN:
+				if(b2 == val)
+				{
+					running = false;
+					break;
+				}
+				b2 = val;
+				len = b2-b1;
+				break;
+		}
+	}
+	return ret;
+}
+
+

@@ -54,7 +54,11 @@ extern std::vector<mapscr> TheMaps;
 extern zcmap               *ZCMaps;
 extern dmap                *DMaps;
 extern word                map_count;
+#ifdef ZC_PLAYER_BUILD
+extern refInfo             ffcScriptData[Q30_MAXFFCS];
+#else
 extern refInfo             ffcScriptData[32];
+#endif
 
 void clear_screen(mapscr *temp_scr); // src/qst.cpp
 
@@ -417,7 +421,8 @@ static byte ffc_size(long hit, byte tiles)
     return (byte)(((blocks - 1) << 6) | (pixels - 1));
 }
 
-// One FFC of the v23+ format. m can be past this engine's 32; those are walked and dropped.
+// One FFC of the v23+ format. m can be past 2.53's 32: the player keeps those (up to upstream's
+// 128), ZQuest walks and drops them.
 // masked: the version says which FFCs exist through a mask, so an empty combo is still a whole FFC.
 static void read_ffc_new(Q255Section &s, mapscr *t, int m, bool masked)
 {
@@ -468,6 +473,7 @@ static void read_ffc_new(Q255Section &s, mapscr *t, int m, bool masked)
         read_script_config(s, &script, initd);
 
     long a0 = 10000, a1 = 10000;
+    signed char layer = 1;     // upstream's default, where 2.53 draws every FFC
 
     if(s.version < 33)
     {
@@ -475,15 +481,24 @@ static void read_ffc_new(Q255Section &s, mapscr *t, int m, bool masked)
         a1 = s.getc() * 10000;
     }
     else
-        s.skip(1);      // layer
+        layer = (signed char)s.getc();
 
     if(s.version >= 40)
         s.skip(8);      // viewport_suspend_range, viewport_despawn_range
 
     if(m >= FFCS_IN_FILE)
-        return;
+    {
+#ifdef ZC_PLAYER_BUILD
+        // FFCs 33-128: the player keeps them beside the first 32 (ffc_field in zdefs.h)
+        if(m >= Q30_MAXFFCS)
+            return;
 
-    if(!masked)
+        t->q30_extend_ffcs();
+#else
+        return;
+#endif
+    }
+    else if(!masked)
         t->numff |= (dword)1 << m;
 
     t->ffdata[m] = clamp_combo(combo);
@@ -507,6 +522,11 @@ static void read_ffc_new(Q255Section &s, mapscr *t, int m, bool masked)
     t->inita[m][0] = a0;
     t->inita[m][1] = a1;
     t->initialized[m] = false;
+#ifdef ZC_PLAYER_BUILD
+    t->fflayer[m] = (signed char)(layer - 1);
+#else
+    (void)layer;
+#endif
 }
 
 // A screen's music from v37: -2 silence, -1 the DMap's, 0 nothing, or a

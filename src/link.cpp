@@ -122,6 +122,17 @@ static bool q30_new_hero_movement()
     return q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT) || q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2);
 }
 
+// upstream's hero_newstep and hero_newstep_diag (moveOld2, the qr_NEW_HERO_MOVEMENT walk without
+// qr_NEW_HERO_MOVEMENT2): the most a step may move, the full step after every step but 1.5 at a
+// new game's start, so a game's first step is at most 1.5 pixels.
+static double q30_hero_newstep = 1.5, q30_hero_newstep_diag = 1.5;
+
+// upstream's HeroClass::reset_step_statics: init_game, on a new game (not a continue)
+void q30_reset_step_statics()
+{
+    q30_hero_newstep = q30_hero_newstep_diag = 1.5;
+}
+
 // Which layer 1 and 2 combos this sword swing has already cut (qr_BUSHESONLAYERS1AND2).
 static byte q30_layer_grid[2][22];
 
@@ -392,6 +403,59 @@ void LinkClass::setY(int new_y)
         is_on_conveyor=true;
 }
 
+// 2.55/3.0 (upstream's setXfix/setYfix): setX and setY keeping the fraction, for a script's
+// Link->X and Link->Y under qr_SPRITEXY_IS_FLOAT (Mystical Harps' floor spinner turns Link
+// through a circle of such positions).
+void LinkClass::setXfix(fix new_x)
+{
+    fix dx=new_x-x;
+    if(Lwpns.idFirst(wHookshot)>-1)
+    {
+        Lwpns.spr(Lwpns.idFirst(wHookshot))->x+=dx;
+    }
+
+    if(Lwpns.idFirst(wHSHandle)>-1)
+    {
+        Lwpns.spr(Lwpns.idFirst(wHSHandle))->x+=dx;
+    }
+
+    for(int j=0; j<chainlinks.Count(); j++)
+    {
+        chainlinks.spr(j)->x+=dx;
+    }
+
+    x=new_x;
+
+    // A kludge
+    if(!diagonalMovement && dir<=down)
+        is_on_conveyor=true;
+}
+
+void LinkClass::setYfix(fix new_y)
+{
+    fix dy=new_y-y;
+    if(Lwpns.idFirst(wHookshot)>-1)
+    {
+        Lwpns.spr(Lwpns.idFirst(wHookshot))->y+=dy;
+    }
+
+    if(Lwpns.idFirst(wHSHandle)>-1)
+    {
+        Lwpns.spr(Lwpns.idFirst(wHSHandle))->y+=dy;
+    }
+
+    for(int j=0; j<chainlinks.Count(); j++)
+    {
+        chainlinks.spr(j)->y+=dy;
+    }
+
+    y=new_y;
+
+    // A kludge
+    if(!diagonalMovement && dir>=left)
+        is_on_conveyor=true;
+}
+
 void LinkClass::setZ(int new_z)
 {
     if(isSideview())
@@ -426,6 +490,18 @@ void LinkClass::setZ(int new_z)
     }
     
     z=(new_z>0 ? new_z : 0);
+}
+
+// 2.55/3.0 (upstream's setZfix): setZ keeping the fraction, under qr_SPRITEXY_IS_FLOAT
+void LinkClass::setZfix(fix new_z)
+{
+    if(isSideview())
+        return;
+
+    if(z==0 && new_z > 0)
+        setZ(1);    // leaves the water or the charge as setZ does
+
+    z=(new_z>0 ? new_z : fix(0));
 }
 void LinkClass::setFall(fix new_fall)
 {
@@ -1188,6 +1264,38 @@ struct Q30LinkDrawLayers
     ~Q30LinkDrawLayers() { q30_draw_script_layer(dest, Q30_SPLAYER_PLAYER_DRAW); }
 };
 
+// 2.55/3.0 quests: upstream's newer hero sprite sets (herotile's ls_drown, ls_lavadrown,
+// ls_falling, ls_lifting, ls_liftwalk and ls_revslash), as the quest's hero sprites hold them.
+static void q255_herotile(int *tile, int *flip, int *extend, int set, int dir)
+{
+    const int *s = q255_hero_sprite(set, dir);
+
+    if(s)
+    {
+        *tile = s[spr_tile];
+        *flip = s[spr_flip];
+        *extend = s[spr_extend];
+    }
+}
+
+// Drowning: upstream draws the drowning sprites (or the lava ones) where 2.53 draws diving.
+static void q255_drowntile(int *tile, int *flip, int *extend, int drownclk, int dir)
+{
+    if(drownclk > 60 || !q30_active())
+        linktile(tile, flip, extend, (drownclk > 60) ? ls_float : ls_dive, dir, zinit.linkanimationstyle);
+    else
+        q255_herotile(tile, flip, extend, q30_lava_drowning() ? Q255HS_LAVADROWN : Q255HS_DROWN, dir);
+}
+
+// Walking: carrying a lifted object, upstream draws the lift-walk sprites (unless qr_NO_LIFT_SPRITE).
+static void q255_walktile(int *tile, int *flip, int *extend, int dir)
+{
+    if(q30_lifting() && !q30_quest_rule(351))
+        q255_herotile(tile, flip, extend, Q255HS_LIFTWALK, dir);
+    else
+        linktile(tile, flip, extend, ls_walk, dir, zinit.linkanimationstyle);
+}
+
 void LinkClass::draw(BITMAP* dest)
 {
     Q30LinkDrawLayers q30_layers(dest);
@@ -1332,11 +1440,17 @@ attack:
             {
                 linktile(&tile, &flip, &extend, ls_stab, dir, zinit.linkanimationstyle);
 
-                // 2.55/3.0 bug net (without qr_OLD_BUG_NET): slashing at both ends of the swing
-                // (upstream turns one end into a reverse slash, which this engine's Link has no
-                // tiles for)
+                // 2.55/3.0 bug net (without qr_OLD_BUG_NET): a slash at one end of the swing and
+                // a reverse slash at the other, the way round its flag 2 and the direction say
                 if(attack==Q30W_BUGNET && !q30_quest_rule(327) && (attackclk<9 || attackclk>15))
-                    linktile(&tile, &flip, &extend, ls_slash, dir, zinit.linkanimationstyle);
+                {
+                    const bool rev_first = (dir==right) == ((itemsbuf[itemid].flags & ITEM_FLAG2) != 0);
+
+                    if((attackclk<9) == rev_first)
+                        q255_herotile(&tile, &flip, &extend, Q255HS_REVSLASH, dir);
+                    else
+                        linktile(&tile, &flip, &extend, ls_slash, dir, zinit.linkanimationstyle);
+                }
                 
                 if((game->get_canslash() && (attack==wSword || attack==wWand || attack==wFire || attack==wCByrna)) && itemsbuf[itemid].flags&ITEM_FLAG4 && (attackclk<7))
                 {
@@ -1556,14 +1670,34 @@ attack:
         int jumping2 = int(jumping*(q30_link_gravity()/16.0));
         
         //if (jumping!=0) al_trace("%d %d %f %d\n",jumping,q30_link_gravity(),q30_link_gravity()/16.0,jumping2);
-        switch(zinit.linkanimationstyle)
+        int q30_liftclk = 0, q30_tliftclk = 0;
+
+        // 2.55/3.0: a pit's fall (played here as a drowning, 64 frames to upstream's 70) and the
+        // lift animation, as every style of upstream's hero drawing has them
+        if(q30_pit_falling())
+        {
+            q255_herotile(&tile, &flip, &extend, Q255HS_FALLING, dir);
+            tile += (zc_max(0, 64 - drownclk) / 10) * (extend == 2 ? 2 : 1);
+        }
+        else if(!q30_quest_rule(351) && q30_lift_anim(&q30_liftclk, &q30_tliftclk)
+                && !((z > 0 || isSideview()) && jumping2 > 0 && jumping2 < 24 && game->get_life() > 0))
+        {
+            q255_herotile(&tile, &flip, &extend, Q255HS_LIFTING, dir);
+            const int frames = q255_hero_lift_frames(dir);
+            const int speed = zc_max(1, q30_tliftclk / frames);
+            const int curframe = q30_tliftclk ? (q30_tliftclk - q30_liftclk) / speed : frames - 1;
+
+            if(curframe >= 0 && curframe < frames)
+                tile += curframe * (extend == 2 ? 2 : 1);
+        }
+        else switch(zinit.linkanimationstyle)
         {
         case las_original:                                               //normal
             if(action==drowning)
             {
-                if(inwater)
+                if(inwater || q30_lava_drowning())
                 {
-                    linktile(&tile, &flip, &extend, (drownclk > 60) ? ls_float : ls_dive, dir, zinit.linkanimationstyle);
+                    q255_drowntile(&tile, &flip, &extend, drownclk, dir);
                     tile+=((frame>>3) & 1)*(extend==2?2:1);
                 }
                 else
@@ -1630,7 +1764,7 @@ attack:
             }
             else
             {
-                linktile(&tile, &flip, &extend, ls_walk, dir, zinit.linkanimationstyle);
+                q255_walktile(&tile, &flip, &extend, dir);
                 
                 if(dir>up)
                 {
@@ -1656,7 +1790,7 @@ attack:
         case las_bszelda:                                               //BS
             if(action==drowning)
             {
-                if(inwater)
+                if(inwater || q30_lava_drowning())
                 { //Not sure if drowning should use the walking sprites in 1.90, BS ANim, too. -Z (22-Jan-2019)
 		    //if ( emulation_patches[emuCOPYSWIMSPRITES] ) 
 		    //{
@@ -1664,7 +1798,7 @@ attack:
 		  //  }
 		    //else
 		    //{
-			linktile(&tile, &flip, &extend, (drownclk > 60) ? ls_float : ls_dive, dir, zinit.linkanimationstyle);
+			q255_drowntile(&tile, &flip, &extend, drownclk, dir);
                     //}
 		    tile += anim_3_4(lstep,7)*(extend==2?2:1);
                 }
@@ -1712,7 +1846,7 @@ attack:
             }
             else
             {
-                linktile(&tile, &flip, &extend, ls_walk, dir, zinit.linkanimationstyle);
+                q255_walktile(&tile, &flip, &extend, dir);
                 
                 if(dir>up)
                 {
@@ -1735,9 +1869,9 @@ attack:
         case las_zelda3:                                               //8-frame Zelda 3
             if(action == drowning)
             {
-                if(inwater)
+                if(inwater || q30_lava_drowning())
                 {
-                    linktile(&tile, &flip, &extend, (drownclk > 60) ? ls_float : ls_dive, dir, zinit.linkanimationstyle);
+                    q255_drowntile(&tile, &flip, &extend, drownclk, dir);
                     tile += anim_3_4(lstep,7)*(extend==2?2:1);
                 }
                 else
@@ -1789,7 +1923,7 @@ attack:
             }
             else
             {
-                linktile(&tile, &flip, &extend, ls_walk, dir, zinit.linkanimationstyle);
+                q255_walktile(&tile, &flip, &extend, dir);
                 
                 if(action == walking || action == climbcoverbottom || action == climbcovertop)
                 {
@@ -2282,7 +2416,7 @@ void LinkClass::checkstab()
                 set_bit(screengrid,q,0); memset(q30_layer_grid,0,sizeof(q30_layer_grid));
             }
             
-            for(int q=0; q<32; q++)
+            for(int q=0; q<Q30_MAXFFCS; q++)
                 set_bit(ffcgrid, q, 0);
         }
         
@@ -2333,7 +2467,7 @@ void LinkClass::checkstab()
                 set_bit(screengrid,q,0); memset(q30_layer_grid,0,sizeof(q30_layer_grid));
             }
             
-            for(int q=0; q<32; q++)
+            for(int q=0; q<Q30_MAXFFCS; q++)
                 set_bit(ffcgrid,q, 0);
         }
         
@@ -2396,7 +2530,7 @@ if ( quakescr >= 0 )
             set_bit(screengrid,q,0); memset(q30_layer_grid,0,sizeof(q30_layer_grid));
         }
         
-        for(int q=0; q<32; q++)
+        for(int q=0; q<Q30_MAXFFCS; q++)
             set_bit(ffcgrid, q, 0);
             
         if(dir==up && (int(x)&15)==0)
@@ -4795,7 +4929,7 @@ bool LinkClass::animate(int)
     
     awarp=false;
     
-    for(int i=0; i<32; i++)
+    for(int i=0; i<tmpscr->ffc_count(); i++)
     {
         int ind=0;
         
@@ -5000,6 +5134,67 @@ bool LinkClass::animate(int)
 // to switch Link's weapon if his current weapon (bombs) was depleted.
 void LinkClass::deselectbombs(int super)
 {
+    // 2.55/3.0 (upstream's deselectbombs): nothing moves under qr_NEVERDISABLEAMMOONSUBSCREEN or
+    // while a script holds a bomb of the kind on A or B. Otherwise the button with the bomb
+    // that was used moves left to an item it can hold: B, else X or Y, else A, and only one that
+    // holds that kind of bomb (2.53 moves A whenever B doesn't have it; with counters checking the
+    // buttons as they change, B may already have moved on).
+    if(q30_active())
+    {
+        const int type = super ? itype_sbomb : itype_bomb;
+
+        if(q30_quest_rule(161))     // qr_NEVERDISABLEAMMOONSUBSCREEN
+            return;
+
+        if((q30_forced_awpn >= 0 && getItemFamily(itemsbuf, q30_forced_awpn) == type) ||
+           (q30_forced_bwpn >= 0 && getItemFamily(itemsbuf, q30_forced_bwpn) == type))
+            return;
+
+        // (with the newer subscreens each button moves on its own page: q30_btn_shift)
+        const bool paged = q30_paged_buttons();
+
+        if(getItemFamily(itemsbuf,Bwpn&0x0FFF)==type && (directWpn<0 || Bwpn==directWpn))
+        {
+            if(paged)
+                q30_btn_shift(Q30_BTN_B, SEL_VERIFY_LEFT, true);
+            else
+            {
+                int temp = selectWpn_new(SEL_VERIFY_LEFT, game->bwpn, game->awpn);
+                Bwpn = Bweapon(temp);
+                directItemB = directItem;
+                game->bwpn = temp;
+            }
+        }
+        else if(q30_use_x_button() && getItemFamily(itemsbuf,Xwpn&0x0FFF)==type && (directWpn<0 || Xwpn==directWpn))
+        {
+            if(paged)
+                q30_btn_shift(Q30_BTN_X, SEL_VERIFY_LEFT, true);
+            else
+                q30_select_next_button_item(true, SEL_VERIFY_LEFT);
+        }
+        else if(q30_use_y_button() && getItemFamily(itemsbuf,Ywpn&0x0FFF)==type && (directWpn<0 || Ywpn==directWpn))
+        {
+            if(paged)
+                q30_btn_shift(Q30_BTN_Y, SEL_VERIFY_LEFT, true);
+            else
+                q30_select_next_button_item(false, SEL_VERIFY_LEFT);
+        }
+        else if(getItemFamily(itemsbuf,Awpn&0x0FFF)==type && (directWpn<0 || Awpn==directWpn))
+        {
+            if(paged)
+                q30_btn_shift(Q30_BTN_A, SEL_VERIFY_LEFT, true);
+            else
+            {
+                int temp = selectWpn_new(SEL_VERIFY_LEFT, game->awpn, game->bwpn);
+                Awpn = Bweapon(temp);
+                directItemA = directItem;
+                game->awpn = temp;
+            }
+        }
+
+        return;
+    }
+
     if(getItemFamily(itemsbuf,Bwpn&0x0FFF)==(super? itype_sbomb : itype_bomb) && (directWpn<0 || Bwpn==directWpn))
     {
         int temp = selectWpn_new(SEL_VERIFY_LEFT, game->bwpn, game->awpn);
@@ -5234,16 +5429,39 @@ bool LinkClass::startwpn(int itemid)
         //Remote bombs:
         //Even if you have no bombs, the icon remains so that you can detonate laid bombs.
         //But the remaining code requires at least one bomb.
+        // (2.55/3.0: upstream's checkmagiccost asks for the bomb's costs, one bomb and any magic,
+        // and a bomb Link can't pay for sounds the quest's error sound: q30_item_error)
+        // 2.55/3.0: the item's two costs alone, whichever counters they use (the reader gives an
+        // old bomb item its one bomb as the second cost), paid as upstream's paymagiccost
+        if(q30_active())
+        {
+            if(!q30_item_costs_payable(itemid))
+            {
+                q30_item_error();
+                return false;
+            }
+
+            q30_pay_item_costs(itemid);
+        }
+        else
+        {
         if(!game->get_bombs() && !current_item_power(itype_bombbag))
+        {
+            q30_item_error();
             return false;
-            
+        }
+
         if(!checkmagiccost(itemid))
+        {
+            q30_item_error();
             return false;
-            
+        }
+
         paymagiccost(itemid);
-        
+
         if(!get_debug() && !current_item_power(itype_bombbag))
             game->change_bombs(-1);
+        }
             
         if(itemsbuf[itemid].misc1>0) // If not remote bombs
             deselectbombs(false);
@@ -5284,16 +5502,35 @@ bool LinkClass::startwpn(int itemid)
         bool magicbag = (current_item_power(itype_bombbag)
                          && itemsbuf[current_item_id(itype_bombbag)].flags & ITEM_FLAG1);
                          
+        if(q30_active())    // 2.55/3.0: the item's two costs, as for bombs
+        {
+            if(!q30_item_costs_payable(itemid))
+            {
+                q30_item_error();
+                return false;
+            }
+
+            q30_pay_item_costs(itemid);
+        }
+        else
+        {
         if(!game->get_sbombs() && !magicbag)
+        {
+            q30_item_error();   // (2.55/3.0, as for bombs)
             return false;
-            
+        }
+
         if(!checkmagiccost(itemid))
+        {
+            q30_item_error();
             return false;
-            
+        }
+
         paymagiccost(itemid);
-        
+
         if(!get_debug() && !magicbag)
             game->change_sbombs(-1);
+        }
             
         if(itemsbuf[itemid].misc1>0) // If not remote bombs
             deselectbombs(true);
@@ -8143,52 +8380,65 @@ bool LinkClass::q30_can_move(double dx, double dy)
 
 // The nearest clear coordinate from (tx,ty) in direction sdir, no further than earlyterm,
 // given back as Link's own x or y. False if none, or if Link could not step from it.
+// Upstream's get_solid_coord: a binary search in zfix steps (1/10000 pixel), so the edge it
+// finds is exact. (Stepping a whole pixel at a time from a fractional start missed it: Link
+// half a pixel off a 16-pixel corridor could never be shoved into it.)
 bool LinkClass::q30_solid_coord(double tx, double ty, int sdir, int mdir, double earlyterm, double &out)
 {
+    const bool vert = (sdir == up || sdir == down);
+    const bool toward_lower = (sdir == up || sdir == left);     // searching down from the start
+    int b1 = (int)floor((vert ? ty : tx) * 10000 + 0.5), b2 = (int)floor(earlyterm * 10000 + 0.5);
+
+    if(b2 < b1)
+    {
+        const int t = b1;
+        b1 = b2;
+        b2 = t;
+    }
+
+    int len = b2 - b1, ret = -9990000;
+    bool running = true;
+
+    while(running)      // (upstream's binary_search_zfix)
+    {
+        int val;
+
+        if(len <= 0)
+        {
+            running = false;
+            val = b1;
+        }
+        else
+            val = b1 + len / 2;
+
+        const double v = val / 10000.0;
+        const bool clear = vert ? !q30_walk_solid(tx, v, mdir) : !q30_walk_solid(v, ty, mdir);
+
+        if(clear)
+            ret = val;
+
+        if(toward_lower ? clear : !clear)     // on toward the higher end
+        {
+            if(b1 == val)
+                break;
+
+            b1 = val;
+        }
+        else
+        {
+            if(b2 == val)
+                break;
+
+            b2 = val;
+        }
+
+        len = b2 - b1;
+    }
+
     double found = -999;
 
-    switch(sdir)
-    {
-    case up:
-        for(double t = ty; t >= earlyterm; t -= 1)
-            if(!q30_walk_solid(tx, t, mdir))
-            {
-                found = t - 15.9999;
-                break;
-            }
-
-        break;
-
-    case down:
-        for(double t = ty; t <= earlyterm; t += 1)
-            if(!q30_walk_solid(tx, t, mdir))
-            {
-                found = t - (bigHitbox ? 0 : 8);
-                break;
-            }
-
-        break;
-
-    case left:
-        for(double t = tx; t >= earlyterm; t -= 1)
-            if(!q30_walk_solid(t, ty, mdir))
-            {
-                found = t - 15.9999;
-                break;
-            }
-
-        break;
-
-    default:
-        for(double t = tx; t <= earlyterm; t += 1)
-            if(!q30_walk_solid(t, ty, mdir))
-            {
-                found = t;
-                break;
-            }
-
-        break;
-    }
+    if(ret > -9990000)
+        found = ret / 10000.0 - (toward_lower ? 15.9999 : sdir == down ? (bigHitbox ? 0 : 8) : 0);
 
     if(found <= -999)
         return false;
@@ -8419,6 +8669,55 @@ bool LinkClass::q30_move_xy(double dx, double dy, bool shove)
     return ret;
 }
 
+// upstream's moveheroOld walkflag checks before a moveOld2 step: walking way d by s ends in a
+// wall at the side Link walks into (its two corners and its middle). With cd >= 0 only the one
+// corner a diagonal step reaches, where Link would also have walked way cd by cs.
+bool LinkClass::q30_step_blocked(int d, double s, int cd, double cs)
+{
+    const double bx = double(x), by = double(y), top = by + (bigHitbox ? 0 : 8);
+    double hx = d == left ? -s : d == right ? s : 0, hy = d == up ? -s : d == down ? s : 0;
+
+    if(cd >= 0)
+    {
+        hx += cd == left ? -cs : cd == right ? cs : 0;
+        hy += cd == up ? -cs : cd == down ? cs : 0;
+        const int h = (d == left || d == right) ? d : cd, v = (d == up || d == down) ? d : cd;
+        return q30_walk_solid(bx + hx + (h == right ? 15 : 0), (v == up ? top : by + 15) + hy, d);
+    }
+
+    if(d == left || d == right)
+    {
+        const double ex = bx + hx + (d == right ? 15 : 0);
+        return q30_walk_solid(ex, top, d) || q30_walk_solid(ex, by + 8, d) || q30_walk_solid(ex, by + 15, d);
+    }
+
+    const double ey = (d == up ? top : by + 15) + hy;
+    return q30_walk_solid(bx, ey, d) || q30_walk_solid(bx + 8, ey, d) || q30_walk_solid(bx + 15, ey, d);
+}
+
+// The step moveheroOld leaves moveOld2 for way d (hero_newstep, or hero_newstep_diag across):
+// while it would end in a wall, Link's position on that axis is rounded (half away from 0, as
+// zfix's doRound), then the step floored, then cut by a pixel while it is over 1. False if it
+// is still blocked then (upstream drops a blocked shift, shiftdir -1).
+bool LinkClass::q30_fit_step(int d, double &step, int cd, double cs)
+{
+    for(;;)
+    {
+        if(!q30_step_blocked(d, step, cd, cs))
+            return true;
+
+        fix &pos = (d == left || d == right) ? x : y;
+        const double p = double(pos);
+
+        if(p != floor(p))
+            pos = fix(p < 0 ? ceil(p - 0.5) : floor(p + 0.5));
+        else if(step > 1)
+            step = step != floor(step) ? floor(step) : step - 1;
+        else
+            return false;
+    }
+}
+
 void LinkClass::q30_free_walk(int push)
 {
     bool du = DrunkUp(), dd = DrunkDown(), dl = DrunkLeft(), dr = DrunkRight();
@@ -8499,6 +8798,38 @@ void LinkClass::q30_free_walk(int push)
 
     double diag = (diagonalMovement && shiftdir != -1) ? step * 0.7071 : step;
     double dx = 0, dy = 0;
+    double side = diag;     // the step across movedir, when Link walks diagonally
+
+    // moveheroOld and moveOld2: the step is fitted to the walls first (q30_fit_step, with last
+    // frame's hero_newstep), then hero_newstep (_diag) is capped at the full step,
+    // (steprate + tmp_step_boost) / 100, neither part of the step goes past it, and it becomes
+    // the full step again. A shift that can't clear is dropped (shiftdir -1), and then the
+    // step along movedir isn't cut to a diagonal one.
+    if(new_movement && !q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2))
+    {
+        const double movepix = (q30_steprate + q30_step_boost) / 100.0;
+        const bool walkable = q30_fit_step(movedir, q30_hero_newstep, -1, 0);
+
+        if(shiftdir >= 0 && diagonalMovement)
+        {
+            bool clear = q30_fit_step(shiftdir, q30_hero_newstep_diag, -1, 0);
+
+            if(clear && walkable)
+                clear = q30_fit_step(shiftdir, q30_hero_newstep_diag, movedir, q30_hero_newstep);
+
+            if(!clear)
+            {
+                side = 0;
+                diag = step;
+            }
+        }
+
+        q30_hero_newstep = zc_min(q30_hero_newstep, movepix);
+        q30_hero_newstep_diag = zc_min(q30_hero_newstep_diag, movepix);
+        diag = zc_min(diag, q30_hero_newstep);
+        side = zc_min(side, q30_hero_newstep_diag);
+        q30_hero_newstep = q30_hero_newstep_diag = movepix;
+    }
 
     switch(movedir)
     {
@@ -8510,13 +8841,13 @@ void LinkClass::q30_free_walk(int push)
 
     if(movedir == up || movedir == down)
     {
-        if(shiftdir == left) dx = -diag;
-        else if(shiftdir == right) dx = diag;
+        if(shiftdir == left) dx = -side;
+        else if(shiftdir == right) dx = side;
     }
     else
     {
-        if(shiftdir == up) dy = -diag;
-        else if(shiftdir == down) dy = diag;
+        if(shiftdir == up) dy = -side;
+        else if(shiftdir == down) dy = side;
     }
 
     linkstep();
@@ -8530,7 +8861,15 @@ void LinkClass::q30_free_walk(int push)
     if(charging != 0 && attack == wHammer)
         return;
 
-    if(q30_move_xy(dx, dy, true))
+    const bool moved = q30_move_xy(dx, dy, true);
+
+    // upstream keeps Link's position in 1/10000 pixels (zfix); a 2.55 step doesn't fit 1/65536
+    // pixels, so put him back on that grid each step, or the error grows until a position
+    // upstream has at .5 lands under it (and rounds the other way, e.g. the camera)
+    x = fix(floor(double(x) * 10000 + 0.5) / 10000);
+    y = fix(floor(double(y) * 10000 + 0.5) / 10000);
+
+    if(moved)
         return;
 
     pushing = push + 1;
@@ -9347,9 +9686,10 @@ void LinkClass::move(int d2)
         linkstep();
     }
     
+    // (2.55/3.0: upstream's moveOld doesn't read the combos' speed modifiers either; only
+    // qr_NEW_HERO_MOVEMENT2's walk does, in q30_free_walk)
     if(charging==0 || attack!=wHammer)
     {
-        q30_walk_speed(int(x),int(y),int(z),dx,dy);
         sprite::move((fix)dx,(fix)dy);
     }
 }
@@ -9370,7 +9710,7 @@ static bool q30_ffc_solid_at(int wx, int wy, int cnt)
     if(trace)
         traced_scr = currscr;
 
-    for(int i = 0; i < 32; ++i)
+    for(int i = 0; i < tmpscr->ffc_count(); ++i)
     {
         const dword f = tmpscr->ffflags[i];
 
@@ -13364,6 +13704,134 @@ void LinkClass::exitcave()
 
 void LinkClass::stepforward(int steps, bool adjust)
 {
+    // 2.55/3.0: upstream's stepforward. Under qr_NEW_HERO_MOVEMENT or qr_NEW_HERO_MOVEMENT2
+    // (upstream's NEW_MOVEMENT) each step counts 1.5 pixels, and under qr_NEW_HERO_MOVEMENT
+    // Link walks exactly 1.5 a frame (moveOld2's forced rate); otherwise he takes 2.53's steps
+    // (moveOld). Neither reads the combos' speed modifiers. He starts and ends on a whole pixel.
+    if(q30_active())
+    {
+        const bool newmove = q30_new_hero_movement();
+        const bool forced = q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT);
+        int tx=x, ty=y;
+        double s=0;
+        z3step=2;
+        int sh=shiftdir;
+        shiftdir=-1;
+        
+        for(int i=steps; i>0; --i)
+        {
+            int tstep=0;
+            
+            if(newmove)
+            {
+                s+=1.5;
+                continue;
+            }
+            else if(diagonalMovement)
+            {
+                tstep=z3step;
+                z3step=(z3step%2)+1;
+            }
+            else
+            {
+                tstep=lsteps[((dir<left)?ty:tx)&7];
+                
+                if(dir==up) ty-=tstep;
+                else if(dir==down) ty+=tstep;
+                else if(dir==left) tx-=tstep;
+                else if(dir==right) tx+=tstep;
+            }
+            
+            s+=tstep;
+        }
+        
+        z3step=2;
+        x=int(x);
+        y=int(y);
+        
+        while(s>=0)
+        {
+            bool nudge=false;   // a pixel onto the grid instead of a step
+            
+            if((dir<left?int(x)&7:int(y)&7)&&adjust)
+            {
+                const int tdir=dir<left?(int(x)&8?left:right):(int(y)&8?down:up);
+                walkable=false;
+                
+                if(diagonalMovement && !newmove)
+                    shiftdir=tdir;
+                else
+                {
+                    nudge=true;
+                    x+=(tdir==left)?-1:(tdir==right)?1:0;
+                    y+=(tdir==up)?-1:(tdir==down)?1:0;
+                }
+            }
+            else
+            {
+                s-=newmove?1.5:diagonalMovement?z3step:lsteps[int(dir<left?y:x)&7];
+                
+                if(diagonalMovement)
+                    walkable=true;
+            }
+            
+            if(!nudge && !forced)
+                move(dir);
+            else if(!nudge && !inlikelike)
+            {
+                // moveOld2's forced rate: 1.5 pixels the way Link faces
+                if(action != swimming)
+                {
+                    linkstep();
+                    
+                    if(charging==0 && spins==0 && z==0 && !(isSideview() && !ON_SIDEPLATFORM))
+                        action = walking;
+                        
+                    if(++link_count > (16*link_animation_speed))
+                        link_count=0;
+                }
+                else if(!(frame & 1))
+                    linkstep();
+                    
+                if(charging==0 || attack!=wHammer)
+                    sprite::move(fix(dir==left?-1.5:dir==right?1.5:0.0), fix(dir==up?-1.5:dir==down?1.5:0.0));
+
+                // moveOld2 ends every step with hero_newstep (_diag) = the full step, so after
+                // a step-in Link's first free step is a full one, not a new game's first 1.5
+                q30_hero_newstep = q30_hero_newstep_diag = (q30_steprate + q30_step_boost) / 100.0;
+            }
+            
+            if(diagonalMovement)
+                shiftdir=-1;
+                
+            if(s<0)
+            {
+                // as 2.53's below: entering the screen, or leaving it
+                switch(dir)
+                {
+                case up: if(y<8) y+=s; else y-=s; break;
+                case down: if(y>152) y-=s; else y+=s; break;
+                case left: if(x<8) x+=s; else x-=s; break;
+                case right: if(x>=232) x-=s; else x+=s; break;
+                }
+            }
+            
+            draw_screen(tmpscr);
+            advanceframe(true);
+            
+            if(Quit)
+                return;
+        }
+        
+        x=int(x);
+        y=int(y);
+        setEntryPoints(x,y);
+        draw_screen(tmpscr);
+        eat_buttons();
+        shiftdir=sh;
+        return;
+    }
+    
     int tx=x;           //temp x
     int ty=y;           //temp y
     int tstep=0;        //temp single step distance
@@ -15741,7 +16209,11 @@ int Bweapon(int pos)
         switch(itemsbuf[actualItem-1].family)
         {
         case itype_bomb:
-            if((game->get_bombs() ||
+            // 2.55/3.0: as the slot shows it (upstream's check_bomb: qr_NEVERDISABLEAMMOONSUBSCREEN,
+            // the bag, then the bombs or the item's costs, then a remote bomb out)
+            if(q30_active())
+                select = q30_bomb_slot_usable(actualItem-1, false);
+            else if((game->get_bombs() ||
                     // Remote Bombs: the bomb icon can still be used when an undetonated bomb is onscreen.
                     (actualItem-1>-1 && itemsbuf[actualItem-1].misc1==0 && Lwpns.idCount(wLitBomb)>0)) ||
                     current_item_power(itype_bombbag))
@@ -15775,8 +16247,10 @@ int Bweapon(int pos)
         case itype_sbomb:
         {
             int bombbagid = current_item_id(itype_bombbag);
-            
-            if((game->get_sbombs() ||
+
+            if(q30_active())    // 2.55/3.0: upstream's check_sbomb, as for bombs above
+                select = q30_bomb_slot_usable(actualItem-1, true);
+            else if((game->get_sbombs() ||
                     // Remote Bombs: the bomb icon can still be used when an undetonated bomb is onscreen.
                     (actualItem-1>-1 && itemsbuf[actualItem-1].misc1==0 && Lwpns.idCount(wLitSBomb)>0)) ||
                     (current_item_power(itype_bombbag) && bombbagid>-1 && (itemsbuf[bombbagid].flags & ITEM_FLAG1)))
@@ -15818,15 +16292,20 @@ int Bweapon(int pos)
     case itype_bomb:
     {
         int bombid = current_item_id(itype_bomb);
-        
-        if((game->get_bombs() ||
+
+        if(q30_active())    // 2.55/3.0: upstream's check_bomb for the class (see above)
+        {
+            if(q30_bomb_slot_usable(-1, false))
+                family=itype_bomb;
+        }
+        else if((game->get_bombs() ||
                 // Remote Bombs: the bomb icon can still be used when an undetonated bomb is onscreen.
                 (bombid>-1 && itemsbuf[bombid].misc1==0 && Lwpns.idCount(wLitBomb)>0)) ||
                 current_item_power(itype_bombbag))
         {
             family=itype_bomb;
         }
-        
+
         break;
     }
     
@@ -15856,8 +16335,13 @@ int Bweapon(int pos)
     {
         int bombbagid = current_item_id(itype_bombbag);
         int sbombid = current_item_id(itype_sbomb);
-        
-        if((game->get_sbombs() ||
+
+        if(q30_active())    // 2.55/3.0: upstream's check_sbomb for the class
+        {
+            if(q30_bomb_slot_usable(-1, true))
+                family=itype_sbomb;
+        }
+        else if((game->get_sbombs() ||
                 // Remote Bombs: the bomb icon can still be used when an undetonated bomb is onscreen.
                 (sbombid>-1 && itemsbuf[sbombid].misc1==0 && Lwpns.idCount(wLitSBomb)>0)) ||
                 (current_item_power(itype_bombbag) && bombbagid>-1 && (itemsbuf[bombbagid].flags & ITEM_FLAG1)))
@@ -15951,7 +16435,13 @@ void selectNextAWpn(int type)
 {
     if(!get_bit(quest_rules,qr_SELECTAWPN))
         return;
-        
+
+    if(q30_paged_buttons())     // 2.55/3.0, the newer subscreens: on A's own page
+    {
+        q30_btn_shift(Q30_BTN_A, type, false);
+        return;
+    }
+
     int ret = selectWpn_new(type, game->awpn, game->bwpn);
     Awpn = Bweapon(ret);
     directItemA = directItem;
@@ -15960,11 +16450,19 @@ void selectNextAWpn(int type)
 
 void selectNextBWpn(int type)
 {
+    if(q30_paged_buttons())     // 2.55/3.0, the newer subscreens: on B's own page
+    {
+        q30_btn_shift(Q30_BTN_B, type, false);
+        return;
+    }
+
     int ret = selectWpn_new(type, game->bwpn, game->awpn);
     Bwpn = Bweapon(ret);
     directItemB = directItem;
     game->bwpn = ret;
 }
+
+static void q30_btn_verify(int b);
 
 void verifyAWpn()
 {
@@ -15975,7 +16473,12 @@ void verifyAWpn()
     {
         Awpn = selectSword();
         game->awpn = 0xFF;
+
+        if(q30_paged_buttons())
+            q30_btn[Q30_BTN_A] = 255;
     }
+    else if(q30_paged_buttons())    // 2.55/3.0, the newer subscreens: on A's own page
+        q30_btn_verify(Q30_BTN_A);
     else
     {
         // some newer quests let a button stay empty on purpose
@@ -15993,6 +16496,12 @@ void verifyBWpn()
     if(q30_forced_bwpn != -1)   // a script's Hero->ItemB (newer quests)
         return;
 
+    if(q30_paged_buttons())     // 2.55/3.0, the newer subscreens: on B's own page
+    {
+        q30_btn_verify(Q30_BTN_B);
+        return;
+    }
+
     if(game->bwpn == 255 && q30_quest_rule(424))
         return;
 
@@ -16001,11 +16510,114 @@ void verifyBWpn()
     directItemB = directItem;
 }
 
+// ZC_Q30_BTNSEL=1 (2.55/3.0 quests): logs the active subscreen's item slots and each change of
+// the A and B buttons' slots and items
+void q30_btnsel_trace(const char *where)
+{
+    static const bool on = getenv("ZC_Q30_BTNSEL") != NULL;
+    static const subscreen_group *dumped = NULL;
+    static int last[4] = { -2, -2, -2, -2 };
+
+    if(!on || !q30_active() || !game)
+        return;
+
+    if(!strcmp(where, "init_game"))     // each new game logs its slots and buttons again
+    {
+        dumped = NULL;
+        last[0] = -2;
+    }
+
+    if(current_subscreen_active && dumped != current_subscreen_active)
+    {
+        dumped = current_subscreen_active;
+
+        for(int i = 0; current_subscreen_active->objects[i].type != ssoNULL; ++i)
+        {
+            const subscreen_object &o = current_subscreen_active->objects[i];
+
+            if(o.type == ssoCURRENTITEM)
+                al_trace("q30 btnsel: slot object %d at %d,%d class %d item %d (owned %d) pos %d (up %d down %d left %d right %d) invisible %d\n",
+                         i, o.x, o.y, o.d1, o.d8 - 1, o.d8 > 0 ? (int)game->get_item(o.d8 - 1) : -1, o.d3, o.d4, o.d5, o.d6, o.d7, o.d2);
+        }
+
+        for(int i = 0; current_subscreen_passive && current_subscreen_passive->objects[i].type != ssoNULL; ++i)
+        {
+            const subscreen_object &o = current_subscreen_passive->objects[i];
+
+            if(o.type == ssoBUTTONITEM)
+                al_trace("q30 btnsel: passive button item object %d at %d,%d button %d\n", i, o.x, o.y, o.d1);
+        }
+
+        for(int i = 0; i < q30_items_end(); ++i)
+        {
+            if(itemsbuf[i].family == itype_bomb || itemsbuf[i].family == itype_sbomb)
+                al_trace("q30 btnsel: %s item %d owned %d level %d remote %d magic %d, cost counters %d %d (payable %d)\n",
+                         itemsbuf[i].family == itype_bomb ? "bomb" : "super bomb", i, (int)game->get_item(i), itemsbuf[i].fam_type,
+                         itemsbuf[i].misc1 == 0 ? 1 : 0, itemsbuf[i].magic, q30_item_cost_counter(i, 0), q30_item_cost_counter(i, 1),
+                         q30_item_costs_payable(i) ? 1 : 0);
+        }
+    }
+
+    const int now[4] = { game->awpn, game->bwpn, Awpn, Bwpn };
+    static int last_slots[4] = { -2, -2, -2, -2 };     // (newer subscreens: the slots by page)
+    const bool paged = q30_paged_buttons();
+
+    if(memcmp(now, last, sizeof(now)) || (paged && memcmp(q30_btn, last_slots, sizeof(last_slots))))
+    {
+        memcpy(last, now, sizeof(now));
+        memcpy(last_slots, q30_btn, sizeof(last_slots));
+        al_trace("q30 btnsel: %s frame %d: A pos %d item %d, B pos %d item %d (forced %d %d; bombs %d, super bombs %d)\n", where, frame,
+                 game->awpn, Awpn, game->bwpn, Bwpn, q30_forced_awpn, q30_forced_bwpn, game->get_bombs(), game->get_sbombs());
+
+        if(paged)
+            al_trace("q30 btnsel: slots by page A 0x%04x B 0x%04x X 0x%04x Y 0x%04x (X item %d, Y item %d)\n", q30_btn[0], q30_btn[1],
+                     q30_btn[2], q30_btn[3], Xwpn, Ywpn);
+    }
+}
+
 void verifyBothWeapons()
 {
     verifyAWpn();
     verifyBWpn();
     q30_verify_extra_buttons();
+    q30_btnsel_trace("verify");
+}
+
+// gamedata's set_counter and change_counter, in a 2.55/3.0 quest: upstream's flush the item cache
+// (flushItemCache(true)), which checks the buttons' items again, so a bomb slot that needs bombs
+// is chosen as they come (a cheat, a script, a pickup) and left as the last one goes. Only while
+// a game is being played, with its subscreen loaded (upstream's verify needs an active subscreen),
+// under qr_OLD_SUBSCR or with the newer subscreens, whose buttons are checked each on its own page
+// (q30_btn).
+void q30_counter_changed()
+{
+    if(!(q30_old_subscreens() || q30_paged_buttons()) || !game || !Playing || !current_subscreen_active)
+        return;
+
+    verifyBothWeapons();
+}
+
+// put_passive_subscr, as it draws subscreen g, with the newer subscreens: upstream checks the
+// buttons' items again whenever it draws a button item (SW_ButtonItem::draw, in play and from
+// replay version 19), so in effect every frame the passive subscreen shows one. An empty button
+// is filled that way, the moment an item it can hold turns up (rule 424 aside).
+bool q30_sub_object_shown(const subscreen_group *g, int i);    // q30_scripts_subscr.h
+
+void q30_button_items_drawn(const subscreen_group *g)
+{
+    if(!q30_paged_buttons() || !g || !show_subscreen_items || !game || !Playing)
+        return;
+
+    for(int i = 0; i < MAXSUBSCREENITEMS && g->objects[i].type != ssoNULL; ++i)
+    {
+        const subscreen_object &o = g->objects[i];
+
+        if(o.type == ssoBUTTONITEM && o.d1 >= 0 && o.d1 < 4 && q30_sub_object_shown(g, i))
+        {
+            verifyBothWeapons();
+            return;
+        }
+    }
 }
 
 // ---- the X and Y item buttons of newer quests ----------------------------------------------------
@@ -16031,10 +16643,214 @@ static void q30_store_extra_buttons()
     game->set_generic((byte)(q30_ypos + 1), Q30_GEN_YPOS);
 }
 
+// ---- 2.55/3.0 with the newer subscreens: the item buttons' slots by page -------------------------
+// Upstream (without qr_OLD_SUBSCR) keeps each item button as a slot of the active subscreen,
+// pos << 8 | page with page 255 for none (game->awpn..ywpn), and checks and moves each one on its
+// own page (hero.cpp verifyWpn, selectNextBTNWpn, deselectbombsWPN). q30_btn holds them for A, B,
+// X and Y; game->awpn, game->bwpn, q30_xpos and q30_ypos keep the pos alone (255 for none), as
+// 2.53's save and the code that knows one page read them. They are kept with the game's states
+// (q30_triggers.cpp), 2.53's save having no room for the page. 2.53 quests, and newer ones under
+// qr_OLD_SUBSCR, never use them.
+int q30_btn[4] = { 255, 255, 255, 255 };
+static int q30_forced_xwpn = -1, q30_forced_ywpn = -1;  // a script's X or Y item (q30_set_button_item)
+
+bool q30_passive_on_top();      // q255_basic.cpp: a 2.55/3.0 quest with the newer subscreens
+bool q30_sub_new_format();      // q30_scripts_subscr.h
+int q30_btn_pages();
+int q30_btn_curpage();
+int q30_btn_default(int b);
+int q30_btn_item(int w);
+bool q30_btn_move(int dir, int &w, int f1, int f2, int f3, int &item, bool deselect);
+bool q30_saved_button_slots(int w[4]);  // q30_triggers.cpp
+void q30_restore_buttons();
+
+bool q30_paged_buttons()
+{
+    return q30_active() && q30_passive_on_top() && q30_sub_new_format();
+}
+
+// Button b takes slot w (and the pos alone where 2.53 keeps it).
+static void q30_btn_put(int b, int w)
+{
+    w &= 0xFFFF;
+    q30_btn[b] = w;
+    const int pos = (w & 0xFF) == 0xFF ? 255 : (w >> 8) & 0xFF;
+
+    switch(b)
+    {
+    case Q30_BTN_A: game->awpn = pos; break;
+    case Q30_BTN_B: game->bwpn = pos; break;
+    case Q30_BTN_X: q30_xpos = pos; q30_store_extra_buttons(); break;
+    case Q30_BTN_Y: q30_ypos = pos; q30_store_extra_buttons(); break;
+    }
+}
+
+// Button b shows item (Bweapon's form), directItem the one it uses directly.
+static void q30_btn_take_item(int b, int item)
+{
+    switch(b)
+    {
+    case Q30_BTN_A: Awpn = item; directItemA = directItem; break;
+    case Q30_BTN_B: Bwpn = item; directItemB = directItem; break;
+    case Q30_BTN_X: Xwpn = item; directItemX = directItem; break;
+    case Q30_BTN_Y: Ywpn = item; directItemY = directItem; break;
+    }
+}
+
+// Upstream's COND_AWPN..COND_YWPN: a button's slot, as the others see it (A only with
+// qr_SELECTAWPN, X and Y only when the quest uses them).
+static int q30_btn_cond(int b)
+{
+    switch(b)
+    {
+    case Q30_BTN_A: return get_bit(quest_rules,qr_SELECTAWPN) ? q30_btn[Q30_BTN_A] : 255;
+    case Q30_BTN_B: return q30_btn[Q30_BTN_B];
+    case Q30_BTN_X: return q30_use_x_button() ? q30_btn[Q30_BTN_X] : 255;
+    default:        return q30_use_y_button() ? q30_btn[Q30_BTN_Y] : 255;
+    }
+}
+
+// The buttons each one may not take (upstream passes them in this order).
+static const int q30_btn_others[4][3] =
+{
+    { Q30_BTN_B, Q30_BTN_X, Q30_BTN_Y },    // A
+    { Q30_BTN_A, Q30_BTN_X, Q30_BTN_Y },    // B
+    { Q30_BTN_B, Q30_BTN_A, Q30_BTN_Y },    // X
+    { Q30_BTN_B, Q30_BTN_X, Q30_BTN_A }     // Y
+};
+
+// Button b moves dir on its own page (verify: SEL_VERIFY_RIGHT; deselect: upstream's
+// deselectbombsWPN). Only while a game is being played, its buttons set up (init_game).
+static void q30_btn_move_one(int b, int dir, bool deselect)
+{
+    if(!Playing || !game)
+        return;
+
+    int w = q30_btn[b], item = 0;
+    const int *o = q30_btn_others[b];
+    const bool moved = q30_btn_move(dir, w, q30_btn_cond(o[0]), q30_btn_cond(o[1]), q30_btn_cond(o[2]), item, deselect);
+
+    static const bool trace = getenv("ZC_Q30_BTNSEL") != NULL;     // diagnostics only
+    if(trace && w != q30_btn[b])
+        al_trace("q30 btnsel: button %d dir %d moves from slot 0x%04x to 0x%04x (item %d; others 0x%04x 0x%04x 0x%04x; page %d of %d)\n", b, dir,
+                 q30_btn[b], w, item, q30_btn_cond(o[0]), q30_btn_cond(o[1]), q30_btn_cond(o[2]), q30_btn_curpage(), q30_btn_pages());
+
+    if(w != q30_btn[b])
+        q30_btn_put(b, w);
+
+    if(moved)
+        q30_btn_take_item(b, item);
+}
+
+static void q30_btn_verify(int b)
+{
+    q30_btn_move_one(b, SEL_VERIFY_RIGHT, false);
+}
+
+void q30_btn_shift(int b, int dir, bool deselect)
+{
+    q30_btn_move_one(b, dir, deselect);
+}
+
+// The subscreen loop (dosubscr): button b takes button from's slot, or slot pos of the page shown
+// (255: none). Set from the subscreen, A or B no longer holds a script's item (upstream clears
+// forced_awpn / forced_bwpn there).
+void q30_btn_copy(int b, int from)
+{
+    if(q30_paged_buttons())
+        q30_btn_put(b, q30_btn[from]);
+}
+
+void q30_btn_here(int b, int pos)
+{
+    if(!q30_paged_buttons())
+        return;
+
+    q30_btn_put(b, (pos < 0 || pos >= 255) ? 255 : (pos << 8) | q30_btn_curpage());
+
+    if(b == Q30_BTN_A)
+        q30_forced_awpn = -1;
+    else if(b == Q30_BTN_B)
+        q30_forced_bwpn = -1;
+    else if(b == Q30_BTN_X)
+        q30_forced_xwpn = -1;
+    else
+        q30_forced_ywpn = -1;
+}
+
+// init_game (upstream's): a new game's buttons start on the active subscreen's default slots; a
+// loaded one's where its save had them (a save from before the pages were kept: its slots on
+// the first page, as upstream reads a save from before pages, and the items kept with the
+// states). Each button shows what its slot holds now, with no search for another: A is the
+// sword without qr_SELECTAWPN, and an empty default stays empty. The checks that follow
+// (verifyBothWeapons) move them as upstream's do.
+void q30_init_paged_buttons(bool firstplay)
+{
+    int w[4];
+    bool old_save = false;
+
+    q30_forced_awpn = q30_forced_bwpn = q30_forced_xwpn = q30_forced_ywpn = -1;
+
+    if(firstplay)
+    {
+        for(int b = 0; b < 4; ++b)
+            w[b] = q30_btn_default(b);
+    }
+    else if(!q30_saved_button_slots(w))
+    {
+        const int pos[4] =
+        {
+            game->awpn, game->bwpn, (game->get_generic(Q30_GEN_XPOS) + 255) & 0xFF, (game->get_generic(Q30_GEN_YPOS) + 255) & 0xFF
+        };
+
+        for(int b = 0; b < 4; ++b)
+            w[b] = pos[b] == 255 ? 255 : pos[b] << 8;
+
+        old_save = true;
+    }
+
+    if(getenv("ZC_Q30_BTNSEL"))     // diagnostics only
+        al_trace("q30 btnsel: init, %s: slots 0x%04x 0x%04x 0x%04x 0x%04x\n", firstplay ? "new game (defaults)" :
+                 old_save ? "loaded, no slots kept (older save)" : "loaded, slots kept", w[0], w[1], w[2], w[3]);
+
+    for(int b = 0; b < 4; ++b)
+        q30_btn_put(b, w[b]);
+
+    if(get_bit(quest_rules,qr_SELECTAWPN))
+        q30_btn_take_item(Q30_BTN_A, q30_btn_item(w[Q30_BTN_A]));
+    else
+    {
+        directItem = -1;
+        directItemA = -1;
+        Awpn = selectSword();
+    }
+
+    for(int b = Q30_BTN_B; b <= Q30_BTN_Y; ++b)
+        q30_btn_take_item(b, q30_btn_item(w[b]));
+
+    if(old_save)
+        q30_restore_buttons();
+}
+
+// With the newer subscreens a script's X or Y item holds until the subscreen sets the button
+// (upstream's forced_xwpn / forced_ywpn: the checks leave it alone), and the button takes the
+// slot holding it, on any page, none if no slot does (get_page_pos).
 void q30_set_button_item(bool x, int wpn)
 {
     (x ? Xwpn : Ywpn) = wpn;
     (x ? directItemX : directItemY) = wpn & 0xFFF;
+
+    if(q30_paged_buttons())
+    {
+        int q30_btn_find_item(int id);  // q30_scripts_subscr.h
+        const int keep = directItem;
+
+        if(wpn >= 0)
+            q30_btn_put(x ? Q30_BTN_X : Q30_BTN_Y, q30_btn_find_item(wpn));
+
+        directItem = keep;
+        (x ? q30_forced_xwpn : q30_forced_ywpn) = wpn >= 0 ? wpn : -1;
+    }
 }
 
 // 2.55/3.0 scripts: Hero->ItemA / ItemB put an item on the button whether Link owns it or not
@@ -16052,8 +16868,16 @@ void q30_set_ab_item(bool a, int val)
 
     (a ? Awpn : Bwpn) = val < 0 ? 0 : val;
 
-    // the subscreen slot that holds it, if one does (upstream's get_page_pos)
-    if(val >= 0 && current_subscreen_active)
+    // the subscreen slot that holds it, if one does (upstream's get_page_pos); with the newer
+    // subscreens on any page, and none if no slot does
+    if(val >= 0 && q30_paged_buttons())
+    {
+        int q30_btn_find_item(int id);  // q30_scripts_subscr.h
+        const int keep = directItem;
+        q30_btn_put(a ? Q30_BTN_A : Q30_BTN_B, q30_btn_find_item(val));
+        directItem = keep;
+    }
+    else if(val >= 0 && current_subscreen_active)
     {
         const int keep = directItem;
 
@@ -16076,19 +16900,59 @@ void q30_set_ab_item(bool a, int val)
     (a ? directItemA : directItemB) = val;
 }
 
-void q30_set_button_slot(bool x, int wpn, int pos, int direct)
+// A script's Hero->Equipment (upstream's LINKEQUIP), with the newer subscreens: the two items go
+// on A and B forced, as Hero->ItemA and ItemB put them, and neither button keeps a slot. False
+// for other quests, which keep 2.53's (each item id taken as a slot too).
+bool q30_set_equipment(int seta, int setb)
+{
+    if(!q30_paged_buttons())
+        return false;
+
+    Awpn = seta;
+    q30_btn_put(Q30_BTN_A, 255);
+    q30_forced_awpn = seta;
+    game->items_off[seta] = 0;
+    directItemA = seta;
+
+    Bwpn = setb;
+    q30_btn_put(Q30_BTN_B, 255);
+    q30_forced_bwpn = setb;
+    game->items_off[setb] = 0;
+    directItemB = setb;
+    return true;
+}
+
+void q30_set_button_slot(bool x, int wpn, int pos, int direct, int slot)
 {
     (x ? Xwpn : Ywpn) = wpn;
     (x ? q30_xpos : q30_ypos) = pos;
     (x ? directItemX : directItemY) = direct;
     q30_store_extra_buttons();
+
+    // (newer subscreens: the slot by page, as given, or pos on the page shown)
+    if(slot < 0)
+        q30_btn_here(x ? Q30_BTN_X : Q30_BTN_Y, pos);
+    else if(q30_paged_buttons())
+        q30_btn_put(x ? Q30_BTN_X : Q30_BTN_Y, slot);
 }
 
 // An item that is gone or upgraded takes the button's slot with it, as the other two buttons do.
+// (With the newer subscreens each moves on its own page as upstream's verifyXWpn/verifyYWpn.)
 void q30_verify_extra_buttons()
 {
     if(!q30_use_x_button() && !q30_use_y_button())
         return;
+
+    if(q30_paged_buttons())
+    {
+        if(q30_use_x_button() && q30_forced_xwpn == -1)
+            q30_btn_verify(Q30_BTN_X);
+
+        if(q30_use_y_button() && q30_forced_ywpn == -1)
+            q30_btn_verify(Q30_BTN_Y);
+
+        return;
+    }
 
     if(q30_xpos != Q30_NO_POS)
     {
@@ -16122,6 +16986,12 @@ void q30_select_next_button_item(bool x, int type)
 {
     if(!(x ? q30_use_x_button() : q30_use_y_button()))
         return;
+
+    if(q30_paged_buttons())     // (newer subscreens: on its own page, upstream's selectNextXWpn)
+    {
+        q30_btn_shift(x ? Q30_BTN_X : Q30_BTN_Y, type, false);
+        return;
+    }
 
     const int ret = selectWpn_new(type, x ? q30_xpos : q30_ypos, game->bwpn);
     q30_set_button_slot(x, Bweapon(ret), ret, directItem);

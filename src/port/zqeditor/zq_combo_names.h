@@ -16,6 +16,7 @@ int q30_mflag_count(bool is30);
 const char *q30_ctype_name(int type);   // "" past the end; names starting '-' are unused slots
 const char *q30_ctype_help(int type);
 const char *q30_mflag_name(int flag);
+const char *q30_mflag_help(int flag);    // the quest's own help (ZInfo) for a map flag, or ""
 
 // Combo trigger flags (upstream's ComboTriggerFlag), with the trigger editor's checkbox text.
 int q30_trigflag_count();

@@ -1007,6 +1007,30 @@ ZqEverySave g_every_save_guys(ID_GUYS);
 
 // Enemy i's record as it stands (edited, or as loaded) and the section version; false when
 // the open quest's enemies aren't a 2.55 / 3.0 section.
+// Every enemy record zq255_guy_record gives, read in one pass (zq_compile.cpp's walk).
+bool zq255_guy_records_all(std::vector<std::vector<byte> > &recs, int *version)
+{
+    std::vector<byte> orig, body;
+    std::vector<size_t> rec_at;
+    int v = 0;
+    recs.clear();
+
+    if(!guy_layout(orig, body, v, rec_at))
+        return false;
+
+    if(version)
+        *version = v;
+
+    for(int i = 0; i < MAXGUYS && i < FILE_GUYS && i + 1 < (int)rec_at.size(); ++i)
+    {
+        std::map<int, std::vector<byte> >::const_iterator it = zq255.guy_records.find(i);
+        recs.push_back(it != zq255.guy_records.end() ? it->second :
+                       std::vector<byte>(body.begin() + rec_at[i], body.begin() + rec_at[i + 1]));
+    }
+
+    return true;
+}
+
 bool zq255_guy_record(int i, std::vector<byte> &rec, int *version)
 {
     std::vector<byte> orig, body;
@@ -1104,4 +1128,123 @@ void zq255_forget_guy_edits()
     }
 
     zq255.guy_records.clear();
+}
+
+// ---- .guy files (zq_exports.cpp) ---------------------------------------------------------
+
+// The GUY section's version of the open quest (0: not a 2.55 / 3.0 enemy section).
+int zq255_guys_version()
+{
+    std::vector<byte> orig, body;
+    std::vector<size_t> rec_at;
+    int v = 0;
+    return guy_layout(orig, body, v, rec_at) ? v : 0;
+}
+
+// A whole enemy section in the quest's own version (a .guy file's, or a .zgp's: version,
+// cversion, size and data) in place of the quest's, as upstream's import replaces every enemy:
+// the reader takes the file's section, so guysbuf, the names and the newer data the store keeps
+// are the file's; each record that differs from the quest's as loaded is kept as an edited
+// record (zq255.guy_records), which the writer writes as it stands. False (why says) when it
+// isn't in the quest's version or doesn't read; nothing is changed then.
+bool zq255_guys_take(const std::vector<byte> &sec, std::string &why)
+{
+    std::vector<byte> orig, body;
+    std::vector<size_t> rec_at;
+    int v = 0;
+
+    if(!guy_layout(orig, body, v, rec_at))
+    {
+        why = "this quest's enemies can't be replaced this way";
+        return false;
+    }
+
+    if(sec.size() < 8 || (int)get_le(sec, 0, 2) != v || get_le(sec, 4, 4) != sec.size() - 8)
+    {
+        why = "its enemies aren't in this quest's format";
+        return false;
+    }
+
+    std::vector<byte> fbody(sec.begin() + 8, sec.end());
+    std::vector<size_t> fat;
+
+    if(!walk_guys_255(fbody, v, fat))
+    {
+        why = "its enemies don't read as their format says";
+        return false;
+    }
+
+    // Upstream's import (load_guys, 2.55.17 and 3.0 alike) reads the file as a 2.50 quest's, so
+    // its fix-up for those gives every enemy with no hit sound sound 11 ("Port hardcoded hit
+    // sound to the enemy hitsfx defaults for older quests"): the records here get it too.
+    {
+        std::vector<byte> fixed(fbody.begin(), fbody.begin() + fat[0]);
+        bool any = false;
+
+        for(int i = 0; i < FILE_GUYS; ++i)
+        {
+            Tape t;
+            TapeParser p(&fbody[0], fat[i + 1], fat[i], &t);
+            TapeField *f = NULL;
+
+            if(zq_tape_guy(p, v) && p.pos == fat[i + 1] && (f = t.find("hitsfx")) && f->value == 0)
+            {
+                f->value = 11;
+                std::vector<byte> rec;
+                t.encode(rec);
+                fixed.insert(fixed.end(), rec.begin(), rec.end());
+                any = true;
+            }
+            else
+                fixed.insert(fixed.end(), fbody.begin() + fat[i], fbody.begin() + fat[i + 1]);
+        }
+
+        fixed.insert(fixed.end(), fbody.begin() + fat[FILE_GUYS], fbody.end());
+
+        if(any && (!walk_guys_255(fixed, v, fat)))
+        {
+            why = "its enemies don't read as their format says";
+            return false;
+        }
+
+        if(any)
+            fbody.swap(fixed);
+    }
+
+    // the file's data under the quest's own version and cversion
+    std::vector<byte> out(orig.begin(), orig.begin() + 8);
+    out.insert(out.end(), fbody.begin(), fbody.end());
+    set_le(out, 4, (dword)(out.size() - 8), 4);
+
+    ZqPartContext ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.zelda_version = header.zelda_version;
+    ctx.build = header.build;
+    ctx.version = (word)v;
+    ctx.cversion = (word)get_le(orig, 2, 2);
+    std::vector<guydata> d;
+    std::vector<std::string> names;
+    SavedGuys got;
+
+    if(!read_back_255(out, ctx, d, names, got))
+    {
+        why = "the enemy reader doesn't take its enemies";
+        return false;
+    }
+
+    got.put();
+
+    for(int i = 0; i < FILE_GUYS && i < MAXGUYS; ++i)
+    {
+        const std::vector<byte> rec(fbody.begin() + fat[i], fbody.begin() + fat[i + 1]);
+        const bool same = rec.size() == rec_at[i + 1] - rec_at[i] &&
+                          (rec.empty() || !memcmp(&rec[0], &body[rec_at[i]], rec.size()));
+
+        if(same)
+            zq255.guy_records.erase(i);
+        else
+            zq255.guy_records[i] = rec;
+    }
+
+    return true;
 }

@@ -7685,6 +7685,10 @@ void copy_combos(int &tile,int &tile2,int &copy,int &copycnt, bool masscopy)
     return;
 }
 
+// port/zqeditor/zq_cpool.cpp: a 2.55/3.0 quest's combo pools and autocombos follow the move
+// (nothing for older quests, which have none)
+void zq_cpool_combos_moved(int copy, int tile, int count);
+
 void move_combos(int &tile,int &tile2,int &copy,int &copycnt)
 {
     if(tile2<tile)
@@ -7846,6 +7850,8 @@ void move_combos(int &tile,int &tile2,int &copy,int &copycnt)
         if(favorite_combos[i]>=copy && favorite_combos[i]<copy+copycnt)
             favorite_combos[i]+=(-copy+tile);
     }
+    
+    zq_cpool_combos_moved(copy, tile, copycnt);
     
     copy=-1;
     tile2=tile;

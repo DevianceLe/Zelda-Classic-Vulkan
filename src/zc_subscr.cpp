@@ -58,6 +58,25 @@ static int subscr_distance()
     return zc_view_h == 232 ? 176 : 168;
 }
 
+// qr_ACTIVE_SUB_IGNORE_8PX (2.55/3.0): the quest's bit, or upstream's readrules turning it on for
+// quests saved before it: 3.0 ones before compat version 96, and 2.55 ones (whose branch couldn't
+// raise the compat version) before 2.55.12
+static bool q30_active_sub_ignore_8px()
+{
+    enum { QR_ACTIVE_SUB_IGNORE_8PX = 476 };
+    extern int q255_header_version[3];
+    extern dword q255_compat_rule_version;
+    const int *v = q255_header_version;
+
+    if(q30_quest_rule(QR_ACTIVE_SUB_IGNORE_8PX))
+        return true;
+
+    if(v[0] >= 3)
+        return q255_compat_rule_version < 96;
+
+    return v[0] < 2 || (v[0] == 2 && (v[1] < 55 || (v[1] == 55 && v[2] < 12)));
+}
+
 // Draws the active subscreen with its top at ay.
 static void put_active_at(miscQdata *misc, int ay, int pos)
 {
@@ -67,9 +86,7 @@ static void put_active_at(miscQdata *misc, int ay, int pos)
     // 2.55/3.0 with the 232-row picture and qr_ACTIVE_SUB_IGNORE_8PX: the active subscreen is
     // 176 rows apart from the passive one but only 168 tall, so upstream draws 8 black rows over
     // the playing field and the subscreen 8 rows lower
-    enum { QR_ACTIVE_SUB_IGNORE_8PX = 476 };
-
-    if(zc_view_h == 232 && q30_quest_rule(QR_ACTIVE_SUB_IGNORE_8PX))
+    if(zc_view_h == 232 && q30_active_sub_ignore_8px())
     {
         rectfill(framebuf, 0, ay, framebuf->w, ay+8-1, BLACK);
         ay += 8;
@@ -109,13 +126,30 @@ static void put_both_subscrs(miscQdata *misc, int ay, bool showtime, int pos)
     put_active_at(misc,ay,pos);
 }
 
-// A button giving up an item to the one being set takes over whatever that one held.
-static void q30_trade_extra_buttons(int item_here, int old_wpn, int old_pos, int old_direct)
+// A button giving up an item to the one being set (button from) takes over whatever that one
+// held (with the newer subscreens, its slot by page too).
+static void q30_trade_extra_buttons(int item_here, int old_wpn, int old_pos, int old_direct, int from)
 {
     if(q30_use_x_button() && Xwpn == item_here)
-        q30_set_button_slot(true, old_wpn, old_pos, old_direct);
+        q30_set_button_slot(true, old_wpn, old_pos, old_direct, q30_btn[from]);
     else if(q30_use_y_button() && Ywpn == item_here)
-        q30_set_button_slot(false, old_wpn, old_pos, old_direct);
+        q30_set_button_slot(false, old_wpn, old_pos, old_direct, q30_btn[from]);
+}
+
+// With the newer subscreens, a slot that can't be equipped (upstream's SUBSCR_CURITM_NONEQP)
+// equips nothing; under qr_NO_BUTTON_VERIFY, pressing A or B on the item it already holds takes
+// it off, unless the slot has SUBSCR_CURITM_NO_UNEQUIP (upstream's can_unequip; q30_scripts_subscr.h).
+dword q30_btn_slot_flags_at(int pos);
+
+static bool q30_cant_equip_here()
+{
+    return q30_paged_buttons() && (q30_btn_slot_flags_at(Bpos) & 0x2) != 0;
+}
+
+static bool q30_can_unequip_here()
+{
+    enum { QR_NO_BUTTON_VERIFY = 424 };
+    return q30_paged_buttons() && q30_quest_rule(QR_NO_BUTTON_VERIFY) && !(q30_btn_slot_flags_at(Bpos) & 0x40);
 }
 
 // Puts the item under the cursor on X or Y. Pressing it again takes it off, if the quest allows.
@@ -125,7 +159,7 @@ static void q30_equip_extra_button(bool x)
     const int item_here = Bweapon(Bpos);
     const int direct_here = directItem;
 
-    if(item_here <= 0)
+    if(item_here <= 0 || q30_cant_equip_here())
         return;
 
     const int old_wpn = x ? Xwpn : Ywpn;
@@ -143,21 +177,25 @@ static void q30_equip_extra_button(bool x)
         return;
     }
 
+    const int self = x ? Q30_BTN_X : Q30_BTN_Y;    // (its slot by page, newer subscreens)
+
     if(Bwpn == item_here)
     {
         Bwpn = old_wpn;
         game->bwpn = old_pos;
         directItemB = old_direct;
+        q30_btn_copy(Q30_BTN_B, self);
     }
     else if(get_bit(quest_rules,qr_SELECTAWPN) && Awpn == item_here)
     {
         Awpn = old_wpn;
         game->awpn = old_pos;
         directItemA = old_direct;
+        q30_btn_copy(Q30_BTN_A, self);
     }
     else if((x ? Ywpn : Xwpn) == item_here)
     {
-        q30_set_button_slot(!x, old_wpn, old_pos, old_direct);
+        q30_set_button_slot(!x, old_wpn, old_pos, old_direct, q30_btn[self]);
     }
 
     q30_set_button_slot(x, item_here, Bpos, direct_here);
@@ -232,7 +270,23 @@ void dosubscr(miscQdata *misc)
     int ay;
 
     //Set the selector to the correct position before bringing up the subscreen -DD
-    if(get_bit(quest_rules,qr_SELECTAWPN))
+    if(q30_old_subscreens())
+    {
+        // 2.55/3.0 with the older subscreens (upstream's dosubscr under qr_OLD_SUBSCR): on B's
+        // slot if B has one, else on A's, X's or Y's, else on slot 0 (2.53 goes to A's whenever
+        // B holds no item, and to 255 when neither has a slot)
+        if(game->bwpn != 255)
+            Bpos = game->bwpn;
+        else if(game->awpn != 255)
+            Bpos = game->awpn;
+        else if(q30_use_x_button() && q30_xpos != 255)
+            Bpos = q30_xpos;
+        else if(q30_use_y_button() && q30_ypos != 255)
+            Bpos = q30_ypos;
+        else
+            Bpos = 0;
+    }
+    else if(get_bit(quest_rules,qr_SELECTAWPN))
     {
         if(Bwpn==0 && Awpn!=0)
             Bpos = zc_max(game->awpn,0);
@@ -242,7 +296,7 @@ void dosubscr(miscQdata *misc)
     else
         Bpos = zc_max(game->bwpn,0);
 
-    q30_subscreen_cursor(true, Bpos);   // 2.55/3.0: a page other than the first keeps its cursor
+    q30_subscreen_cursor(true, Bpos);   // 2.55/3.0: a page keeps its cursor (with the newer subscreens the first too)
 
     for(ay=-distance; ay<=0; ay+=step)
     {
@@ -299,27 +353,41 @@ void dosubscr(miscQdata *misc)
 
         const bool q30_x = q30_use_x_button(), q30_y = q30_use_y_button();
 
-        // 2.55/3.0, as upstream: a press where the cursor has no item (a page arrow) equips nothing
-        const bool q30_no_item = q30_active() && !Bweapon(Bpos);
+        // 2.55/3.0, as upstream: a press where the cursor has no item (a page arrow) equips nothing,
+        // nor (newer subscreens) one on a slot that can't be equipped
+        const bool q30_no_item = q30_active() && (!Bweapon(Bpos) || q30_cant_equip_here());
 
         if(get_bit(quest_rules,qr_SELECTAWPN) || q30_x || q30_y)
         {
             if(rBbtn() && !q30_no_item)
             {
-                q30_trade_extra_buttons(Bweapon(Bpos), Bwpn, game->bwpn, directItemB);
-
-                if(get_bit(quest_rules,qr_SELECTAWPN) && Awpn == Bweapon(Bpos))
+                if(q30_can_unequip_here() && Bwpn == Bweapon(Bpos))
                 {
-                    Awpn = Bwpn;
-                    game->awpn = game->bwpn;
-                    directItemA = directItemB;
+                    // (newer subscreens, qr_NO_BUTTON_VERIFY: B gives its item up and stays empty)
+                    Bwpn = 0;
+                    directItemB = -1;
+                    q30_btn_here(Q30_BTN_B, 255);
+                    sfx(WAV_PLACE);
                 }
+                else
+                {
+                    q30_trade_extra_buttons(Bweapon(Bpos), Bwpn, game->bwpn, directItemB, Q30_BTN_B);
 
-                Bwpn = Bweapon(Bpos);
-                sfx(WAV_PLACE);
-                
-                game->bwpn = Bpos;
-                directItemB = directItem;
+                    if(get_bit(quest_rules,qr_SELECTAWPN) && Awpn == Bweapon(Bpos))
+                    {
+                        Awpn = Bwpn;
+                        game->awpn = game->bwpn;
+                        directItemA = directItemB;
+                        q30_btn_copy(Q30_BTN_A, Q30_BTN_B);     // (newer subscreens: the slots by page)
+                    }
+
+                    Bwpn = Bweapon(Bpos);
+                    sfx(WAV_PLACE);
+
+                    game->bwpn = Bpos;
+                    directItemB = directItem;
+                    q30_btn_here(Q30_BTN_B, Bpos);
+                }
             }
             else if(q30_x && rEx1btn())
             {
@@ -331,19 +399,32 @@ void dosubscr(miscQdata *misc)
             }
             else if(get_bit(quest_rules,qr_SELECTAWPN) && rAbtn() && !q30_no_item)
             {
-                q30_trade_extra_buttons(Bweapon(Bpos), Awpn, game->awpn, directItemA);
-
-                if(Bwpn == Bweapon(Bpos))
+                if(q30_can_unequip_here() && Awpn == Bweapon(Bpos))
                 {
-                    Bwpn = Awpn;
-                    game->bwpn = game->awpn;
-                    directItemB = directItemA;
+                    // (newer subscreens, qr_NO_BUTTON_VERIFY: A gives its item up and stays empty)
+                    Awpn = 0;
+                    directItemA = -1;
+                    q30_btn_here(Q30_BTN_A, 255);
+                    sfx(WAV_PLACE);
                 }
-                
-                Awpn = Bweapon(Bpos);
-                sfx(WAV_PLACE);
-                game->awpn = Bpos;
-                directItemA = directItem;
+                else
+                {
+                    q30_trade_extra_buttons(Bweapon(Bpos), Awpn, game->awpn, directItemA, Q30_BTN_A);
+
+                    if(Bwpn == Bweapon(Bpos))
+                    {
+                        Bwpn = Awpn;
+                        game->bwpn = game->awpn;
+                        directItemB = directItemA;
+                        q30_btn_copy(Q30_BTN_B, Q30_BTN_A);     // (newer subscreens: the slots by page)
+                    }
+
+                    Awpn = Bweapon(Bpos);
+                    sfx(WAV_PLACE);
+                    game->awpn = Bpos;
+                    directItemA = directItem;
+                    q30_btn_here(Q30_BTN_A, Bpos);
+                }
             }
         }
         else if(!q30_no_item)
@@ -353,6 +434,7 @@ void dosubscr(miscQdata *misc)
             Bwpn = Bweapon(Bpos);
             game->bwpn = Bpos;
             directItemB = directItem;
+            q30_btn_here(Q30_BTN_B, Bpos);
         }
         
         if(pos!=Bpos)

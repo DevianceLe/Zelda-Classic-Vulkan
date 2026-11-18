@@ -1,0 +1,449 @@
+#ifndef BUILDVISITORS_H
+#define BUILDVISITORS_H
+
+#include "ASTVisitors.h"
+#include "ByteCode.h"
+#include "ZScript.h"
+#include "Scope.h"
+#include "base/headers.h"
+#include "parser/DataStructs.h"
+#include <algorithm>
+#include <list>
+#include <vector>
+#include <set>
+
+int getFileDebugIndex(ZScript::Program& program, const std::string& fname);
+void setLocation2(ZScript::Program& program, const ZScript::AST* node);
+void setLocation2(ZScript::Program& program, const std::string& fname, int line);
+void addOpcode2(std::vector<std::shared_ptr<ZScript::Opcode>>& v, ZScript::Opcode* code);
+void addOpcode2PopArgs(vector<shared_ptr<ZScript::Opcode>>& v, int amount);
+
+namespace ZScript
+{
+	class LValBOHelper;
+	class BuildOpcodes : public RecursiveVisitor
+	{
+	public:
+		BuildOpcodes(Program& program, Scope* curScope);
+		BuildOpcodes(Program& program, LValBOHelper* helper);
+
+		using RecursiveVisitor::visit;
+		void visit(AST& node, void* param = NULL);
+		void literal_visit(AST& node, void* param = NULL);
+		void literal_visit(AST* node, void* param = NULL);
+		template <class Container>
+		void literal_visit_vec(Container const& nodes, void* param);
+		
+		void sidefx_visit(AST& node, void* param = NULL);
+		void sidefx_visit(AST* node, void* param = NULL);
+		template <class Container>
+		void sidefx_visit_vec(Container const& nodes, void* param);
+	
+		virtual void caseDefault(AST& host, void* param);
+		virtual void caseSetOption(ASTSetOption& host, void* param);
+		virtual void caseUsing(ASTUsingDecl& host, void* param = NULL);
+		// Statements
+		virtual void caseBlock(ASTBlock &host, void *param);
+		virtual void caseStmtIf(ASTStmtIf &host, void *param);
+		virtual void caseStmtIfElse(ASTStmtIfElse &host, void *param);
+		virtual void caseStmtSwitch(ASTStmtSwitch &host, void* param);
+		void caseStmtStrSwitch(ASTStmtSwitch &host, void* param);
+		virtual void caseStmtFor(ASTStmtFor &host, void *param);
+		virtual void caseStmtForEach(ASTStmtForEach &host, void *param);
+		virtual void caseStmtRangeLoop(ASTStmtRangeLoop &host, void *param);
+		virtual void caseStmtWhile(ASTStmtWhile &host, void *param);
+		virtual void caseStmtDo(ASTStmtDo &host, void *param);
+		virtual void caseStmtReturn(ASTStmtReturn &host, void *param);
+		virtual void caseStmtReturnVal(ASTStmtReturnVal &host, void *param);
+		virtual void caseStmtBreak(ASTStmtBreak &host, void *param);
+		virtual void caseStmtContinue(ASTStmtContinue &host, void *param);
+		virtual void caseStmtEmpty(ASTStmtEmpty &host, void *param);
+		// Declarations
+		virtual void caseFuncDecl(ASTFuncDecl &host, void *param);
+		virtual void caseDataDecl(ASTDataDecl& host, void* param);
+		virtual void caseDataTypeDef(ASTDataTypeDef& host, void* param);
+		virtual void caseCustomDataTypeDef(ASTDataTypeDef& host, void* param);
+		using RecursiveVisitor::caseCustomDataTypeDef;
+		// Expressions
+		virtual void caseExprAssign(ASTExprAssign &host, void *param);
+		virtual void caseExprIdentifier(ASTExprIdentifier &host, void *param);
+		virtual void caseExprArrow(ASTExprArrow &host, void *param);
+		virtual void caseExprIndex(ASTExprIndex &host, void *param);
+		virtual void caseExprCall(ASTExprCall &host, void *param);
+		virtual void caseExprNegate(ASTExprNegate &host, void *param);
+		virtual void caseExprDelete(ASTExprDelete &host, void *param);
+		virtual void caseExprNot(ASTExprNot &host, void *param);
+		virtual void caseExprBitNot(ASTExprBitNot &host, void *param);
+		virtual void caseExprIncrement(ASTExprIncrement &host, void *param);
+		virtual void caseExprDecrement(ASTExprDecrement &host, void *param);
+		virtual void caseExprBoolTree(ASTExprBoolTree &host, void *param);
+		virtual void caseExprAnd(ASTExprAnd &host, void *param);
+		virtual void caseExprOr(ASTExprOr &host, void *param);
+		virtual void caseExprGT(ASTExprGT &host, void *param);
+		virtual void caseExprGE(ASTExprGE &host, void *param);
+		virtual void caseExprLT(ASTExprLT &host, void *param);
+		virtual void caseExprLE(ASTExprLE &host, void *param);
+		virtual void caseExprEQ(ASTExprEQ &host, void *param);
+		virtual void caseExprNE(ASTExprNE &host, void *param);
+		virtual void caseExprAppxEQ(ASTExprAppxEQ &host, void *param);
+		virtual void caseExprXOR(ASTExprXOR &host, void *param);
+		virtual void caseExprPlus(ASTExprPlus &host, void *param);
+		virtual void caseExprMinus(ASTExprMinus &host, void *param);
+		virtual void caseExprTimes(ASTExprTimes &host, void *param);
+		virtual void caseExprExpn(ASTExprExpn &host, void *param);
+		virtual void caseExprDivide(ASTExprDivide &host, void *param);
+		virtual void caseExprModulo(ASTExprModulo &host, void *param);
+		virtual void caseExprBitAnd(ASTExprBitAnd &host, void *param);
+		virtual void caseExprBitOr(ASTExprBitOr &host, void *param);
+		virtual void caseExprBitXor(ASTExprBitXor &host, void *param);
+		virtual void caseExprLShift(ASTExprLShift &host, void *param);
+		virtual void caseExprRShift(ASTExprRShift &host, void *param);
+		virtual void caseExprCoalesce(ASTExprCoalesce &host, void *param);
+		virtual void caseExprCoalesceAssign(ASTExprCoalesceAssign &host, void *param);
+		virtual void caseExprTernary(ASTTernaryExpr &host, void *param);
+		// Literals
+		virtual void caseNumberLiteral(ASTNumberLiteral& host, void* param);
+		virtual void caseCharLiteral(ASTCharLiteral& host, void* param);
+		virtual void caseBoolLiteral(ASTBoolLiteral& host, void* param);
+		virtual void caseStringLiteral(ASTStringLiteral& host, void* param);
+		virtual void caseArrayLiteral(ASTArrayLiteral& host, void* param);
+		virtual void caseOptionValue(ASTOptionValue& host, void* param);
+		virtual void caseIsIncluded(ASTIsIncluded& host, void* param);
+		// Types
+		void caseDataType(ASTDataType&, void*) {}
+
+		void startScope(AST& host);
+		void finalizeScope();
+
+		std::vector<std::shared_ptr<Opcode>> const& getResult() const {return result;}
+		int32_t getReturnLabelID() const {return returnlabelid;}
+
+	private:
+		BuildOpcodes(Program& program);
+		void addOpcode(Opcode* code);
+		void addOpcode(std::shared_ptr<Opcode> &code);
+		Opcode* backOpcode();
+		std::vector<std::shared_ptr<Opcode>>& backTarget();
+		size_t commentTarget() const;
+		
+		void commentAt(size_t indx, std::string const& comment);
+		void commentBack(std::string const& comment);
+		void commentStartEnd(size_t indx, string const& comment);
+
+		template <class Container>
+		void addOpcodes(Container const& container);
+		
+		std::vector<std::shared_ptr<Opcode>> result;
+		int32_t returnlabelid;
+		std::vector<int32_t> continuelabelids;
+		std::vector<std::vector<Scope*>> continueScopes;
+		std::vector<int32_t> breaklabelids;
+		std::vector<std::vector<Scope*>> breakScopes;
+		// TODO: Not really used, refactor its one usage and delete.
+		std::vector<uint> break_to_counts;
+		std::vector<uint> scope_allocations;
+		std::vector<Scope*> cur_scopes;
+		std::vector<size_t> cur_scope_start_op_index;
+		// Stack of opcode targets. Only the latest is used.
+		std::vector<std::vector<std::shared_ptr<Opcode>>*> opcodeTargets;
+		
+		uint varg_depth, varg_push_depth;
+		
+		uint break_depth, continue_depth;
+		void inc_break(uint count = 1)
+		{
+			if(!break_depth || !count)
+				return;
+			for(int q = break_depth-1; count && q >= 0; --q, --count)
+			{
+				if(count == 1)
+					++break_to_counts[q];
+			}
+		}
+		void push_break(int32_t id, uint scope_pops, std::vector<Scope*> scopes)
+		{
+			++break_depth;
+			breaklabelids.push_back(id);
+			breakScopes.push_back(scopes);
+			break_to_counts.push_back(0);
+			scope_allocations.emplace_back(scope_pops);
+		}
+		void push_cont(int32_t id, std::vector<Scope*> scopes)
+		{
+			++continue_depth;
+			continuelabelids.push_back(id);
+			continueScopes.push_back(scopes);
+		}
+		void pop_break()
+		{
+			--break_depth;
+			breaklabelids.pop_back();
+			breakScopes.pop_back();
+			break_to_counts.pop_back();
+			scope_allocations.pop_back();
+		}
+		void pop_cont()
+		{
+			--continue_depth;
+			continuelabelids.pop_back();
+			continueScopes.pop_back();
+		}
+		uint scope_pops_back(uint break_count)
+		{
+			uint ret = 0;
+			for(auto it = scope_allocations.rbegin(); break_count && it != scope_allocations.rend(); ++it)
+			{
+				ret += *it;
+				--break_count;
+			}
+			return ret;
+		}
+		uint scope_pops_count()
+		{
+			uint ret = 0;
+			for(uint v : scope_allocations)
+				ret += v;
+			return ret;
+		}
+		
+		// Helper Functions.
+		void pop_params(uint count);
+		// For when ASTDataDecl is for a single variable.
+		void buildVariable(ASTDataDecl& host, OpcodeContext& context);
+		// For when ASTDataDecl is an uninitialized array.
+		void buildArrayUninit(ASTDataDecl& host, OpcodeContext& context);
+		// For when ASTStringLiteral is a declaration initializer.
+		void stringLiteralDeclaration(
+				ASTStringLiteral& host, OpcodeContext& context);
+		// For when ASTStringLiteral is not a declaration initializer.
+		void stringLiteralFree(ASTStringLiteral& host, OpcodeContext& context);
+		// For when ASTArrayLiteral is a declaration initializer.
+		void arrayLiteralDeclaration(
+				ASTArrayLiteral& host, OpcodeContext& context);
+		// For when ASTArrayLiteral is not a declaration initializer.
+		void arrayLiteralFree(ASTArrayLiteral& host, OpcodeContext& context);
+
+		void mark_ref_remove_if_needed_for_block(ASTBlock* block)
+		{
+			auto scope = block->getScope();
+			for (auto&& datum : scope->getLocalData())
+			{
+				if (!datum->type.isObject())
+					continue;
+
+				auto pos = lookupStackPosition(*scope, *datum);
+				if (!pos)
+					continue;
+
+				addOpcode(new ORefRemove(new LiteralArgument(*pos)));
+			}
+		}
+
+		void mark_ref_remove_if_needed_for_scope(Scope* scope)
+		{
+			for (auto&& datum : scope->getLocalData())
+			{
+				if (!datum->type.isObject())
+					continue;
+
+				auto pos = lookupStackPosition(*scope, *datum);
+				if (!pos)
+					continue;
+
+				addOpcode(new ORefRemove(new LiteralArgument(*pos)));
+			}
+		}
+		
+		void parseExprs(ASTExpr* left, ASTExpr* right, void* param, bool orderMatters = false);
+		void compareExprs(ASTExpr* left, ASTExpr* right, void* param);
+		
+		void buildPreOp(ASTExpr* operand, void* param, vector<std::shared_ptr<Opcode>> const& ops);
+		void buildPostOp(ASTExpr* operand, void* param, vector<std::shared_ptr<Opcode>> const& ops);
+
+		ASTExprIndex* getSingleEvalIndexLVal(ASTExpr* expr);
+		void emitIndexStash(ASTExprIndex& lval, void* param);
+		void emitStashedIndexRead();
+		void emitStashedIndexWrite(DataType const* setting_type);
+		bool tryCompoundIndexAssign(ASTExprAssign& host, void* param);
+
+		ASTExprArrow* getSingleEvalArrowLVal(ASTExpr* expr, ASTExprArrow* read_arrow);
+		void emitArrowStash(ASTExprArrow& arrow, int stash_mask, void* param);
+		void emitCompoundWrite(AST& lval, DataType const* setting_type, void* param);
+		bool tryCompoundArrowAssign(ASTExprAssign& host, void* param);
+
+		void push_param(bool varg = false);
+		optional<int> eatSetCompare();
+		optional<bool> rec_booltree_shortcircuit(BoolTreeNode& node, int parentMode, int truelbl, int falselbl, void* param);
+	};
+
+	class LValBOHelper : public ASTVisitor
+	{
+	public:
+		LValBOHelper(Program& program, Scope* scope);
+		LValBOHelper(Program& program, BuildOpcodes* bo);
+		virtual void caseDefault(void *param);
+		using ASTVisitor::caseDefault;
+		//virtual void caseDataDecl(ASTDataDecl& host, void* param);
+		virtual void caseExprIdentifier(ASTExprIdentifier &host, void *param);
+		virtual void caseExprArrow(ASTExprArrow &host, void *param);
+		virtual void caseExprIndex(ASTExprIndex &host, void *param);
+		std::vector<std::shared_ptr<Opcode>> const& getResult() {return result;}
+
+		const DataType* setting_type;
+	private:
+		void addOpcode(Opcode* code);
+		void addOpcode(std::shared_ptr<Opcode>& code);
+
+		template <class Container>
+		void addOpcodes(Container const& container);
+	
+		std::vector<std::shared_ptr<Opcode>> result;
+		Program& program;
+	};
+	
+	class CleanupVisitor : public RecursiveVisitor
+	{
+	public:
+		using RecursiveVisitor::visit;
+		void visit(AST& node, void* param = NULL);
+		ASTExprBoolTree* booltree;
+		BoolTreeNode* active_node;
+		CleanupVisitor(Program& program, Scope* curScope) : RecursiveVisitor(program)
+		{
+			scope = curScope;
+			booltree = nullptr;
+			active_node = nullptr;
+		}
+	};
+
+
+	class GetLabels : public ArgumentVisitor
+	{
+	public:
+		GetLabels(std::set<int32_t>& usedLabels) : usedLabels(usedLabels) {}
+		
+		std::set<int32_t>& usedLabels;
+		std::set<int32_t> newLabels;
+		
+		void caseLabel(LabelArgument& host, void*)
+		{
+			int32_t id = host.getID();
+			if (find<int32_t>(usedLabels, id)) return;
+			usedLabels.insert(id);
+			newLabels.insert(id);
+		}
+
+		void caseLabelVector(LabelVectorArgument& host, void*)
+		{
+			for (int32_t id : host.getLabels())
+			{
+				if (find<int32_t>(usedLabels, id)) continue;
+				usedLabels.insert(id);
+				newLabels.insert(id);
+			}
+		}
+	};
+
+	class SetLabels : public ArgumentVisitor
+	{
+	public:
+		bool err = false;
+		void caseLabel(LabelArgument &host, void *param)
+		{
+			host.setLineNo(check(host.getID(), *(map<int32_t, int32_t> *)param, &err));
+		}
+
+		void caseLabelVector(LabelVectorArgument &host, void *param)
+		{
+			// Unlike LabelArgument (which keeps the id and stores the pc
+			// alongside), the vector's entries become the pcs themselves - the
+			// zasm consumer sees plain numbers. Labels are 1-indexed here, as in
+			// LabelArgument::toString's non-alt form; the -1 to reach a 0-indexed
+			// pc happens when the assembled text is parsed (parse_script_section
+			// in ffasm.cpp, like the goto args there).
+			for (size_t k = 0; k < host.numLabels(); k++)
+				host.setLabel(k, check(host.getLabel(k), *(map<int32_t, int32_t> *)param, &err));
+		}
+		static int check(int lbl, map<int32_t, int32_t> const& labels, bool* error = nullptr)
+		{
+			auto it = labels.find(lbl);
+
+			if (it == labels.end())
+			{
+				zconsole_error("Internal error: couldn't find label %d", lbl);
+				if (error)
+					*error = true;
+				return 0;
+			}
+			
+			return it->second;
+		}
+	};
+
+	class MergeLabels : public ArgumentVisitor
+	{
+		vector<int> labels;
+		int targ_label;
+		MergeLabels(int targ_label, vector<int> const& labels)
+			: labels(labels),targ_label(targ_label) {}
+	public:
+		void caseLabel(LabelArgument &host, void*)
+		{
+			for(int lbl : labels)
+				if(lbl == host.getID())
+				{
+					host.setID(targ_label);
+					return;
+				}
+		}
+
+		void caseLabelVector(LabelVectorArgument &host, void*)
+		{
+			for (size_t k = 0; k < host.numLabels(); k++)
+				for (int lbl : labels)
+					if (lbl == host.getLabel(k))
+					{
+						host.setLabel(k, targ_label);
+						break;
+					}
+		}
+		static void merge(int targ_label, vector<int> const& labels, std::list<std::shared_ptr<Opcode>> const& list, void* param, LabelUsageIndex* lbl_index)
+		{
+			MergeLabels ml(targ_label, labels);
+			ml.execute(list, param);
+
+			// Ensure target vector exists.
+			if (targ_label >= lbl_index->size())
+				lbl_index->resize(targ_label + 1);
+
+			// Cache reference to the target bucket to avoid repeated lookups.
+			auto& target_bucket = (*lbl_index)[targ_label];
+
+			for (int old_label : labels)
+			{
+				// Skip self-merge or out-of-bounds labels.
+				if (old_label == targ_label || old_label >= lbl_index->size())
+					continue;
+
+				auto& old_bucket = (*lbl_index)[old_label];
+
+				// Update the actual values in memory.
+				for (int32_t* ptr : old_bucket)
+					*ptr = targ_label;
+
+				// Move the tracking pointers to the new label's bucket.
+				if (target_bucket.empty())
+				{
+					target_bucket = std::move(old_bucket);
+				}
+				else
+				{
+					target_bucket.insert(target_bucket.end(), old_bucket.begin(), old_bucket.end());
+					old_bucket.clear();
+				}
+			}
+		}
+	};
+}
+#endif
+

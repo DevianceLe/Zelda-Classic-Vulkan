@@ -31,6 +31,33 @@ std::string q30_item_shown_name(int item);
 #include "port/game/q30_triggers.h"
 extern word quest_header_zelda_version;
 #endif
+#ifdef ZC_ZQEDITOR
+// ZQuest's subscreen layout editor for 2.55/3.0 quests (port/zqeditor/zq_subscr_layout.cpp)
+// draws their widgets as the player does, through the player's code below (Q30_SUB_DRAW). It
+// answers the player's q30_* functions that code asks (q30_active, q30_compat_rule,
+// q30_subscreen_item, q30_sub_selected_text, q30_dmap_title, q30_item_name...) from the open
+// quest and its preview, and only while it draws a page, so 2.53's own subscreen editor and
+// every 2.53 quest draw as before.
+#include "port/game/q30_triggers.h"
+bool zq_subscr_view_on();               // a layout editor page is being drawn
+FONT *zq_subscr_view_font(int id);      // upstream's font with that id
+#endif
+
+// The player's drawing of 2.55/3.0 widgets, which ZQuest's layout editor shares; q30_sub_newer():
+// the widgets being drawn are a 2.55/3.0 quest's.
+#if defined(ZC_PLAYER_BUILD)
+#define Q30_SUB_DRAW 1
+static inline bool q30_sub_newer()
+{
+    return quest_header_zelda_version >= 0x255;
+}
+#elif defined(ZC_ZQEDITOR)
+#define Q30_SUB_DRAW 1
+static inline bool q30_sub_newer()
+{
+    return zq_subscr_view_on();
+}
+#endif
 
 bool show_subscreen_dmap_dots=true;
 bool show_subscreen_numbers=true;
@@ -2836,6 +2863,164 @@ void lifegauge(BITMAP *dest,int x,int y, int container, int notlast_tile, int no
 }
 
 
+// Upstream's SW_GaugePiece::draw_piece and draw for a 2.55/3.0 gauge widget (SSO_GAUGE_NEWER):
+// the containers of a grid, the new or old tile layout, full tiles, units per frame and
+// animation, counting the quest's own HP per heart and magic per block per container.
+static void newer_gauge_piece(BITMAP *dest, const subscreen_object &o, int dx, int dy, int container, int anim_offs,
+                              int ctr_cur, int ctr_max, int ctr_per_cont)
+{
+    if(ctr_per_cont == 0)
+        return;
+
+    const int flags = o.d10;
+    const int unit_per_frame = (int)((unsigned int)flags >> 24);
+    const int containers = ctr_max / ctr_per_cont;
+    const int fr = o.d6 ? o.d6 : 1;
+    int ind = 3;
+
+    if(container < containers)
+        ind = 0;
+    else if(container == containers)
+        ind = 1;
+    else if(container == containers + 1)
+        ind = 2;
+
+    const int mtiles[4] = { o.d2, o.d3, o.d4, o.d5 };
+    const int csets[4] = { o.colortype1, o.color1, o.colortype2, o.color2 };
+    const int mtile = mtiles[ind];
+    const int cset = csets[ind];
+    const bool mod_value = (flags & (1 << ind)) != 0;
+    const bool fulltile = (flags & 0x20) != 0;
+    int ctr_ofs = 0;
+
+    if(mod_value)
+    {
+        bool full = false;
+
+        if(!fulltile && !(flags & SSO_GAUGE_NEWLAYOUT))
+        {
+            const int offs_0 = (fr + (4 - (fr % 4)));
+
+            if(ctr_cur >= container * ctr_per_cont)
+                full = true;
+            else if(((container - 1) * ctr_per_cont) > ctr_cur)
+                ctr_ofs = 0;
+            else
+                ctr_ofs = ((ctr_cur - ((container - 1) * ctr_per_cont)) % ctr_per_cont);
+
+            ctr_ofs /= (unit_per_frame + 1);
+
+            if(full)
+            {
+                if((flags & 0x10) && ctr_cur == container * ctr_per_cont)
+                    ctr_ofs = ctr_per_cont / (unit_per_frame + 1) + 3 + offs_0;
+            }
+            else
+                ctr_ofs += offs_0;
+        }
+        else
+        {
+            if(((container - 1) * ctr_per_cont) > ctr_cur)
+                ctr_ofs = 0;
+            else if((full = ctr_cur >= container * ctr_per_cont))
+                ctr_ofs = ctr_per_cont + unit_per_frame;
+            else
+                ctr_ofs = (ctr_cur - ((container - 1) * ctr_per_cont)) % ctr_per_cont;
+
+            ctr_ofs /= (unit_per_frame + 1);
+
+            if(full && (flags & 0x10) && ctr_cur == container * ctr_per_cont)
+                ++ctr_ofs;
+        }
+    }
+
+    const int offs = (ctr_ofs * fr) + anim_offs;
+
+    if(fulltile)
+        overtile16(dest, (mtile >> 2) + offs, dx, dy, cset, 0);
+    else
+        overtile8(dest, mtile + offs, dx, dy, cset, 0);
+}
+
+static void newer_gauge(BITMAP *dest, const subscreen_object &o, int x, int y, int ctr, int ctr_max, int ctr_per_cont)
+{
+    const int flags = o.d10;
+    const int frames = o.d6, speed = o.d7, delay = o.d8;
+    const int anim_val = (int)((unsigned int)o.d9 >> 16);
+    int anim_offs = 0;
+    bool animate = true;
+    const bool skipanim = frames > 1 && (flags & 0x200);
+
+    if((flags & 0x100) && ctr_max)
+    {
+        if((flags & 0x40) && ((1000 * ctr) / ctr_max) > (10 * anim_val))
+            animate = false;
+        if((flags & 0x80) && ((1000 * ctr) / ctr_max) < (10 * anim_val))
+            animate = false;
+    }
+    else
+    {
+        if((flags & 0x40) && ctr > anim_val)
+            animate = false;
+        if((flags & 0x80) && ctr < anim_val)
+            animate = false;
+    }
+
+    if(animate)
+    {
+        int fr = frames ? frames : 1;
+        const int spd = speed ? speed : 1;
+
+        if(skipanim)
+            --fr;
+
+        if(fr > 1)
+        {
+            const int clkwid = spd * (fr + delay);
+            const int t = (frame % clkwid) - (delay * spd);
+
+            if(t > -1)
+                anim_offs = t / spd;
+        }
+
+        if(skipanim)
+            ++anim_offs;
+    }
+
+    const int gauge_wid = o.frames, gauge_hei = o.speed;
+    const int hspace = o.delay, vspace = o.colortype3;
+    const int grid_xoff = o.color3, grid_yoff = (short)o.frame;
+    const int container = o.d1;
+
+    if(!gauge_hei && !gauge_wid)
+    {
+        newer_gauge_piece(dest, o, x, y, container, anim_offs, ctr, ctr_max, ctr_per_cont);
+        return;
+    }
+
+    const bool colbased = (flags & 0x4000) || !gauge_wid;
+    const bool rtol = (flags & 0x1000) != 0, ttob = (flags & 0x2000) != 0, snake = (flags & 0x8000) != 0;
+    const int sz = (flags & 0x20) ? 16 : 8;
+    bool snakeoffs = false;
+    const int outer = colbased ? gauge_wid : gauge_hei, inner = colbased ? gauge_hei : gauge_wid;
+
+    for(int a = 0, offs = 0; a <= outer; ++a)
+    {
+        for(int k = 0; k <= inner; ++k, ++offs)
+        {
+            const int b = snakeoffs ? inner - k : k;
+            const int x2 = colbased ? a : b, y2 = colbased ? b : a;
+            const int curx = rtol ? gauge_wid - x2 : x2, cury = ttob ? y2 : gauge_hei - y2;
+            const int xo = ((sz + hspace) * curx) + (grid_xoff * cury);
+            const int yo = ((sz + vspace) * cury) + (grid_yoff * curx);
+            newer_gauge_piece(dest, o, x + xo, y + yo, container + offs, anim_offs, ctr, ctr_max, ctr_per_cont);
+        }
+
+        if(snake)
+            snakeoffs = !snakeoffs;
+    }
+}
+
 void magicmeter(BITMAP *dest,int x,int y)
 {
     if(!get_bit(quest_rules,qr_ENABLEMAGIC)) return;
@@ -2936,6 +3121,9 @@ static inline void sub_item_place(sprite *s)
     s->yofs = 0;
 #ifdef ZC_PLAYER_BUILD
     s->xofs = 0;
+#elif defined(ZC_ZQEDITOR)
+    if(q30_sub_newer())
+        s->xofs = 0;
 #endif
 }
 
@@ -3118,7 +3306,15 @@ bool displaysubscreenitem(int itemtype, int d)
 {
     if(game==NULL)  //ZQuest
         return true;
-        
+
+#ifdef ZC_PLAYER_BUILD
+    // 2.55/3.0: a slot naming the bomb or super bomb class shows it as upstream's getDisplayItem
+    // does (check_bomb: qr_NEVERDISABLEAMMOONSUBSCREEN, the bag, the bombs or the item's costs,
+    // a remote bomb out)
+    if(q30_active() && (itemtype == itype_bomb || itemtype == itype_sbomb))
+        return q30_bomb_slot_usable(-1, itemtype == itype_sbomb);
+#endif
+
     if((itemtype == itype_bomb &&
             !(game->get_bombs()
               // Remote Bombs: the bomb icon can still be used when an undetonated bomb is onscreen.
@@ -3195,7 +3391,7 @@ void subscreenitem(BITMAP *dest, int x, int y, int itemtype)
     }
 }
 
-#ifdef ZC_PLAYER_BUILD
+#ifdef Q30_SUB_DRAW
 // A 2.55/3.0 quest's minimap title (the reader sets d5; d6: 2 one line, 1 word wrap; d7 tab
 // size), drawn as upstream's SW_MMapTitle does. Returns false to leave it to minimaptitle.
 bool q30_compat_rule(int id);
@@ -3278,10 +3474,12 @@ int subscreen_color(miscQdata *misc, int c1, int c2)
     {
     case ssctSYSTEM:
         ret=(c2==-1)?c2:vc(c2);
-#ifdef ZC_PLAYER_BUILD
+#ifdef Q30_SUB_DRAW
         {
             // 2.55/3.0 without qr_BROKEN_SYSTEM_COLORS: the 16 system colours are fixed EGA
-            // colours, the palette's nearest (upstream's subscreen colour code), not vc()
+            // colours, the palette's nearest (upstream 3.0's subscreen colour code), not vc().
+            // As a load does upstream, the rule counts as on for quests saved before compat rule
+            // version 79 (q30_compat_rule), so for every 2.55 quest: 2.55.17 always draws vc().
             enum { QR_BROKEN_SYSTEM_COLORS = 450 };
             static const byte ega[16][3] =
             {
@@ -3289,8 +3487,9 @@ int subscreen_color(miscQdata *misc, int c1, int c2)
                 { 165, 105, 8 }, { 170, 170, 170 }, { 85, 85, 85 }, { 85, 85, 255 }, { 85, 255, 85 },
                 { 85, 255, 255 }, { 255, 85, 85 }, { 255, 85, 255 }, { 255, 255, 85 }, { 255, 255, 255 }
             };
+            const bool fixed = q30_sub_newer() && !q30_compat_rule(QR_BROKEN_SYSTEM_COLORS);
 
-            if(quest_header_zelda_version >= 0x255 && c2 >= 0 && c2 < 16 && !q30_quest_rule(QR_BROKEN_SYSTEM_COLORS))
+            if(fixed && c2 >= 0 && c2 < 16)
                 ret=makecol(ega[c2][0], ega[c2][1], ega[c2][2]);
         }
 #endif
@@ -3442,6 +3641,11 @@ FONT *ss_font(int fontnum)
     // 2.55/3.0: a font with no ssf number of 2.53's, by upstream's font id (sub_font)
     if(fontnum >= Q30_SSF_FONTS && fontnum < Q30_SSF_FONTS + Q30_FONT_COUNT && q30_active())
         return get_zc_font(fontnum - Q30_SSF_FONTS);
+#endif
+#ifdef ZC_ZQEDITOR
+    // the same in ZQuest's subscreen layout editor
+    if(fontnum >= Q30_SSF_FONTS && fontnum < Q30_SSF_FONTS + Q30_FONT_COUNT && zq_subscr_view_on())
+        return zq_subscr_view_font(fontnum - Q30_SSF_FONTS);
 #endif
 
     switch(fontnum)
@@ -3634,10 +3838,10 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
             tempfont=ss_font(fontnum);
             int x=css->objects[i].x+xofs;
             int y=css->objects[i].y+yofs;
-#ifdef ZC_PLAYER_BUILD
+#ifdef Q30_SUB_DRAW
             // 2.55/3.0 widgets may sit left of or above the subscreen (the gem at -2,-1): their
             // word x and y hold signed values
-            if(quest_header_zelda_version >= 0x255)
+            if(q30_sub_newer())
             {
                 x=(short)css->objects[i].x+xofs;
                 y=(short)css->objects[i].y+yofs;
@@ -3772,7 +3976,7 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
             {
                 if(!css->objects[i].d4 || has_item(itype_map, get_dlevel()))
                 {
-#ifdef ZC_PLAYER_BUILD
+#ifdef Q30_SUB_DRAW
                     if(css->objects[i].d5 && q30_minimap_title(dest, x, y, css->objects[i], tempfont, subscreen_color(misc, css->objects[i].colortype1, css->objects[i].color1),
                                                                subscreen_color(misc, css->objects[i].colortype2, css->objects[i].color2),
                                                                subscreen_color(misc, css->objects[i].colortype3, css->objects[i].color3)))
@@ -3809,7 +4013,7 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
                 // Shouldn't really be checking is_zquest here, but it's okay for now...
                 if(css->objects[i].d2 || (is_zquest() && (zinit.ss_flags&ssflagSHOWINVIS)!=0))
                 {
-#ifdef ZC_PLAYER_BUILD
+#ifdef Q30_SUB_DRAW
                     // a newer quest's slot for an item 2.53 has no family for (a bottle)
                     int q30_id;
                     if(q30_subscreen_item(css->objects[i], &q30_id))
@@ -3834,7 +4038,7 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
             
             case ssoSELECTEDITEMNAME:
             {
-#ifdef ZC_PLAYER_BUILD
+#ifdef Q30_SUB_DRAW
                 // a 2.55/3.0 widget's own text for while it's selected (a page arrow's, say)
                 if(const char *q30_text = q30_sub_selected_text(css, Bpos))
                 {
@@ -3857,6 +4061,8 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
                 char itemname[140]="";
 #ifdef ZC_PLAYER_BUILD
                 snprintf(itemname, sizeof(itemname), "%s", q30_item_name(itemid));     // (256 and up too)
+#elif defined(ZC_ZQEDITOR)
+                snprintf(itemname, sizeof(itemname), "%s", q30_sub_newer() ? q30_item_name(itemid) : item_string[itemid]);
 #else
                 sprintf(itemname, "%s", item_string[itemid]);
 #endif
@@ -3871,6 +4077,11 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
                             bool hasarrows=((get_bit(quest_rules,qr_TRUEARROWS)&&(game==NULL || game->get_arrows()))||(!get_bit(quest_rules,qr_TRUEARROWS)&&(game==NULL || game->get_rupies())));
 #ifdef ZC_PLAYER_BUILD
                             snprintf(itemname, sizeof(itemname), "%s%s%s", q30_item_name(current_item_id(itype_bow)), hasarrows?" & ":"",hasarrows?q30_item_name(Bitem->id):"");
+#elif defined(ZC_ZQEDITOR)
+                            if(q30_sub_newer())
+                                snprintf(itemname, sizeof(itemname), "%s%s%s", q30_item_name(current_item_id(itype_bow)), hasarrows?" & ":"",hasarrows?q30_item_name(Bitem->id):"");
+                            else
+                                sprintf(itemname, "%s%s%s", item_string[current_item_id(itype_bow)], hasarrows?" & ":"",hasarrows?item_string[Bitem->id]:"");
 #else
                             sprintf(itemname, "%s%s%s", item_string[current_item_id(itype_bow)], hasarrows?" & ":"",hasarrows?item_string[Bitem->id]:"");
 #endif
@@ -3890,7 +4101,7 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
                 }
                 
                 // a newer quest's item can have a display name, which upstream shows instead
-#ifdef ZC_PLAYER_BUILD
+#ifdef Q30_SUB_DRAW
                 if(q30_active() && q30_item_has_display_name(itemid))
                     snprintf(itemname, sizeof(itemname), "%s", q30_item_shown_name(itemid).c_str());
 #endif
@@ -4021,6 +4232,18 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
             
             case ssoMAGICGAUGE:
             {
+                if(css->objects[i].d10 & SSO_GAUGE_NEWER)
+                {
+                    const int show = (short)(css->objects[i].d9 & 0xFFFF);
+
+                    if((show == 1 && game->get_magicdrainrate() != 1) || (show == 2 && game->get_magicdrainrate() != 2))
+                        break;
+
+                    extern int q255_gauge_magic_per_block;
+                    newer_gauge(dest, css->objects[i], x, y, game->get_magic(), game->get_maxmagic(), q255_gauge_magic_per_block);
+                    break;
+                }
+
                 //          void magicgauge(BITMAP *dest,int x,int y, int container, int notlast_tile, int notlast_cset, bool notlast_mod, int last_tile, int last_cset, bool last_mod,
                 //                          int cap_tile, int cap_cset, bool cap_mod, int aftercap_tile, int aftercap_cset, bool aftercap_mod, int frames, int speed, int delay, bool unique_last,
                 //                          int show)
@@ -4032,6 +4255,15 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
             
             case ssoLIFEGAUGE:
             {
+                if(css->objects[i].d10 & SSO_GAUGE_NEWER)
+                {
+                    // the player keeps life as HP_PER_HEART per heart; the gauge counts the quest's own
+                    extern int q255_gauge_hp_per_heart;
+                    const int hp = q255_gauge_hp_per_heart;
+                    newer_gauge(dest, css->objects[i], x, y, game->get_life() * hp / HP_PER_HEART, game->get_maxlife() * hp / HP_PER_HEART, hp);
+                    break;
+                }
+
                 lifegauge(dest,x,y, css->objects[i].d1, css->objects[i].d2, css->objects[i].colortype1, ((css->objects[i].d10&1)?1:0), css->objects[i].d3, css->objects[i].color1, ((css->objects[i].d10&2)?1:0),
                           css->objects[i].d4, css->objects[i].colortype2, ((css->objects[i].d10&4)?1:0), css->objects[i].d5, css->objects[i].color2, ((css->objects[i].d10&8)?1:0), css->objects[i].d6, css->objects[i].d7, css->objects[i].d8, ((css->objects[i].d10&16)?1:0));
             }
@@ -4223,7 +4455,7 @@ bool is_counter_item(int itemtype, int countertype)
     return false;
 }
 
-#ifdef ZC_PLAYER_BUILD
+#ifdef Q30_SUB_DRAW
 // A 2.53 ssc counter's value, for a newer quest's widget showing more than one counter.
 static int q30_ssc_value(int ssc)
 {
@@ -4400,13 +4632,11 @@ void counter(BITMAP *dest, int x, int y, FONT *tempfont, int color, int shadowco
         break;
     }
 
-#ifdef ZC_PLAYER_BUILD
+#ifdef Q30_SUB_DRAW
     // 2.55/3.0, as upstream's SW_Counter: life, magic and counters past 32 come as
     // Q30_SSC_COUNTER + the counter (q255_init.cpp), and the widget adds up all three of its
     // counters (a repeated one once)
-    extern word quest_header_zelda_version;
-
-    if(quest_header_zelda_version >= 0x255)
+    if(q30_sub_newer())
     {
         const int types[3] = { itemtype1, itemtype2, itemtype3 };
 
@@ -4485,6 +4715,11 @@ void put_passive_subscr(BITMAP *dest,miscQdata *misc,int x,int y,bool showtime,i
     // uncomment this?
     //  load_Sitems();
     Sitems.animate();
+#ifdef ZC_PLAYER_BUILD
+    // 2.55/3.0 with the newer subscreens: drawing a button item checks the buttons again (link.cpp)
+    void q30_button_items_drawn(const subscreen_group *g);
+    q30_button_items_drawn(current_subscreen_passive);
+#endif
     update_subscr_items();
 #ifdef ZC_PLAYER_BUILD
     // 2.55/3.0: the passive subscreen shows the time whenever it should (upstream hands

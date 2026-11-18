@@ -271,7 +271,7 @@ extern short    lensclk;
 extern int     lensid;
 extern int    Bpos;
 extern byte screengrid[22];
-extern byte ffcgrid[4];
+extern byte ffcgrid[Q30_MAXFFCS / 8];
 extern volatile int logic_counter;
 #ifdef _SCRIPT_COUNTER
 extern volatile int script_counter;

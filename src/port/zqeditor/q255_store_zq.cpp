@@ -57,6 +57,8 @@ void Zq255Store::clear()
     item_family.clear();
     item_usesound2.clear();
     item_display_name.clear();
+    high_items.clear();
+    init_high_items.clear();
     item_override_flags.clear();
     item_passive_script.clear();
     item_sprite_script.clear();
@@ -75,6 +77,7 @@ void Zq255Store::clear()
     string_fields.clear();
     string_extras_from.clear();
     sub_fields.clear();
+    subs_base.clear();
     screen_fields.clear();
     bottle_types.clear();
     bottle_shops.clear();
@@ -92,6 +95,7 @@ void Zq255Store::clear()
     for(int i = 0; i < q30_dmap_kinds; ++i)
         dmap_scripts[i].clear();
     dmap_subscreens.clear();
+    dmap_titles.clear();
     music.clear();
     dmap_music.clear();
     screen_music.clear();
@@ -101,6 +105,8 @@ void Zq255Store::clear()
     screen_data_init.clear();
     subscreens.clear();
     screen_scripts.clear();
+    link_record.clear();
+    zinfo = Zinfo();
 }
 
 void Zq255Store::clear_sfx()
@@ -281,7 +287,13 @@ void q30_set_item_family(int item, long family) { zq255.item_family[item] = fami
 
 long q30_item_family(int item)
 {
-    if(item < 0 || item >= MAXITEMS)
+    if(item >= MAXITEMS)
+    {
+        std::map<int, Zq255Store::HighItem>::const_iterator h = zq255.high_items.find(item);
+        return h == zq255.high_items.end() ? -1 : h->second.family;
+    }
+
+    if(item < 0)
         return -1;
 
     std::map<int, long>::const_iterator it = zq255.item_family.find(item);
@@ -426,7 +438,13 @@ void q30_set_dmap_subscreens(int dmap, int overlay, int map)
     zq255.dmap_subscreens[dmap] = std::make_pair(overlay, map);
 }
 
-void q30_set_dmap_texts(int, const char *, long) {}     // the player's (titles and intros as drawn)
+// the whole title, for the subscreen layout editor's minimap titles (q30_dmap_title there); the
+// intro string is the player's
+void q30_set_dmap_texts(int dmap, const char *title, long)
+{
+    zq255.dmap_titles[dmap] = title ? title : "";
+}
+
 void q30_set_dmap_floor(int, int) {}                    // the player's (subscreen conditions)
 void q30_set_dmap_mirror(int, int) {}                   // the player's (the Magic Mirror)
 int q30_dmap_mirror(int) { return -1; }                 // (for the player's usage dump)
@@ -438,10 +456,45 @@ void q30_item_pickup_info(int, long *pickup, int *mode, int *pstring, int *psfla
 int q30_shop_string(int, int) { return 0; }             // (the same)
 void q30_set_bunny_ltm(long) {}                         // the player's (the bunny form)
 void q30_set_init_hero_step(int) {}                     // the player's (Link's walk step)
-void q30_clear_high_items() {}                          // the player's (items 256 and up)
+// Items 256 and up, as the player keeps them (q30_core.cpp): in itemsbuf, blank until read.
+void q30_clear_high_items()
+{
+    zq255.high_items.clear();
+
+    for(int i = MAXITEMS; itemsbuf && i < Q30_MAXITEMS; ++i)
+    {
+        memset(&itemsbuf[i], 0, sizeof(itemdata));
+        itemsbuf[i].count = -1;
+        itemsbuf[i].fam_type = 1;
+    }
+}
+
+void q30_set_high_item(int id, const itemdata &d, int family, const char *name)
+{
+    Zq255Store::HighItem &h = zq255.high_items[id];
+    h.family = family;
+    h.name = name ? name : "";
+
+    // a level of 0 reads as 1, as for the others
+    if(itemsbuf && id >= MAXITEMS && id < Q30_MAXITEMS)
+    {
+        itemsbuf[id] = d;
+
+        if(itemsbuf[id].fam_type == 0)
+            itemsbuf[id].fam_type = 1;
+    }
+}
+
+void q30_set_init_high_items(const byte *bits, int first_id, int count)
+{
+    zq255.init_high_items.clear();
+
+    for(int i = 0; bits && i < count; ++i)
+        if(bits[i / 8] & (1 << (i % 8)))
+            zq255.init_high_items.push_back(first_id + i);
+}
+
 void q30_set_screen_guy(int, long, int, int) {}         // the player's (a screen's guy look and room flags)
-void q30_set_high_item(int, const itemdata &, int, const char *) {}    // (the same)
-void q30_set_init_high_items(const byte *, int, int) {} // (the same)
 void q30_set_item_bunny(int, bool) {}                   // the player's (the bunny form)
 void q30_set_item_pickup(int, long, int, int, int) {}  // the player's (item pickup flags and strings)
 void q30_set_shop_string(int, int, int) {}              // the player's (shop item strings)
@@ -504,7 +557,7 @@ void q30_sub_page(int list, int cursor_pos)
 }
 
 // Page changes are the player's: ZQuest's writers keep a subscreen's own bytes.
-void q30_sub_settings(int, dword, int, int) {}
+void q30_sub_settings(int, dword, int, int, const word *) {}
 void q30_sub_page_trans(int, int, int, int, int) {}
 void q30_sub_page_objects(int, const subscreen_object *, int) {}
 void q30_sub_widget_cond(int, int, int, const Q30SubCond &) {}     // the player's

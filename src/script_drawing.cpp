@@ -37,95 +37,15 @@ BITMAP* ScriptDrawingBitmapPool::_parent_bmp = 0;
 
 FONT *q30_font(int index);     // zelda.cpp: 3.0 font numbers past 2.53's, NULL for older quests
 
+FONT *q30_font_classic(int id); // q30_fonts.cpp: 2.53's fonts by number (ZQuest's subscreen layout editor's too)
+
 FONT *get_zc_font(int index)
 {
     if(FONT *f = q30_font(index))
         return f;
 
     //return getfont(index);
-    switch(index)
-    {
-    default:
-        return zfont;
-        
-    case font_z3font:
-        return z3font;
-        
-    case font_z3smallfont:
-        return z3smallfont;
-        
-    case font_deffont:
-        return deffont;
-        
-    case font_lfont:
-        return lfont;
-        
-    case font_lfont_l:
-        return lfont_l;
-        
-    case font_pfont:
-        return pfont;
-        
-    case font_mfont:
-        return mfont;
-        
-    case font_ztfont:
-        return ztfont;
-        
-    case font_sfont:
-        return sfont;
-        
-    case font_sfont2:
-        return sfont2;
-        
-    case font_spfont:
-        return spfont;
-        
-    case font_ssfont1:
-        return ssfont1;
-        
-    case font_ssfont2:
-        return ssfont2;
-        
-    case font_ssfont3:
-        return ssfont3;
-        
-    case font_ssfont4:
-        return ssfont4;
-        
-    case font_gblafont:
-        return gblafont;
-        
-    case font_goronfont:
-        return goronfont;
-        
-    case font_zoranfont:
-        return zoranfont;
-        
-    case font_hylian1font:
-        return hylian1font;
-        
-    case font_hylian2font:
-        return hylian2font;
-        
-    case font_hylian3font:
-        return hylian3font;
-        
-    case font_hylian4font:
-        return hylian4font;
-        
-    case font_gboraclefont:
-        return gboraclefont;
-        
-    case font_gboraclepfont:
-        return gboraclepfont;
-        
-    case font_dsphantomfont:
-        return dsphantomfont;
-        
-    case font_dsphantompfont:
-        return dsphantompfont;
-    }
+    return q30_font_classic(index);
 }
 
 

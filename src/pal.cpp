@@ -78,6 +78,22 @@ void copy_pal(RGB *src,RGB *dest)
 // 2.55+ screen tints are put back on whatever palette was just loaded (see q30_scripts_cmds.h).
 void (*q30_tint_palette_loaded_hook)() = NULL;
 
+// 2.55+ quests whose rules make CSets 1, 5, 7 or 8 level-specific (upstream's qr_CSET1_LEVEL and
+// the rest): the first loads those CSets with the level palette, the second says whether a CSet
+// is one of them, so the fades leave it alone (see q30_triggers.cpp). Unset or false for 2.53.
+void (*q30_level_csets_hook)(int level) = NULL;
+bool (*q30_cset_from_level_hook)(int cset) = NULL;
+
+// 2.55+ quests with the new dark rooms (upstream's qr_NEW_DARKROOM): lighting never darkens the
+// palette, as upstream's lighting and lightingInstant; the darkness is drawn over the screen
+// instead (q30_triggers.cpp). Unset or false for 2.53.
+bool (*q30_new_darkroom_hook)() = NULL;
+
+static bool cset_from_level(int cset)
+{
+    return q30_cset_from_level_hook && q30_cset_from_level_hook(cset);
+}
+
 void loadfullpal()
 {
     for(int i=0; i<240; i++)
@@ -109,6 +125,9 @@ void loadlvlpal(int level)
         si+=3;
     }
     
+    if(q30_level_csets_hook)
+        q30_level_csets_hook(level);
+        
     if(!get_bit(quest_rules,qr_NOLEVEL3FIX) && level==3)
         RAMpal[CSET(6)+2] = NESpal(0x37);
         
@@ -190,7 +209,7 @@ void interpolatedfade()
     if(get_bit(quest_rules,qr_FADECS5))
     {
         last += 16;
-        loadpalset(5,5);
+        if(!cset_from_level(5)) loadpalset(5,5);
     }
     
     loadlvlpal(DMaps[currdmap].color);
@@ -222,7 +241,7 @@ void fade(int level,bool blackall,bool fromblack)
             if(get_bit(quest_rules,qr_FADECS5))
             {
                 last += 16;
-                loadpalset(5,5);
+                if(!cset_from_level(5)) loadpalset(5,5);
             }
             
             loadlvlpal(level);
@@ -297,6 +316,11 @@ void fade(int level,bool blackall,bool fromblack)
 // 2.55/3.0 quests set it (q30_lighting with stay), so 2.53 quests never see it.
 static bool q30_stay_lit = false;
 
+// 2.55/3.0 (upstream's lighting): under qr_NEW_DARKROOM (237) a dark screen keeps its palette
+// and the darkness is drawn over it (q30_draw_darkness), so no fade runs (q30_new_darkroom_hook
+// says so). The fade took 16 frames: Link stood still that long whenever a warp or a game start
+// put him in a dark room.
+
 static void lighting_state(bool existslight, bool setnaturaldark);
 
 // false: change screen lighting to naturaldark
@@ -320,6 +344,9 @@ static void lighting_state(bool existslight, bool setnaturaldark)
 {
     bool newstate = !existslight && (setnaturaldark ? ((TheMaps[currmap*MAPSCRS+currscr].flags&fDARK) != 0) : naturaldark);
     
+    if(q30_new_darkroom_hook && q30_new_darkroom_hook())
+        newstate = false;
+        
     if(darkroom != newstate)
     {
 fade((Link.getSpecialCave()>0) ? (Link.getSpecialCave()>=GUYCAVE) ? 10 : 11 : DMaps[currdmap].color, false, darkroom);
@@ -336,6 +363,9 @@ void lightingInstant()
     q30_stay_lit = false;   // as upstream's
     bool newstate = ((TheMaps[currmap*MAPSCRS+currscr].flags&fDARK) != 0);
     
+    if(q30_new_darkroom_hook && q30_new_darkroom_hook())
+        newstate = false;
+        
     if(darkroom != newstate)
     {
 int level = (Link.getSpecialCave()>0) ? (Link.getSpecialCave()>=GUYCAVE) ? 10 : 11 : DMaps[currdmap].color;
@@ -344,7 +374,7 @@ int level = (Link.getSpecialCave()>0) ? (Link.getSpecialCave()>=GUYCAVE) ? 10 : 
         {
             loadlvlpal(level);
             
-            if(get_bit(quest_rules,qr_FADECS5))
+            if(get_bit(quest_rules,qr_FADECS5) && !cset_from_level(5))
                 loadpalset(5,5);
         }
         else // Old room lit, new room dark
@@ -357,7 +387,7 @@ int level = (Link.getSpecialCave()>0) ? (Link.getSpecialCave()>=GUYCAVE) ? 10 : 
                 if(get_bit(quest_rules,qr_FADECS5))
                 {
                     last += 16;
-                    loadpalset(5,5);
+                    if(!cset_from_level(5)) loadpalset(5,5);
                 }
                 
                 byte *si = colordata + CSET(level*pdLEVEL+poFADE1)*3;

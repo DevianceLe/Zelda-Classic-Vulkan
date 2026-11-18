@@ -82,7 +82,10 @@ static void z30_scrdata_flush()
     for(std::map<int, std::vector<long> >::const_iterator it = zasm30_scrdata.begin(); it != zasm30_scrdata.end(); ++it)
         total += 2 + it->second.size();
 
-    a->Resize((dword)total);
+    // (only to a new size: ZCArray's Resize to the size it has leaves it empty, as in states_flush)
+    if(a->Size() != (dword)total)
+        a->Resize((dword)total);
+
     (*a)[0] = Z30_SCRDATA_MAGIC;
     (*a)[1] = Z30_SCRDATA_VERSION;
     size_t at = 2;
@@ -124,7 +127,34 @@ static void z30_scrdata_savetest()
     {
         done = true;
         z30_scrdata_log("saving");
+        al_trace("test: saving the game at frame %d\n", frame);
+        void q30_states_trace(const char *where);   // q30_triggers.cpp
+        q30_states_trace("before the save");
         save_game(false);
+        q30_states_trace("after the save");
+    }
+
+    // ZC_TEST_BOMBS_AT=frame,bombs[,super bombs] (test runs only): upstream's Bombs cheat once at
+    // that frame (a replay's "X frame Bombs a b"): Link gets every bomb and super bomb item, then
+    // those counts
+    static const char *bombs_at = getenv("ZC_TEST_BOMBS_AT");
+    static bool bombs_done = false;
+    int bf = 0, nb = 0, ns = -1;
+
+    if(bombs_at && !bombs_done && sscanf(bombs_at, "%d,%d,%d", &bf, &nb, &ns) >= 2 && frame >= bf)
+    {
+        bombs_done = true;
+
+        for(int i = 0; i < q30_items_end(); ++i)
+            if(itemsbuf[i].family == itype_bomb || itemsbuf[i].family == itype_sbomb)
+                getitem(i, true);
+
+        game->set_bombs((word)nb);
+
+        if(ns != -1)
+            game->set_sbombs((word)ns);
+
+        al_trace("test: frame %d, bombs %d, super bombs %d\n", frame, game->get_bombs(), game->get_sbombs());
     }
 }
 

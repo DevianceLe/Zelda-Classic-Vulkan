@@ -539,6 +539,20 @@ void widget(TapeParser &p, int v, const char *pre, bool page1)
 
 } // namespace
 
+// One widget of a version v section, its type byte first, with keys "<pre>type", "<pre>x"...
+// (the subscreen layout editor, zq_subscr_layout.cpp: a new widget is rebuilt from a few set
+// fields and the rest zero; a widget's property list is this tape). page1: on a subscreen's
+// first page, where 2.53's subscreen editor holds some fields.
+bool zq_tape_subscreen_widget(TapeParser &p, int v, const char *pre, bool page1)
+{
+    if(v < 8 || v > 21)
+        return false;
+
+    g_v = v;
+    widget(p, v, pre, page1);
+    return !p.bad;
+}
+
 bool zq_tape_subscreens(TapeParser &p, int v)
 {
     if(v < 8 || v > 21)

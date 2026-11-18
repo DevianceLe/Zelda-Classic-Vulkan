@@ -29,6 +29,7 @@
 
 #include "zdefs.h"
 #include "zcport/ui.h"
+#include "zq_imgui_fit.h"
 #include "zq_q255_store.h"
 #include "zq_tape.h"
 #include "zq_item_names.h"
@@ -58,12 +59,19 @@ bool zq255_strings_commit(const std::map<std::string, TapeField> &edits, std::st
 bool zq255_subs_record(std::vector<byte> &rec, int *version);                // zqw_init.cpp
 bool zq255_subs_commit(const std::map<std::string, TapeField> &edits, std::string &why);
 void zq255_screen_fields_sync(int index, bool music, bool lens);
+bool zq255_link_record(std::vector<byte> &rec, int *version);                // zqw_init.cpp
+void zq_music_dump(FILE *f);                                                // zqw_amus.cpp
+bool zq255_has_music_objects();
+std::string zq_music_label(int n);                                          // zq_music_editor.cpp
+bool zq_edit_music_newer(int start, bool *shown, std::map<int, int> *moved);
+void zq_zinfo_dump(FILE *f);                                                // zqw_zinfo.cpp
 extern dmap *DMaps;
 
 namespace
 {
 
-enum { KIND_ITEM, KIND_GUY, KIND_DMAP, KIND_SCREEN, KIND_INIT, KIND_MISC, KIND_STRINGS, KIND_SUBS };
+// KIND_SUBWIDGET: one subscreen widget, for the subscreen layout editor's property list
+enum { KIND_ITEM, KIND_GUY, KIND_DMAP, KIND_SCREEN, KIND_INIT, KIND_MISC, KIND_STRINGS, KIND_SUBS, KIND_SUBWIDGET };
 
 // Screens, misc data and strings show only what 2.53's dialogs don't.
 bool extras_only(int kind)
@@ -85,6 +93,12 @@ std::map<std::string, TapeField> &keyed_store(int kind)
 
 typedef bool (*Schema)(TapeParser &, int);
 
+// one subscreen widget, every field shown (keys "x", "genflags"...)
+bool subwidget_schema(TapeParser &p, int v)
+{
+    return zq_tape_subscreen_widget(p, v, "", false);
+}
+
 Schema schema_of(int kind)
 {
     switch(kind)
@@ -96,6 +110,7 @@ Schema schema_of(int kind)
     case KIND_MISC: return zq_tape_misc;
     case KIND_STRINGS: return zq_tape_strings;
     case KIND_SUBS: return zq_tape_subscreens;
+    case KIND_SUBWIDGET: return subwidget_schema;
     }
 
     return zq_tape_screen;
@@ -103,7 +118,8 @@ Schema schema_of(int kind)
 
 const char *kind_word(int kind)
 {
-    static const char *w[8] = { "item", "enemy", "DMap", "screen", "init data", "misc data", "strings", "subscreens" };
+    static const char *w[9] = { "item", "enemy", "DMap", "screen", "init data", "misc data", "strings", "subscreens",
+                                "subscreen widget" };
     return w[kind];
 }
 
@@ -122,6 +138,8 @@ Tape rebuilt(const Tape &t, int kind, int v)
 struct RecEditor
 {
     bool open, close, want_ok, focus, busy;
+    bool want_music;        // "Edit Music" pressed: the music list opens at music_at
+    int music_at;           // that entry (1-based; 0: the first, for "Use Default" and "(None)")
     int kind, id, v;
     bool is30;
     Tape tape;
@@ -134,7 +152,7 @@ struct RecEditor
     std::map<std::string, int> picked;  // list tabs: the entry shown
     std::map<std::string, size_t> keys; // where each key is in the tape (rebuilt when its size changes)
 
-    RecEditor() : open(false), close(false), want_ok(false), focus(false), busy(false), kind(0), id(0), v(0), is30(false),
+    RecEditor() : open(false), close(false), want_ok(false), focus(false), busy(false), want_music(false), music_at(0), kind(0), id(0), v(0), is30(false),
                   name_in_tape(false)
     {
         name[0] = 0;
@@ -143,6 +161,9 @@ struct RecEditor
 
 RecEditor g_re;
 std::string g_start_group;      // run(): the tab to open at
+std::vector<byte> *g_widget_bytes = NULL;  // KIND_SUBWIDGET: the widget edited (zq_edit_subscreen_widget)
+int g_widget_version = 0;                   // and its section's version
+std::string g_widget_title;
 
 // A field of the editor's tape by key, through an index (the tapes of whole sections are large).
 const TapeField *find_field(const std::string &key)
@@ -218,6 +239,38 @@ bool in_number(const char *label, TapeField &f)
 // ---- labels -------------------------------------------------------------------------------
 
 // The item editor's label for a field, for the item's class (empty: the field's own).
+// The label of an enemy's defense (edef) in 3.0's enemy editor: upstream's DefenseToWeaponName
+// (zc_list_data.cpp), the weapon's name through the quest's ZInfo; "Wand" and "SwitchHook"
+// fixed. "" where upstream has none (2.55.17's editor keeps the plain names).
+std::string defense_label_30(int edef)
+{
+    // edef -> weapon type (core/zdefs.h); -1 for the fixed names and the unused slots
+    static const int weapon[41] =
+    {
+        3, 6, 7, 8, 9,                  // boomerang, bomb (lit), super bomb (lit), arrow, fire
+        -1, 13, 20, 19, 1,              // wand, magic, hookshot, hammer, sword
+        2, 28, 16, 17, 18,              // beam, reflected beam, magic, fireball, rock
+        29, 27, -1, -1, -1,             // stomp, byrna, script (old), unused, quake hammer
+        31, 32, 33, 34, 35,             // custom weapons 1-10
+        36, 37, 38, 39, 40,
+        41, 11, 15, 24, 43,             // ice, bait, wind, fire sparkle, sound
+        10, -1, 44, 53, 54,             // whistle, switch hook, thrown, reflected arrow, fire
+        55                              // reflected fire 2
+    };
+
+    if(edef == 5)
+        return "Wand";
+
+    if(edef == 36)
+        return "SwitchHook";
+
+    if(edef < 0 || edef >= 41 || weapon[edef] < 0)
+        return "";
+
+    const char *n = q30_weapon_type_name(weapon[edef]);
+    return n ? n : "";
+}
+
 std::string item_label(const TapeField &f, std::string *h)
 {
     if(g_re.kind == KIND_INIT)
@@ -235,6 +288,9 @@ std::string item_label(const TapeField &f, std::string *h)
             *h = g_gh_attr[f.index];
             return g_gl_attr[f.index];
         }
+
+        if(f.list == TL_DEFENSE && f.key.compare(0, 3, "def") == 0 && g_re.is30)
+            return defense_label_30(f.index);
 
         return "";
     }
@@ -416,7 +472,12 @@ const char *bit_name(int list, int bit)
     case TL_ROOMFLAGS: return bit == 0 ? "Guy always shows" : bit == 1 ? "Guy's fires" : NULL;
     case TL_SIZEFLAGS: return sizeflags[bit];
     case TL_PSTRFLAGS: return bit == 0 ? "Always shown" : bit == 1 ? "Only when held up" : bit == 2 ? "Doesn't mark the item seen" : NULL;
-    case TL_LITEMBITS: return litem[bit];
+    case TL_LITEMBITS:
+    {
+        // the quest's own level item names (ZInfo), as upstream's lists give them
+        const char *custom = zq_zinfo_name(ZQZ_LEVELITEM, bit);
+        return custom ? custom : litem[bit];
+    }
     }
 
     return "";      // no names: every bit shown by number
@@ -455,6 +516,8 @@ void enum_combo(const char *label, TapeField &f)
     case TL_ITEMCLASS: name = q30_itemclass_name((int)val); break;
     case TL_ENEMYCLASS: name = q30_enemyclass_name((int)val); break;
     case TL_COUNTER: name = q30_counter_name((int)val); break;
+    case TL_MUSIC:
+    case TL_SCRMUSIC: name = zq_music_label((int)val); break;
 
     case TL_DEFENSE:
     case TL_ANIM:
@@ -473,7 +536,10 @@ void enum_combo(const char *label, TapeField &f)
         break;
     }
 
-    snprintf(cur, sizeof(cur), "%lld: %s", val, name.c_str());
+    if(f.list == TL_MUSIC || f.list == TL_SCRMUSIC)
+        snprintf(cur, sizeof(cur), "%s", name.c_str());     // upstream's music_names: the number is in the name
+    else
+        snprintf(cur, sizeof(cur), "%lld: %s", val, name.c_str());
     ImGui::SetNextItemWidth(field_w() * 2.4f);
 
     if(!ImGui::BeginCombo(label, cur, ImGuiComboFlags_HeightLarge))
@@ -482,7 +548,32 @@ void enum_combo(const char *label, TapeField &f)
     int64_t lo, hi;
     range(f, lo, hi);
 
-    if(f.list == TL_BOTTLETYPE)
+    if(f.list == TL_MUSIC || f.list == TL_SCRMUSIC)
+    {
+        // upstream's music_names(true, screen): Use Default (screens), (None), then the quest's
+        // music objects
+        const int n = (int)zq255.music.size();
+        ImGuiListClipper clip;
+        const int first = f.list == TL_SCRMUSIC ? -1 : 0;
+        clip.Begin(n - first + 1);
+
+        while(clip.Step())
+            for(int r = clip.DisplayStart; r < clip.DisplayEnd; ++r)
+            {
+                const int k = first + r;
+
+                if(k < lo || k > hi)
+                    continue;
+
+                ImGui::PushID(k);
+
+                if(ImGui::Selectable(zq_music_label(k).c_str(), k == val))
+                    f.value = k;
+
+                ImGui::PopID();
+            }
+    }
+    else if(f.list == TL_BOTTLETYPE)
     {
         for(int k = 0; k <= 64; ++k)
         {
@@ -1188,6 +1279,25 @@ void field(TapeField &f)
             named_number(label.c_str(), f);
         else
             enum_combo(label.c_str(), f);
+
+        if((f.list == TL_MUSIC || f.list == TL_SCRMUSIC) && zq255_has_music_objects())
+        {
+            // as upstream's DMap and screen data dialogs: the music list, at the entry picked
+            ImGui::SameLine();
+
+            if(ImGui::Button(("Edit Music##" + f.key).c_str()))
+            {
+                // upstream's call_music_dialog: at the entry picked, or the first for -1 and 0
+                g_re.want_music = true;
+                g_re.music_at = f.value > 0 ? (int)f.value : 0;
+            }
+        }
+
+        if(f.list == TL_MUSIC)
+            h = "The music to play on this dmap. Screen-specific music takes priority.";
+        else if(f.list == TL_SCRMUSIC)
+            h = "Music to play on this screen. 'Use Default' uses the music of the dmap.";
+
         break;
 
     default:
@@ -1541,8 +1651,8 @@ void editor_layer(void *)
     if(!e.open || e.busy)
         return;
 
-    if(e.kind == KIND_DMAP)
-        e.tape = rebuilt(e.tape, KIND_DMAP, e.v);   // a flag that adds or drops fields
+    if(e.kind == KIND_DMAP || e.kind == KIND_SUBWIDGET)
+        e.tape = rebuilt(e.tape, e.kind, e.v);      // a flag that adds or drops fields
 
     if(e.kind == KIND_ITEM)
         q30_item_labels((int)e.tape.get("family"), (unsigned)e.tape.get("flags"), g_labels);
@@ -1562,9 +1672,7 @@ void editor_layer(void *)
     }
 
     const float sc = zcui::scale();
-    ImGuiViewport *vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(780 * sc, 620 * sc), ImGuiCond_Appearing);
+    zq_fit_next_window(780 * sc, 620 * sc);     // within ZQuest's window, however small (zq_imgui_fit.h)
 
     if(e.focus)
     {
@@ -1588,6 +1696,8 @@ void editor_layer(void *)
         snprintf(title, sizeof(title), "Strings: what 2.53 doesn't have (%s, string format %d)###zqrecord", gen, e.v);
     else if(e.kind == KIND_SUBS)
         snprintf(title, sizeof(title), "Subscreens: what 2.53 doesn't have (%s, subscreen format %d)###zqrecord", gen, e.v);
+    else if(e.kind == KIND_SUBWIDGET)
+        snprintf(title, sizeof(title), "%s (%s, subscreen format %d)###zqrecord", g_widget_title.c_str(), gen, e.v);
     else
         snprintf(title, sizeof(title), "%s %d: %s (%s, %s format %d)###zqrecord", e.kind == KIND_ITEM ? "Item" : "Enemy",
                  e.id, e.name, gen, kind_word(e.kind), e.v);
@@ -1595,6 +1705,8 @@ void editor_layer(void *)
 
     if(ImGui::Begin(title, &open, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
     {
+        zq_keep_window_inside(780 * sc, 620 * sc);
+
         if(!e.name_in_tape)
         {
             ImGui::SetNextItemWidth(field_w() * 2.6f);
@@ -1822,6 +1934,16 @@ bool commit(RecEditor &e)
     if(e.kind == KIND_SCREEN)
         return commit_screen(e);
 
+    if(e.kind == KIND_SUBWIDGET)
+    {
+        // the widget goes back to the layout editor, which puts it in its section (encode
+        // appends: the widget's bytes are replaced)
+        zcui::Lock lock;
+        g_widget_bytes->clear();
+        rebuilt(e.tape, e.kind, e.v).encode(*g_widget_bytes);
+        return true;
+    }
+
     if(keyed(e.kind))
         return commit_misc(e);
 
@@ -1889,6 +2011,17 @@ bool record_of(int kind, int id, std::vector<byte> &rec, int *v)
     case KIND_MISC: return zq255_misc_record(rec, v);
     case KIND_STRINGS: return zq255_strings_record(rec, v);
     case KIND_SUBS: return zq255_subs_record(rec, v);
+
+    case KIND_SUBWIDGET:
+        if(!g_widget_bytes)
+            return false;
+
+        rec = *g_widget_bytes;
+
+        if(v)
+            *v = g_widget_version;
+
+        return true;
     }
 
     return zq255_screen_record(id, rec, v);
@@ -1968,6 +2101,8 @@ bool run(int kind, int id)
 
         g_re.open = true;
         g_re.close = g_re.want_ok = g_re.busy = false;
+        g_re.want_music = false;
+        g_re.music_at = 0;
         g_re.focus = true;
         g_re.kind = kind;
         g_re.id = id;
@@ -1997,12 +2132,47 @@ bool run(int kind, int id)
     for(;;)
     {
         zcui::wait_frame(100);
-        bool done, ok;
+        bool done, ok, music;
+        int music_at;
         {
             zcui::Lock lock;
             done = g_re.close;
             ok = g_re.want_ok;
             g_re.want_ok = false;
+            music = g_re.want_music;
+            music_at = g_re.music_at;
+            g_re.want_music = false;
+        }
+
+        if(music && !done && !ok)
+        {
+            // the music list over this window; entries it deletes or moves take every DMap's and
+            // screen's reference along, this record's (as edited here) too
+            {
+                zcui::Lock lock;
+                g_re.busy = true;
+            }
+
+            bool shown = false;
+            std::map<int, int> moved;
+            zq_edit_music_newer(music_at, &shown, &moved);
+            zcui::Lock lock;
+
+            // Only the record as edited follows. A screen's baseline stays the screen as loaded,
+            // so a moved number differs from it and OK keeps it as an edit (zq255_music_remap
+            // put the same number in the screen's edits already); a DMap's record has no baseline.
+            for(size_t i = 0; i < g_re.tape.f.size(); ++i)
+            {
+                TapeField &f = g_re.tape.f[i];
+                std::map<int, int>::const_iterator m = moved.find((int)f.value);
+
+                if((f.list == TL_MUSIC || f.list == TL_SCRMUSIC) && f.value > 0 && m != moved.end())
+                    f.value = m->second;
+            }
+
+            g_re.busy = false;
+            g_re.focus = true;
+            continue;
         }
 
         if(ok && commit(g_re))
@@ -2079,6 +2249,27 @@ bool zq_edit_subs_newer(bool *shown)
     *shown = zq255_subs_record(rec, NULL);
     g_start_group.clear();
     return *shown && run(KIND_SUBS, 0);
+}
+
+// The subscreen layout editor's property list (zq_subscr_layout.cpp): every field of one widget
+// of a version v SUBS section (its bytes from the type byte on), as the subscreen data editor
+// names them, in a window called title. True when OK was pressed: bytes then holds the widget as
+// edited (laid out again where a flag adds fields).
+bool zq_edit_subscreen_widget(std::vector<byte> &bytes, int v, const char *title)
+{
+    std::vector<byte> work = bytes;
+    g_widget_bytes = &work;
+    g_widget_version = v;
+    g_widget_title = title ? title : "Widget";
+    g_start_group = "Widgets";
+    const bool ok = run(KIND_SUBWIDGET, 0);
+    g_start_group.clear();
+    g_widget_bytes = NULL;
+
+    if(ok)
+        bytes.swap(work);
+
+    return ok;
 }
 
 bool zq_edit_dmap_newer(int index, bool *shown)
@@ -2169,20 +2360,32 @@ int zq_dump_record(int kind, int id, const char *report)
         return 0;
     }
 
+    if(kind == 10 || kind == 12)
+    {
+        if(kind == 10)
+            zq_music_dump(f);
+        else
+            zq_zinfo_dump(f);
+
+        fclose(f);
+        return 0;
+    }
+
     std::vector<byte> rec;
     int v = 0;
 
-    if(kind < 0 || kind > KIND_SUBS || !record_of(kind, id, rec, &v))
+    // 11: the hero data (the whole LINK section, zq_hero_editor.cpp)
+    if(kind == 11 ? !zq255_link_record(rec, &v) : (kind < 0 || kind > KIND_SUBS || !record_of(kind, id, rec, &v)))
     {
-        fprintf(f, "no %s %d record in this quest\n", kind >= 0 && kind <= KIND_SUBS ? kind_word(kind) : "?", id);
+        fprintf(f, "no %s %d record in this quest\n", kind == 11 ? "hero data" : kind >= 0 && kind <= KIND_SUBS ? kind_word(kind) : "?", id);
         fclose(f);
         return 2;
     }
 
     Tape t;
     TapeParser p(rec.empty() ? NULL : &rec[0], rec.size(), 0, &t);
-    const bool ok = schema_of(kind)(p, v);
-    fprintf(f, "%s %d: format %d, %d bytes, %s\n", kind_word(kind), id, v, (int)rec.size(),
+    const bool ok = kind == 11 ? zq_tape_link(p, v) : schema_of(kind)(p, v);
+    fprintf(f, "%s %d: format %d, %d bytes, %s\n", kind == 11 ? "hero data" : kind_word(kind), id, v, (int)rec.size(),
             ok && p.pos == rec.size() ? "reads whole" : "DOESN'T READ");
 
     for(size_t i = 0; i < t.f.size(); ++i)

@@ -46,6 +46,7 @@ static bool msgstr_blocking_step()
 
 // ---- data ----------------------------------------------------------------------------
 
+
 namespace
 {
 
@@ -177,7 +178,7 @@ void q30_slope_audit()
             }
         }
 
-        for(int i = 0; i < 32; ++i)
+        for(int i = 0; i < m.ffc_count(); ++i)
             if(m.ffdata[i] && q30_combo_type(m.ffdata[i]) == Q30C_SLOPE)
                 al_trace("slope ffc map %d scr %d ffc %d cid %d flags %x side %d\n", (int)(n / MAPSCRS), (int)(n % MAPSCRS), i, m.ffdata[i], (unsigned)m.ffflags[i], (m.flags7 & fSIDEVIEW) ? 1 : 0);
     }
@@ -595,7 +596,7 @@ namespace
 typedef int zr;
 
 const double Q30_PI = 3.14159265358979323846;
-const int SLOPE_SLOTS = 7 * 176 + 32;   // a combo position on each layer, then the FFCs
+const int SLOPE_SLOTS = 7 * 176 + Q30_MAXFFCS;  // a combo position on each layer, then the FFCs
 
 inline zr zmul(zr a, zr b) { return (zr)((int64_t)a * b / 10000); }
 inline zr zdiv(zr a, zr b) { return b ? (zr)((int64_t)a * 10000 / b) : 0; }   // zfix's divide by 0 gives 0
@@ -1473,7 +1474,7 @@ struct PosInfo
 
 const int POSLAYERS = 7;
 std::vector<PosInfo> g_pos;
-PosInfo g_ffcpos[MAXFFCS];
+PosInfo g_ffcpos[Q30_MAXFFCS];  // (a 2.55/3.0 screen has 128 FFC slots: mapscr::ffc_count)
 
 void pos_setup()
 {
@@ -1529,6 +1530,9 @@ static dword g_item_msg_played[(Q30_MAX_ITEMS + 31) / 32];
 // Upstream's save keeps the subscreen page each was set on (game->bwpn's low byte); 2.53's
 // save has a byte for the cursor only, so an item set on a later page is kept here instead.
 static int g_saved_btn[4];
+// With the newer subscreens, the A, B, X and Y buttons' slots by page (link.cpp q30_btn: pos << 8
+// | page, each + 1; 0 none kept), kind 8, as upstream's save keeps game->awpn..ywpn.
+static int g_saved_slot[4];
 bool g_states_dirty = false;
 long g_state_id = 0;
 long g_state_serial = 0;
@@ -1630,6 +1634,14 @@ void states_flush()
             out.push_back(g_saved_btn[i]);
         }
 
+    for(int i = 0; i < 4; ++i)
+        if(g_saved_slot[i])
+        {
+            out.push_back(8);
+            out.push_back(i);
+            out.push_back(g_saved_slot[i]);
+        }
+
     ZScriptArray *a = state_array();
 
     if(!a)
@@ -1641,7 +1653,12 @@ void states_flush()
         a = &game->globalRAM.back();
     }
 
-    a->Resize(2 + out.size());
+    // Only to a new size: ZCArray's Resize to the size an array already has leaves it with size 0
+    // (_SetDimensions asks _GetSize with its dimensions the wrong way round, and only a size that
+    // changes is set again), which lost the states, and with them the buttons' items and slots,
+    // whenever a flush kept the same number of entries.
+    if(a->Size() != 2 + out.size())
+        a->Resize(2 + out.size());
     g_state_id = ((long)time(NULL) << 6) ^ (++g_state_serial & 63);
     (*a)[0] = Q30_STATE_MAGIC;
     (*a)[1] = g_state_id;
@@ -1668,6 +1685,7 @@ void states_sync()
     memset(g_gswitch_timers, 0, sizeof(g_gswitch_timers));
     memset(g_item_msg_played, 0, sizeof(g_item_msg_played));
     memset(g_saved_btn, 0, sizeof(g_saved_btn));
+    memset(g_saved_slot, 0, sizeof(g_saved_slot));
     g_portal = Q30_NO_PORTAL;
     g_state_id = id;
     g_states_dirty = false;
@@ -1729,6 +1747,10 @@ void states_sync()
 
         case 7:
             if(key >= 0 && key < 4) g_saved_btn[key] = (int)val;
+            break;
+
+        case 8:
+            if(key >= 0 && key < 4) g_saved_slot[key] = (int)val;
             break;
         }
     }
@@ -2072,7 +2094,7 @@ void for_all_positions(void (*fn)(const H &, void *), void *ctx, bool include_ff
 
     if(include_ffc)
     {
-        for(int i = 0; i < MAXFFCS; ++i)
+        for(int i = 0; i < tmpscr[0].ffc_count(); ++i)
         {
             if(tmpscr[0].ffdata[i] && !(tmpscr[0].ffflags[i] & ffCHANGER))
                 fn(H(i), ctx);
@@ -3733,7 +3755,7 @@ void trigger_cswitch_block(const H &h, const Q30Combo *c)
     {
         int fx = bx + 8, fy = by + 8;
 
-        for(int q = 0; q < MAXFFCS; ++q)
+        for(int q = 0; q < tmpscr[0].ffc_count(); ++q)
         {
             if(h.is_ffc() && q == h.ffc)
                 continue;
@@ -3861,7 +3883,7 @@ void toggle_switches(dword flags, bool entry)
         }
     }
 
-    for(int i = 0; i < MAXFFCS; ++i)
+    for(int i = 0; i < tmpscr[0].ffc_count(); ++i)
     {
         if(tmpscr[0].ffdata[i])
             execute(H(i), cond_level_trigger, &flags, ctrigSWITCHSTATE);
@@ -3941,7 +3963,7 @@ void toggle_gswitches(bool *states, bool entry)
         }
     }
 
-    for(int i = 0; i < MAXFFCS; ++i)
+    for(int i = 0; i < tmpscr[0].ffc_count(); ++i)
     {
         if(tmpscr[0].ffdata[i])
             execute(H(i), cond_global_trigger, states, ctrigSWITCHSTATE);
@@ -4764,7 +4786,7 @@ void remove_xstate_positions(int xstate)
         }
     }
 
-    for(int i = 0; i < MAXFFCS; ++i)
+    for(int i = 0; i < tmpscr[0].ffc_count(); ++i)
     {
         H h(i);
         const Q30Combo *c = h_combo(h);
@@ -5156,78 +5178,6 @@ int bx = (x >> 4) + (y & 0xF0);
 
 // ---- walk speed -------------------------------------------------------------------
 
-void q30_walk_speed(int x, int y, int z, int &dx, int &dy)
-{
-    if(!q30_active() || (z > 0 && !(tmpscr[0].flags2 & fAIRCOMBOS)))
-        return;
-
-    int px = x + 7, py = y + 8;
-
-    if(px < 0 || py < 0 || px > 255 || py > 175)
-        return;
-
-    int pos = ((py >> 4) << 4) + (px >> 4);
-    double mult = 1, add = 0;
-    bool any = false;
-
-    for(int q = 6; q >= 0; --q)
-    {
-        H h(q, pos);
-
-        if(!h_scr(h))
-            continue;
-
-        const Q30Combo *c = h_combo(h);
-
-        if(c && (c->speed_mult != 1 || c->speed_div > 1 || c->speed_add))
-        {
-            mult *= c->speed_mult;
-
-            if(c->speed_div)
-                mult /= c->speed_div;
-
-            add += c->speed_add / 10000.0;
-            any = true;
-        }
-
-        if(q > 0 && q30_has_bridge_at(px, py, q))
-            break;
-    }
-
-    static double fx = 0, fy = 0;
-
-    if(!any)
-    {
-        fx = fy = 0;
-        return;
-    }
-
-    int *axes[2] = {&dx, &dy};
-    double *fr[2] = {&fx, &fy};
-
-    for(int a = 0; a < 2; ++a)
-    {
-        int v = *axes[a];
-
-        if(!v)
-        {
-            *fr[a] = 0;
-            continue;
-        }
-
-        double m = (v < 0 ? -v : v) * mult + add + *fr[a];
-
-        if(m < 0)
-            m = 0;
-        else if(m > 3)
-            m = 3;              // Link's solidity checks assume small steps
-
-        int whole = (int)m;
-        *fr[a] = m - whole;
-        *axes[a] = v < 0 ? -whole : whole;
-    }
-}
-
 double q30_walk_speed_scale(int x, int y, int z, double step)
 {
     if(!q30_active() || (z > 0 && !(tmpscr[0].flags2 & fAIRCOMBOS)))
@@ -5433,7 +5383,7 @@ void q30_trig_display_states(int mi, mapscr *base, mapscr *layers)
         }
     }
 
-    for(int i = 0; i < MAXFFCS; ++i)
+    for(int i = 0; i < base->ffc_count(); ++i)
     {
         if(!base->ffdata[i] || (base->ffflags[i] & ffCHANGER))
             continue;
@@ -5488,7 +5438,7 @@ void q30_trig_screen_load()
     for(size_t i = 0; i < g_pos.size(); ++i)
         g_pos[i].clear();
 
-    for(int i = 0; i < MAXFFCS; ++i)
+    for(int i = 0; i < Q30_MAXFFCS; ++i)
         g_ffcpos[i].clear();
 
     g_wpn_done.clear();
@@ -5515,7 +5465,7 @@ void q30_trig_screen_load()
         for(int pos = 0; pos < 176; ++pos)
             g_pos[lyr * 176 + pos].data = h_data(H(lyr, pos));
 
-    for(int i = 0; i < MAXFFCS; ++i)
+    for(int i = 0; i < Q30_MAXFFCS; ++i)
         g_ffcpos[i].data = tmpscr[0].ffdata[i];
 
     for_all_positions(screen_trig_visit, (void *)1);
@@ -5642,6 +5592,49 @@ void q30_restore_buttons()
     }
 }
 
+extern int q30_btn[4];          // link.cpp
+bool q30_paged_buttons();
+
+// ZC_Q30_BTNSEL (diagnostics only): what the state array holds of the buttons
+void q30_states_trace(const char *where)
+{
+    if(!getenv("ZC_Q30_BTNSEL") || !game)
+        return;
+
+    ZScriptArray *a = state_array();
+    al_trace("q30 btnsel: %s: state array %s (id %ld, %d values; %d arrays), kept slots %d %d %d %d, items %d %d %d %d, awpn %d bwpn %d\n",
+             where, a ? "found" : "missing", a ? (long)(*a)[1] : 0L, a ? (int)a->Size() : 0, (int)game->globalRAM.size(),
+             g_saved_slot[0], g_saved_slot[1], g_saved_slot[2], g_saved_slot[3], g_saved_btn[0], g_saved_btn[1], g_saved_btn[2],
+             g_saved_btn[3], game->awpn, game->bwpn);
+}
+
+// init_game, a loaded or continued game with the newer subscreens: the buttons' slots by page
+// kept in the state array (kind 8); false if it has none (a save from before they were kept)
+bool q30_saved_button_slots(int w[4])
+{
+    if(!q30_active() || !game)
+        return false;
+
+    states_sync();
+
+    if(getenv("ZC_Q30_BTNSEL"))     // diagnostics only
+    {
+        ZScriptArray *a = state_array();
+        al_trace("q30 btnsel: state array %s (id %ld, %d values), kept slots %d %d %d %d, items %d %d %d %d\n", a ? "found" : "missing",
+                 a ? (long)(*a)[1] : 0L, a ? (int)a->Size() : 0, g_saved_slot[0], g_saved_slot[1], g_saved_slot[2], g_saved_slot[3],
+                 g_saved_btn[0], g_saved_btn[1], g_saved_btn[2], g_saved_btn[3]);
+    }
+
+    for(int i = 0; i < 4; ++i)
+        if(!g_saved_slot[i])
+            return false;
+
+    for(int i = 0; i < 4; ++i)
+        w[i] = (g_saved_slot[i] - 1) & 0xFFFF;
+
+    return true;
+}
+
 void q30_trig_update()
 {
     if(!q30_active() || tmpscr[0].data.empty())
@@ -5654,6 +5647,18 @@ void q30_trig_update()
         if(memcmp(now, g_saved_btn, sizeof(now)))
         {
             memcpy(g_saved_btn, now, sizeof(now));
+            states_mark();
+        }
+    }
+
+    // and with the newer subscreens their slots by page (q30_saved_button_slots)
+    if(q30_paged_buttons())
+    {
+        const int now[4] = { q30_btn[0] + 1, q30_btn[1] + 1, q30_btn[2] + 1, q30_btn[3] + 1 };
+
+        if(memcmp(now, g_saved_slot, sizeof(now)))
+        {
+            memcpy(g_saved_slot, now, sizeof(now));
             states_mark();
         }
     }
@@ -6005,7 +6010,7 @@ static void match_weapon_at(weapon *w, int bx, int by, int layer)
 
     if(!layer && !rule(qr30_OLD_FFC_FUNCTIONALITY))
     {
-        for(int i = 0; i < MAXFFCS; ++i)
+        for(int i = 0; i < tmpscr[0].ffc_count(); ++i)
         {
             if(!tmpscr[0].ffdata[i] || !ffc_at(i, bx, by))
                 continue;
@@ -6198,7 +6203,7 @@ void q30_trig_fire(weapon *w, int x, int y, int levels)
         }
     }
 
-    for(int i = 0; i < MAXFFCS; ++i)
+    for(int i = 0; i < tmpscr[0].ffc_count(); ++i)
     {
         if(!tmpscr[0].ffdata[i])
             continue;
@@ -6401,7 +6406,7 @@ if(g_pending_warp_type >= 0)
                 }
             }
 
-            for(int i = 0; i < MAXFFCS; ++i)
+            for(int i = 0; i < tmpscr[0].ffc_count(); ++i)
             {
                 if(!tmpscr[0].ffdata[i] || (tmpscr[0].ffflags[i] & ffCHANGER))
                     continue;
@@ -6619,6 +6624,21 @@ static void check_pitfall()
     }
 }
 
+bool q30_pit_falling()
+{
+    return q30_active() && g_pit_drown && Link.getAction() == drowning;
+}
+
+bool q30_lava_drowning()
+{
+    if(!q30_active() || g_pit_drown || Link.getAction() != drowning)
+        return false;
+
+    const int water = MAPCOMBO(int(Link.getX()) + 7, int(Link.getY()) + 12);
+    const Q30Combo *c = (water > 0 && water < MAXCOMBOS) ? q30_combo(water) : NULL;
+    return c && c->type == cWATER && (c->usrflags & 0x1) != 0;
+}
+
 // 2.55/3.0 quests: Link's drowning ends (upstream HeroClass::animate). The PLAYER_DROWN generic
 // script event comes first, with the combo he drowned in (a script may name another); then a
 // water combo's attributes give the damage and the invincibility (4 damage for quests whose
@@ -6815,7 +6835,7 @@ void q30_trig_push()
 
     if(!rule(qr30_OLD_FFC_FUNCTIONALITY))
     {
-        for(int i = 0; i < MAXFFCS; ++i)
+        for(int i = 0; i < tmpscr[0].ffc_count(); ++i)
         {
             if(tmpscr[0].ffdata[i] && (ffc_at(i, bx, by) || ffc_at(i, bx2, by2)))
                 execute(H(i), cond_push, &pushing);
@@ -6935,7 +6955,7 @@ bool q30_trig_buttons(int d)
 
     if(!rule(qr30_OLD_FFC_FUNCTIONALITY))
     {
-        for(int i = 0; i < MAXFFCS; ++i)
+        for(int i = 0; i < tmpscr[0].ffc_count(); ++i)
         {
             if(!tmpscr[0].ffdata[i] || !(ffc_at(i, bx, by) || ffc_at(i, bx2, by2)))
                 continue;
@@ -8074,7 +8094,7 @@ void q30_light_update()
         }
     }
 
-    for(int i = 0; i < MAXFFCS; ++i)
+    for(int i = 0; i < tmpscr[0].ffc_count(); ++i)
     {
         if(tmpscr[0].ffflags[i] & (ffCHANGER | ffETHEREAL))
             continue;
@@ -8120,7 +8140,7 @@ void q30_light_update()
             }
         }
 
-        for(int i = 0; i < MAXFFCS; ++i)
+        for(int i = 0; i < tmpscr[0].ffc_count(); ++i)
         {
             if(tmpscr[0].ffflags[i] & (ffCHANGER | ffETHEREAL))
                 continue;
@@ -8235,7 +8255,7 @@ void q30_light_update()
         }
     }
 
-    for(int i = 0; i < MAXFFCS; ++i)
+    for(int i = 0; i < tmpscr[0].ffc_count(); ++i)
     {
         if(!tmpscr[0].ffdata[i] || (tmpscr[0].ffflags[i] & ffCHANGER))
             continue;
@@ -8401,6 +8421,28 @@ static double g_lift_height = 0;
 
 bool q30_lifting() { return q30_active() && g_lift_wpn != NULL; }
 bool q30_lift_busy() { return q30_active() && g_lift_clk > 0; }
+static int g_lift_end_frame = -1;           // the frame a lift's clock ran out (still drawn lifting)
+
+bool q30_lift_anim(int *clk, int *tclk)
+{
+    if(!q30_active() || !g_lift_wpn)
+        return false;
+
+    if(g_lift_clk > 0)
+    {
+        *clk = g_lift_clk;
+        *tclk = g_lift_tclk;
+        return true;
+    }
+
+    if(g_lift_end_frame == frame)
+    {
+        *clk = *tclk = 0;               // upstream: the last frame, as tliftclk is 0 by then
+        return true;
+    }
+
+    return false;
+}
 
 void q30_lift_reset()
 {
@@ -8434,6 +8476,9 @@ static void handle_lift(bool dec)
 
     if(g_lift_clk <= (dec ? 1 : 0))
     {
+        if(dec && g_lift_clk > 0)
+            g_lift_end_frame = frame;
+
         g_lift_clk = g_lift_tclk = 0;
         g_lift_wpn->x = (fix)x;
         g_lift_wpn->y = (fix)y;
@@ -9563,7 +9608,7 @@ static void draw_darkness_view(BITMAP *dest, const Q30ViewScreen *view, int n, c
 
         const mapscr *b = near_view[i].base;
 
-        for(int k = 0; k < MAXFFCS; ++k)
+        for(int k = 0; k < b->ffc_count(); ++k)
         {
             const Q30Combo *c = b->ffdata[k] ? q30_combo(b->ffdata[k]) : NULL;
 
@@ -9657,6 +9702,62 @@ void q30_draw_scroll_darkness(BITMAP *dest, int sx, int sy)
         draw_darkness_view(dest, view, n, view, n, vx, vy, lx, ly);
 }
 
+// ---- level-specific CSets 1, 5, 7 and 8 ------------------------------------------------
+// Upstream's loadlvlpal: with the rule "CSet N is level-specific" (qr_CSET1_LEVEL, 5, 7, 8) the
+// level palette also brings its own copy of that CSet (the 4 past its 13, q255_media.cpp's
+// q255_level_cset), and the fades don't put the main palette's CSet 5 back over it.
+enum { Q30_QR_CSET1_LEVEL = 303 };     // then CSet 5's, 7's and 8's rules
+
+byte *q255_level_cset(int level, int k);
+extern void (*q30_level_csets_hook)(int level);
+extern bool (*q30_cset_from_level_hook)(int cset);
+extern bool (*q30_new_darkroom_hook)();
+
+static const int g_level_csets[4] = { 1, 5, 7, 8 };
+
+static void level_csets(int level)
+{
+    for(int k = 0; k < 4; ++k)
+    {
+        byte *si = q30_quest_rule(Q30_QR_CSET1_LEVEL + k) ? q255_level_cset(level, k) : NULL;
+
+        if(!si)
+            continue;
+
+        for(int i = 0; i < 16; ++i, si += 3)
+            RAMpal[CSET(g_level_csets[k]) + i] = _RGB(si);
+    }
+}
+
+static bool cset_from_level(int cset)
+{
+    for(int k = 0; k < 4; ++k)
+        if(g_level_csets[k] == cset)
+            return q30_quest_rule(Q30_QR_CSET1_LEVEL + k) && q255_level_cset(0, k) != NULL;
+
+    return false;
+}
+
+// pal.cpp's lighting: the new dark rooms never fade the palette (upstream's lighting sets its
+// new state to lit with qr_NEW_DARKROOM)
+static bool new_darkroom()
+{
+    return q30_active() && rule(qr30_NEW_DARKROOM);
+}
+
+namespace
+{
+struct InstallPaletteHooks
+{
+    InstallPaletteHooks()
+    {
+        q30_level_csets_hook = level_csets;
+        q30_cset_from_level_hook = cset_from_level;
+        q30_new_darkroom_hook = new_darkroom;
+    }
+} install_palette_hooks;
+}
+
 // The lighting code still darkens the palette for an fDARK screen; new dark rooms
 // show the screen in full colour under the overlay.
 static void new_darkroom_palette()
@@ -9667,7 +9768,7 @@ static void new_darkroom_palette()
         naturaldark = false;
         loadlvlpal(DMaps[currdmap].color);
 
-        if(get_bit(quest_rules, qr_FADECS5))
+        if(get_bit(quest_rules, qr_FADECS5) && !cset_from_level(5))
             loadpalset(5, 5);
     }
 }
@@ -9911,6 +10012,21 @@ static void item_error()
 {
     if(g_misc_sfx[MSFX_ERROR])
         sfx(g_misc_sfx[MSFX_ERROR]);
+}
+
+// upstream's item_error for LinkClass::startwpn: an item Link can't pay for sounds the quest's
+// error sound (none for 2.53 quests); ZC_Q30_BTNSEL=1 logs each one
+void q30_item_error()
+{
+    if(!q30_active())
+        return;
+
+    static const bool log = getenv("ZC_Q30_BTNSEL") != NULL;
+
+    if(log)
+        al_trace("q30 btnsel: frame %d item error, sfx %d\n", frame, g_misc_sfx[MSFX_ERROR]);
+
+    item_error();
 }
 
 // upstream FFCore.warp_player(wtIWARP, dmap, scr, -1, -1, effect, sound, 0, -1): an instant
@@ -10429,6 +10545,82 @@ bool q30_item_costs_payable(int item)
     }
 
     return true;
+}
+
+// upstream's payCost (zc/zelda.cpp), without its cost timers: Link pays amnt from counter ctr, which
+// the wallet, quiver, bomb bags and magic ring can make free (rule 160, qr_OLDINFMAGIC: the magic
+// ring frees rupees too)
+static void item_cost_pay(int ctr, int amnt)
+{
+    enum { crMONEY = 1, crBOMBS = 2, crARROWS = 3, crMAGIC = 4, crSBOMBS = 6 };
+
+    if(!game || !amnt)
+        return;
+
+    const bool cost = amnt > 0;
+
+    switch(ctr)
+    {
+    case crMAGIC:
+        if(!get_bit(quest_rules, qr_ENABLEMAGIC) || (cost && current_item_power(itype_magicring) > 0))
+            return;
+
+        if(cost)
+            amnt *= game->get_magicdrainrate();
+
+        break;
+
+    case crMONEY:
+        if(cost && (current_item_power(itype_wallet) || (q30_quest_rule(160) && current_item_power(itype_magicring) > 0)))
+            return;
+
+        break;
+
+    case crARROWS:
+        if(cost && current_item_power(itype_quiver))
+            return;
+
+        if(!get_bit(quest_rules, qr_TRUEARROWS))
+            return item_cost_pay(crMONEY, amnt);
+
+        break;
+
+    case crBOMBS:
+        if(cost && current_item_power(itype_bombbag))
+            return;
+
+        break;
+
+    case crSBOMBS:
+        if(cost)
+        {
+            const int bag = current_item_id(itype_bombbag);
+
+            if(bag >= 0 && itemsbuf[bag].power && (itemsbuf[bag].flags & ITEM_FLAG1))
+                return;
+        }
+
+        break;
+    }
+
+    if(ctr < 0 || ctr >= Q30_MAX_COUNTERS)
+        return;
+
+    game->change_counter(-amnt, (byte)ctr);
+}
+
+// upstream's paymagiccost (without its cost timers): Link pays both of the item's costs, whichever
+// counters they use, but not a cost the item only checks (item flags 24 and 27, "validate only")
+void q30_pay_item_costs(int item)
+{
+    if(item < 0 || item >= Q30_MAX_ITEMS)
+        return;
+
+    if(!q30_item_flag(item, 1u << 24))
+        item_cost_pay(g_item_cost[item * 4], g_item_cost[item * 4 + 1]);
+
+    if(!q30_item_flag(item, 1u << 27))
+        item_cost_pay(g_item_cost[item * 4 + 2], g_item_cost[item * 4 + 3]);
 }
 
 // Rules that became item flags in 2.55 (upstream reads the item; 2.53 quests the rule)
@@ -11576,7 +11768,7 @@ static void sw_swap()
         sw_place_item(it);
         sw_shift_hook(lx, ly);
     }
-    else if(g_sw.ffc >= 0 && g_sw.ffc < MAXFFCS && tmpscr[0].ffdata[g_sw.ffc])
+    else if(g_sw.ffc >= 0 && g_sw.ffc < tmpscr[0].ffc_count() && tmpscr[0].ffdata[g_sw.ffc])
     {
         if(g_sw.cost_item >= 0)
             paymagiccost(g_sw.cost_item);
@@ -11704,7 +11896,7 @@ int q30_switchhook_frame(weapon *w)
 
     // an FFC showing a switch-hook block (upstream trigger_switchhookblock on an FFC): Link and
     // the FFC change places
-    for(int i = 0; i < MAXFFCS; ++i)
+    for(int i = 0; i < tmpscr[0].ffc_count(); ++i)
     {
         if(!tmpscr[0].ffdata[i] || !ffc_at(i, tx, ty))
             continue;
@@ -11944,30 +12136,13 @@ bool q30_quest_rule(int id)
 
 extern dword q255_compat_rule_version;
 
-// Upstream's readrules turns these on for quests saved before the rule existed, so a clear
-// bit in such a file doesn't mean the new behaviour was asked for.
-static dword compat_rule_since(int id)
-{
-    switch(id)
-    {
-    case Q30_QR_ENEMIES_SECRET_ONLY_16_31: return 1;
-    case Q30_QR_STEPTEMP_SECRET_ONLY_16_31: return 6;
-    case Q30_QR_ALLTRIG_PERMSEC_NO_TEMP: return 7;
-    case Q30_QR_DMAP_0_CONTINUE_BUG: return 24;
-    case 348: return 31;        // qr_FFCPRELOAD_BUGGED_LOAD
-    case Q30_QR_PUSHBLOCK_SPRITE_LAYER: return 51;
-    case Q30_QR_BROKEN_PUSHBLOCK_TOP_HALF_SOLIDS: return 71;
-    case Q30_QR_BROKEN_PUSHBLOCK_FLAG_CLONING: return 72;
-    case 433: return 61;        // qr_BROKEN_BOMB_AMMO_COSTS
-    case 561: return 58;        // qr_OLD_DMAP_INTRO_STRINGS
-    case 570: return 103;       // qr_OLD_ITEM_HITBOXES
-    default: return 0;
-    }
-}
+// q30_types.cpp: the compat rule version from which a clear bit means the rule is off (ZQuest's
+// subscreen layout editor asks the same table)
+dword q30_compat_rule_since(int id);
 
 bool q30_compat_rule(int id)
 {
-    return quest_header_zelda_version < 0x255 || q30_quest_rule(id) || q255_compat_rule_version < compat_rule_since(id);
+    return quest_header_zelda_version < 0x255 || q30_quest_rule(id) || q255_compat_rule_version < q30_compat_rule_since(id);
 }
 
 extern int q255_header_build;
@@ -12064,7 +12239,7 @@ int q30_slash_next_skip(int type)
 struct Q30TrigScreenState
 {
     std::vector<PosInfo> pos;
-    PosInfo ffcpos[MAXFFCS];
+    PosInfo ffcpos[Q30_MAXFFCS];
     bool secrets_triggered;     // Screen->SecretsTriggered
 };
 
@@ -12086,7 +12261,7 @@ void q30_trig_state_swap(void *state)
     pos_setup();
     std::swap(g_pos, s->pos);
 
-    for(int i = 0; i < MAXFFCS; ++i)
+    for(int i = 0; i < Q30_MAXFFCS; ++i)
         std::swap(g_ffcpos[i], s->ffcpos[i]);
 
     std::swap(g_secrets_triggered, s->secrets_triggered);
@@ -12112,7 +12287,7 @@ void q30_trig_screen_load_other()
     for(size_t i = 0; i < g_pos.size(); ++i)
         g_pos[i].clear();
 
-    for(int i = 0; i < MAXFFCS; ++i)
+    for(int i = 0; i < Q30_MAXFFCS; ++i)
         g_ffcpos[i].clear();
 
     // the level and global switch states on its combos
@@ -12131,7 +12306,7 @@ void q30_trig_screen_load_other()
         for(int pos = 0; pos < 176; ++pos)
             g_pos[lyr * 176 + pos].data = h_data(H(lyr, pos));
 
-    for(int i = 0; i < MAXFFCS; ++i)
+    for(int i = 0; i < Q30_MAXFFCS; ++i)
         g_ffcpos[i].data = tmpscr[0].ffdata[i];
 
     for_all_positions(screen_trig_visit, (void *)1);
@@ -12168,7 +12343,7 @@ bool q30_trig_screen_busy(const mapscr *base, const mapscr *layers)
         }
     }
 
-    for(int i = 0; i < MAXFFCS; ++i)
+    for(int i = 0; i < base->ffc_count(); ++i)
     {
         const Q30Combo *c = base->ffdata[i] ? q30_combo(base->ffdata[i]) : NULL;
 

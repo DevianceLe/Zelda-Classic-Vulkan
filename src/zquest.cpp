@@ -60,6 +60,7 @@ extern "C" void zqeditor_register_image_loaders(void); // src/port/zqeditor
 #include "port/zqeditor/zq_q255.h"
 #include "port/zqeditor/zq_writers.h"
 #include "port/zqeditor/zq_tile_refs.h"
+#include "port/zqeditor/zq_exports.h"
 #endif
 
 // the following are used by both zelda.cc and zquest.cc
@@ -404,6 +405,11 @@ int gui_colorset=0;
 combo_alias combo_aliases[MAXCOMBOALIASES];
 static int combo_apos=0; //currently selected combo
 static int combo_alistpos[3]= {0,0,0}; //first displayed combo alias
+// 2.55.17 and 3.0 quests: the combo pool and the autocombo the Pool and Autocombo drawing modes
+// draw with, and the first one each pane of the alias list shows in those modes
+int combo_pool_pos=0, combo_auto_pos=0;
+static int combo_pool_listpos[3]= {0,0,0};
+static int combo_auto_listpos[3]= {0,0,0};
 int alias_origin=0;
 int alias_cset_mod=0;
 
@@ -578,6 +584,75 @@ static MENU file_menu[] =
     {  NULL,                                NULL,                      NULL,                     0,            NULL   }
 };
 
+// 2.55.17 and 3.0 quests: scrolling regions, combo pools and autocombos (port/zqeditor:
+// zq_cpool_editor.cpp holds the editors, zq_cpool.cpp what the quest's format can hold).
+bool zq255_quest_is_newer();
+bool zq_cpool_quest_holds_pools();
+bool zq_cpool_quest_holds_autos();
+bool zq_region_quest_holds_regions();
+bool zq_edit_regions(int map);
+bool zq_edit_cpools(int index, int *picked);
+bool zq_edit_autocombos(int index, int *picked);
+int onSaveAs();
+extern int combo_pool_pos, combo_auto_pos;
+
+// What the quest's own format can't hold is offered as Save As a newer version (which keeps it).
+static int newer_feature_refused(const char *title, const char *what)
+{
+    if(!zq255_quest_is_newer())
+    {
+        jwin_alert(title,"This is for quests made in 2.55 or 3.0 Nightly.",NULL,NULL,"O&K",NULL,'k',0,lfont);
+        return D_O_K;
+    }
+
+    if(jwin_alert(title,"This quest's format has no",what,"Save it as 3.0 Nightly to add them?","&Save As...","&Cancel",'s','c',lfont)==1)
+        onSaveAs();
+
+    return D_O_K;
+}
+
+// Edit > Maps > Scrolling Regions: the current map's region ids (3.0 quests whose map section
+// holds them; upstream's Map Settings > Regions).
+int onMapRegions()
+{
+    if(!zq_region_quest_holds_regions())
+        return newer_feature_refused("Scrolling Regions","scrolling regions (3.0 Nightly's map format).");
+
+    zq_edit_regions(Map.getCurrMap());
+    refresh(rALL);
+    return D_O_K;
+}
+
+// Quest > Graphics > Combo Pools / Autocombos (2.55.17 and 3.0 quests whose combo alias section
+// holds them). The one picked in the editor becomes the one the drawing mode draws with.
+int onComboPools()
+{
+    if(!zq_cpool_quest_holds_pools())
+        return newer_feature_refused("Combo Pools","combo pools (combo alias section version 4).");
+
+    int picked = combo_pool_pos;
+
+    if(zq_edit_cpools(combo_pool_pos, &picked))
+        combo_pool_pos = picked;
+
+    refresh(rALL);
+    return D_O_K;
+}
+
+int onAutocombos()
+{
+    if(!zq_cpool_quest_holds_autos())
+        return newer_feature_refused("Autocombos","autocombos (combo alias section version 5).");
+
+    int picked = combo_auto_pos;
+
+    if(zq_edit_autocombos(combo_auto_pos, &picked))
+        combo_auto_pos = picked;
+
+    refresh(rALL);
+    return D_O_K;
+}
+
 static MENU maps_menu[] =
 {
     { (char *)"&Goto Map...",               onGotoMap,                 NULL,                     0,            NULL   },
@@ -585,6 +660,8 @@ static MENU maps_menu[] =
     { (char *)"Previous Map\t,",            onDecMap,                  NULL,                     0,            NULL   },
     { (char *)"",                           NULL,                      NULL,                     0,            NULL   },
     { (char *)"D&elete Map",                onDeleteMap,               NULL,                     0,            NULL   },
+    { (char *)"",                           NULL,                      NULL,                     0,            NULL   },
+    { (char *)"Scrolling &Regions...",      onMapRegions,              NULL,                     0,            NULL   },
     {  NULL,                                NULL,                      NULL,                     0,            NULL   }
 };
 
@@ -637,6 +714,42 @@ int onSubsNewer()
     if(!shown)
         jwin_alert("2.55/3.0 Subscreen Data","This is for quests made in 2.55 or 3.0 Nightly",
                    "with subscreens in their own format.",NULL,"O&K",NULL,'k',0,lfont);
+
+    return D_O_K;
+}
+
+bool zq_edit_music_newer(int start, bool *shown, std::map<int, int> *moved);    // port/zqeditor/zq_music_editor.cpp
+
+// Quest > Audio > 3.0 Music: a 3.0 Nightly quest's music objects (named music with a MIDI and an
+// enhanced music file, which DMaps and screens play by number).
+int onMusicNewer()
+{
+    bool shown = false;
+
+    if(zq255_quest_is_newer())
+        zq_edit_music_newer(0, &shown, NULL);
+
+    if(!shown)
+        jwin_alert("3.0 Music","This is for quests made in 3.0 Nightly with music objects;",
+                   "older quests keep each DMap's own music in the DMap editor.",NULL,"O&K",NULL,'k',0,lfont);
+
+    return D_O_K;
+}
+
+bool zq_edit_zinfo_newer(bool *shown);     // port/zqeditor/zq_zinfo_editor.cpp
+
+// Quest > 2.55/3.0 ZInfo: the quest's own names and help for item classes, combo types, map
+// flags, weapons, counters (and in 3.0 enemy types and level items).
+int onZInfoNewer()
+{
+    bool shown = false;
+
+    if(zq255_quest_is_newer())
+        zq_edit_zinfo_newer(&shown);
+
+    if(!shown)
+        jwin_alert("2.55/3.0 ZInfo","This is for quests made in 2.55 or 3.0 Nightly whose file has a ZInfo",
+                   "section (older 2.55 builds kept none, and some quests keep it in a .zinfo file beside them).",NULL,"O&K",NULL,'k',0,lfont);
 
     return D_O_K;
 }
@@ -698,6 +811,8 @@ static MENU graphics_menu[] =
     { (char *)"&Map styles",                onMapStyles,               NULL,                     0,            NULL   },
     { (char *)"&Door Combo Sets",           onDoorCombos,              NULL,                     0,            NULL   },
     { (char *)"Combo &Aliases",             onEditComboAlias,          NULL,                     0,            NULL   },
+    { (char *)"Combo P&ools...",            onComboPools,              NULL,                     0,            NULL   },
+    { (char *)"Auto&combos...",             onAutocombos,              NULL,                     0,            NULL   },
     {  NULL,                                NULL,                      NULL,                     0,            NULL   }
 };
 
@@ -705,6 +820,7 @@ static MENU audio_menu[] =
 {
     { (char *)"SF&X Data",                  onSelectSFX,               NULL,                     0,            NULL   },
     { (char *)"&MIDIs",                     onMidis,                   NULL,                     0,            NULL   },
+    { (char *)"3.0 Music...",               onMusicNewer,              NULL,                     0,            NULL   },
 //{ (char *)"&Enhanced Music",            onEnhancedMusic,           NULL,                     D_DISABLED,   NULL   },
     {  NULL,                                NULL,                      NULL,                     0,            NULL   }
 };
@@ -743,6 +859,7 @@ static MENU quest_menu[] =
     { (char *)"&DMaps",                     onDmaps,                   NULL,                     0,            NULL   },
     { (char *)"I&nit Data",                 onInit,                    NULL,                     0,            NULL   },
     { (char *)"Misc D&ata\t ",              NULL,                      misc_menu,                0,            NULL   },
+    { (char *)"2.55/3.0 ZInfo...",          onZInfoNewer,              NULL,                     0,            NULL   },
     { (char *)"",                           NULL,                      NULL,                     0,            NULL   },
     { (char *)"&Graphics\t ",               NULL,                      graphics_menu,            0,            NULL   },
     { (char *)"A&udio\t ",                  NULL,                      audio_menu,               0,            NULL   },
@@ -791,12 +908,19 @@ static MENU edit_menu[] =
     {  NULL,                                NULL,                      NULL,                     0,            NULL   }
 };
 
+int onDrawingModePool();
+int onDrawingModeAuto();
+
 static MENU drawing_mode_menu[] =
 {
     { (char *)"&Normal",                    onDrawingModeNormal,       NULL,                     0,            NULL   },
     { (char *)"&Relational",                onDrawingModeRelational,   NULL,                     0,            NULL   },
     { (char *)"&Dungeon Carving",           onDrawingModeDungeon,      NULL,                     0,            NULL   },
     { (char *)"&Combo Alias",               onDrawingModeAlias,        NULL,                     0,            NULL   },
+    // Pool and Autocombo: named (so shown) by fix_drawing_mode_menu only while the open quest's
+    // format holds combo pools / autocombos; otherwise the menu ends here, as in 2.53
+    {  NULL,                                onDrawingModePool,         NULL,                     0,            NULL   },
+    {  NULL,                                onDrawingModeAuto,         NULL,                     0,            NULL   },
     {  NULL,                                NULL,                      NULL,                     0,            NULL   }
 };
 
@@ -1145,6 +1269,27 @@ void onSKey()
 	else onString();
 }
 
+// ] and [ change the flag. In the Autocombo mode with a Pancake or Complex Mountain, Shift+] and
+// Shift+[ change its height instead (upstream's change_autocombo_height, bound to those keys
+// only; the flag's other keys and its mouse wheel keep changing the flag).
+bool zq_autocombo_height_key(int change);
+
+static int onCloseBrace()
+{
+    if(zq_autocombo_height_key(1))
+        return D_O_K;
+        
+    return onIncreaseFlag();
+}
+
+static int onOpenBrace()
+{
+    if(zq_autocombo_height_key(-1))
+        return D_O_K;
+        
+    return onDecreaseFlag();
+}
+
 static DIALOG dialogs[] =
 {
     // still unused:  jm
@@ -1153,9 +1298,9 @@ static DIALOG dialogs[] =
     
     
     { d_keyboard_proc,   0,    0,    0,    0,    0,    0,    '*',     0,       0,              0, (void *) onIncreaseFlag, NULL, NULL },
-    { d_keyboard_proc,   0,    0,    0,    0,    0,    0,    0,       0,       KEY_CLOSEBRACE, 0, (void *) onIncreaseFlag, NULL, NULL },
+    { d_keyboard_proc,   0,    0,    0,    0,    0,    0,    0,       0,       KEY_CLOSEBRACE, 0, (void *) onCloseBrace,   NULL, NULL },
     { d_keyboard_proc,   0,    0,    0,    0,    0,    0,    '/',     0,       0,              0, (void *) onDecreaseFlag, NULL, NULL },
-    { d_keyboard_proc,   0,    0,    0,    0,    0,    0,    0,       0,       KEY_OPENBRACE,  0, (void *) onDecreaseFlag, NULL, NULL },
+    { d_keyboard_proc,   0,    0,    0,    0,    0,    0,    0,       0,       KEY_OPENBRACE,  0, (void *) onOpenBrace,    NULL, NULL },
     { d_keyboard_proc,   0,    0,    0,    0,    0,    0,    0,       0,       KEY_UP,         0, (void *) onUp, NULL, NULL },
     { d_keyboard_proc,   0,    0,    0,    0,    0,    0,    0,       0,       KEY_DOWN,       0, (void *) onDown, NULL, NULL },
     { d_keyboard_proc,   0,    0,    0,    0,    0,    0,    0,       0,       KEY_LEFT,       0, (void *) onLeft, NULL, NULL },
@@ -1660,19 +1805,113 @@ int onOptions()
     return D_O_K;
 }
 
-enum {dm_normal, dm_relational, dm_dungeon, dm_alias, dm_max};
+enum {dm_normal, dm_relational, dm_dungeon, dm_alias, dm_cpool, dm_auto, dm_max};
 const char *dm_names[dm_max]=
 {
     "Normal",
     "Relational",
     "Dungeon",
-    "Alias"
+    "Alias",
+    "Pool",
+    "Auto"
 };
+
+// 2.55.17 and 3.0 quests: the Pool and Autocombo modes (upstream's dm_cpool and dm_auto), offered
+// while the open quest's combo alias section holds combo pools (version 4) or autocombos (5).
+// In them the alias list shows the quest's pools or autocombos in place of its aliases, and the
+// map editor places a weighted random pick of the pool, or runs the autocombo's pattern
+// (port/zqeditor/zq_autocombo_draw.cpp). 2.53 quests never see them.
+static bool draw_mode_offered(int m)
+{
+    if(m==dm_cpool) return zq_cpool_quest_holds_pools();
+    if(m==dm_auto) return zq_cpool_quest_holds_autos();
+    return m>=0 && m<dm_max;
+}
+
+// The modes whose list is the alias list, the list's first entries per pane and its selection,
+// and how many entries it has.
+static bool alias_list_mode()
+{
+    return draw_mode==dm_alias || draw_mode==dm_cpool || draw_mode==dm_auto;
+}
+
+static int *alias_listpos()
+{
+    return draw_mode==dm_cpool ? combo_pool_listpos : draw_mode==dm_auto ? combo_auto_listpos : combo_alistpos;
+}
+
+static int &alias_sel()
+{
+    return draw_mode==dm_cpool ? combo_pool_pos : draw_mode==dm_auto ? combo_auto_pos : combo_apos;
+}
+
+static const int ZQ_MAXCOMBOPOOLS=8192, ZQ_MAXAUTOCOMBOS=8192;    // as zq_autocombo.h
+extern int zq_autocombo_height;                 // Pancake and Complex Mountains' height
+int zq_autocombo_default_height(int index);     // an autocombo's own (zq_autocombo_draw.cpp)
+
+static int alias_list_max()
+{
+    return draw_mode==dm_cpool ? ZQ_MAXCOMBOPOOLS : draw_mode==dm_auto ? ZQ_MAXAUTOCOMBOS : MAXCOMBOALIASES;
+}
+
+// What a pool's or autocombo's cell shows (port/zqeditor/zq_autocombo_draw.cpp): a pool's
+// first combo, an autocombo's display combo (cid -1: nothing), and a mark: -1 an autocombo that
+// isn't valid, 1-9 Pancake and Complex Mountains' height.
+bool zq_cpool_list_cell(int mode, int index, int &cid, int &cs, int &mark);
+void zq_cpool_describe(int mode, int index, char *l1, char *l2, char *l3, int n);
+
+static void draw_cpool_list_cell(BITMAP *dest, int index, int x, int y)
+{
+    int cid=-1, cs=CSet, mark=0;
+    zq_cpool_list_cell(draw_mode==dm_auto ? 1 : 0, index, cid, cs, mark);
+
+    if(cid>=0)
+        put_combo(dest,x,y,cid,cs,Flags&(cFLAGS|cWALK),0);
+    else
+        rectfill(dest,x,y,x+15,y+15,vc(0));
+
+    if(mark<0)
+        textprintf_shadowed_ex(dest,sfont,x+11,y+1,vc(12),vc(0),-1,"!");
+    else if(mark>0)
+        textprintf_shadowed_ex(dest,sfont,x+1,y+9,vc(15),vc(0),-1,"%d",mark);
+}
+
+// The combo preview in the Pool and Autocombo modes.
+static int cpool_preview_combo(int *cset)
+{
+    int cid=-1, cs=CSet, mark=0;
+    zq_cpool_list_cell(draw_mode==dm_auto ? 1 : 0, alias_sel(), cid, cs, mark);
+
+    if(cset)
+        *cset=cs;
+
+    return cid<0 ? 0 : cid;
+}
+
+static int cpool_preview_cset()
+{
+    int cs=CSet;
+    cpool_preview_combo(&cs);
+    return cs;
+}
+
+static void cpool_preview_text(char *l1, char *l2, char *l3, int n)
+{
+    zq_cpool_describe(draw_mode==dm_auto ? 1 : 0, alias_sel(), l1, l2, l3, n);
+}
 
 byte relational_tile_grid[11+(rtgyo*2)][16+(rtgxo*2)];
 
 void fix_drawing_mode_menu()
 {
+    // the Pool and Autocombo entries only for a quest whose format holds them (a nameless entry
+    // ends the menu)
+    drawing_mode_menu[dm_cpool].text = draw_mode_offered(dm_cpool) ? (char *)"Combo &Pool" : NULL;
+    drawing_mode_menu[dm_auto].text = draw_mode_offered(dm_cpool) && draw_mode_offered(dm_auto) ? (char *)"&Autocombo" : NULL;
+
+    if(!draw_mode_offered(draw_mode))
+        draw_mode=dm_normal;
+
     for(int i=0; i<dm_max; ++i)
     {
         drawing_mode_menu[i].flags=0;
@@ -1681,9 +1920,23 @@ void fix_drawing_mode_menu()
     drawing_mode_menu[draw_mode].flags=D_SELECTED;
 }
 
+// After every load (port/zqeditor/zq_cpool.cpp): the modes the quest's format offers.
+void zq_fix_drawing_modes()
+{
+    fix_drawing_mode_menu();
+}
+
 int onDrawingMode()
 {
-    draw_mode=(draw_mode+1)%dm_max;
+    do
+    {
+        draw_mode=(draw_mode+1)%dm_max;
+    }
+    while(!draw_mode_offered(draw_mode));
+
+    if(draw_mode==dm_auto)
+        zq_autocombo_height=zq_autocombo_default_height(combo_auto_pos);
+
     memset(relational_tile_grid,(draw_mode==dm_relational?1:0),(11+(rtgyo*2))*(16+(rtgxo*2)));
     fix_drawing_mode_menu();
     restore_mouse();
@@ -1737,6 +1990,35 @@ int onDrawingModeAlias()
     draw_mode=dm_alias;
     alias_cset_mod=0;
     memset(relational_tile_grid,(draw_mode==dm_relational?1:0),(11+(rtgyo*2))*(16+(rtgxo*2)));
+    fix_drawing_mode_menu();
+    restore_mouse();
+    return D_O_K;
+}
+
+int onDrawingModePool()
+{
+    if(draw_mode==dm_cpool || !draw_mode_offered(dm_cpool))
+    {
+        return onDrawingModeNormal();
+    }
+
+    draw_mode=dm_cpool;
+    memset(relational_tile_grid,0,(11+(rtgyo*2))*(16+(rtgxo*2)));
+    fix_drawing_mode_menu();
+    restore_mouse();
+    return D_O_K;
+}
+
+int onDrawingModeAuto()
+{
+    if(draw_mode==dm_auto || !draw_mode_offered(dm_auto))
+    {
+        return onDrawingModeNormal();
+    }
+
+    draw_mode=dm_auto;
+    zq_autocombo_height=zq_autocombo_default_height(combo_auto_pos);
+    memset(relational_tile_grid,0,(11+(rtgyo*2))*(16+(rtgxo*2)));
     fix_drawing_mode_menu();
     restore_mouse();
     return D_O_K;
@@ -2253,15 +2535,15 @@ int onLeft()
         
         refresh(rALL);
     }
-    else if((First[current_combolist]>0)&&(draw_mode!=dm_alias))
+    else if((First[current_combolist]>0)&&(!alias_list_mode()))
     {
         First[current_combolist]-=1;
         clear_tooltip();
         refresh(rCOMBOS);
     }
-    else if((combo_alistpos[current_comboalist]>0)&&(draw_mode==dm_alias))
+    else if((alias_listpos()[current_comboalist]>0)&&(alias_list_mode()))
     {
-        combo_alistpos[current_comboalist]-=1;
+        alias_listpos()[current_comboalist]-=1;
         clear_tooltip();
         refresh(rCOMBOS);
     }
@@ -2285,15 +2567,15 @@ int onRight()
         
         refresh(rALL);
     }
-    else if((First[current_combolist]<(MAXCOMBOS-(combolist[0].w*combolist[0].h)))&&(draw_mode!=dm_alias))
+    else if((First[current_combolist]<(MAXCOMBOS-(combolist[0].w*combolist[0].h)))&&(!alias_list_mode()))
     {
         First[current_combolist]+=1;
         clear_tooltip();
         refresh(rCOMBOS);
     }
-    else if((combo_alistpos[current_comboalist]<(MAXCOMBOALIASES-(combolist[0].w*combolist[0].h)))&&(draw_mode==dm_alias))
+    else if((alias_listpos()[current_comboalist]<(alias_list_max()-(combolist[0].w*combolist[0].h)))&&(alias_list_mode()))
     {
-        combo_alistpos[current_comboalist]+=1;
+        alias_listpos()[current_comboalist]+=1;
         clear_tooltip();
         refresh(rCOMBOS);
     }
@@ -2317,16 +2599,16 @@ int onUp()
         
         refresh(rALL);
     }
-    else if((First[current_combolist]>0)&&(draw_mode!=dm_alias))
+    else if((First[current_combolist]>0)&&(!alias_list_mode()))
     {
         First[current_combolist]-=zc_min(First[current_combolist],combolist[0].w);
         clear_tooltip();
         
         refresh(rCOMBOS);
     }
-    else if((combo_alistpos[current_comboalist]>0)&&(draw_mode==dm_alias))
+    else if((alias_listpos()[current_comboalist]>0)&&(alias_list_mode()))
     {
-        combo_alistpos[current_comboalist]-=zc_min(combo_alistpos[current_comboalist],combolist[0].w);
+        alias_listpos()[current_comboalist]-=zc_min(alias_listpos()[current_comboalist],combolist[0].w);
         clear_tooltip();
         refresh(rCOMBOS);
     }
@@ -2350,15 +2632,15 @@ int onDown()
         
         refresh(rALL);
     }
-    else if((First[current_combolist]<(MAXCOMBOS-(combolist[0].w*combolist[0].h)))&&(draw_mode!=dm_alias))
+    else if((First[current_combolist]<(MAXCOMBOS-(combolist[0].w*combolist[0].h)))&&(!alias_list_mode()))
     {
         First[current_combolist]+=zc_min((MAXCOMBOS-combolist[0].w)-First[current_combolist],combolist[0].w);
         clear_tooltip();
         refresh(rCOMBOS);
     }
-    else if((combo_alistpos[current_comboalist]<(MAXCOMBOALIASES-(comboaliaslist[0].w*comboaliaslist[0].h)))&&(draw_mode==dm_alias))
+    else if((alias_listpos()[current_comboalist]<(alias_list_max()-(comboaliaslist[0].w*comboaliaslist[0].h)))&&(alias_list_mode()))
     {
-        combo_alistpos[current_comboalist]+=zc_min((MAXCOMBOALIASES-combolist[0].w)-combo_alistpos[current_comboalist],combolist[0].w);
+        alias_listpos()[current_comboalist]+=zc_min((alias_list_max()-combolist[0].w)-alias_listpos()[current_comboalist],combolist[0].w);
         clear_tooltip();
         refresh(rCOMBOS);
     }
@@ -2375,7 +2657,7 @@ int onPgUp()
         menutype=wrap(menutype-1,0,m_menucount-1);
         refresh(rMENU);
     }
-    else if((First[current_combolist]>0)&&(draw_mode!=dm_alias))
+    else if((First[current_combolist]>0)&&(!alias_list_mode()))
     {
         if(key[KEY_ZC_LCONTROL] || key[KEY_ZC_RCONTROL])
         {
@@ -2390,16 +2672,16 @@ int onPgUp()
         
         refresh(rCOMBOS);
     }
-    else if((combo_alistpos[current_comboalist]>0)&&(draw_mode==dm_alias))
+    else if((alias_listpos()[current_comboalist]>0)&&(alias_list_mode()))
     {
         if(key[KEY_ZC_LCONTROL] || key[KEY_ZC_RCONTROL])
         {
-            combo_alistpos[current_comboalist]=0;
+            alias_listpos()[current_comboalist]=0;
             clear_tooltip();
         }
         else
         {
-            combo_alistpos[current_comboalist]-=zc_min(combo_alistpos[current_comboalist],(comboaliaslist[0].w*comboaliaslist[0].h));
+            alias_listpos()[current_comboalist]-=zc_min(alias_listpos()[current_comboalist],(comboaliaslist[0].w*comboaliaslist[0].h));
             clear_tooltip();
         }
         
@@ -2417,7 +2699,7 @@ int onPgDn()
         menutype=wrap(menutype+1,0,m_menucount-1);
         refresh(rMENU);
     }
-    else if((First[current_combolist]<(MAXCOMBOS-(combolist[0].w*combolist[0].h)))&&(draw_mode!=dm_alias))
+    else if((First[current_combolist]<(MAXCOMBOS-(combolist[0].w*combolist[0].h)))&&(!alias_list_mode()))
     {
         if(key[KEY_ZC_LCONTROL] || key[KEY_ZC_RCONTROL])
         {
@@ -2432,16 +2714,16 @@ int onPgDn()
         
         refresh(rCOMBOS);
     }
-    else if((combo_alistpos[current_comboalist]<(MAXCOMBOALIASES-(comboaliaslist[0].w*comboaliaslist[0].h)))&&(draw_mode==dm_alias))
+    else if((alias_listpos()[current_comboalist]<(alias_list_max()-(comboaliaslist[0].w*comboaliaslist[0].h)))&&(alias_list_mode()))
     {
         if(key[KEY_ZC_LCONTROL] || key[KEY_ZC_RCONTROL])
         {
-            combo_alistpos[current_comboalist]=MAXCOMBOALIASES-(comboaliaslist[0].w*comboaliaslist[0].h);
+            alias_listpos()[current_comboalist]=alias_list_max()-(comboaliaslist[0].w*comboaliaslist[0].h);
             clear_tooltip();
         }
         else
         {
-            combo_alistpos[current_comboalist]=zc_min((MAXCOMBOALIASES-(comboaliaslist[0].w*comboaliaslist[0].h)),combo_alistpos[current_comboalist]+(comboaliaslist[0].w*comboaliaslist[0].h));
+            alias_listpos()[current_comboalist]=zc_min((alias_list_max()-(comboaliaslist[0].w*comboaliaslist[0].h)),alias_listpos()[current_comboalist]+(comboaliaslist[0].w*comboaliaslist[0].h));
             clear_tooltip();
         }
         
@@ -4240,6 +4522,11 @@ void refresh(int flags)
                 BrushWidth = combo_aliases[combo_apos].width+1;
                 BrushHeight = combo_aliases[combo_apos].height+1;
             }
+            else if(draw_mode==dm_cpool || draw_mode==dm_auto)
+            {
+                // a pool or an autocombo places one combo at a time
+                BrushWidth = BrushHeight = 1;
+            }
             
             if((FloatBrush)&&(draw_mode!=dm_alias))
             {
@@ -4533,7 +4820,7 @@ void refresh(int flags)
             }
         }
         
-        if(draw_mode!=dm_alias)
+        if(!alias_list_mode())
         {
             if(is_large)
             {
@@ -4623,10 +4910,15 @@ void refresh(int flags)
                 {
                     for(int i=0; i<(comboaliaslist[j].w*comboaliaslist[j].h); i++)
                     {
-                        draw_combo_alias_thumbnail(menu1, &combo_aliases[combo_alistpos[j]+i], (i%comboaliaslist[j].w)*16+comboaliaslist[j].x,(i/comboaliaslist[j].w)*16+comboaliaslist[j].y,1);
+                        if(draw_mode==dm_alias)
+                            draw_combo_alias_thumbnail(menu1, &combo_aliases[combo_alistpos[j]+i], (i%comboaliaslist[j].w)*16+comboaliaslist[j].x,(i/comboaliaslist[j].w)*16+comboaliaslist[j].y,1);
+                        else
+                            draw_cpool_list_cell(menu1, alias_listpos()[j]+i, (i%comboaliaslist[j].w)*16+comboaliaslist[j].x,(i/comboaliaslist[j].w)*16+comboaliaslist[j].y);
                     }
                     
-                    if((combo_aliases[combo_apos].width>7)||(combo_aliases[combo_apos].height>7))
+                    if(draw_mode!=dm_alias)
+                        scalefactor=1;
+                    else if((combo_aliases[combo_apos].width>7)||(combo_aliases[combo_apos].height>7))
                     {
                         scalefactor=4;
                     }
@@ -4639,9 +4931,23 @@ void refresh(int flags)
                     blit(prv,menu1,0,0,comboalias_preview[j].x,comboalias_preview[j].y,comboalias_preview[j].w,comboalias_preview[j].h);
                 }
                 
-                int rect_pos=combo_apos-combo_alistpos[current_comboalist];
+                int rect_pos=alias_sel()-alias_listpos()[current_comboalist];
                 
-                if((rect_pos>=0)&&(rect_pos<(combo_alistpos[current_comboalist]+(comboaliaslist[current_comboalist].w*comboaliaslist[current_comboalist].h))))
+                if(draw_mode!=dm_alias)
+                {
+                    // the picked pool or autocombo, only while it is in the list's view, at the
+                    // list's own cells (the alias test below, kept for 2.53, also boxes positions
+                    // past the list's end)
+                    const int lw=comboaliaslist[current_comboalist].w, lh=comboaliaslist[current_comboalist].h;
+                    
+                    if(lw>0 && rect_pos>=0 && rect_pos<lw*lh)
+                    {
+                        const int lx=comboaliaslist[current_comboalist].x+(rect_pos%lw)*16;
+                        const int ly=comboaliaslist[current_comboalist].y+(rect_pos/lw)*16;
+                        safe_rect(menu1,lx,ly,lx+15,ly+15,255);
+                    }
+                }
+                else if((rect_pos>=0)&&(rect_pos<(alias_listpos()[current_comboalist]+(comboaliaslist[current_comboalist].w*comboaliaslist[current_comboalist].h))))
                     safe_rect(menu1,(rect_pos&(combolist[current_comboalist].w-1))*16+combolist[current_comboalist].x,(rect_pos/combolist[current_comboalist].w)*16+combolist[current_comboalist].y,((rect_pos&(combolist[current_comboalist].w-1))*16+combolist[current_comboalist].x)+15,((rect_pos/combolist[current_comboalist].w)*16+combolist[current_comboalist].y)+15,255);
             }
             
@@ -4661,11 +4967,20 @@ void refresh(int flags)
             static BITMAP *combo_preview_bmp=create_bitmap_ex(8,32,32);
             static BITMAP *cycle_preview_bmp=create_bitmap_ex(8,32,32);
             // Combo
-            put_combo(combo_preview_bmp,0,0,(draw_mode==dm_alias)?combo_aliases[combo_apos].combos[0]:Combo,(draw_mode==dm_alias)?wrap(combo_aliases[combo_apos].csets[0]+alias_cset_mod, 0, 11):CSet,Flags&(cFLAGS|cWALK),0);
+            put_combo(combo_preview_bmp,0,0,(draw_mode==dm_alias)?combo_aliases[combo_apos].combos[0]:(draw_mode==dm_cpool||draw_mode==dm_auto)?cpool_preview_combo(NULL):Combo,(draw_mode==dm_alias)?wrap(combo_aliases[combo_apos].csets[0]+alias_cset_mod, 0, 11):(draw_mode==dm_cpool||draw_mode==dm_auto)?cpool_preview_cset():CSet,Flags&(cFLAGS|cWALK),0);
             jwin_draw_frame(menu1,combo_preview.x-2,combo_preview.y-2,combo_preview.w+4,combo_preview.h+4, FR_DEEP);
             stretch_blit(combo_preview_bmp, menu1, 0, 0, 16, 16, combo_preview.x, combo_preview.y, combo_preview.w, combo_preview.h);
             
-            if(draw_mode!=dm_alias)
+            if(draw_mode==dm_cpool||draw_mode==dm_auto)
+            {
+                // the pool or autocombo drawn with (upstream's "Pool: n" / "Auto: n" lines)
+                char buf[3][40];
+                cpool_preview_text(buf[0],buf[1],buf[2],40);
+                
+                for(int l=0; l<3; ++l)
+                    textprintf_ex(menu1,pfont,combo_preview.x-text_length(pfont,buf[l])-8,combo_preview.y+2+9*l,jwin_pal[jcBOXFG],jwin_pal[jcBOX],"%s",buf[l]);
+            }
+            else if(draw_mode!=dm_alias)
             {
                 char buf[17];
                 sprintf(buf,"Combo: %d",Combo);
@@ -4692,7 +5007,7 @@ void refresh(int flags)
             int NextCSet=combobuf[Combo].nextcset;
             jwin_draw_frame(menu1,combo_preview.x+int(combo_preview.w*1.5)-2,combo_preview.y-2,combo_preview.w+4,combo_preview.h+4, FR_DEEP);
             
-            if(NextCombo>0 && draw_mode != dm_alias)
+            if(NextCombo>0 && !alias_list_mode())
             {
                 put_combo(cycle_preview_bmp,0,0,NextCombo,NextCSet,Flags&(cFLAGS|cWALK),0);
                 
@@ -4723,7 +5038,7 @@ void refresh(int flags)
                 }
             }
             
-            if(draw_mode!=dm_alias)
+            if(!alias_list_mode())
             {
             
                 textprintf_ex(menu1,pfont,combo_preview.x+int(combo_preview.w*2.5)+6,combo_preview.y+2,jwin_pal[jcBOXFG],jwin_pal[jcBOX],"Cycle: %d",NextCombo);
@@ -4746,7 +5061,7 @@ void refresh(int flags)
         }
         else
         {
-            put_combo(menu1,combo_preview.x,combo_preview.y,(draw_mode==dm_alias)?combo_aliases[combo_apos].combos[0]:Combo,(draw_mode==dm_alias)?wrap(combo_aliases[combo_apos].csets[0]+alias_cset_mod, 0, 11):CSet,Flags&(cFLAGS|cWALK),0);
+            put_combo(menu1,combo_preview.x,combo_preview.y,(draw_mode==dm_alias)?combo_aliases[combo_apos].combos[0]:(draw_mode==dm_cpool||draw_mode==dm_auto)?cpool_preview_combo(NULL):Combo,(draw_mode==dm_alias)?wrap(combo_aliases[combo_apos].csets[0]+alias_cset_mod, 0, 11):(draw_mode==dm_cpool||draw_mode==dm_auto)?cpool_preview_cset():CSet,Flags&(cFLAGS|cWALK),0);
         }
     }
     
@@ -5532,7 +5847,12 @@ void select_comboa(int clist)
         
         if(y>comboaliaslist[current_comboalist].y+(comboaliaslist[current_comboalist].h*16)-1) y=comboaliaslist[current_comboalist].y+(comboaliaslist[current_comboalist].h*16)-1;
         
-        combo_apos=(((y-comboaliaslist[current_comboalist].y)>>4)*comboaliaslist[current_comboalist].w)+((x-comboaliaslist[current_comboalist].x)>>4)+combo_alistpos[current_comboalist];
+        // (in the Pool and Autocombo modes: a pool or an autocombo)
+        alias_sel()=(((y-comboaliaslist[current_comboalist].y)>>4)*comboaliaslist[current_comboalist].w)+((x-comboaliaslist[current_comboalist].x)>>4)+alias_listpos()[current_comboalist];
+        
+        if(draw_mode==dm_auto)
+            zq_autocombo_height=zq_autocombo_default_height(combo_auto_pos);
+            
         do_animations();
         refresh(rALL);
     }
@@ -5540,11 +5860,29 @@ void select_comboa(int clist)
     ComboBrush=tempcb;
 }
 
+int zq_cpool_brush_entry(int pool, int index, int &cid, int &cs);   // zq_autocombo_draw.cpp
+
 void update_combobrush()
 {
     clear_bitmap(brushbmp);
     
-    if(draw_mode==dm_alias)
+    if(draw_mode==dm_cpool)
+    {
+        // the pool's combos in a 4x4 grid, as the alias preview shows them (the brush itself
+        // is the top left one: a pool places one random combo at a time)
+        for(int i=0; i<16; ++i)
+        {
+            int cid=0, cs=CSet;
+
+            if(zq_cpool_brush_entry(combo_pool_pos, i, cid, cs))
+                put_combo(brushbmp,(i&3)<<4,(i>>2)<<4,cid,cs,Flags&(cFLAGS|cWALK),0);
+        }
+    }
+    else if(draw_mode==dm_auto)
+    {
+        put_combo(brushbmp,0,0,cpool_preview_combo(NULL),CSet,Flags&(cFLAGS|cWALK),0);
+    }
+    else if(draw_mode==dm_alias)
     {
         //int count=(combo_aliases[combo_apos].width+1)*(combo_aliases[combo_apos].height+1)*(comboa_lmasktotal(combo_aliases[combo_apos].layermask));
         for(int z=0; z<=comboa_lmasktotal(combo_aliases[combo_apos].layermask); z++)
@@ -5649,8 +5987,153 @@ byte relational_source_grid[256]=
 };
 
 
+// The Pool and Autocombo modes (port/zqeditor/zq_autocombo_draw.cpp; upstream's draw() for
+// dm_cpool and dm_auto). While a button is held, each position the mouse moves onto gets a
+// weighted random pick of the combo pool (Shift: only its cset), or the autocombo's pattern run
+// there (the right button erases with it). Fence and Pancake Mountain only move in straight
+// lines, as upstream's do.
+bool zq_cpool_pick(int pool, int &cid, int &cs);
+bool zq_autocombo_draw(int index, int screen, int pos, bool rclick, bool pressframe, std::string &why);
+int zq_autocombo_type(int index);
+
+static void draw_cpool_mode(bool justcset)
+{
+    int test_cid=Combo, test_cs=CSet;
+
+    if(draw_mode==dm_cpool && !zq_cpool_pick(combo_pool_pos, test_cid, test_cs))
+        return;
+
+    Map.Ugo();
+    saved=false;
+    int drawmap, drawscr;
+
+    if(CurrentLayer==0)
+    {
+        drawmap=Map.getCurrMap();
+        drawscr=Map.getCurrScr();
+    }
+    else
+    {
+        drawmap=Map.CurrScr()->layermap[CurrentLayer-1]-1;
+        drawscr=Map.CurrScr()->layerscreen[CurrentLayer-1];
+
+        if(drawmap<0)
+        {
+            return;
+        }
+    }
+
+    if(!(Map.AbsoluteScr(drawmap, drawscr)->valid&mVALID))
+    {
+        Map.CurrScr()->valid|=mVALID;
+        Map.AbsoluteScr(drawmap, drawscr)->valid|=mVALID;
+        Map.setcolor(Color);
+    }
+
+    refresh(rMAP+rSCRMAP);
+    int lastx=-1, lasty=-1;
+    bool pressframe=true;
+    std::string why;
+
+    while(gui_mouse_b())
+    {
+        int x=gui_mouse_x();
+        int y=gui_mouse_y();
+        double startx=mapscreen_x+(showedges?(16*mapscreensize):0);
+        double starty=mapscreen_y+(showedges?(16*mapscreensize):0);
+        int startxint=mapscreen_x+(showedges?int(16*mapscreensize):0);
+        int startyint=mapscreen_y+(showedges?int(16*mapscreensize):0);
+
+        if(isinRect(x,y,startxint,startyint,int(startx+(256*mapscreensize)-1),int(starty+(176*mapscreensize)-1)))
+        {
+            int cx=(x-startxint)/int(16*mapscreensize);
+            int cy=(y-startyint)/int(16*mapscreensize);
+
+            if(!pressframe && cx==lastx && cy==lasty)
+            {
+                do_animations();
+                refresh(rALL);
+                continue;
+            }
+
+            const int type=draw_mode==dm_auto ? zq_autocombo_type(combo_auto_pos) : -1;
+
+            // Fence (3) and Pancake Mountain (4): a diagonal step goes to the side the mouse is
+            // nearer first
+            if(!pressframe && (type==3 || type==4) && abs(cx-lastx)==1 && abs(cy-lasty)==1)
+            {
+                int ccx=lastx*int(16*mapscreensize)+8, ccy=lasty*int(16*mapscreensize)+8;
+                int nx=x-startxint, ny=y-startyint;
+
+                if(abs(nx-ccx)<abs(ny-ccy))
+                {
+                    cx=lastx;
+                    cy=vbound(lasty+((ny-ccy)<0 ? -1 : 1),0,10);
+                }
+                else
+                {
+                    cx=vbound(lastx+((nx-ccx)<0 ? -1 : 1),0,15);
+                    cy=lasty;
+                }
+            }
+
+            lastx=cx;
+            lasty=cy;
+            int c=(cy*16)+cx;
+
+            if(draw_mode==dm_cpool)
+            {
+                int cid=Combo, cs=CSet;
+
+                if(zq_cpool_pick(combo_pool_pos, cid, cs))
+                {
+                    if(!justcset) Map.AbsoluteScr(drawmap, drawscr)->data[c]=cid;
+
+                    Map.AbsoluteScr(drawmap, drawscr)->cset[c]=cs;
+                }
+            }
+            else if(!zq_autocombo_draw(combo_auto_pos, Map.getCurrScr(), c, (gui_mouse_b()&2)!=0, pressframe, why))
+            {
+                break;
+            }
+
+            pressframe=false;
+        }
+
+        do_animations();
+        refresh(rALL);
+    }
+
+    if(!why.empty())
+    {
+        while(gui_mouse_b())
+        {
+            /* wait for the button to come up */
+        }
+
+        // up to three lines of reasons
+        std::string l[3];
+        size_t at=0;
+
+        for(int i=0; i<3 && at<=why.size(); ++i)
+        {
+            size_t nl=why.find('\n',at);
+            l[i]=why.substr(at,nl==std::string::npos ? std::string::npos : nl-at);
+            at=nl==std::string::npos ? why.size()+1 : nl+1;
+        }
+
+        jwin_alert("Autocombo",l[0].c_str(),l[1].empty() ? NULL : l[1].c_str(),l[2].empty() ? NULL : l[2].c_str(),"O&K",NULL,'k',0,lfont);
+    }
+}
+
 void draw(bool justcset)
 {
+    if(draw_mode==dm_cpool || draw_mode==dm_auto)
+    {
+        draw_cpool_mode(justcset);
+        return;
+    }
+
     Map.Ugo();
     saved=false;
     int drawmap, drawscr;
@@ -6920,6 +7403,125 @@ void fill2_8()
     refresh(rMAP+rSCRMAP);
 }
 
+bool zq_cpool_fill(int mode, int index, int drawmap, int drawscr, int sx, int sy, int kind, bool diagonal,
+                   bool only_cset, bool rclick, std::string &why);
+void zq_autocombo_command(int index, int screen, int pos, int cmd, int arg);
+
+// Ctrl+click in the Pool and Autocombo modes, as upstream's flood, fill_4, fill_8, fill2_4 and
+// fill2_8 do in dm_cpool and dm_auto. Pool mode: Flood places the brush's combo (2.53's flood),
+// the fills a random pick of the pool at every position they cover (Shift: only the csets).
+// Autocombo mode: Flood and the fills run the autocombo's pattern at each position they cover
+// (with the right button, erasing); Fill (4-way) on a Fence or Pancake Mountain instead flips
+// what's connected to the position between facing in and out (either button); Fill2 places the
+// brush's combo (2.53's fill2).
+static void fill_cpool_mode(bool rclick)
+{
+    if(draw_mode==dm_cpool && fill_type==0)
+    {
+        flood();
+        return;
+    }
+    
+    if(draw_mode==dm_auto && fill_type>=3)
+    {
+        if(fill_type==3)
+            fill2_4();
+        else
+            fill2_8();
+            
+        return;
+    }
+    
+    int drawmap, drawscr;
+    
+    if(CurrentLayer==0)
+    {
+        drawmap=Map.getCurrMap();
+        drawscr=Map.getCurrScr();
+    }
+    else
+    {
+        drawmap=Map.CurrScr()->layermap[CurrentLayer-1]-1;
+        drawscr=Map.CurrScr()->layerscreen[CurrentLayer-1];
+        
+        if(drawmap<0)
+        {
+            return;
+        }
+    }
+    
+    int x=gui_mouse_x()-mapscreen_x-(showedges?(16*mapscreensize):0);
+    int y=gui_mouse_y()-mapscreen_y-(showedges?(16*mapscreensize):0);
+    int by= (y>>4)/(mapscreensize);
+    int bx= (x>>4)/(mapscreensize);
+    
+    if(bx<0 || by<0 || bx>15 || by>10)
+        return;
+        
+    saved=false;
+    Map.Ugo();
+    
+    if(!(Map.AbsoluteScr(drawmap, drawscr)->valid&mVALID))
+    {
+        Map.CurrScr()->valid|=mVALID;
+        Map.AbsoluteScr(drawmap, drawscr)->valid|=mVALID;
+        Map.setcolor(Color);
+    }
+    
+    const int kind = fill_type==0 ? 0 : fill_type<=2 ? 1 : 2;     // flood, fill, fill2
+    const bool diagonal = fill_type==2 || fill_type==4;
+    const int type = draw_mode==dm_auto ? zq_autocombo_type(combo_auto_pos) : -1;
+    std::string why;
+    
+    if((type==3 || type==4) && fill_type==1)        // Fence, Pancake Mountain: Fill (4-way) flips
+    {
+        zq_autocombo_command(combo_auto_pos, Map.getCurrScr(), (by<<4)+bx, 0, 0);
+    }
+    else
+    {
+        zq_cpool_fill(draw_mode==dm_auto ? 1 : 0, draw_mode==dm_auto ? combo_auto_pos : combo_pool_pos, drawmap, drawscr,
+                      bx, by, kind, diagonal, draw_mode==dm_cpool && (key[KEY_LSHIFT]||key[KEY_RSHIFT]), rclick, why);
+    }
+    
+    refresh(rMAP+rSCRMAP);
+    
+    if(!why.empty())
+    {
+        size_t nl=why.find('\n');
+        jwin_alert("Autocombo",why.substr(0,nl).c_str(),nl==std::string::npos ? NULL : why.substr(nl+1).c_str(),NULL,"O&K",NULL,'k',0,lfont);
+    }
+}
+
+// Shift+] / Shift+[ in the Autocombo mode with a Pancake or Complex Mountain (upstream's
+// change_autocombo_height): the height it draws with, one higher or lower (1-9); a Pancake
+// Mountain under the mouse changes to the new height.
+bool zq_autocombo_height_key(int change)
+{
+    if(draw_mode!=dm_auto || !(key[KEY_LSHIFT]||key[KEY_RSHIFT]))
+        return false;
+        
+    const int type=zq_autocombo_type(combo_auto_pos);
+    
+    if(type!=4 && type!=7)      // Pancake Mountain, Complex Mountain
+        return false;
+        
+    int x=gui_mouse_x()-mapscreen_x-(showedges?(16*mapscreensize):0);
+    int y=gui_mouse_y()-mapscreen_y-(showedges?(16*mapscreensize):0);
+    int by= (y>>4)/(mapscreensize);
+    int bx= (x>>4)/(mapscreensize);
+    
+    if(type==4 && x>=0 && y>=0 && bx<16 && by<11)
+    {
+        Map.Ugo();
+        saved=false;
+        zq_autocombo_command(combo_auto_pos, Map.getCurrScr(), (by<<4)+bx, 1, zq_autocombo_height+change);
+    }
+    
+    zq_autocombo_height=vbound(zq_autocombo_height+change,1,9);
+    refresh(rALL);
+    return true;
+}
+
 static MENU fill_menu[] =
 {
     { (char *)"Flood",                   set_flood,   NULL, 0, NULL },
@@ -7454,7 +8056,7 @@ void domouse()
         }
     }
     
-    if(draw_mode!=dm_alias)
+    if(!alias_list_mode())
     {
         for(int j=0; j<3; ++j)
         {
@@ -7487,9 +8089,18 @@ void domouse()
                 {
                     int cc=((x-comboaliaslist[j].x)>>4);
                     int cr=((y-comboaliaslist[j].y)>>4);
-                    int c2=(cr*comboaliaslist[j].w)+cc+combo_alistpos[j];
+                    int c2=(cr*comboaliaslist[j].w)+cc+alias_listpos()[j];
                     char msg[80];
-                    sprintf(msg, "Combo alias %d", c2);
+                    
+                    if(draw_mode==dm_alias)
+                        sprintf(msg, "Combo alias %d", c2);
+                    else
+                    {
+                        // "Combo pool 3: 4 combos" / "Autocombo 2: Fence"
+                        char l2[80], l3[80];
+                        zq_cpool_describe(draw_mode==dm_auto ? 3 : 2, c2, msg, l2, l3, 80);
+                    }
+
                     update_tooltip(x,y,comboaliaslist[j].x+(cc<<4),comboaliaslist[j].y+(cr<<4),16,16, msg);
                 }
             }
@@ -7558,6 +8169,16 @@ void domouse()
                       (Map.AbsoluteScr(drawmap, drawscr)->data[c]/combolist[0].w*combolist[0].w)-(combolist[0].w*combolist[0].h/2),
                       0,
                       MAXCOMBOS-(combolist[0].w*combolist[0].h));
+            }
+            else if((key[KEY_ZC_LCONTROL] || key[KEY_ZC_RCONTROL]) && (draw_mode==dm_cpool || draw_mode==dm_auto))
+            {
+                // the fills with a pool or an autocombo (Fence and Pancake Mountain: flip
+                // what's connected between facing in and out)
+                if(canfill)
+                {
+                    fill_cpool_mode(false);
+                    canfill=false;
+                }
             }
             else if(key[KEY_ZC_LCONTROL] || key[KEY_ZC_RCONTROL])
             {
@@ -7791,7 +8412,7 @@ void domouse()
             }
         }
         
-        if(draw_mode!=dm_alias)
+        if(!alias_list_mode())
         {
             for(int temp_counter=0; temp_counter<3; ++temp_counter)
             {
@@ -8074,7 +8695,21 @@ void domouse()
     }
     else if(gui_mouse_b()&2)
     {
-        if(isinRect(x,y,startxint,startyint, int(startx+(256*mapscreensize)-1), int(starty+(176*mapscreensize)-1)))
+        if(draw_mode==dm_auto && isinRect(x,y,startxint,startyint, int(startx+(256*mapscreensize)-1), int(starty+(176*mapscreensize)-1)))
+        {
+            // the Autocombo mode erases with the right button (Ctrl: the fill tool erases)
+            if(key[KEY_ZC_LCONTROL] || key[KEY_ZC_RCONTROL])
+            {
+                if(canfill)
+                {
+                    fill_cpool_mode(true);
+                    canfill=false;
+                }
+            }
+            else
+                draw(false);
+        }
+        else if(isinRect(x,y,startxint,startyint, int(startx+(256*mapscreensize)-1), int(starty+(176*mapscreensize)-1)))
         {
             ComboBrushPause=1;
             refresh(rMAP);
@@ -8336,7 +8971,7 @@ void domouse()
         {
             if(j==0||is_large)
             {
-                if(draw_mode != dm_alias)
+                if(!alias_list_mode())
                 {
                     if(isinRect(x,y,combolist[j].x,combolist[j].y,combolist[j].x+(combolist[j].w*16)-1,combolist[j].y+(combolist[j].h*16)-1))
                     {
@@ -8394,8 +9029,21 @@ void domouse()
                         
                         if(isinRect(gui_mouse_x(),gui_mouse_y(),combolist[j].x,combolist[j].y,combolist[j].x+(combolist[j].w*16)-1,combolist[j].y+(combolist[j].h*16)-1))
                         {
-                            comboa_cnt = combo_apos;
-                            onEditComboAlias();
+                            // the pool or autocombo editor at the one clicked (upstream's
+                            // "Edit" of the pool and autocombo panes)
+                            if(draw_mode==dm_cpool)
+                                onComboPools();
+                            else if(draw_mode==dm_auto)
+                            {
+                                onAutocombos();
+                                zq_autocombo_height=zq_autocombo_default_height(combo_auto_pos);
+                            }
+                            else
+                            {
+                                comboa_cnt = combo_apos;
+                                onEditComboAlias();
+                            }
+                            
                             redraw|=rALL;
                         }
                     }
@@ -8544,7 +9192,7 @@ void domouse()
             
             if(j==0||is_large)
             {
-                if(draw_mode != dm_alias)
+                if(!alias_list_mode())
                 {
                     if(isinRect(x,y,combolist[j].x,combolist[j].y,combolist[j].x+(combolist[j].w*16)-1,combolist[j].y+(combolist[j].h*16)-1))
                     {
@@ -8571,15 +9219,15 @@ void domouse()
                     {
                         if(mouse_z<0)  //scroll down
                         {
-                            combo_alistpos[current_comboalist] = zc_min(MAXCOMBOALIASES - comboaliaslist[j].w*comboaliaslist[j].h,
-                                                                 combo_alistpos[current_comboalist]+comboaliaslist[j].w*z);
+                            alias_listpos()[current_comboalist] = zc_min(alias_list_max() - comboaliaslist[j].w*comboaliaslist[j].h,
+                                                                 alias_listpos()[current_comboalist]+comboaliaslist[j].w*z);
                             redraw|=rALL;
                         }
                         else //scroll up
                         {
-                            if(combo_alistpos[current_comboalist]>0)
+                            if(alias_listpos()[current_comboalist]>0)
                             {
-                                combo_alistpos[current_comboalist]-=zc_min(combo_alistpos[current_comboalist],comboaliaslist[j].w*z);
+                                alias_listpos()[current_comboalist]-=zc_min(alias_listpos()[current_comboalist],comboaliaslist[j].w*z);
                                 //          refresh(rCOMBOS);
                                 redraw|=rALL;
                             }
@@ -19478,12 +20126,19 @@ static DIALOG gscript_sel_dlg[] =
 int onCompileScript()
 {
 #ifdef ZC_ZQEDITOR
-    // 2.53's compiler builds 2.53 scripts; it would replace the quest's newer compiled scripts.
+    // 2.53's compiler builds 2.53 scripts; a 2.55 or 3.0 quest is compiled by its own
+    // generation's compiler in the newer-quest compile dialog (port/zqeditor/zq_compile*.cpp).
     if(zq255_quest_is_newer())
     {
-        jwin_alert("Compile ZScript","This quest was made in ZC 2.55 or a 3.0 Nightly.",
-                   "Its scripts can't be compiled in this ZQuest yet.",
-                   "The quest keeps the compiled scripts it came with.","O&K",NULL,'k',0,lfont);
+        extern bool zq_compile_available();
+        extern void zq_compile_dialog();
+
+        if(zq_compile_available())
+            zq_compile_dialog();
+        else
+            jwin_alert("Compile ZScript","This quest was made in ZC 2.55 or a 3.0 Nightly,",
+                       "but its scripts section couldn't be read, so it can't be compiled.",
+                       "The quest keeps the compiled scripts it came with.","O&K",NULL,'k',0,lfont);
         return D_O_K;
     }
 #endif
@@ -19982,8 +20637,31 @@ int onCompileScript()
 // return D_O_K;//unreachable
 }
 
+// After a compile has been assigned in the newer-quest compile dialog, the scripts section is
+// written from that compile (zq_compile_section), so an ASM import into the 2.53 tables would
+// be lost on save. Refuse the import with the reason instead (after a save the import works:
+// the old path keeps the saved compile and rewrites only the imported slot). True when refused.
+static bool import_asm_refused()
+{
+#ifdef ZC_ZQEDITOR
+    extern bool zq_compile_pending();
+
+    if(zq255_quest_is_newer() && zq_compile_pending())
+    {
+        jwin_alert("Import ASM Script","Scripts were compiled and assigned since the quest was last",
+                   "saved or opened. They go into the quest when it is saved: save",
+                   "it first, then import the ASM script.","O&K",NULL,'k',0,lfont);
+        return true;
+    }
+#endif
+    return false;
+}
+
 int onImportFFScript()
 {
+    if(import_asm_refused())
+        return D_O_K;
+
     char name[20]="";
     
     ffscript_sel_dlg[0].dp2 = lfont;
@@ -20013,6 +20691,9 @@ int onImportFFScript()
 
 int onImportItemScript()
 {
+    if(import_asm_refused())
+        return D_O_K;
+
     char name[20]="";
     
     itemscript_sel_dlg[0].dp2 = lfont;
@@ -20042,6 +20723,9 @@ int onImportItemScript()
 
 int onImportGScript()
 {
+    if(import_asm_refused())
+        return D_O_K;
+
     char name[20]="";
     
     gscript_sel_dlg[0].dp2 = lfont;
@@ -22227,7 +22911,17 @@ int main(int argc,char **argv)
     set_uformat(U_ASCII);
     Z_message("Initializing Allegro... ");
     
+#ifdef ZC_PORT
+    // No video device (started on Linux with no display, for example): stop here as the
+    // player does. Going on without a window ended in an abort.
+    if(allegro_init() != 0)
+    {
+        Z_message("Failed Init!\n");
+        exit(1);
+    }
+#else
     allegro_init();
+#endif
     three_finger_flag=false;
 #ifdef ZC_PORT
     zcui_dialogs_enable_canvases(is_large ? 1.35f : 1.0f);
@@ -23381,6 +24075,15 @@ int main(int argc,char **argv)
         }
 
 #ifdef ZC_ZQEDITOR
+        // -qst-export, -qst-import, -qst-timed-save (port/zqeditor/zq_exports.cpp)
+        {
+            extern int zqx_test_switches(int argc, char **argv);
+            int r = zqx_test_switches(argc, argv);
+
+            if(r >= 0)
+                exit(r);
+        }
+
         // -qst-own-save in.qst out.qst: loads the quest and saves it in its own version, not
         // encoded (ZQ_OWN_SAVE_ALL=1: every part through its writer), as File > Save does
         int own_save_arg = used_switch(argc,argv,"-qst-own-save");
@@ -23654,11 +24357,69 @@ int main(int argc,char **argv)
             if(ret == qe_OK)
             {
                 const char *k = argv[dumprec_arg+2];
-                ret = zq_dump_record(!strcmp(k,"item") ? 0 : !strcmp(k,"enemy") ? 1 : !strcmp(k,"dmap") ? 2 : !strcmp(k,"screen") ? 3 : !strcmp(k,"init") ? 4 : !strcmp(k,"misc") ? 5 : !strcmp(k,"strings") ? 6 : !strcmp(k,"subscreens") ? 7 : !strcmp(k,"rules") ? 9 : -1,
+                ret = zq_dump_record(!strcmp(k,"item") ? 0 : !strcmp(k,"enemy") ? 1 : !strcmp(k,"dmap") ? 2 : !strcmp(k,"screen") ? 3 : !strcmp(k,"init") ? 4 : !strcmp(k,"misc") ? 5 : !strcmp(k,"strings") ? 6 : !strcmp(k,"subscreens") ? 7 : !strcmp(k,"rules") ? 9 :
+                                     !strcmp(k,"music") ? 10 : !strcmp(k,"link") ? 11 : !strcmp(k,"zinfo") ? 12 : -1,
                                      atoi(argv[dumprec_arg+3]),argv[dumprec_arg+4]);
             }
 
             exit(ret == 0 ? 0 : 3);
+        }
+
+        // -qst-dump-cpools in.qst report.txt: the combo pools, autocombos and scrolling region
+        // ids ZQuest holds for a 2.55.17 / 3.0 quest (zq_cpool.cpp; for testing their editors)
+        int dumpcp_arg = used_switch(argc,argv,"-qst-dump-cpools");
+
+        if(dumpcp_arg && argc>dumpcp_arg+2)
+        {
+            extern bool skip_quest_password;
+            extern bool zq_batch_load;
+            extern int zq_dump_cpools(const char *report);
+            skip_quest_password = true;
+            zq_batch_load = true;
+            int ret = load_quest(argv[dumpcp_arg+1],true,true);
+
+            if(ret == qe_OK)
+                ret = zq_dump_cpools(argv[dumpcp_arg+2]);
+
+            exit(ret == 0 ? 0 : 3);
+        }
+
+        // -qst-subscreen-render in.qst sub page out.bmp: a 2.55/3.0 subscreen page drawn as the
+        // subscreen layout editor draws it (for comparing with the player's; zq_subscr_layout.cpp)
+        int subrender_arg = used_switch(argc,argv,"-qst-subscreen-render");
+
+        if(subrender_arg && argc>subrender_arg+4)
+        {
+            extern bool skip_quest_password;
+            extern bool zq_batch_load;
+            extern int zq_subscreen_render(int sub, int page, const char *out);
+            skip_quest_password = true;
+            zq_batch_load = true;
+            int ret = load_quest(argv[subrender_arg+1],true,true);
+
+            if(ret == qe_OK)
+                ret = zq_subscreen_render(atoi(argv[subrender_arg+2]),atoi(argv[subrender_arg+3]),argv[subrender_arg+4]);
+
+            exit(ret == 0 ? 0 : 3);
+        }
+
+        // -qst-subscreen-check in.qst report.txt: the subscreen layout editor's checks on a quest
+        // (zq_subscr_layout.cpp)
+        int subcheck_arg = used_switch(argc,argv,"-qst-subscreen-check");
+
+        if(subcheck_arg && argc>subcheck_arg+2)
+        {
+            extern bool skip_quest_password;
+            extern bool zq_batch_load;
+            extern int zq_subscreen_check(const char *report);
+            skip_quest_password = true;
+            zq_batch_load = true;
+            int ret = load_quest(argv[subcheck_arg+1],true,true);
+
+            if(ret == qe_OK)
+                ret = zq_subscreen_check(argv[subcheck_arg+2]);
+
+            exit(ret);
         }
 
         // -qst-dump-combo in.qst id report.txt: one combo's fields, the 2.55/3.0 ones too
@@ -23681,6 +24442,50 @@ int main(int argc,char **argv)
         }
 #endif
 
+        // -qst-dump-part in.qst ID out.bin: one part's kept bytes after its id (ID: FFSC, MISC...),
+        // for comparing sections (port/zqeditor/zq_compile.cpp)
+        int dumppart_arg = used_switch(argc,argv,"-qst-dump-part");
+
+        if(dumppart_arg && argc>dumppart_arg+3)
+        {
+            extern bool skip_quest_password;
+            extern bool zq_batch_load;
+            extern int zq_dump_part(const char *id, const char *out);
+            skip_quest_password = true;
+            zq_batch_load = true;
+            int ret = load_quest(argv[dumppart_arg+1],true,true);
+
+            if(ret == qe_OK)
+                ret = zq_dump_part(argv[dumppart_arg+2],argv[dumppart_arg+3]);
+
+            exit(ret == 0 ? 0 : 3);
+        }
+
+        // -qst-compile in.qst out.qst quick|smart report.txt: compiles a 2.55/3.0 quest's buffer
+        // with its generation's compiler, assigns the slots as Quick/Smart Assign does and saves
+        // the quest in its own format (batch checks; zq_compile.cpp)
+        int compile_arg = used_switch(argc,argv,"-qst-compile");
+
+        if(compile_arg && argc>compile_arg+4)
+        {
+            extern bool skip_quest_password;
+            extern bool zq_batch_load;
+            extern int zq_compile_batch(const char *out, const char *mode, const char *report);
+            skip_quest_password = true;
+            zq_batch_load = true;
+            int ret = load_quest(argv[compile_arg+1],true,true);
+
+            if(ret == qe_OK)
+            {
+                // the quest's own folder, as when it is opened: its scripts/ folder is an include path
+                strncpy(filepath,argv[compile_arg+1],2047);
+                filepath[2047]=0;
+                ret = zq_compile_batch(argv[compile_arg+2],argv[compile_arg+3],argv[compile_arg+4]);
+            }
+
+            exit(ret);
+        }
+
         // -qst-sections in.qst report.txt: a quest's section versions against this build's
         int sections_arg = used_switch(argc,argv,"-qst-sections");
 
@@ -23693,6 +24498,15 @@ int main(int argc,char **argv)
         if(argc>1 && argv[1][0]!='-')
         {
             replace_extension(temppath,argv[1],"qst",2047);
+#if defined(ZC_PORT) && !defined(_WIN32)
+            // Linux and macOS: a quest named "QUEST.QST" opens as itself (as on Windows);
+            // "QUEST.qst" would be another file on a case-sensitive file system.
+            if(!stricmp(get_extension(argv[1]),"qst") && exists(argv[1]))
+            {
+                strncpy(temppath,argv[1],2047);
+                temppath[2047]=0;
+            }
+#endif
             int ret = load_quest(temppath,true,true);
             
             if(ret == qe_OK)
@@ -25065,6 +25879,33 @@ void check_autosave()
         
         if(auto_save_time_diff>AutoSaveInterval*60)
         {
+#ifdef ZC_ZQEDITOR
+            // 2.55 and 3.0 Nightly quests: a timed save in the quest's own version, named and
+            // kept as upstream's (port/zqeditor/zq_exports.h), for a quest with a file that
+            // changed since it was last saved or timed-saved. 2.53's .qt0 files are for 2.53.
+            if(zq255_quest_is_newer())
+            {
+                if(first_save && !disable_saving && zqx_timed_save_due())
+                {
+                    set_mouse_sprite(mouse_bmp[MOUSE_BMP_NORMAL][0]);
+                    go();
+                    std::string path, why;
+
+                    // the options dialog shows the number kept as the stored value plus one
+                    if(zqx_timed_save(filepath, AutoSaveRetention + 1, UncompressedAutoSaves != 0, path, why))
+                    {
+                        std::string why2 = why.size() > 50 ? why.substr(50) : std::string("");
+                        why = why.substr(0, 50);
+                        jwin_alert("Error","Timed save did not complete successfully.",why.c_str(),why2.empty() ? NULL : why2.c_str(),"O&K",NULL,'k',0,lfont);
+                    }
+
+                    comeback();
+                }
+
+                time(&auto_save_time_start);
+                return;
+            }
+#endif
             set_mouse_sprite(mouse_bmp[MOUSE_BMP_NORMAL][0]);
             if(first_save)
                 replace_extension(last_timed_save, filepath, "qt0", 2047);
@@ -25072,15 +25913,6 @@ void check_autosave()
                 strcpy(last_timed_save, "untitled.qt0");
             go();
 
-#ifdef ZC_ZQEDITOR
-            // 2.55 and 3.0 Nightly quests can't be saved yet; try again at the next interval
-            if(zq255_quest_is_newer())
-            {
-                time(&auto_save_time_start);
-                comeback();
-                return;
-            }
-#endif
             if((header.zelda_version != ZELDA_VERSION || header.build != VERSION_BUILD) && first_save)
             {
                 jwin_alert("Auto Save","This quest was saved in an older version of ZQuest.","If you wish to use the autosave feature, you must manually","save the files in this version first.","OK",NULL,13,27,lfont);

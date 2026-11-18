@@ -77,6 +77,16 @@ struct Zq255Store
     std::map<int, long> item_family;
     std::map<int, int> item_usesound2, item_override_flags;
     std::map<int, std::string> item_display_name;
+    // Items 256 and up (the player's q30_set_high_item): their data is also in itemsbuf, which
+    // ZQuest sizes for them (qst.cpp), so the subscreen layout editor draws them; ZQuest's own
+    // item editors and writers stay within 2.53's 256.
+    struct HighItem
+    {
+        long family;            // upstream's class
+        std::string name;
+    };
+    std::map<int, HighItem> high_items;
+    std::vector<int> init_high_items;   // the init data's starting ones among them
     std::map<int, bool> item_passive_script;
     std::map<int, Q30ScriptRef> item_sprite_script, item_weapon_script;
     std::map<int, std::vector<byte> > guy_defenses;
@@ -102,6 +112,10 @@ struct Zq255Store
     // string's index, whose record they then use). zqw_basic.cpp's write_strings_255 reads it.
     std::map<int, int> string_extras_from;
     std::map<std::string, TapeField> sub_fields;        // and the SUBS section ("s2.p1.w4.x")
+    // The SUBS section's data (after its size) as the subscreen layout editor last left it, with
+    // widgets or pages added, removed or moved (empty: as loaded or last saved). It replaces the
+    // loaded part as what 2.53's subscreen edits and sub_fields go on; zqw_init.cpp.
+    std::vector<byte> subs_base;
 
     // misc and init data
     std::map<int, Q30BottleType> bottle_types;
@@ -122,6 +136,7 @@ struct Zq255Store
     std::map<int, int> msg_wrap_extra;
     std::map<int, Q30ScriptRef> dmap_scripts[q30_dmap_kinds];
     std::map<int, std::pair<int, int> > dmap_subscreens;  // overlay, map
+    std::map<int, std::string> dmap_titles;     // the whole title (3.0's can be longer than 2.53's)
     std::map<int, Q30ScriptRef> screen_scripts;
 
     // music and sound
@@ -133,6 +148,31 @@ struct Zq255Store
     std::vector<zctune> high_tunes;
 
     std::vector<Subscreen> subscreens;
+
+    // The hero editor's edit of the LINK section (zq_hero_editor.cpp): the section's data, after
+    // its size, as the quest's own LINK version holds it (empty: not edited). zqw_init.cpp's
+    // writer starts from it.
+    std::vector<byte> link_record;
+
+    // The editor names and help of the ZINF section (zqw_zinfo.cpp), as the quest's file holds
+    // them: upstream's lists by kind (ZqZinfoKind in zq_q255.h), each entry's name, help and
+    // abbreviation.
+    struct ZinfoEntry
+    {
+        std::string name, help, abbr;
+    };
+
+    struct Zinfo
+    {
+        bool present;               // the quest's file has a ZINF section
+        int version;                // its version (0-5)
+        // each kind's entries in the file's order and count (a kind the version lacks: empty)
+        std::vector<ZinfoEntry> kinds[7];
+
+        Zinfo() : present(false), version(0) {}
+    };
+
+    Zinfo zinfo;
 
     Zq255Store();
     void clear();

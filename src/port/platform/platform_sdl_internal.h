@@ -88,6 +88,14 @@ namespace zcport_sdl
    // zc_place_window_on_display() (src/zsys.cpp) does. Returns false (and
    // leaves it) when that monitor does not exist; *count = monitors.
    bool place_on_display(int display, int *count);
+
+   // Test runs only: the test scripts start the programs with SDL_WINDOW_ACTIVATE_WHEN_SHOWN=0.
+   // Such a window must never disturb the desktop: it can't take focus, never moves the mouse or
+   // the foreground window, and opens on the test screen instead of the primary one. The screen
+   // comes from ZC_TEST_SCREEN="x,y,w,h", else from the file zc_test_screen.txt (same format) in
+   // %TEMP% that the test tiler keeps up to date. Both return false outside test runs.
+   bool test_run();
+   bool test_screen(SDL_Rect *r);
 }
 
 #endif

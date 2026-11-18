@@ -5,8 +5,13 @@
 #include <string>
 #include <list>
 
-extern long ffmisc[32][16];
+#ifdef ZC_PLAYER_BUILD
+extern long ffmisc[Q30_MAXFFCS][16];       // (one per FFC slot: 2.53 uses the first 32)
+extern refInfo ffcScriptData[Q30_MAXFFCS];
+#else
+extern long ffmisc[32][16];                 // (ZQuest's screens only have 32 FFCs)
 extern refInfo ffcScriptData[32];
+#endif
 
 long get_register(const long arg);
 int run_script(const byte type, const word script, const byte i = -1); //Global scripts don't need 'i'

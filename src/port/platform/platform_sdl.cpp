@@ -682,7 +682,7 @@ bool create_window(int w, int h, std::string *error)
    const std::string title = window_title();
    SDL_WindowFlags flags = SDL_WINDOW_HIDDEN;
    // A window under the test driver never takes the keyboard from the desktop.
-   if (SDL_getenv("ZQ_UI_SCRIPT"))
+   if (SDL_getenv("ZQ_UI_SCRIPT") || zcport_sdl::test_run())
       flags |= SDL_WINDOW_NOT_FOCUSABLE;
    const int want = wanted_renderer();
    if (g->vulkan_loaded && want == zcdisplay::RENDERER_AUTO)
@@ -740,12 +740,21 @@ bool create_window(int w, int h, std::string *error)
 
 void center_on_primary()
 {
+   SDL_Rect ts;
+   if (zcport_sdl::test_screen(&ts)) {
+      int cw = 0, ch = 0;
+      SDL_GetWindowSize(g->window, &cw, &ch);
+      SDL_SetWindowPosition(g->window, ts.x + std::max(0, (ts.w - cw) / 2), ts.y + std::max(0, (ts.h - ch) / 2));
+      return;
+   }
    SDL_DisplayID d = SDL_GetPrimaryDisplay();
    SDL_SetWindowPosition(g->window, SDL_WINDOWPOS_CENTERED_DISPLAY(d), SDL_WINDOWPOS_CENTERED_DISPLAY(d));
 }
 
 int do_gfx_open(int w, int h, int windowed, std::string *error)
 {
+   if (zcport_sdl::test_run())   // test runs: never fullscreen, whatever the settings say
+      windowed = 1;
    if (!g->window) {
       if (!create_window(w, h, error))
          return -1;
@@ -1423,7 +1432,7 @@ static void give_back_foreground()
       if (!(GetWindowLongPtr(front, GWL_EXSTYLE) & WS_EX_NOACTIVATE))
          last_other = front;
    }
-   else if (last_other && IsWindow(last_other))
+   else if (last_other && IsWindow(last_other) && !zcport_sdl::test_run())
       SetForegroundWindow(last_other);
 }
 #endif
@@ -1949,7 +1958,7 @@ void hook_mouse_warp(int x, int y)
    if (!g || !g->running)
       return;
    run_on_platform([x, y] {
-      if (!g->window || !g->mode_active || !g->focused || !g->mouse_inside)
+      if (!g->window || !g->mode_active || !g->focused || !g->mouse_inside || zcport_sdl::test_run())
          return;
       int w = g->disp_w, h = g->disp_h;
       if (w <= 0 || h <= 0)
@@ -2396,4 +2405,42 @@ int window_refresh_hz()
    return g ? g->window_hz.load() : 0;
 }
 
+} // namespace zcport_sdl
+
+namespace zcport_sdl
+{
+bool test_run()
+{
+   const char *e = SDL_getenv("SDL_WINDOW_ACTIVATE_WHEN_SHOWN");
+   return e && e[0] == '0' && e[1] == 0;
+}
+
+bool test_screen(SDL_Rect *r)
+{
+   if (!test_run())
+      return false;
+   char buf[96] = "";
+   const char *e = SDL_getenv("ZC_TEST_SCREEN");
+   if (e && *e)
+      SDL_strlcpy(buf, e, sizeof(buf));
+   else {
+      const char *tmp = SDL_getenv("TEMP");
+      if (!tmp)
+         tmp = SDL_getenv("TMPDIR");
+      if (!tmp)
+         return false;
+      std::string path = std::string(tmp) + "/zc_test_screen.txt";
+      FILE *f = fopen(path.c_str(), "rb");
+      if (!f)
+         return false;
+      size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+      fclose(f);
+      buf[n] = 0;
+   }
+   int x = 0, y = 0, w = 0, h = 0;
+   if (sscanf(buf, "%d,%d,%d,%d", &x, &y, &w, &h) != 4 || w <= 0 || h <= 0)
+      return false;
+   r->x = x; r->y = y; r->w = w; r->h = h;
+   return true;
+}
 } // namespace zcport_sdl

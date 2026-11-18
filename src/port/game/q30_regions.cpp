@@ -51,8 +51,8 @@ struct RegionScreen
     bool live;
     void *scripts;                  // the script engine's FFC, screen and combo script state
     void *trig;                     // the combo triggers' state
-    short ffposx[32], ffposy[32];   // maps.cpp's FFC changer state
-    long ffprvx[32], ffprvy[32];
+    short ffposx[Q30_MAXFFCS], ffposy[Q30_MAXFFCS];   // maps.cpp's FFC changer state
+    long ffprvx[Q30_MAXFFCS], ffprvy[Q30_MAXFFCS];
 
     RegionScreen() : live(false), scripts(NULL), trig(NULL) { no_changers(); }
 
@@ -77,7 +77,7 @@ struct RegionScreen
     // as loadscr leaves them: no changer met yet
     void no_changers()
     {
-        for(int i = 0; i < 32; ++i)
+        for(int i = 0; i < Q30_MAXFFCS; ++i)
         {
             ffposx[i] = ffposy[i] = -1000;
             ffprvx[i] = ffprvy[i] = -10000000;
@@ -178,12 +178,19 @@ int64_t bound_lookahead(int64_t v, int deadzone, int max_offset)
     return clamp64(v, -cap, cap);
 }
 
+// a 16.16 position in 1/10000 pixels, to the nearest (Link's walk keeps him on that grid)
+int64_t fix_to_z(long v)
+{
+    const int64_t n = (int64_t)v * Z;
+    return (n + (n < 0 ? -32768 : 32768)) / 65536;
+}
+
 // Link's centre in region pixels (his screen's place in the region, outside one 0)
 void link_centre(int64_t *x, int64_t *y)
 {
     const int ox = g_reg.on ? g_reg.dx * 256 : 0, oy = g_reg.on ? g_reg.dy * 176 : 0;
-    *x = (int64_t)Link.getX().v * Z / 65536 + (ox + 8) * Z;
-    *y = (int64_t)Link.getY().v * Z / 65536 + (oy + 8) * Z;
+    *x = fix_to_z(Link.getX().v) + (ox + 8) * Z;
+    *y = fix_to_z(Link.getY().v) + (oy + 8) * Z;
 }
 
 // upstream's apply_viewport_follow and calculate_viewport (CenterAndBound): the focus pushed
@@ -469,7 +476,7 @@ void copy_secret_combos(mapscr *s, bool high16)
 // The same for the copy's FFCs (inherent flags only).
 void copy_secret_ffcs(mapscr *s, bool high16)
 {
-    for(int i = 0; i < 32; ++i)
+    for(int i = 0; i < s->ffc_count(); ++i)
     {
         const int ft = secret_for_flag(combobuf[s->ffdata[i]].flag);
 
@@ -483,7 +490,7 @@ void copy_secret_ffcs(mapscr *s, bool high16)
     if(!high16)
         return;
 
-    for(int i = 0; i < 32; ++i)
+    for(int i = 0; i < s->ffc_count(); ++i)
     {
         const int checkflag = combobuf[s->ffdata[i]].flag;
 
@@ -585,6 +592,7 @@ RegionScreen *region_screen(int scr)
 
     RegionScreen *rs = new RegionScreen;
     rs->base = TheMaps[index];
+    rs->base.q30_extend_ffcs();     // all 128 FFC slots, as loadscr gives the current screen
 
     for(int i = 0; i < 6; ++i)
     {
@@ -667,7 +675,7 @@ static void list_region_ffcs(int map, int ox, int oy, int w, int h)
 
             const mapscr &m = TheMaps[index];
 
-            for(int i = 0; i < 32; ++i)
+            for(int i = 0; i < m.ffc_count(); ++i)
             {
                 if(!m.ffscript[i] && !m.ffdata[i])
                     continue;
@@ -1146,8 +1154,8 @@ void q30_region_upper_layer(BITMAP *bmp, int type, mapscr *this_screen, bool dra
     q30_region_camera(int(Link.getX()), int(Link.getY()), &cx, &cy);
     do_layer(bmp, type, this_screen, cx, cy, 2, false, drawprimitives);
 
-    // live screens: the overhead FFCs of every screen of the region, wherever they are
-    if(type == -4 && region_draw_ffcs(bmp, -4, cx, cy))
+    // live screens: the overhead FFCs (or one draw layer's, -3) of every screen of the region
+    if((type == -4 || type == -3) && region_draw_ffcs(bmp, type, cx, cy))
         return;
 
     if(!g_reg.on || (!cx && !cy))
@@ -1578,8 +1586,8 @@ bool zasm30_screen_state_busy(void *state, int what);
 bool zasm30_screen_has_script(int index);
 void q30_slopes_update();                               // q30_triggers.cpp
 
-extern short ffposx[32], ffposy[32];                    // maps.cpp: the FFC changer state
-extern long ffprvx[32], ffprvy[32];
+extern short ffposx[Q30_MAXFFCS], ffposy[Q30_MAXFFCS];  // maps.cpp: the FFC changer state
+extern long ffprvx[Q30_MAXFFCS], ffprvy[Q30_MAXFFCS];
 extern sprite_list chainlinks, decorations, particles;
 
 namespace
@@ -1637,7 +1645,7 @@ bool swap_current(int scr, bool shift)
     for(int i = 0; i < 6; ++i)
         std::swap(tmpscr2[i], rs->layers[i]);
 
-    for(int i = 0; i < 32; ++i)
+    for(int i = 0; i < Q30_MAXFFCS; ++i)
     {
         std::swap(ffposx[i], rs->ffposx[i]);
         std::swap(ffposy[i], rs->ffposy[i]);
@@ -1682,14 +1690,14 @@ bool has_work(const RegionScreen *rs, int scr, int what)
 
     case Q30_EACH_FFC_SCRIPTS:
     case Q30_EACH_FFC_PRELOAD:
-        for(int i = 0; i < 32; ++i)
+        for(int i = 0; i < m.ffc_count(); ++i)
             if(m.ffscript[i] && (what == Q30_EACH_FFC_SCRIPTS || (m.ffflags[i] & ffPRELOAD)))
                 return true;
 
         return false;
 
     case Q30_EACH_FFC_MOVE:
-        for(int i = 0; i < 32; ++i)
+        for(int i = 0; i < m.ffc_count(); ++i)
             if(m.ffdata[i] && !(m.ffflags[i] & (ffCHANGER | ffSTATIONARY)))
                 return true;
 
@@ -1699,7 +1707,7 @@ bool has_work(const RegionScreen *rs, int scr, int what)
         if(q30_trig_screen_busy(&m, rs->layers))
             return true;
 
-        for(int i = 0; i < 32; ++i)
+        for(int i = 0; i < m.ffc_count(); ++i)
             if(m.ffdata[i] && combobuf[m.ffdata[i]].nextcombo)
                 return true;
 
@@ -1854,7 +1862,7 @@ static void log_region_ffcs()
             const int scr = g_reg.ox + x + (g_reg.oy + y) * 16;
             const mapscr *m = q30_region_ffc_table(scr);
 
-            for(int i = 0; m && i < 32; ++i)
+            for(int i = 0; m && i < m->ffc_count(); ++i)
                 if(m->ffdata[i] || m->ffscript[i])
                     fprintf(f, "%d %02X %d %ld %ld %d %d\n", frame, scr, i + 1, m->ffx[i] / 10000 + x * 256, m->ffy[i] / 10000 + y * 176,
                             (int)m->ffdata[i], (int)m->ffscript[i]);
@@ -2003,7 +2011,7 @@ int q30_region_ffcombo_at(int x, int y)
         const int px = x - ((it->first % 16 - g_reg.ox) - g_reg.dx) * 256, py = y - ((it->first / 16 - g_reg.oy) - g_reg.dy) * 176;
 
         // (maps.cpp's ffcIsAt on that screen's FFCs, in its coordinates)
-        for(int i = 0; i < 32; ++i)
+        for(int i = 0; i < m.ffc_count(); ++i)
         {
             const int fx = m.ffx[i] / 10000, fy = m.ffy[i] / 10000;
 
@@ -2031,7 +2039,7 @@ bool q30_region_ffc_solid_at(int x, int y, int cnt)
         const mapscr &m = it->second->base;
         const int ox = ((it->first % 16 - g_reg.ox) - g_reg.dx) * 256, oy = ((it->first / 16 - g_reg.oy) - g_reg.dy) * 176;
 
-        for(int i = 0; i < 32; ++i)
+        for(int i = 0; i < m.ffc_count(); ++i)
         {
             if(!(m.ffflags[i] & ffSOLID) || (m.ffflags[i] & ffCHANGER))
                 continue;

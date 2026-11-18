@@ -122,7 +122,8 @@ def enum_text(names):
 src = '''// Generated from upstream ZQuestClassic (3.0 Nightly, commit ef321f8) by tools/zq_gen_combo_names.py:
 // combo type and map flag names, the combo types' help, and the combo editor's per-type labels
 // for attributes and flags (ComboEditorDialog::loadComboType). Upstream's numbers, which
-// 2.55 and 3.0 quests use. Regenerate rather than edit by hand.
+// 2.55 and 3.0 quests use; the open quest's own names (zq_zinfo.h) show in their place, as
+// upstream's zinfo getters do. Regenerate rather than edit by hand.
 
 #include "precompiled.h" //always first
 
@@ -132,6 +133,7 @@ src = '''// Generated from upstream ZQuestClassic (3.0 Nightly, commit ef321f8) 
 
 #include "zq_combo_names.h"
 #include "zq_q255_store.h"
+#include "zq_zinfo.h"
 
 namespace
 {
@@ -225,19 +227,31 @@ const char *q30_trigflag_name(int f)
 int q30_ctype_count(bool is30) { return is30 ? (int)up30::cMAX : %(n255)d; }
 int q30_mflag_count(bool is30) { return is30 ? (int)up30::mfMAX : %(m255)d; }
 
+// The open quest's own name in place of upstream's (zinfo.cpp's getters), for what upstream's
+// lists offer: its isUsable* checks pass a default name that isn't empty and doesn't start
+// with '-'.
+static const char *quest_or(int kind, int index, const char *own)
+{
+    const char *q = own[0] && own[0] != '-' ? zq_quest_name(kind, index) : NULL;
+    return q ? q : own;
+}
+
 const char *q30_ctype_name(int t)
 {
-    return t >= 0 && t < (int)up30::cMAX ? up30::g_ctype_names[t] : "";
+    return t >= 0 && t < (int)up30::cMAX ? quest_or(ZQN_COMBOTYPE, t, up30::g_ctype_names[t]) : "";
 }
 
 const char *q30_ctype_help(int t)
 {
-    return t >= 0 && t < (int)up30::cMAX && up30::g_ctype_help[t] ? up30::g_ctype_help[t] : "";
+    if(t < 0 || t >= (int)up30::cMAX)
+        return "";
+    const char *q = zq_quest_name(ZQN_COMBOTYPE_HELP, t);
+    return q ? q : up30::g_ctype_help[t] ? up30::g_ctype_help[t] : "";
 }
 
 const char *q30_mflag_name(int f)
 {
-    return f >= 0 && f < (int)up30::mfMAX ? up30::g_mflag_names[f] : "";
+    return f >= 0 && f < (int)up30::mfMAX ? quest_or(ZQN_MAPFLAG, f, up30::g_mflag_names[f]) : "";
 }
 
 void q30_combo_labels(const Q30Combo &x, std::string *l_attribute, std::string *h_attribute, std::string *l_flag,

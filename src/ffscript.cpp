@@ -1898,11 +1898,15 @@ public:
     void operator--(int) { *this -= 1; }
 };
 static ZasmStackPointer SPR;
-long ffc_stack[32][ZSCRIPT_STACK_ALLOC];
+// FFC scripts' state, one per FFC slot (2.53 uses the first 32; 2.55/3.0 screens have 128)
+long ffc_stack[Q30_MAXFFCS][ZSCRIPT_STACK_ALLOC];
 long global_stack[ZSCRIPT_STACK_ALLOC];
 long item_stack[ZSCRIPT_STACK_ALLOC];
-long ffmisc[32][16];
-refInfo ffcScriptData[32];
+long ffmisc[Q30_MAXFFCS][16];
+refInfo ffcScriptData[Q30_MAXFFCS];
+// The slot a 3.0 script's reference to no FFC selects (NULL, or one on a screen that isn't in the
+// region): past every screen's 128, so the FFC registers read it as missing, without a log line.
+#define Z30_NO_FFC 255
 
 
 // ---- scripts from 3.0 quests ------------------------------------------------
@@ -1994,20 +1998,32 @@ static long zasm30_cmp_op1 = 0, zasm30_cmp_op2 = 0;
 static long zasm30_extra_gd[ZASM30_GD_LAST - 255];
 static Zasm30Frame zasm30_frames[35];
 static Zasm30Frame *zasm30_cur_frame = &zasm30_frames[33];
-// The 32 FFC scripts' frames, behind a pointer so each screen of a 3.0 scrolling region can keep
-// its own (q30_scripts_region.h); zasm30_frames[0..31] aren't used.
+// The FFC scripts' frames (one per FFC slot, 128), behind a pointer so each screen of a 3.0
+// scrolling region can keep its own (q30_scripts_region.h); zasm30_frames[0..31] aren't used.
 static Zasm30Frame *zasm30_ffc_frames = NULL;
 static Zasm30Frame &zasm30_ffc_frame(int i)
 {
     if(!zasm30_ffc_frames)
-        zasm30_ffc_frames = new Zasm30Frame[32];
+        zasm30_ffc_frames = new Zasm30Frame[Q30_MAXFFCS];
 
     return zasm30_ffc_frames[i];
 }
 static Zasm30Instance *zasm30_cur_inst = NULL;
 static std::map<std::pair<int,long>, Zasm30Instance*> zasm30_instances;
 static long zasm30_run_key = 0;   // the sprite uid, combo position etc. the next run_script is for
-static dword zasm30_ffc_waitdraw = 0;
+// The FFC slots whose scripts called Waitdraw this frame (one bit a slot, all 128).
+struct Zasm30FfcBits
+{
+    dword w[Q30_MAXFFCS / 32];
+
+    Zasm30FfcBits() { clear(); }
+    void clear() { memset(w, 0, sizeof(w)); }
+    bool any() const { for(int n = 0; n < Q30_MAXFFCS / 32; ++n) if(w[n]) return true; return false; }
+    bool has(int i) const { return ((w[i >> 5] >> (i & 31)) & 1) != 0; }
+    void set(int i) { w[i >> 5] |= 1u << (i & 31); }
+    void unset(int i) { w[i >> 5] &= ~(1u << (i & 31)); }
+};
+static Zasm30FfcBits zasm30_ffc_waitdraw;
 // ZC_Q30_TRACE=1 logs the first time each script of each type runs, and draws.
 static bool zasm30_trace_on = false;
 static long zasm30_dbg_pc = 0;
@@ -2604,11 +2620,15 @@ public:
     
     static INLINE int checkFFC(const long ffc, const char * const str)
     {
-        // FFCs 33 to 128 exist in 2.55 and 3.0 quests (upstream's MAXFFCS is 128), not in this
-        // engine. Using one is no script error there, so it isn't logged here either: scripts
-        // that look through all 128 every frame wrote millions of lines to allegro.log, each
-        // flushed (OneScreenGollab). They still read as missing.
-        if(zasm30_ffscript_version != 0 && ffc >= MAXFFCS && ffc < 128)
+        // FFCs 33 to 128 exist in 2.55 and 3.0 quests (upstream's MAXFFCS is 128): every screen
+        // of one has them here too (mapscr::ffc_count). Past what the screen has is no script
+        // error there, so it isn't logged here either: scripts that look through all 128 every
+        // frame wrote millions of lines to allegro.log, each flushed (OneScreenGollab).
+        if(zasm30_ffscript_version != 0 && ffc >= 0 && ffc < tmpscr->ffc_count())
+            return _NoError;
+
+        // (nor is no FFC at all, Z30_NO_FFC)
+        if(zasm30_ffscript_version != 0 && ((ffc >= MAXFFCS && ffc < Q30_MAXFFCS) || ffc == Z30_NO_FFC))
             return _OutOfBounds;
 
         return checkBounds(ffc, 0, MAXFFCS-1, str);
@@ -3451,6 +3471,19 @@ static bool zasm30_item_flag_index(long id)
     return zasm30_ffscript_version && id >= q30_items_end();
 }
 
+// 2.55/3.0 quests with qr_SPRITEXY_IS_FLOAT (644): a script reads and sets Link's position with
+// its fraction, as upstream's Hero->X/Y/Z do; 2.53 quests and newer ones without the rule get
+// whole pixels. (Positions are in 1/10000 pixel, as scripts keep numbers.)
+static bool q30_link_xy_float()
+{
+    return q30_quest_rule(644);
+}
+
+static long q30_link_zlong(fix f)
+{
+    return (long)floor(double(f) * 10000.0 + 0.5);
+}
+
 long get_register(const long arg)
 {
     long ret = 0;
@@ -3578,15 +3611,24 @@ long get_register(const long arg)
 //Link's Variables
     // (positions in a 3.0 scrolling region are region pixels: q30_region_origin_x/y, else 0)
     case LINKX:
-        ret = (long(Link.getX()) + q30_region_origin_x()) * 10000;
+        if(q30_link_xy_float())
+            ret = q30_link_zlong(Link.getX()) + q30_region_origin_x() * 10000L;
+        else
+            ret = (long(Link.getX()) + q30_region_origin_x()) * 10000;
         break;
         
     case LINKY:
-        ret = (long(Link.getY()) + q30_region_origin_y()) * 10000;
+        if(q30_link_xy_float())
+            ret = q30_link_zlong(Link.getY()) + q30_region_origin_y() * 10000L;
+        else
+            ret = (long(Link.getY()) + q30_region_origin_y()) * 10000;
         break;
         
     case LINKZ:
-        ret = long(Link.getZ()) * 10000;
+        if(q30_link_xy_float())
+            ret = q30_link_zlong(Link.getZ());
+        else
+            ret = long(Link.getZ()) * 10000;
         break;
         
     case LINKJUMP:
@@ -5570,7 +5612,8 @@ void set_register(const long arg, const long value)
         
     case FFLINK:
 	if(BC::checkFFC(ri->ffcref, "ffc->Link") != SH::_NoError) break;
-        (tmpscr->fflink[ri->ffcref])=vbound(value/10000, 0, 32); //Needs to be 0 to be able to clear it. 
+        // (a 2.55/3.0 screen's FFCs can link to any of its 128, as upstream)
+        (tmpscr->fflink[ri->ffcref])=vbound(value/10000, 0, zasm30_ffscript_version ? tmpscr->ffc_count() : 32); //Needs to be 0 to be able to clear it.
         break;
         
     case FFMISCD:
@@ -5591,15 +5634,24 @@ void set_register(const long arg, const long value)
 //Link's Variables
     // (positions in a 3.0 scrolling region are region pixels: the current screen's offset comes off)
     case LINKX:
-        Link.setX(value/10000 - q30_region_origin_x());
+        if(q30_link_xy_float())
+            Link.setXfix(fix(value / 10000.0 - q30_region_origin_x()));
+        else
+            Link.setX(value/10000 - q30_region_origin_x());
         break;
         
     case LINKY:
-        Link.setY(value/10000 - q30_region_origin_y());
+        if(q30_link_xy_float())
+            Link.setYfix(fix(value / 10000.0 - q30_region_origin_y()));
+        else
+            Link.setY(value/10000 - q30_region_origin_y());
         break;
         
     case LINKZ:
-        Link.setZ(value/10000);
+        if(q30_link_xy_float())
+            Link.setZfix(fix(value / 10000.0));
+        else
+            Link.setZ(value/10000);
         break;
         
     case LINKJUMP:
@@ -5676,7 +5728,11 @@ void set_register(const long arg, const long value)
         	int setb = ((value/10000)&0xFF00)>>8, seta = (value/10000)&0xFF;
 		//Z_scripterrlog("A is: %d\n", seta);
 		//Z_scripterrlog("A is: %d\n", setb);
-        	
+
+			// 2.55/3.0 with the newer subscreens: as upstream, forced items with no slot (link.cpp)
+			if(q30_set_equipment(seta, setb))
+				break;
+
 			Awpn = seta;
 			game->awpn = seta;
 			game->items_off[seta] = 0;
@@ -9599,7 +9655,7 @@ static void zasm30_collect()
     for(size_t n = 0; n < zasm30_retired.size(); ++n)
         zasm30_mark_script(zasm30_retired[n]->ri, NULL, zasm30_retired[n]->frame, work);
 
-    for(int i = 0; i < 32; ++i)
+    for(int i = 0; i < tmpscr->ffc_count(); ++i)
     {
         if(tmpscr->ffscript[i])
             zasm30_mark_script(ffcScriptData[i], ffc_stack[i], zasm30_ffc_frame(i), work);
@@ -11857,7 +11913,7 @@ zasm30_wait:
 
         case SCRIPT_FFC:
             if(zasm30_ffscript_version)
-                zasm30_ffc_waitdraw |= (1u << (i & 31));
+                zasm30_ffc_waitdraw.set(i);
             else
                 Z_scripterrlog("Waitdraw can only be used in the active global script\n");
             break;
@@ -11981,7 +12037,7 @@ static void zasm30_apply_pending_warp();
 // in turn).
 static void zasm30_run_ffc_scripts(int preload)
 {
-    for(byte i = 0; i < MAXFFCS; i++)
+    for(int i = 0; i < tmpscr->ffc_count(); i++)   // (all 128 on a 2.55/3.0 screen)
     {
         if(tmpscr->ffscript[i] == 0)
             continue;

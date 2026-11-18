@@ -69,16 +69,17 @@ extern zinitdata zinit;
 extern LinkClass Link;
 int current_ffcombo=-1;
 
-short ffposx[32]= {-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,
+// FFC changer state, one per FFC slot (up to 2.55/3.0's 128; loadscr resets every one)
+short ffposx[Q30_MAXFFCS]= {-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,
                    -1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000
                   };
-short ffposy[32]= {-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,
+short ffposy[Q30_MAXFFCS]= {-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,
                    -1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000
                   };
-long ffprvx[32]= {-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,
+long ffprvx[Q30_MAXFFCS]= {-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,
                   -10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000
                  };
-long ffprvy[32]= {-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,
+long ffprvy[Q30_MAXFFCS]= {-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,
                   -10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000,-10000000
                  };
 
@@ -199,7 +200,7 @@ inline bool ffcIsAt(int index, int x, int y)
 
 int MAPFFCOMBO(int x,int y)
 {
-    for(int i=0; i<32; i++)
+    for(int i=0; i<tmpscr->ffc_count(); i++)
     {
         if(ffcIsAt(i, x, y))
             return tmpscr->ffdata[i];
@@ -248,7 +249,7 @@ int MAPCOMBOFLAG(int x,int y)
 
 int MAPFFCOMBOFLAG(int x,int y)
 {
-    for(int i=0; i<32; i++)
+    for(int i=0; i<tmpscr->ffc_count(); i++)
     {
         if(ffcIsAt(i, x, y))
         {
@@ -263,7 +264,7 @@ int MAPFFCOMBOFLAG(int x,int y)
 
 int getFFCAt(int x, int y)
 {
-    for(int i=0; i<32; i++)
+    for(int i=0; i<tmpscr->ffc_count(); i++)
     {
         if(ffcIsAt(i, x, y))
             return i;
@@ -664,7 +665,7 @@ static void update_screen_combo_cycling(int)
         newcset[i]=-1;
     }
     
-    for(int i=0; i<32; i++)
+    for(int i=0; i<tmpscr->ffc_count(); i++)
     {
         x=tmpscr->ffdata[i];
         y=animated_combo_table[x][0];
@@ -687,7 +688,7 @@ static void update_screen_combo_cycling(int)
         }
     }
     
-    for(int i=0; i<32; i++)
+    for(int i=0; i<tmpscr->ffc_count(); i++)
     {
         x=tmpscr->ffdata[i];
         y=animated_combo_table2[x][0];
@@ -710,7 +711,7 @@ static void update_screen_combo_cycling(int)
         }
     }
     
-    for(int i=0; i<32; i++)
+    for(int i=0; i<tmpscr->ffc_count(); i++)
     {
         if(newdata[i]==-1)
             continue;
@@ -987,7 +988,7 @@ int findtrigger(int scombo, bool ff)
     int iter;
     int ret = 0;
     
-    for(int j=0; j<(ff?32:176); j++)
+    for(int j=0; j<(ff?tmpscr->ffc_count():176); j++)
     {
         if(ff)
         {
@@ -1391,7 +1392,7 @@ void hidden_entrance(int tmp,bool , bool high16only,int single) //Perhaps better
         }
     }
     
-    for(int i=0; i<32; i++) //FFC 'trigger flags'
+    for(int i=0; i<s->ffc_count(); i++) //FFC 'trigger flags'
     {
         if(single>=0) if(i+176!=single) continue;
         
@@ -1609,7 +1610,7 @@ void hidden_entrance(int tmp,bool , bool high16only,int single) //Perhaps better
           */
     }
     
-    for(int i=0; i<32; i++) // FFCs
+    for(int i=0; i<s->ffc_count(); i++) // FFCs
     {
         if((!(q30_compat_rule(Q30_QR_ENEMIES_SECRET_ONLY_16_31) && (s->flags2&fCLEARSECRET)) /*Enemies->Secret*/ && single < 0) || high16only || s->flags4&fENEMYSCRTPERM)
         {
@@ -1853,7 +1854,9 @@ static void update_ffc_movement(int)
     const long wrap_r = (br + 32) * 10000L, wrap_b = (bb + 32) * 10000L;
     const long gone_l = (bl - 64) * 10000L, gone_t = (bt - 64) * 10000L;
     
-    for(int i=0; i<32; i++)
+    const int nffc = tmpscr->ffc_count();   // 32, or 128 on a 2.55/3.0 screen
+
+    for(int i=0; i<nffc; i++)
     {
         // Combo 0?
         if(tmpscr->ffdata[i]==0)
@@ -1874,7 +1877,7 @@ static void update_ffc_movement(int)
         // Check for changers
         if(tmpscr->fflink[i]==0)
         {
-            for(int j=0; j<32; j++)
+            for(int j=0; j<nffc; j++)
             {
                 // Combo 0?
                 if(tmpscr->ffdata[j]==0)
@@ -1932,10 +1935,10 @@ static void update_ffc_movement(int)
                         int k=0;
                         
                         if(tmpscr->ffflags[j]&ffSWAPNEXT)
-                            k=j<31?j+1:0;
+                            k=j<nffc-1?j+1:0;
                             
                         if(tmpscr->ffflags[j]&ffSWAPPREV)
-                            k=j>0?j-1:31;
+                            k=j>0?j-1:nffc-1;
                             
                         zc_swap(tmpscr->ffdata[j],tmpscr->ffdata[k]);
                         zc_swap(tmpscr->ffcset[j],tmpscr->ffcset[k]);
@@ -2195,6 +2198,12 @@ void bombdoor(int x,int y)
     }
 }
 
+// 2.55/3.0 FFC draw layers (mapscr fflayer): the layers the FFC pass (-3) draws, all of them
+// unless draw_screen's q30_ffc_layer picks one (newer quests). 2.53 draws every FFC after layer 1;
+// so do screen scrolling and the map view here.
+enum { Q30_FFC_ALL = 100 };
+static int q30_ffc_pass = Q30_FFC_ALL, q30_ffc_pass_also = Q30_FFC_ALL;
+
 void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool scrolling, int tempscreen)
 {
     static int mf;
@@ -2203,8 +2212,11 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
     {
     case -4: //overhead FFCs
     case -3:                                                //freeform combos
-        for(int i = 31; i >= 0; i--)
+        for(int i = layer->ffc_count()-1; i >= 0; i--)
         {
+            if(type == -3 && q30_ffc_pass != Q30_FFC_ALL && layer->fflayer[i] + 1 != q30_ffc_pass && layer->fflayer[i] + 1 != q30_ffc_pass_also)
+                continue;
+
             if(layer->ffdata[i])
             {
                 if(!(layer->ffflags[i]&ffCHANGER) && (!(layer->ffflags[i]&ffLENSVIS) || lensclk))
@@ -2983,6 +2995,33 @@ static void draw_background_layer3(BITMAP *lower, mapscr* this_screen)
     }
 }
 
+// Newer quests: the FFCs of draw layer `pass` (and `also`: a background layer 2 or 3 draws those
+// on -2 or -3), as upstream's do_ffc_layer, on the lower canvas (lower) or on temp_buf and
+// scrollbuf with the layers above the sprites. Nothing for 2.53 quests, whose FFCs all draw on 1.
+static void q30_ffc_layer(BITMAP *bmp, int pass, int also, mapscr *scr, bool lower)
+{
+    if(!zasm30_ffscript_version)
+        return;
+
+    q30_ffc_pass = pass;
+    q30_ffc_pass_also = also;
+
+    if(lower)
+    {
+        q30_region_lower_layer(bmp, Q30_LOWER_FFCS);
+        do_layer(bmp, -3, scr, q30_draw_cam_x, q30_draw_cam_y, 2);
+    }
+    else
+    {
+        if(q30_region_on()) q30_region_upper_layer(bmp, -3, scr, false);
+        else do_layer(bmp, -3, scr, 0, 0, 2);
+        if(bmp != scrollbuf)
+            do_layer(scrollbuf, -3, scr, 0, 0, 2);
+    }
+
+    q30_ffc_pass = q30_ffc_pass_also = Q30_FFC_ALL;
+}
+
 void draw_screen(mapscr* this_screen, bool showlink)
 {
 
@@ -3025,19 +3064,25 @@ void draw_screen(mapscr* this_screen, bool showlink)
     if(q30_new_layer_draw_order())
     {
         for(int l = -7; l <= -4; ++l)
+        {
+            q30_ffc_layer(lower, l, l, this_screen, true);
             q30_draw_script_layer(lower, l);
+        }
 
         q30_region_lower_layer(lower, Q30_LOWER_BG3);
         if(this_screen->flags7&fLAYER3BG)
             draw_background_layer3(lower, this_screen);
 
+        q30_ffc_layer(lower, -3, (this_screen->flags7&fLAYER3BG) ? 3 : -3, this_screen, true);
         q30_draw_script_layer(lower, -3);
 
         q30_region_lower_layer(lower, Q30_LOWER_BG2);
         if(this_screen->flags7&fLAYER2BG)
             draw_background_layer2(lower, this_screen);
 
+        q30_ffc_layer(lower, -2, (this_screen->flags7&fLAYER2BG) ? 2 : -2, this_screen, true);
         q30_draw_script_layer(lower, -2);
+        q30_ffc_layer(lower, -1, -1, this_screen, true);
         q30_draw_script_layer(lower, -1);
     }
     else
@@ -3046,9 +3091,13 @@ void draw_screen(mapscr* this_screen, bool showlink)
         if(this_screen->flags7&fLAYER2BG)
             draw_background_layer2(lower, this_screen);
 
+        q30_ffc_layer(lower, -2, (this_screen->flags7&fLAYER2BG) ? 2 : -2, this_screen, true);
+
         q30_region_lower_layer(lower, Q30_LOWER_BG3);
         if(this_screen->flags7&fLAYER3BG)
             draw_background_layer3(lower, this_screen);
+
+        q30_ffc_layer(lower, -3, (this_screen->flags7&fLAYER3BG) ? 3 : -3, this_screen, true);
     }
     
     q30_region_lower_layer(lower, Q30_LOWER_LAYER0);
@@ -3072,6 +3121,8 @@ void draw_screen(mapscr* this_screen, bool showlink)
             particles.spr(pcounter)->draw(lower);
         }
     }
+    
+    q30_ffc_layer(lower, 0, 0, this_screen, true);
     
     set_clip_rect(scrollbuf,draw_screen_clip_rect_x1,draw_screen_clip_rect_y1,draw_screen_clip_rect_x2,draw_screen_clip_rect_y2);
     
@@ -3118,8 +3169,13 @@ void draw_screen(mapscr* this_screen, bool showlink)
         }
     }
     
-    q30_region_lower_layer(lower, Q30_LOWER_FFCS);
-    do_layer(lower,-3, this_screen, q30_draw_cam_x, q30_draw_cam_y, 2); // freeform combos!
+    if(zasm30_ffscript_version)
+        q30_ffc_layer(lower, 1, 1, this_screen, true);  // newer quests: only those on layer 1 here
+    else
+    {
+        q30_region_lower_layer(lower, Q30_LOWER_FFCS);
+        do_layer(lower,-3, this_screen, q30_draw_cam_x, q30_draw_cam_y, 2); // freeform combos!
+    }
     
     q30_region_lower_layer(lower, Q30_LOWER_LAYER2);
     if(!(this_screen->flags7&fLAYER2BG))
@@ -3134,6 +3190,8 @@ void draw_screen(mapscr* this_screen, bool showlink)
                 particles.spr(pcounter)->draw(lower);
             }
         }
+        
+        q30_ffc_layer(lower, 2, 2, this_screen, true);
     }
 
     q30_draw_script_layer(lower, Q30_SPLAYER_FFC_DRAW);
@@ -3411,6 +3469,8 @@ void draw_screen(mapscr* this_screen, bool showlink)
                 particles.spr(pcounter)->draw(temp_buf);
             }
         }
+        
+        q30_ffc_layer(temp_buf, 3, 3, this_screen, false);
     }
     
     if(q30_region_on()) q30_region_upper_layer(temp_buf, 3, this_screen, true);
@@ -3425,6 +3485,8 @@ void draw_screen(mapscr* this_screen, bool showlink)
             particles.spr(pcounter)->draw(temp_buf);
         }
     }
+    
+    q30_ffc_layer(temp_buf, 4, 4, this_screen, false);
     
     if(q30_region_on()) q30_region_upper_layer(temp_buf, -1, this_screen, false);
     else do_layer(temp_buf,-1, this_screen, 0, 0, 2);
@@ -3531,6 +3593,8 @@ void draw_screen(mapscr* this_screen, bool showlink)
         }
     }
     
+    q30_ffc_layer(temp_buf, 5, 5, this_screen, false);
+    
     if(q30_region_on()) q30_region_upper_layer(temp_buf, -4, this_screen, false);
     else do_layer(temp_buf,-4, this_screen, 0, 0, 2); // overhead freeform combos!
     do_layer(scrollbuf, -4, this_screen, 0, 0, 2);
@@ -3547,6 +3611,8 @@ void draw_screen(mapscr* this_screen, bool showlink)
             particles.spr(pcounter)->draw(temp_buf);
         }
     }
+    
+    q30_ffc_layer(temp_buf, 6, 6, this_screen, false);
     
     //10. Blit temp_buf onto framebuf with clipping
     
@@ -3582,6 +3648,9 @@ void draw_screen(mapscr* this_screen, bool showlink)
         // Draw primitives over subscren
         do_primitives(framebuf, 7, this_screen, 0, playing_field_offset); //Layer '7' appears above subscreen if quest rule is set
     }
+    
+    // FFCs on layer 7 go over the subscreen, as upstream's
+    q30_ffc_layer(framebuf, 7, 7, this_screen, false);
     
     // 2.55/3.0: layer 6 and 7 strings over the subscreen and layer 7's drawing, as upstream
     // (q30_msg.cpp; nothing for 2.53 quests)
@@ -4110,6 +4179,10 @@ void loadscr(int tmp,int destdmap, int scr,int ldir,bool overlay=false)
     mapscr ffscr = tmpscr[tmp];
     tmpscr[tmp] = TheMaps[currmap*MAPSCRS+scr];
     
+    // 2.55/3.0: every screen has upstream's 128 FFC slots, used or not (scripts may fill any)
+    if(q30_active())
+        tmpscr[tmp].q30_extend_ffcs();
+    
     
     const int _mapsSize = ZCMaps[currmap].tileHeight*ZCMaps[currmap].tileWidth;
     tmpscr[tmp].data = TheMaps[currmap*MAPSCRS+scr].data;
@@ -4160,11 +4233,11 @@ void loadscr(int tmp,int destdmap, int scr,int ldir,bool overlay=false)
         // Before loading new FFCs, deallocate the arrays used by those that aren't carrying over
         for(long i = 1; i < MAX_ZCARRAY_SIZE && !region_other; i++)
         {
-            if(arrayOwner[i]<32 && (!(ffscr.ffflags[arrayOwner[i]]&ffCARRYOVER) || ffscr.flags5&fNOFFCARRYOVER))
+            if(arrayOwner[i]<ffscr.ffc_count() && (!(ffscr.ffflags[arrayOwner[i]]&ffCARRYOVER) || ffscr.flags5&fNOFFCARRYOVER))
                 deallocateArray(i);
         }
         
-        for(int i = 0; i < 32; i++)
+        for(int i = 0; i < tmpscr[tmp].ffc_count(); i++)
         {
             // If these aren't reset, changers may not work right
             ffposx[i]=-1000;
@@ -4188,6 +4261,7 @@ void loadscr(int tmp,int destdmap, int scr,int ldir,bool overlay=false)
                 tmpscr[tmp].ffheight[i] = ffscr.ffheight[i];
                 tmpscr[tmp].ffflags[i] = ffscr.ffflags[i];
                 tmpscr[tmp].ffscript[i] = ffscr.ffscript[i];
+                tmpscr[tmp].fflayer[i] = ffscr.fflayer[i];
                 
                 for(int j=0; j<2; ++j)
                 {

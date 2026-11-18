@@ -1,0 +1,350 @@
+#include "base/general.h"
+#include <assert.h>
+
+void set_bit(byte *bitstr,int32_t bit,bool val)
+{
+    bitstr += bit>>3;
+    byte mask = 1 << (bit&7);
+    
+    if(val)
+        *bitstr |= mask;
+    else
+        *bitstr &= ~mask;
+}
+
+int32_t get_bit(byte const *bitstr,int32_t bit)
+{
+    bitstr += bit>>3;
+    return ((*bitstr) >> (bit&7))&1;
+}
+
+bool toggle_bit(byte *bitstr,int32_t bit)
+{
+	bitstr += bit>>3;
+    byte mask = 1 << (bit&7);
+	*bitstr ^= mask;
+	return *bitstr&mask;
+}
+
+void set_bitl(int32_t bitstr,int32_t bit,bool val)
+{
+	if (val)
+		bitstr |= (1<<bit);
+	else bitstr &= ~(1<<bit);
+}
+
+int32_t get_bitl(int32_t bitstr,int32_t bit)
+{
+    return bitstr&(1<<bit); //intel u32
+}
+
+int vbound(int val, int low, int high)
+{
+	if(low > high) zc_swap(low,high);
+	if(val < low) return low;
+	if(val > high) return high;
+	return val;
+}
+double vbound(double val, double low, double high)
+{
+	if(low > high) zc_swap(low,high);
+	if(val < low) return low;
+	if(val > high) return high;
+	return val;
+}
+zfix vbound(zfix val, zfix low, zfix high)
+{
+	if(low > high) zc_swap(low,high);
+	if(val < low) return low;
+	if(val > high) return high;
+	return val;
+}
+zfix vbound(zfix val, int low, zfix high)
+{
+	if(low > high) zc_swap(low,high);
+	if(val < low) return low;
+	if(val > high) return high;
+	return val;
+}
+zfix vbound(zfix val, zfix low, int high)
+{
+	if(low > high) zc_swap(low,high);
+	if(val < low) return low;
+	if(val > high) return high;
+	return val;
+}
+zfix vbound(zfix val, int low, int high)
+{
+	if(low > high) zc_swap(low,high);
+	if(val < low) return low;
+	if(val > high) return high;
+	return val;
+}
+
+// exclusive of high
+int wrap(int x,int low,int high)
+{
+    while(x<low)
+        x+=high-low+1;
+
+    while(x>high)
+        x-=high-low+1;
+
+    return x;
+}
+// inclusive
+double wrap_float(double x,double low,double high)
+{
+    while(x<low)
+        x+=high-low;
+
+    while(x>high)
+        x-=high-low;
+
+    return x;
+}
+
+byte zq_fix_ui_color(byte color)
+{
+	switch (color)
+	{
+		case BLACK: return 0xE0;
+		case WHITE: return 0xEF;
+		default: return color;
+	}
+}
+
+direction X_DIR(int32_t dir)
+{
+	dir = NORMAL_DIR(dir);
+	if(dir < 0) return dir_invalid;
+	return xDir[dir];
+}
+direction Y_DIR(int32_t dir)
+{
+	dir = NORMAL_DIR(dir);
+	if(dir < 0) return dir_invalid;
+	return yDir[dir];
+}
+direction XY_DIR(int32_t xdir, int32_t ydir)
+{
+	if(X_DIR(xdir) < 0) return NORMAL_DIR(ydir);
+	if(Y_DIR(ydir) < 0) return NORMAL_DIR(xdir);
+	switch(X_DIR(xdir))
+	{
+		case right:
+			switch(Y_DIR(ydir))
+			{
+				case up: return r_up;
+				case down: return r_down;
+			}
+			break;
+		case left:
+			switch(Y_DIR(ydir))
+			{
+				case up: return l_up;
+				case down: return l_down;
+			}
+			break;
+	}
+	return dir_invalid;
+}
+direction GET_XDIR(zfix const& sign)
+{
+	if(sign < 0) return left;
+	if(sign) return right;
+	return dir_invalid;
+}
+direction GET_YDIR(zfix const& sign)
+{
+	if(sign < 0) return up;
+	if(sign) return down;
+	return dir_invalid;
+}
+direction GET_DIR(zfix const& dx, zfix const& dy)
+{
+	return XY_DIR(GET_XDIR(dx), GET_YDIR(dy));
+}
+
+direction XY_DELTA_TO_DIR(int32_t dx, int32_t dy)
+{
+	if (dx == 0 && dy == 0) return dir_invalid;
+	if (dx == 1 && dy == 0) return right;
+	if (dx == -1 && dy == 0) return left;
+	if (dx == 0 && dy == 1) return down;
+	if (dx == 0 && dy == -1) return up;
+	return dir_invalid;
+}
+
+bool viewport_t::intersects_with(int x, int y, int w, int h) const
+{
+	int l = x;
+	int r = x + w;
+	int t = y;
+	int b = y + h;
+	return left() <= r && right() > l && top() <= b && bottom() > t;
+}
+
+bool viewport_t::contains_point(int x0, int y0) const
+{
+	return left() <= x0 && right() > x0 && top() <= y0 && bottom() > y0;
+}
+
+bool viewport_t::contains_or_on(const viewport_t& other) const
+{
+	return other.right() <= right() && other.left() >= left() && other.top() >= top() && other.bottom() <= bottom();
+}
+
+int32_t viewport_t::visible_height(bool show_bottom_8px) const
+{
+	return h - (show_bottom_8px ? 0 : 8);
+}
+
+int32_t viewport_t::left() const
+{
+	return x;
+}
+
+int32_t viewport_t::right() const
+{
+	return x + w;
+}
+
+int32_t viewport_t::top() const
+{
+	return y;
+}
+
+int32_t viewport_t::bottom() const
+{
+	return y + h;
+}
+
+void rect_t::union_with(const rect_t& other)
+{
+	l = std::min(l, other.l);
+	r = std::max(r, other.r);
+	t = std::min(t, other.t);
+	b = std::max(b, other.b);
+}
+
+void rect_t::intersect_with(const rect_t& other)
+{
+	l = std::max(l, other.l);
+	r = std::min(r, other.r);
+	t = std::max(t, other.t);
+	b = std::min(b, other.b);
+
+	if (l > r || t > b)
+		l = r = t = b = 0;
+}
+
+bool rect_t::intersects_with(int x, int y, int w, int h) const
+{
+	return intersects_with(rect_t(x, y, w, h));
+}
+bool rect_t::intersects_with(const rect_t& other) const
+{
+	return std::max(t, other.t) < std::min(b, other.b) && std::max(l, other.l) < std::min(r, other.r);
+}
+
+int rect_t::left() const {return l;}
+int rect_t::right() const {return r;}
+int rect_t::top() const {return t;}
+int rect_t::bottom() const {return b;}
+int rect_t::width() const {return r-l;}
+int rect_t::height() const {return b-t;}
+
+void rect_t::expand(int dist)
+{
+	l -= dist;
+	r += dist;
+	t -= dist;
+	b += dist;
+}
+
+rect_t rect_t::expanded(int dist) const
+{
+	rect_t r(*this);
+	r.expand(dist);
+	return r;
+}
+
+const char* swp_strs[nswapMAX] = {"D", "H", "LD", "LH", "B"};
+
+const std::array<std::string, size_t(special_engine_export::max_value)> special_engine_export_names
+{
+	"NONE",
+	
+	"Tile", "Tile CSet", "Combo", "Combo CSet", "Color",
+	
+	"Item", "Enemy", "Counter", "Sprite Data", "SFX",
+	"MIDI", "Music", "Save Menu", "Message String",
+	"Weapon Type", "LWeapon Type", "EWeapon Type",
+	"Dropset", "Font", "Bottle Type", "Combo Type",
+	"Combo Flag", "Level Item"
+};
+std::string get_special_engine_export_name(special_engine_export idx)
+{
+	if (uint(idx) >= uint(special_engine_export::max_value))
+		return "";
+	return special_engine_export_names[int(idx)];
+}
+
+script_config::script_config(word script)
+	: script(script), inst_init()
+{
+	run_args.fill(0);
+}
+script_config::script_config(script_config const& other)
+{
+	*this = other;
+}
+script_config::script_config(script_config&& other) noexcept
+{
+	*this = other;
+}
+
+script_config& script_config::operator=(script_config const& other)
+{
+	script = other.script;
+	run_args = other.run_args;
+	inst_init = other.inst_init;
+	return *this;
+}
+script_config& script_config::operator=(script_config&& other) noexcept
+{
+	script = other.script;
+	run_args.fill(0);
+	inst_init.clear();
+	run_args.swap(other.run_args);
+	inst_init.swap(other.inst_init);
+	return *this;
+}
+
+bool script_config::empty() const
+{
+	if (script)
+		return false;
+	for (auto q : run_args)
+		if (q)
+			return false;
+	if (!inst_init.empty())
+		return false;
+	return true;
+}
+void script_config::clear()
+{
+	*this = script_config();
+}
+
+ScopeExitHandler::ScopeExitHandler(std::function<void()>&& proc)
+	: proc(proc)
+{}
+
+ScopeExitHandler::~ScopeExitHandler()
+{
+	if (proc)
+		proc();
+}
+

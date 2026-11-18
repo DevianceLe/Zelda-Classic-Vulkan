@@ -2788,3 +2788,18 @@ void zq255_string_copied(int from, int to)
 
     zq255.string_extras_from[to] = src;
 }
+
+// After an import put a whole string table in (zq_exports.cpp, with zq_part_rebase): the strings
+// as they stand are what the writer compares with from now on, and they have no settings edited
+// apart from it (the part holds the imported table, settings and all).
+void zq255_strings_rebased()
+{
+    g_loaded.string_count = msg_count;
+    g_loaded.strings.resize((size_t)msg_count * sizeof(MsgStr));
+
+    if(msg_count)
+        memcpy(&g_loaded.strings[0], MsgStrings, (size_t)msg_count * sizeof(MsgStr));
+
+    zq255.string_fields.clear();
+    zq255.string_extras_from.clear();
+}

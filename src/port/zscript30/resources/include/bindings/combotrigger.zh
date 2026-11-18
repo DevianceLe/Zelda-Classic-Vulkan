@@ -1,0 +1,1014 @@
+
+enum ComboTriggerFlag
+{
+	TRIGFLAG_SWORD, //Weapons->LWeapons->Sword - Triggered by Sword LWeapons
+	TRIGFLAG_SWORDBEAM, //Weapons->LWeapons->Sword Beam - Triggered by Sword Beam LWeapons
+	TRIGFLAG_BRANG, //Weapons->LWeapons->Boomerang - Triggered by Boomerang LWeapons
+	TRIGFLAG_BOMB, //Weapons->LWeapons->Bomb Boom - Triggered by Bomb (explosion) LWeapons
+	TRIGFLAG_SBOMB, //Weapons->LWeapons->Super Bomb Boom - Triggered by Super Bomb (explosion) LWeapons
+	TRIGFLAG_LITBOMB, //Weapons->LWeapons->Placed Bomb - Triggered by Bomb (placed) LWeapons
+	TRIGFLAG_LITSBOMB, //Weapons->LWeapons->Placed Super Bomb - Triggered by Super Bomb (placed) LWeapons
+	TRIGFLAG_ARROW, //Weapons->LWeapons->Arrow - Triggered by Arrow LWeapons
+	TRIGFLAG_FIRE, //Weapons->LWeapons->Fire - Triggered by Fire LWeapons
+	TRIGFLAG_WHISTLE, //Weapons->LWeapons->Whistle - Triggered by Whistle LWeapons (whistle played)
+	TRIGFLAG_BAIT, //Weapons->LWeapons->Bait - Triggered by Bait LWeapons
+	TRIGFLAG_WAND, //Weapons->LWeapons->Wand - Triggered by Wand Handle LWeapon
+	TRIGFLAG_MAGIC, //Weapons->LWeapons->Magic - Triggered by Magic LWeapons
+	TRIGFLAG_WIND, //Weapons->LWeapons->Wind - Triggered by Wind LWeapons
+	TRIGFLAG_REFMAGIC, //Weapons->LWeapons->Refl. Magic - Triggered by Reflected Magic LWeapons
+	TRIGFLAG_REFFIREBALL, //Weapons->LWeapons->Refl. Fireball - Triggered by Reflected Fireball LWeapons
+	TRIGFLAG_REFROCK, //Weapons->LWeapons->Refl. Rock - Triggered by Reflected Rock LWeapons
+	TRIGFLAG_HAMMER, //Weapons->LWeapons->Hammer - Triggered by Hammer LWeapon
+	TRIGFLAG_RESET_ANIM, //Effects->Reset Anim - On trigger, reset the animation of the combo.
+	TRIGFLAG_INVERT_PROXIMITY, //Conditions->Invert Proximity Req. - Proximity requirement is reversed
+	TRIGFLAG_BTN_TOP, //Other->Btn: Top - Triggered by button press from above
+	TRIGFLAG_BTN_BOTTOM, //Other->Btn: Bottom - Trigger by button press from below
+	TRIGFLAG_BTN_LEFT, //Other->Btn: Left - Trigger by button press from left
+	TRIGFLAG_BTN_RIGHT, //Other->Btn: Right - Trigger by button press from right
+	TRIGFLAG_INVERT_MIN_MAX, //Weapons->LWeapons->Max Level Instead - Treat the 'TriggerLevel' as a max instead of a min
+	TRIGFLAG_STEP, //Other->'Step->' - Triggered by 'Step->'
+	TRIGFLAG_STEP_SENS, //Other->'Step-> (Sensitive)' - Triggered by 'Step->Sensitive'
+	TRIGFLAG_SHUTTER, //Other->'Shutter->' - Triggered by 'Shutter->'
+	TRIGFLAG_CTYPE_EFFECTS, //Effects->'->ComboType Effects' - On trigger, cause the combo's type-related effects to occur. (ex: opening a chest)
+	// Don't allow the combo to trigger via it's normal trigger methods (ex: bush via slashing)
+	// Changing this for any trigger changes it for the whole combo
+	//
+	// @deprecated Use [combodata::OnlyGenTriggers] instead!
+	TRIGFLAG_ONLY_GENTRIG,
+	TRIGFLAG_KILL_WEAPON, //Weapons->Effects->'Kill Triggering Weapon' - If triggered by a weapon, kill the weapon.
+	TRIGFLAG_EW_FIREBALL, //Weapons->EWeapons->Fireball - Triggered by Fireball EWeapons
+	TRIGFLAG_HOOKSHOT, //Weapons->LWeapons->Hookshot - Triggered by Hookshot LWeapons
+	TRIGFLAG_SPARKLE, //Weapons->LWeapons->Sparkle - Triggered by Sparkle LWeapons
+	TRIGFLAG_BYRNA, //Weapons->LWeapons->Byrna - Triggered by Byrna LWeapons
+	TRIGFLAG_REFBEAM, //Weapons->LWeapons->Refl. Beam - Triggered by Reflected Beam LWeapons
+	TRIGFLAG_STOMP, //Weapons->LWeapons->Stomp - Triggered by Stomp Boot LWeapons
+	TRIGFLAG_SCRIPT1, //Weapons->LWeapons->Custom Weapon 1 - Triggered by 'Custom Weapon 01' LWeapons
+	TRIGFLAG_SCRIPT2, //Weapons->LWeapons->Custom Weapon 2 - Triggered by 'Custom Weapon 02' LWeapons
+	TRIGFLAG_SCRIPT3, //Weapons->LWeapons->Custom Weapon 3 - Triggered by 'Custom Weapon 03' LWeapons
+	TRIGFLAG_SCRIPT4, //Weapons->LWeapons->Custom Weapon 4 - Triggered by 'Custom Weapon 04' LWeapons
+	TRIGFLAG_SCRIPT5, //Weapons->LWeapons->Custom Weapon 5 - Triggered by 'Custom Weapon 05' LWeapons
+	TRIGFLAG_SCRIPT6, //Weapons->LWeapons->Custom Weapon 6 - Triggered by 'Custom Weapon 06' LWeapons
+	TRIGFLAG_SCRIPT7, //Weapons->LWeapons->Custom Weapon 7 - Triggered by 'Custom Weapon 07' LWeapons
+	TRIGFLAG_SCRIPT8, //Weapons->LWeapons->Custom Weapon 8 - Triggered by 'Custom Weapon 08' LWeapons
+	TRIGFLAG_SCRIPT9, //Weapons->LWeapons->Custom Weapon 9 - Triggered by 'Custom Weapon 09' LWeapons
+	TRIGFLAG_SCRIPT10, //Weapons->LWeapons->Custom Weapon 10 - Triggered by 'Custom Weapon 10' LWeapons
+	TRIGFLAG_AUTO, //Other->Always Triggered - Triggered automatically, every frame.
+	TRIGFLAG_TRIG_SECRETS, //Effects->Triggers Secrets - Triggered by 'Secrets->'
+	TRIGFLAG_INVERT_ITEMREQ, //Counters/Items->Invert Item Req - Invert the item requirement (require NOT having the item)
+	TRIGFLAG_CONSUME_ITEMREQ, //Counters/Items->Consume Item Req - On trigger, consume the required item.
+	TRIGFLAG_COUNTER_GE, //Counters/Items->'Require >=' - Only trigger if the counter has >= the specified amount
+	TRIGFLAG_COUNTER_LT, //Counters/Items->'Require <' - Only trigger if the counter has < the specified amount
+	TRIGFLAG_COUNTER_EAT, //Counters/Items->Consume Amount - Consume the specified amount from the counter. Negative amounts add.
+	TRIGFLAG_COUNTER_NOT_ONLY_TRIG_EAT, //Counters/Items->Consume w/o trig - Consume the specified amount from the counter even if the combo failed to trigger.
+	TRIGFLAG_LIGHTON, //Other->'Light On->' - Triggered by a lightbeam.
+	TRIGFLAG_LIGHTOFF, //Other->'Light Off->' - Triggered by lack of a lightbeam.
+	TRIGFLAG_PUSH, //Other->'Push->' - Triggered when the [Hero] pushes into the combo.
+	TRIGFLAG_LENS_ON, //Other->'Lens On->' - Triggered when the lens is revealing.
+	TRIGFLAG_LENS_OFF, //Other->'Lens Off->' - Triggered when the lens is not revealing.
+	TRIGFLAG_EW_ARROW, //Weapons->EWeapons->Arrow - Triggered by Arrow EWeapons
+	TRIGFLAG_EW_BRANG, //Weapons->EWeapons->Boomerang - Triggered by Boomerang EWeapons
+	TRIGFLAG_EW_SWORD, //Weapons->EWeapons->Sword - Triggered by Sword EWeapons
+	TRIGFLAG_EW_ROCK, //Weapons->EWeapons->Rock - Triggered by Rock EWeapons
+	TRIGFLAG_EW_SCRIPT1, //Weapons->EWeapons->Custom Weapon 1 - Triggered by 'Custom Weapon 01' EWeapons
+	TRIGFLAG_EW_SCRIPT2, //Weapons->EWeapons->Custom Weapon 2 - Triggered by 'Custom Weapon 02' EWeapons
+	TRIGFLAG_EW_SCRIPT3, //Weapons->EWeapons->Custom Weapon 3 - Triggered by 'Custom Weapon 03' EWeapons
+	TRIGFLAG_EW_SCRIPT4, //Weapons->EWeapons->Custom Weapon 4 - Triggered by 'Custom Weapon 04' EWeapons
+	TRIGFLAG_EW_SCRIPT5, //Weapons->EWeapons->Custom Weapon 5 - Triggered by 'Custom Weapon 05' EWeapons
+	TRIGFLAG_EW_SCRIPT6, //Weapons->EWeapons->Custom Weapon 6 - Triggered by 'Custom Weapon 06' EWeapons
+	TRIGFLAG_EW_SCRIPT7, //Weapons->EWeapons->Custom Weapon 7 - Triggered by 'Custom Weapon 07' EWeapons
+	TRIGFLAG_EW_SCRIPT8, //Weapons->EWeapons->Custom Weapon 8 - Triggered by 'Custom Weapon 08' EWeapons
+	TRIGFLAG_EW_SCRIPT9, //Weapons->EWeapons->Custom Weapon 9 - Triggered by 'Custom Weapon 09' EWeapons
+	TRIGFLAG_EW_SCRIPT10, //Weapons->EWeapons->Custom Weapon 10 - Triggered by 'Custom Weapon 10' EWeapons
+	TRIGFLAG_EW_MAGIC, //Weapons->EWeapons->Magic - Triggered by Magic EWeapons
+	TRIGFLAG_EW_BBLAST, //Weapons->EWeapons->Bomb Blast - Triggered by Bomb (explosion) EWeapons
+	TRIGFLAG_EW_SBBLAST, //Weapons->EWeapons->SBomb Blast - Triggered by Super Bomb (explosion) EWeapons
+	TRIGFLAG_EW_LITBOMB, //Weapons->EWeapons->Lit Bomb - Triggered by Bomb (unexploded) EWeapons
+	TRIGFLAG_EW_LITSBOMB, //Weapons->EWeapons->Lit SBomb - Triggered by Super Bomb (unexploded) EWeapons
+	TRIGFLAG_EW_FIRETRAIL, //Weapons->EWeapons->Fire Trail - Triggered by Fire Trail EWeapons
+	TRIGFLAG_EW_FLAME, //Weapons->EWeapons->Flame - Triggered by Flame EWeapons
+	TRIGFLAG_EW_WIND, //Weapons->EWeapons->Wind - Triggered by Wind EWeapons
+	TRIGFLAG_EW_FLAME2, //Weapons->EWeapons->Flame 2 - Triggered by Flame 2 EWeapons
+	TRIGFLAG_SPECIAL_ITEM, //States/Spawning->Spawns Special Item - The spawned item will be the special item
+	TRIGFLAG_EXST_ITEM, //States/Spawning->Trigger ExState after item pickup - Trigger ExState after picking up the spawned item
+	TRIGFLAG_EXST_ENEMY, //States/Spawning->Trigger ExState after enemy kill - Trigger ExState after killing the spawned enemy
+	TRIGFLAG_AUTOGRAB_ITEM, //States/Spawning->Spawned Item auto-collects - Spawned item auto-collects
+	TRIGFLAG_KILL_ENEMIES, //Other->'Enemies->' - Triggered when all enemies are killed
+	TRIGFLAG_SECRETSTR, //Other->'Secrets->' - Triggered when screen secrets are triggered
+	TRIGFLAG_THROWN, //Weapons->LWeapons->Thrown - Triggered by Thrown Object weapons
+	TRIGFLAG_QUAKESTUN, //Weapons->LWeapons->Quake Hammer - Triggered by a Quake Stun
+	TRIGFLAG_SQUAKESTUN, //Weapons->LWeapons->S. Quake Hammer - Triggered by a Super Quake Stun
+	TRIGFLAG_ANYFIRE, //Weapons->Other->Any Fire - Triggered by Any Fire
+	TRIGFLAG_STRONGFIRE, //Weapons->Other->Strong Fire - Triggered by Strong Fire
+	TRIGFLAG_MAGICFIRE, //Weapons->Other->Magic Fire - Triggered by Magic Fire
+	TRIGFLAG_DIVINEFIRE, //Weapons->Other->Divine Fire - Triggered by Divine Fire
+	TRIGFLAG_TRIGLEVELSTATE, //States/Spawning->'LevelState->' - Triggered by Level State
+	TRIGFLAG_LEVELSTATE, //States/Spawning->'->LevelState' - Triggers Level State
+	TRIGFLAG_TRIGGLOBALSTATE, //States/Spawning->'GlobalState->' - Triggered by Global State
+	TRIGFLAG_GLOBALSTATE, //States/Spawning->'->GlobalState' - Triggers Global State
+	TRIGFLAG_DO_KILL_ENEMIES, //Effects->Kill Enemies - Kill all enemies
+	TRIGFLAG_DO_CLEAR_ENEMIES, //Effects->Clear Enemies - Delete all enemies
+	TRIGFLAG_DO_CLEAR_LWEAPONS, //Effects->Clear LWeapons - Delete all lweapons
+	TRIGFLAG_DO_CLEAR_EWEAPONS, //Effects->Clear EWeapons - Delete all eweapons
+	TRIGFLAG_IGNITE_WEAPONS_ANY, //Weapons->Effects->Ignite Weapon (Any) - Light the triggering weapon on normal fire.
+	TRIGFLAG_IGNITE_WEAPONS_STRONG, //Weapons->Effects->Ignite Weapon (Strong) - Light the triggering weapon on strong fire.
+	TRIGFLAG_IGNITE_WEAPONS_MAGIC, //Weapons->Effects->Ignite Weapon (Magic) - Light the triggering weapon on magic fire.
+	TRIGFLAG_IGNITE_WEAPONS_DIVINE, //Weapons->Effects->Ignite Weapon (Divine) - Light the triggering weapon on divine fire.
+	TRIGFLAG_SEPARATE_WEAPON_TRIGGERS, //Weapons->Effects->Weapon Separate Triggers - Triggering weapons only trigger weapon-related effects
+	TRIGFLAG_TGROUP_CONTRIB, //States/Spawning->Contributes To TrigGroup - This combo contributes to its' TrigGroup
+	TRIGFLAG_TGROUP_LESS, //States/Spawning->'TrigGroup Less->' - When the number of combos that contribute to this combo's Trigger Group is LESS than the Trigger Group Val, trigger this combo.
+	TRIGFLAG_TGROUP_GREATER, //States/Spawning->'TrigGroup Greater->' - When the number of combos that contribute to this combo's Trigger Group is GREATER than the Trigger Group Val, trigger this combo.
+	TRIGFLAG_TRIG_PUSHED, //Other->'Pushed->' - Triggers when this combo, as a pushblock, settles into a new positon.
+	TRIGFLAG_TRIG_DIVE, //Other->'Dive->' - Triggers when the [Hero] dives on this combo.
+	TRIGFLAG_TRIG_DIVE_SENS, //Other->'Dive-> (Sensitive)' - Triggers when the [Hero] dives on this combo. More sensitive hitbox than [TRIGFLAG_TRIG_DIVE]
+	TRIGFLAG_REFARROW, //Weapons->LWeapons->Refl. Arrow - Triggered by Reflected Arrow LWeapons
+	TRIGFLAG_REFFIRE, //Weapons->LWeapons->Refl. Fire - Triggered by Reflected Fire LWeapons
+	TRIGFLAG_REFFIRE2, //Weapons->LWeapons->Refl. Fire 2 - Triggered by Reflected Fire 2 LWeapons
+	// Effects->Toggle Darkness - Toggle the screen being a dark room
+	//
+	// @versionadded 3.0
+	TRIGFLAG_TOGGLE_DARKNESS,
+	// Conditions->Req. Darkness - Can only trigger if the screen is a dark room
+	//
+	// @versionadded 3.0
+	TRIGFLAG_REQ_DARKNESS,
+	// Conditions->Req. Darkness - Can only trigger if the screen is lit (not a dark room)
+	//
+	// @versionadded 3.0
+	TRIGFLAG_REQ_NO_DARKNESS,
+	// Counters/Items->Require All - Require all the specified LItems to trigger the combo
+	//
+	// @versionadded 3.0
+	TRIGFLAG_LITEM_REQUIRE,
+	// Counters/Items->Require Not All - Require not all (some is ok) of the specified LItems to trigger the combo
+	//
+	// @versionadded 3.0
+	TRIGFLAG_LITEM_INV_REQUIRE,
+	// Counters/Items->'->Set' - Grants the specified LItems. If [TRIGFLAG_LITEM_UNSET] is also on, toggles them instead.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_LITEM_SET,
+	// Counters/Items->'->Unset' - Removes the specified LItems. If [TRIGFLAG_LITEM_SET] is also on, toggles them instead.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_LITEM_UNSET,
+	// Graphics->'->Clear Tint' - Clears the palette tint.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_TINT_CLEAR,
+	TRIGFLAG_ONLY_GROUNDED_WEAPONS, //Weapons->Other->'Only Grounded Weapons' - weapons with Z > 0 won't trigger the combo
+	// Counter/Items->'Apply Discount' - Wealth Medal items discount the counter cost
+	//
+	// @versionadded 3.0
+	TRIGFLAG_COUNTER_WEALTH_MEDAL,
+	// Triggers when screen/region loads, after levelstates and exstates are applied
+	//
+	// @versionadded 3.0
+	TRIGFLAG_SCREEN_LOAD,
+	// Unsets the [ExState] when triggered.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_UNSET_EXSTATE,
+	// Unsets the [ExDoorDir] when triggered.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_UNSET_EXDOOR,
+	// Can only trigger if the [Hero] is standing on ground. (Counts standing in sideview as well)
+	//
+	// @versionadded 3.0
+	TRIGFLAG_REQ_HERO_STANDING,
+	// Can only trigger if the [Hero] is NOT standing on ground. (Counts standing in sideview as well)
+	//
+	// @versionadded 3.0
+	TRIGFLAG_REQ_HERO_NOT_STANDING,
+	// Inverts the condition of [ReqPlayerZ]
+	//
+	// @versionadded 3.0
+	TRIGFLAG_INVERT_HERO_Z,
+	// Makes [TRIGFLAG_COUNTER_EAT] drain/fill gradually instead of all at once.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_COUNTER_GRADUAL,
+	// Makes [combotrigger->CounterAmount] a percentage instead of an amount.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_COUNTER_PERCENT,
+	// Makes [combotrigger->Copycat] not trigger this combo; it will only be used as an effect when another cause triggers this combo.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_NO_COPYCAT_CAUSE,
+	// Triggers when the [Hero] lands on this combo (after the combo's 'Landing' SFX plays)
+	//
+	// @versionadded 3.0
+	TRIGFLAG_HERO_LAND_HERE,
+	// Triggers when the [Hero] lands on the ground from the air, anywhere on the screen.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_HERO_LAND_ANYWHERE,
+	// When triggered, sets [Hero->X] to [combotrigger->DestHeroX].
+	//
+	// @versionadded 3.0
+	TRIGFLAG_SET_HERO_X_ABSOLUTE,
+	// When triggered, sets [Hero->X] to [combotrigger->DestHeroX] plus this combo's X position.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_SET_HERO_X_RELATIVE_CMB,
+	// When triggered, sets [Hero->X] to [combotrigger->DestHeroY].
+	//
+	// @versionadded 3.0
+	TRIGFLAG_SET_HERO_Y_ABSOLUTE,
+	// When triggered, sets [Hero->X] to [combotrigger->DestHeroY] plus this combo's Y position.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_SET_HERO_Y_RELATIVE_CMB,
+	// When triggered, sets [Hero->X] to [combotrigger->DestHeroZ].
+	//
+	// @versionadded 3.0
+	TRIGFLAG_SET_HERO_Z_ABSOLUTE,
+	// Triggers based on combotype-specific causes (ex. player falls down a pit / drowns)
+	//
+	// @versionadded 3.0
+	TRIGFLAG_CTYPE_CAUSES,
+	// Requires that [Hero->Jump] is >= [combotrigger->ReqHeroJump] to trigger.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_HERO_JUMP_GE,
+	// Requires that [Hero->Jump] is <= [combotrigger->ReqHeroJump] to trigger.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_HERO_JUMP_LE,
+	// Requires that [Hero->X] is >= [combotrigger->ReqHeroX] to trigger.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_HERO_X_GE,
+	// Requires that [Hero->X] is <= [combotrigger->ReqHeroX] to trigger.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_HERO_X_LE,
+	// [TRIGFLAG_HERO_X_GE] / [TRIGFLAG_HERO_X_LE] use '[combotrigger->ReqHeroX]' relative to the combo's position. For FFCs, uses a position based on the center of the hitbox.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_HERO_X_RELATIVE,
+	// Requires that [Hero->Y] is >= [combotrigger->ReqHeroY] to trigger.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_HERO_Y_GE,
+	// Requires that [Hero->Y] is <= [combotrigger->ReqHeroY] to trigger.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_HERO_Y_LE,
+	// [TRIGFLAG_HERO_Y_GE] / [TRIGFLAG_HERO_Y_LE] use '[combotrigger->ReqHeroY]' relative to the combo's position. For FFCs, uses a position based on the center of the hitbox.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_HERO_Y_RELATIVE,
+	// When triggered, sets [Hero->IceVx] to [combotrigger->ForceIceVx].
+	//
+	// @versionadded 3.0
+	TRIGFLAG_HERO_FORCE_VX,
+	// When triggered, sets [Hero->IceVy] to [combotrigger->ForceIceVy].
+	//
+	// @versionadded 3.0
+	TRIGFLAG_HERO_FORCE_VY,
+	// Changes [TRIGFLAG_IGNITE_WEAPONS_ANY],[TRIGFLAG_IGNITE_WEAPONS_STRONG],[TRIGFLAG_IGNITE_WEAPONS_MAGIC],[TRIGFLAG_IGNITE_WEAPONS_DIVINE] to 'Unignite' the weapon instead
+	//
+	// @versionadded 3.0
+	TRIGFLAG_UNIGNITE_WEAPONS,
+	// Makes triggers below this trigger on the same combo with the same cause NOT be triggered by this cause
+	//
+	// @versionadded 3.0
+	TRIGFLAG_CANCEL_TRIGGER,
+	// When triggered, sets [Screen->GravityStrength] and [Screen->TerminalVelocity] to [combotrigger->GravityStrength] and [combotrigger->TerminalVelocity] respectively.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_SET_GRAVITY,
+	// When triggered, resets [Screen->GravityStrength] and [Screen->TerminalVelocity] to the original values of the screen.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_REVERT_GRAVITY,
+	// Triggers when a pushblock is about to click into place replacing this combo
+	//
+	// @versionadded 3.0
+	TRIGFLAG_BLOCK_TRIGGER_SAME_LAYER,
+	// Triggers when a pushblock is about to click into place at this combo's position, on any layer
+	//
+	// @versionadded 3.0
+	TRIGFLAG_BLOCK_TRIGGER_ANY_LAYER,
+	// If true, the trigger will only trigger if some part of the combo is
+	// inside the [combotrigger->ViewportRange] from the edge of the viewport.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_VIEWPORT_REQ_ONSCREEN,
+	// If true, the trigger will only trigger if all of the combo is
+	// outside the [combotrigger->ViewportRange] from the edge of the viewport.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_VIEWPORT_REQ_OFFSCREEN,
+	// If true, the [combotrigger->SFX] will loop until stopped.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_SFX_LOOP,
+	// If true, the [combotrigger->SFX] will not be restarted if it was already playing.
+	// This allows changing the [combotrigger->SFXFrequency], [combotrigger->SFXPan], etc
+	// of an already-playing SFX.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_SFX_NO_RESTART,
+	// If true, the [combotrigger->SFX] will be stopped instead of being played.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_SFX_KILL,
+	// If true, the [combotrigger->ComboChange] will be an exact combo ID to change to, instead of a relative value.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_CMB_CHANGE_ABSOLUTE,
+	// If true, the [combotrigger->CSetChange] will be an exact combo ID to change to, instead of a relative value.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_CSET_CHANGE_ABSOLUTE,
+	// Triggers when the player swims in it
+	//
+	// @versionadded 3.0
+	TRIGFLAG_SWIMTRIG,
+	// Triggers when the player swims in it (more sensitively)
+	//
+	// @versionadded 3.0
+	TRIGFLAG_SWIMSENSTRIG,
+	// If true, the player's Hazard Respawn will be set to the combo's position.
+	// Also sets [Player->ForcedHazardRespawn] to true.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_RESPAWN_HERE,
+	// If true, sets [Player->ForcedHazardRespawn] to false.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_RESET_RESPAWN,
+	// Triggers when the screen unloads.
+	// Occurs after warp FX for warps, and before scrolling for scrolls.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_SCREENUNLOAD,
+	// Proximity respects player solidity hitbox size
+	//
+	// @versionadded 3.0
+	TRIGFLAG_PROX_USE_SOL_HITBOX,
+	// Proximity uses a square area instead of circle area
+	// i.e. it checks distance on each axis separately, rather than diagonal distance.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_PROX_USE_SQUARE,
+	// Makes [TRIGFLAG_COUNTER_EAT] drain even if the player doesn't have
+	// the specified amount of the counter.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_COUNTER_PARTIAL_CONSUME,
+	// Trigger condition: only occurs during Map View (spacebar map).
+	//
+	// @versionadded 3.0
+	TRIGFLAG_MAPVIEW_ONLY,
+	// Trigger condition: never occurs during Map View (spacebar map).
+	//
+	// @versionadded 3.0
+	TRIGFLAG_MAPVIEW_NEVER,
+	// Trigger cause: combo position specific state ([combotrigger::ComboPosState])
+	// Works like ExState, only causing combo/cset change, reset anim, and copycat effects.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_COMBOPOSSTATE_CAUSE,
+	// Trigger condition: combo position specific state ([combotrigger::ComboPosState])
+	//
+	// @versionadded 3.0
+	TRIGFLAG_COMBOPOSSTATE_REQ,
+	// Trigger condition: not combo position specific state ([combotrigger::ComboPosState])
+	//
+	// @versionadded 3.0
+	TRIGFLAG_COMBOPOSSTATE_UNREQ,
+	// Trigger effect: set combo position specific state ([combotrigger::ComboPosState])
+	// Combined with [TRIGFLAG_COMBOPOSSTATE_UNSET] is also on, toggles state instead.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_COMBOPOSSTATE_SET,
+	// Trigger effect: unset combo position specific state ([combotrigger::ComboPosState])
+	// Combined with [TRIGFLAG_COMBOPOSSTATE_SET] is also on, toggles state instead.
+	//
+	// @versionadded 3.0
+	TRIGFLAG_COMBOPOSSTATE_UNSET,
+	// Trigger effect: cause all combos in this combo's 'Large Combo' group
+	// as determined by [combodata::LargeComboDirs] to trigger all triggers they
+	// have with [TRIGFLAG_TRIGGERED_BY_LARGE_COMBO_COPYCAT] set, and the same
+	// [combotrigger::LargeComboCopycatID].
+	//
+	// @versionadded 3.0
+	TRIGFLAG_TRIGGER_LARGE_COMBO_COPYCAT,
+	// Trigger cause: caused when any combo in this combo's 'Large Combo' group
+	// as determined by [combodata::LargeComboDirs] trigger a trigger they
+	// have with [TRIGFLAG_TRIGGER_LARGE_COMBO_COPYCAT] set, and the same
+	// [combotrigger::LargeComboCopycatID].
+	//
+	// @versionadded 3.0
+	TRIGFLAG_TRIGGERED_BY_LARGE_COMBO_COPYCAT,
+
+	TRIGFLAG_MAX
+};
+
+// Load with [combodata::Triggers] or [combodata::GetTrigger]
+//
+// @versionadded 3.0
+// @zasm_ref REFCOMBOTRIGGER
+class combotrigger {
+	// @delete
+	internal combotrigger();
+	
+	// The flags of this trigger.
+	//
+	// @index [enum ComboTriggerFlag]
+	// @zasm_var CMBTRIGFLAGS
+	internal bool Flags[];
+	
+	// Array of 8 buttons that can trigger the combo when pressed
+	// (while the player is standing close to and facing the combo)
+	//
+	// @index [enum InteractButton]
+	// @zasm_var CMBTRIGBUTTON
+	internal bool Button[];
+	
+	// Used as a minimum (or maximum, if [TRIGFLAG_INVERT_MIN_MAX] is set) level
+	// for any weapon-based triggers.
+	//
+	// @zasm_var CMBTRIGWPNLEVEL
+	internal int WeaponLevel;
+	
+	// If set to non-0, represents an item that must be owned (or must NOT
+	//   be owned, if [TRIGFLAG_INVERT_ITEMREQ] is set).
+	//
+	// If [TRIGFLAG_CONSUME_ITEMREQ] is set, triggering the combo will consume this item,
+	// removing it from the player's inventory.
+	// 
+	// @zasm_var CMBTRIGREQITEM
+	internal int ReqItem;
+	
+	// Timer. The combo triggers every this many frames if >0.
+	// @zasm_var CMBTRIGTIMER
+	internal int Timer;
+
+	// The SFX to play when the combo is triggered. If 0, no SFX will be played.
+	//
+	// @zasm_var CMBTRIGSFX
+	internal int SFX;
+	
+	// The Pan to use for the [SFX]. -1 will pan based on the combo's position,
+	// values 0-255 will specify a specific pan. 128 is centered.
+	//
+	// @value -1 <= N <= 255
+	// @zasm_var CMBTRIGGER_SFX_PAN
+	internal int SFXPan;
+	
+	// The volume to use for the [SFX], as a percentage of the base volume.
+	//
+	// @value 0 <= N <= 255
+	// @zasm_var CMBTRIGGER_SFX_VOLUME
+	internal int SFXVolume;
+	
+	// The frequency to use for the [SFX]. -1 will use the default for the SFX,
+	// otherwise this value will be used in Hz.
+	//
+	// @value -1 or higher
+	// @zasm_var CMBTRIGGER_SFX_FREQUENCY
+	internal int SFXFrequency;
+
+	// The amount the combo will change by when triggered.
+	//
+	// Ex. `1` acts as '->Next', `-1` acts as '->Prev'.
+	// If `0`, no change occurs.
+	//
+	// If [TRIGFLAG_CMB_CHANGE_ABSOLUTE] is set, then this
+	// is instead an EXACT combo ID to change to.
+	//
+	// @zasm_var CMBTRIGCHANGECMB
+	internal int ComboChange;
+
+	// The amount the cset will change by when triggered.
+	//
+	// If [TRIGFLAG_CSET_CHANGE_ABSOLUTE] is set, then this
+	// is instead an EXACT cset to change to.
+	//
+	// @zasm_var CMBTRIGCSETCHANGE
+	internal int CSetChange;
+	
+	// The player proximity requirement. If >0, when the combo is triggered,
+	// the trigger will be canceled if the player is not within this distance in pixels.
+	//
+	// If [TRIGFLAG_INVERT_PROXIMITY] is set, the trigger will instead be canceled if the player IS
+	// within this distance in pixels.
+	//
+	// @zasm_var CMBTRIGPROX
+	internal int Proximity;
+
+	// The light beam trigger set that (may) trigger this combo.
+	//
+	// 0 means any beams, 1-32 mean only matching beams.
+	//
+	// Related:
+	// - [TRIGFLAG_LIGHTON] (trigger when hit by matching light)
+	// - [TRIGFLAG_LIGHTOFF] (trigger when NOT hit by matching
+	// light)
+	//
+	// @zasm_var CMBTRIGLIGHTBEAM
+	internal int LightBeam;
+	
+	// The counter used by this trigger.
+	//
+	// With [TRIGFLAG_COUNTER_GE], cancels the trigger if the counter is < the [CounterAmount].
+	// With [TRIGFLAG_COUNTER_LT], cancels the trigger if the counter is >= the [CounterAmount].
+	// With [TRIGFLAG_COUNTER_EAT], consumes the [CounterAmount] from the counter when triggered.
+	// With [TRIGFLAG_COUNTER_PERCENT], the [CounterAmount] is treated as a percentage of the max of this counter.
+	// ...and with [TRIGFLAG_COUNTER_NOT_ONLY_TRIG_EAT], the consumed amount consumes even if the combo
+	// fails to trigger (ex. via failing a conditional)
+	//
+	// @zasm_var CMBTRIGCTR
+	internal int Counter;
+	
+	// The counter amount used by this trigger. See [Counter].
+	// @zasm_var CMBTRIGCTRAMNT
+	internal int CounterAmount;
+
+	// The combo's cooldown between triggers
+	//
+	// @zasm_var CMBTRIGCOOLDOWN
+	internal int Cooldown;
+
+	// If > 0, triggering this combo triggers all other triggers with matching Copycat.
+	// If [TRIGFLAG_NO_COPYCAT_CAUSE] is set, this combo will not be triggered
+	// by other combos in this manner; but will still trigger other combos.
+	//
+	// @zasm_var CMBTRIGCOPYCAT
+	internal int Copycat;
+
+	// Used by [TRIGFLAG_TRIGGER_LARGE_COMBO_COPYCAT] and
+	// [TRIGFLAG_TRIGGERED_BY_LARGE_COMBO_COPYCAT].
+	//
+	// @versionadded 3.0
+	// @zasm_var CMBTRIG_LARGECOMBO_COPYCAT
+	internal int LargeComboCopycatID;
+
+	// The item pickup bitflags for the spawned item.
+	//
+	// Only these bitflags are used: [IP_HOLDUP], [IP_TIMEOUT], [IP_TRIGGERSECRETS], and [IP_ALWAYSGRAB].
+	//
+	// @value [enum ItemPickupBitflags]
+
+	// @zasm_var CMBTRIGITEMPICKUP
+	internal int SpawnItemPickup;
+
+	// If > -1, the ExState that the combo is linked to.
+	//
+	// @zasm_var CMBTRIGEXSTATE
+	internal int ExState;
+	
+	// 0-7. Used by [TRIGFLAG_COMBOPOSSTATE_CAUSE], [TRIGFLAG_COMBOPOSSTATE_REQ],
+	// [TRIGFLAG_COMBOPOSSTATE_UNREQ], [TRIGFLAG_COMBOPOSSTATE_SET],
+	// and [TRIGFLAG_COMBOPOSSTATE_UNSET].
+	//
+	// Ref: [Screen->PosState], [ffc::PosState], [mapdata::PosState], [mapdata::FFCPosState]
+	//
+	// @versionadded 3.0
+	// @zasm_var CMBTRIGPOSSTATE
+	internal int ComboPosState;
+
+	// If > -1, the direction of ExDoor that the combo is linked to
+	//
+	// @zasm_var CMBTRIGEXDOORDIR
+	internal int ExDoorDir;
+
+	// If [TrigExDoorDir] is > -1, the index of that direction of ExDoor that
+	// the combo is linked to.
+	//
+	// @zasm_var CMBTRIGEXDOORIND
+	internal int ExDoorIndex;
+
+	// If > 0, the enemy ID spawned when the combo is triggered.
+	//
+	// @zasm_var CMBTRIGSPAWNENEMY
+	internal int SpawnEnemy;
+
+	// If > 0, the item ID (or dropset ID) spawned when the combo is triggered.
+	//
+	// @zasm_var CMBTRIGSPAWNITEM
+	internal int SpawnItem;
+
+	// The LevelState used for the [TRIGFLAG_TRIGLEVELSTATE] and
+	// [TRIGFLAG_LEVELSTATE]
+	//
+	// flags. 0-31, inclusive.
+	//
+	// @zasm_var CMBTRIGLSTATE
+	internal int LevelState;
+
+	// The GlobalState used for the [TRIGFLAG_TRIGGLOBALSTATE] and
+	// [TRIGFLAG_GLOBALSTATE]
+	//
+	// flags. 0-255, inclusive.
+	//
+	// @zasm_var CMBTRIGGSTATE
+	internal int GlobalState;
+
+	// If `> 0`,  the global trigger caused by [TRIGFLAG_GLOBALSTATE] will set
+	// to the 'on' state with this value as a timer in frames.
+	//
+	// If this value is 0, it instead toggles the state as normal.
+	//
+	// @zasm_var CMBTRIGGTIMER
+	internal int GStateTimer;
+
+	// When triggered, this generic script will be run in the 'RunFrozen' mode.
+	//
+	// @zasm_var CMBTRIGGENSCRIPT
+	internal int GenScript;
+
+	// The Trigger Group used for the [TRIGFLAG_TGROUP_CONTRIB],
+	// `TRIGFLAG_TGROUP_LESS`, and [TRIGFLAG_TGROUP_GREATER] flags.
+	//
+	// 0-255, inclusive.
+	//
+	// @zasm_var CMBTRIGGROUP
+	internal int TrigGroup;
+
+	// The value used for the [TRIGFLAG_TGROUP_LESS] and
+	// [TRIGFLAG_TGROUP_GREATER] flags.
+	//
+	// 0-65535, inclusive.
+	//
+	// @zasm_var CMBTRIGGROUPVAL
+	internal int TrigGroupVal;
+
+	// 'LI_' flags used by the
+	// [TRIGFLAG_LITEM_REQUIRE],
+	// [TRIGFLAG_LITEM_INV_REQUIRE],
+	// [TRIGFLAG_LITEM_SET],
+	// [TRIGFLAG_LITEM_UNSET]
+	// flags. See [DMapLvl].
+	//
+	// @zasm_var CMBTRIGLITEMS
+	internal int LItems;
+
+	// The 'Level' used by [LItems], [ReqLevelState], [UnreqLevelState].
+	//
+	// -1 represents the 'current level', otherwise a valid dmap level indicates
+	// that level.
+	//
+	// @zasm_var CMBTRIGDMAPLVL
+	internal int DMapLvl;
+	
+	// Which of the 32 level states for the [DMapLvl] are required to be ON for this trigger to activate
+	//
+	// @length 32
+	// @zasm_var CMBTRIGREQLVLSTATE
+	internal bool ReqLevelState[];
+	
+	// Which of the 32 level states for the [DMapLvl] are required to be OFF for this trigger to activate
+	//
+	// @length 32
+	// @zasm_var CMBTRIGUNREQLVLSTATE
+	internal bool UnreqLevelState[];
+	
+	// Which of the 256 global states are required to be ON for this trigger to activate
+	//
+	// @length 256
+	// @zasm_var CMBTRIGREQGLOBALSTATE
+	internal bool ReqGlobalState[];
+	
+	// Which of the 256 global states are required to be OFF for this trigger to activate
+	//
+	// @length 256
+	// @zasm_var CMBTRIGUNREQGLOBALSTATE
+	internal bool UnreqGlobalState[];
+	
+	// Which of the screen states for this combo's screen are required to be ON for this trigger to activate
+	//
+	// @index [enum ScreenState]
+	// @zasm_var CMBTRIGREQSCRSTATE
+	internal bool ReqScreenState[];
+	
+	// Which of the screen states for this combo's screen are required to be OFF for this trigger to activate
+	//
+	// @index [enum ScreenState]
+	// @zasm_var CMBTRIGUNREQSCRSTATE
+	internal bool UnreqScreenState[];
+	
+	// Which of the 32 screen exstates for this combo's screen are required to be ON for this trigger to activate
+	//
+	// @length 32
+	// @zasm_var CMBTRIGREQSCREXSTATE
+	internal bool ReqScreenExState[];
+	
+	// Which of the 32 screen exstates for this combo's screen are required to be OFF for this trigger to activate
+	//
+	// @length 32
+	// @zasm_var CMBTRIGUNREQSCREXSTATE
+	internal bool UnreqScreenExState[];
+	
+	// Get if a specified exdoor state is required to be ON for this trigger to activate
+	//
+	// @zasm
+	//   PEEKATV REFCOMBOTRIGGER 0.0002
+	//   SETR D2 CMBTRIG_REQ_SCREXDOOR
+	//   POPARGS D5 0.0003
+	internal int GetReqExDoor(int dir, int index);
+	
+	// Set if a specified exdoor state is required to be ON for this trigger to activate
+	//
+	// @zasm
+	//   POP D2
+	//   PEEKATV REFCOMBOTRIGGER 0.0002
+	//   SETR CMBTRIG_REQ_SCREXDOOR D2
+	//   POPARGS D5 0.0003
+	internal void SetReqExDoor(int dir, int index, bool state);
+	
+	// Get if a specified exdoor state is required to be OFF for this trigger to activate
+	//
+	// @zasm
+	//   PEEKATV REFCOMBOTRIGGER 0.0002
+	//   SETR D2 CMBTRIG_UNREQ_SCREXDOOR
+	//   POPARGS D5 0.0003
+	internal int GetUnreqExDoor(int dir, int index);
+	
+	// Set if a specified exdoor state is required to be OFF for this trigger to activate
+	//
+	// @zasm
+	//   POP D2
+	//   PEEKATV REFCOMBOTRIGGER 0.0002
+	//   SETR CMBTRIG_UNREQ_SCREXDOOR D2
+	//   POPARGS D5 0.0003
+	internal void SetUnreqExDoor(int dir, int index, bool state);
+
+	// The 'Map' used by [ReqScreenState], [UnreqScreenState], [ReqScreenExState], [UnreqScreenExState],
+	// [GetReqExDoor], [SetReqExDoor], [GetUnreqExDoor], [SetUnreqExDoor].
+	//
+	// 0 represents the 'current map + screen', otherwise a valid map indicates that map.
+	//
+	// @zasm_var CMBTRIGREQSTATEMAP
+	internal int StateMap;
+
+	// The 'Screen' used by [ReqScreenState], [UnreqScreenState], [ReqScreenExState], [UnreqScreenExState],
+	// [GetReqExDoor], [SetReqExDoor], [GetUnreqExDoor], [SetUnreqExDoor].
+	//
+	// If [StateMap] is 0, this value is ignored (the 'current map + screen' is used).
+	// Otherwise, this screen on the [StateMap] will be used.
+	//
+	// @zasm_var CMBTRIGREQSTATESCREEN
+	internal int StateScreen;
+
+	// When triggered, plays this music.
+	// [MUSIC_INHERIT] will play the current screen/dmap music.
+	// [MUSIC_SILENCE] / NULL will stop any currently playing music.
+	// [MUSIC_TRIGGER_NONE] as a special value means NOT to play or stop any music.
+	//
+	// @zasm_var CMBTRIG_PLAY_MUSIC
+	internal musicdata PlayMusic;
+	
+	// When triggered, if > -1, sets [Audio->MusicRefresh] to this value.
+	// '-1' as a value indicates not to change [Audio->MusicRefresh].
+	// See [MusicRefreshMode] for other values.
+	//
+	// @zasm_var CMBTRIG_MUSIC_REFRESH
+	internal int MusicRefresh;
+
+	// When triggered, the palette is tinted on the red channel by this amount. -255 to 255.
+	//
+	// -63 to 63 if compat QR "Scripts use 6-bit color (0-63) instead of 8-bit (0-255)" is enabled.
+	//
+	// @zasm_var CMBTRIGTINTR
+	internal int TintR;
+
+	// When triggered, the palette is tinted on the green channel by this amount. -255 to 255.
+	//
+	// -63 to 63 if compat QR "Scripts use 6-bit color (0-63) instead of 8-bit (0-255)" is enabled.
+	//
+	// @zasm_var CMBTRIGTINTG
+	internal int TintG;
+
+	// When triggered, the palette is tinted on the blue channel by this amount. -255 to 255.
+	//
+	// -63 to 63 if compat QR "Scripts use 6-bit color (0-63) instead of 8-bit (0-255)" is enabled.
+	//
+	// @zasm_var CMBTRIGTINTB
+	internal int TintB;
+
+	// The level palette to change to when triggered. -1 for none, -2 for "editor palette of current screen"
+	//
+	// @zasm_var CMBTRIGLVLPAL
+	internal int LvlPal;
+
+	// The boss palette to change to when triggered. -1 for none.
+	//
+	// @zasm_var CMBTRIGBOSSPAL
+	internal int BossPal;
+
+	// The quake timer to set when triggered. -1 for none.
+	//
+	// @zasm_var CMBTRIGQUAKETIME
+	internal int QuakeTimer;
+
+	// The wavy timer to set when triggered. -1 for none.
+	//
+	// @zasm_var CMBTRIGWAVYTIME
+	internal int WavyTimer;
+
+	// The duration to Sword Jinx the [Hero] for. -2 for none, -1 for 'until
+	// cured', 0 to cure.
+	//
+	// @zasm_var CMBTRIGSWORDJINX
+	internal int SwordJinx;
+
+	// The duration to Item Jinx the [Hero] for. -2 for none, -1 for 'until
+	// cured', 0 to cure.
+	//
+	// @zasm_var CMBTRIGITEMJINX
+	internal int ItemJinx;
+
+	// The duration to Shield Jinx the [Hero] for. -2 for none, -1 for 'until
+	// cured', 0 to cure.
+	//
+	// @zasm_var CMBTRIGSHIELDJINX
+	internal int ShieldJinx;
+
+	// The duration to Stun the [Hero] for. -2 for none, -1 for 'until cured', 0
+	// to cure.
+	//
+	// @zasm_var CMBTRIGSTUN
+	internal int Stun;
+
+	// The duration to Bunny the [Hero] for. -2 for none, -1 for 'until cured',
+	// 0 to cure.
+	//
+	// @zasm_var CMBTRIGBUNNY
+	internal int Bunny;
+
+	// The duration that the combo must be pushed against for the 'Push->'
+	// trigger flag to take effect.
+	//
+	// @zasm_var CMBTRIGPUSHTIME
+	internal int PushTime;
+	
+	// The combo ID to be displayed when in range to trigger a [Button].
+	//
+	// @zasm_var CMBTRIGGERPROMPTCID
+	internal int PromptCombo;
+	
+	// The CSet for the [PromptCombo].
+	//
+	// @zasm_var CMBTRIGGERPROMPTCS
+	internal int PromptCSet;
+	
+	// The combo ID to be displayed when in range to trigger a [Button],
+	//  but the trigger conditions fail.
+	//
+	// @zasm_var CMBTRIGGERFAILPROMPTCID
+	internal int FailPromptCombo;
+	
+	// The CSet for the [FailPromptCombo].
+	//
+	// @zasm_var CMBTRIGGERFAILPROMPTCS
+	internal int FailPromptCSet;
+	
+	// The X position for the [PromptCombo]/[FailPromptCombo].
+	//
+	// @zasm_var CMBTRIGGERPROMPTX
+	internal int PromptX;
+	
+	// The Y position for the [PromptCombo]/[FailPromptCombo].
+	//
+	// @zasm_var CMBTRIGGERPROMPTY
+	internal int PromptY;
+	
+	// The message string to play when the combo is triggered.
+	//
+	// @zasm_var CMBTRIGGERTRIGSTR
+	internal int TriggerString;
+	
+	// The message string to play when the combo is triggered, but the trigger conditions fail.
+	//
+	// @zasm_var CMBTRIGGERFAILSTR
+	internal int FailString;
+	
+	// The [Hero->Jump] value is set to this value (if non-zero) when triggered.
+	//
+	// @zasm_var CMBTRIGGERPLAYERBOUNCE
+	internal int HeroBounce;
+	
+	// Add this value to [Hero->X].
+	// Also used with [TRIGFLAG_SET_HERO_X_ABSOLUTE] and [TRIGFLAG_SET_HERO_X_RELATIVE_CMB].
+	//
+	// @zasm_var CMBTRIGGERDESTHEROX
+	internal int DestHeroX;
+	
+	// Add this value to [Hero->Y].
+	// Also used with [TRIGFLAG_SET_HERO_Y_ABSOLUTE] and [TRIGFLAG_SET_HERO_Y_RELATIVE_CMB].
+	//
+	// @zasm_var CMBTRIGGERDESTHEROY
+	internal int DestHeroY;
+	
+	// Add this value to [Hero->Z].
+	// Also used with [TRIGFLAG_SET_HERO_Z_ABSOLUTE].
+	//
+	// @zasm_var CMBTRIGGERDESTHEROZ
+	internal int DestHeroZ;
+	
+	// If > -1, set [Hero->Dir] to this value.
+	//
+	// @zasm_var CMBTRIGGERFORCEPLAYERDIR
+	internal int ForceHeroDir;
+	
+	// Only used by [TRIGFLAG_HERO_X_GE] / [TRIGFLAG_HERO_X_LE].
+	// Related: [TRIGFLAG_HERO_X_RELATIVE]
+	//
+	// @zasm_var CMBTRIGGERREQPLAYERX
+	internal int ReqHeroX;
+	
+	// Only used by [TRIGFLAG_HERO_Y_GE] / [TRIGFLAG_HERO_Y_LE].
+	// Related: [TRIGFLAG_HERO_Y_RELATIVE]
+	//
+	// @zasm_var CMBTRIGGERREQPLAYERY
+	internal int ReqHeroY;
+	
+	// Requires that [Hero->Z] is >= this value to trigger.
+	//
+	// If [TRIGFLAG_INVERT_HERO_Z] is set, requires that [Hero->Z] is < this instead.
+	//
+	// @zasm_var CMBTRIGGERREQPLAYERZ
+	internal int ReqHeroZ;
+	
+	// Only used by [TRIGFLAG_HERO_JUMP_GE] / [TRIGFLAG_HERO_JUMP_LE].
+	//
+	// @zasm_var CMBTRIGGERREQPLAYERJUMP
+	internal int ReqHeroJump;
+	
+	// If any index is true, the [Hero->Dir] must match a true index for the combo to trigger.
+	//
+	// @index [enum Direction]
+	// @zasm_var CMBTRIGGERREQPLAYERDIR
+	internal bool ReqHeroDir[];
+	
+	// If >-1, sets [Hero->ScriptIceCombo] to this value.
+	//
+	// @zasm_var CMBTRIGGERICECOMBO
+	internal int ForceIceCombo;
+	
+	// Sets [Hero->IceVx] to this value if [TRIGFLAG_HERO_FORCE_VX] is set;
+	//
+	// @zasm_var CMBTRIGGERICEVX
+	internal int ForceIceVx;
+	
+	// Sets [Hero->IceVy] to this value if [TRIGFLAG_HERO_FORCE_VY] is set;
+	//
+	// @zasm_var CMBTRIGGERICEVY
+	internal int ForceIceVy;
+	
+	// Sets [Screen->GravityStrength] to this value if [TRIGFLAG_SET_GRAVITY] is set;
+	//
+	// @zasm_var CMBTRIGGER_GRAVITY
+	internal int GravityStrength;
+	
+	// Sets [Screen->TerminalVelocity] to this value if [TRIGFLAG_SET_GRAVITY] is set;
+	//
+	// @zasm_var CMBTRIGGER_TERMINAL_VELOCITY
+	internal int TerminalVelocity;
+	
+	// The margins away from the screen added to the viewport when calculating
+	// [TRIGFLAG_VIEWPORT_REQ_ONSCREEN] and [TRIGFLAG_VIEWPORT_REQ_OFFSCREEN].
+	//
+	// @zasm_var CMBTRIGGER_VIEWPORT_RANGE
+	internal int ViewportRange;
+	
+	// There is an N in [ChanceDenominator] chance of the combo triggering.
+	// Default '1 in 1' means no chance involved.
+	// A 0 numerator means the combo won't ever trigger.
+	//
+	// @value 0 to [MAX_INT]
+	// @zasm_var CMBTRIGGER_CHANCE_NUMERATOR
+	internal int ChanceNumerator;
+	
+	// There is a [ChanceNumerator] in N chance of the combo triggering.
+	// Default '1 in 1' means no chance involved.
+	//
+	// @value 1 to [MAX_INT]
+	// @zasm_var CMBTRIGGER_CHANCE_NUMERATOR
+	internal int ChanceDenominator;
+	
+	// Gets the label for this trigger.
+	//
+	// If the buffer provided is too small, it will *automatically be resized to
+	// fit*.
+	//
+	// @zasm
+	//   POP D2
+	//   POP REFCOMBOTRIGGER
+	//   CMBTRIG_GET_LABEL D2
+	internal void GetLabel(char32[] buf);
+
+	// Sets the label for this widget.
+	//
+	// @zasm
+	//   POP D2
+	//   POP REFCOMBOTRIGGER
+	//   CMBTRIG_SET_LABEL D2
+	internal void SetLabel(char32[] str);
+}

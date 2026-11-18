@@ -690,6 +690,35 @@ int write_linksprites(PACKFILE *f, const ZqPartContext &ctx)
     if(!start(ctx, s, h))
         return BAD_PART;
 
+    // ZQW_TAPE_CHECK=1 (for testing the hero editor's schema, zq_tape_link.cpp): the section read
+    // as a tape ends where it does and encodes back to its own bytes.
+    if(q255 && getenv("ZQW_TAPE_CHECK") && s.d.size() >= h.body)
+    {
+        const std::vector<byte> body(s.d.begin() + h.body, s.d.end());
+        Tape t;
+        TapeParser tp(body.empty() ? NULL : &body[0], body.size(), 0, &t);
+        bool ok = zq_tape_link(tp, v) && tp.pos == body.size();
+        std::vector<byte> enc;
+
+        if(ok)
+        {
+            t.encode(enc);
+            ok = enc == body;
+        }
+
+        al_trace("zqw tape LINK v%d: 1 records, %d bad%s\n", v, ok ? 0 : 1, ok ? "" : " (doesn't read and encode back)");
+    }
+
+    if(q255 && !zq255.link_record.empty())
+    {
+        // the hero editor's edit of the section (zq_hero_editor.cpp) in place of the data as
+        // loaded; the fields ZQuest's 2.53 view holds were set from it when it was put in, so the
+        // patch below only changes what was changed in that view since
+        s.d.resize(h.body);
+        s.d.insert(s.d.end(), zq255.link_record.begin(), zq255.link_record.end());
+        s.pos = h.body;
+    }
+
     Buf body;
     Patch p(s, body);
     bool wide = q255 && v >= 6;
@@ -3482,6 +3511,15 @@ int write_subscreens(PACKFILE *f, const ZqPartContext &ctx)
     if(!start(ctx, s, h))
         return BAD_PART;
 
+    // The subscreen layout editor's section (widgets or pages added, removed or moved) in place
+    // of the part as loaded: 2.53's subscreen edits and the subscreen data editor's go on it.
+    if(q255 && v >= 8 && !zq255.subs_base.empty())
+    {
+        s.d.resize(h.body);
+        s.d.insert(s.d.end(), zq255.subs_base.begin(), zq255.subs_base.end());
+        h.size = (dword)zq255.subs_base.size();
+    }
+
     if(q255 && v >= 8)
         tape_check_subs(s, h, v);
 
@@ -3601,6 +3639,7 @@ bool zq255_init_commit(const std::vector<byte> &rec, std::string &why)
     s.keep = true;
     s.header = &header;
     const byte view_map = zinit.last_map, view_screen = zinit.last_screen;
+    const byte swim_speed = zinit.link_swim_speed;
     const int ret = q255_read_initdata(s);
 
     if(ret != 0 || s.failed || s.pos != s.size)
@@ -3611,7 +3650,127 @@ bool zq255_init_commit(const std::vector<byte> &rec, std::string &why)
 
     zinit.last_map = view_map;      // the editor's view stays where it is
     zinit.last_screen = view_screen;
+
+    // The hero's swim speed: init data 37 and up keeps a copy, but the LINK section (version 5 and
+    // up) is read after it and wins, as when upstream loads; without this the LINK writer would
+    // take the init data's copy into the LINK section.
+    const ZqQuestPart *link = zq_find_part(ID_LINKSPRITES);
+    byte lhead[2] = { 0, 0 };
+
+    if(link && zq_part_read(*link, 0, lhead, 2) && (lhead[0] | (lhead[1] << 8)) >= 5)
+        zinit.link_swim_speed = swim_speed;
+
     zq255.init_record = rec;
+    return true;
+}
+
+// ---- the hero editor's access (zq_hero_editor.cpp) -----------------------------------
+
+namespace
+{
+
+void hash_link_record(uint64_t *h)
+{
+    if(!zq255.link_record.empty())
+        zq_hash_add(h, &zq255.link_record[0], zq255.link_record.size());
+}
+
+ZqStoreHashRegistration g_hash_link(ID_LINKSPRITES, hash_link_record);
+
+// The LINK part's head (version, cversion, size) and data as a save in the quest's own version
+// would write them now, or as loaded (orig).
+bool link_part_data(bool orig, std::vector<byte> &head, std::vector<byte> &data)
+{
+    const ZqQuestPart *part = zq_find_part(ID_LINKSPRITES);
+    std::vector<byte> all;
+
+    if(!part || header.zelda_version != 0x255)
+        return false;
+
+    if(orig)
+    {
+        all.resize((size_t)part->length);
+
+        if(all.size() < 8 || !zq_part_read(*part, 0, &all[0], all.size()))
+            return false;
+    }
+    else if(!zq_own_part_bytes(*part, all) || all.size() < 8)
+        return false;
+
+    head.assign(all.begin(), all.begin() + 8);
+    data.assign(all.begin() + 8, all.end());
+    return true;
+}
+
+} // namespace
+
+// The LINK section's data as a save would write it now, and its version; false unless the open
+// quest's hero data is a 2.55 / 3.0 section (5-16). That is the hero editor's edit with what
+// ZQuest's 2.53 view changed since put in (write_linksprites starts from zq255.link_record), so
+// a later change to that view (a tile move with references updated) shows in the hero editor
+// and isn't undone by its next OK.
+bool zq255_link_record(std::vector<byte> &rec, int *version)
+{
+    std::vector<byte> head, data;
+
+    if(!link_part_data(false, head, data))
+        return false;
+
+    const int v = head[0] | (head[1] << 8);
+
+    if(v < 5 || v > 16)
+        return false;
+
+    if(version)
+        *version = v;
+
+    rec = data;
+    return true;
+}
+
+// Puts an edited LINK record in: it is read the way a load reads it, into the sprites and swim
+// speed ZQuest's 2.53 view holds, and kept whole for the writer.
+bool zq255_link_commit(const std::vector<byte> &rec, std::string &why)
+{
+    std::vector<byte> head, orig;
+    int v = 0;
+    std::vector<byte> cur;
+
+    if(!zq255_link_record(cur, &v) || !link_part_data(true, head, orig))
+    {
+        why = "this quest's hero data can't be edited this way";
+        return false;
+    }
+
+    Tape t;
+    TapeParser tp(rec.empty() ? NULL : &rec[0], rec.size(), 0, &t);
+
+    if(!zq_tape_link(tp, v) || tp.pos != rec.size())
+    {
+        why = "the hero data isn't laid out as its version has it";
+        return false;
+    }
+
+    Q255Section s;
+    s.data = rec.empty() ? NULL : &rec[0];
+    s.size = rec.size();
+    s.version = (word)v;
+    s.cversion = (word)(head[2] | (head[3] << 8));
+    s.keep = true;
+    s.header = &header;
+    const int ret = q255_read_linksprites(s);
+
+    if(ret != 0 || s.failed || s.pos != s.size)
+    {
+        why = "the hero data reader doesn't take it";
+        return false;
+    }
+
+    if(rec == orig)
+        zq255.link_record.clear();
+    else
+        zq255.link_record = rec;
+
     return true;
 }
 
@@ -3630,14 +3789,32 @@ void hash_sub_fields(uint64_t *h)
         if(!it->second.bytes.empty())
             zq_hash_add(h, &it->second.bytes[0], it->second.bytes.size());
     }
+
+    // the subscreen layout editor's section
+    if(!zq255.subs_base.empty())
+    {
+        const uint64_t n = zq255.subs_base.size();
+        zq_hash_add(h, &n, sizeof(n));
+        zq_hash_add(h, &zq255.subs_base[0], zq255.subs_base.size());
+    }
 }
 
 ZqStoreHashRegistration g_hash_subs(ID_SUBSCREEN, hash_sub_fields);
 
+// After a load, and after a save in the quest's own format (the kept part now holds what the
+// layout editor made of the section): nothing replaces the part any more.
+void forget_subs_base()
+{
+    zq255.subs_base.clear();
+}
+
+ZqLoadHookRegistration g_hook_subs_base(forget_subs_base);
+
 } // namespace
 
-// The SUBS section's data as loaded and its version; false unless it is a 2.55 / 3.0 section in
-// upstream's own format (version 8 on).
+// The SUBS section's data as the subscreen data editor starts from (the layout editor's section,
+// or the part as loaded) and its version; false unless it is a 2.55 / 3.0 section in upstream's
+// own format (version 8 on).
 bool zq255_subs_record(std::vector<byte> &rec, int *version)
 {
     const ZqQuestPart *part = zq_find_part(ID_SUBSCREEN);
@@ -3659,7 +3836,98 @@ bool zq255_subs_record(std::vector<byte> &rec, int *version)
     if(version)
         *version = v;
 
-    rec.assign(d.begin() + 8, d.end());
+    if(!zq255.subs_base.empty())
+        rec = zq255.subs_base;
+    else
+        rec.assign(d.begin() + 8, d.end());
+
+    return true;
+}
+
+// The SUBS section's data as a save in the quest's own format would write it now (2.53's
+// subscreen edits and the subscreen data editor's in), and its version: what the subscreen
+// layout editor (zq_subscr_layout.cpp) starts from. False as zq255_subs_record, or when the
+// section can't be written (why says why).
+bool zq255_subs_section(std::vector<byte> &body, int *version, std::string &why)
+{
+    std::vector<byte> rec;
+    int v = 0;
+
+    if(!zq255_subs_record(rec, &v))
+    {
+        why = "this quest's subscreens aren't in 2.55's or 3.0's own format";
+        return false;
+    }
+
+    const ZqQuestPart *part = zq_find_part(ID_SUBSCREEN);
+    std::vector<byte> d;
+    zqw_last_error.clear();
+
+    if(!zq_own_part_bytes(*part, d) || d.size() < 8)
+    {
+        why = zqw_last_error.empty() ? std::string("the subscreens can't be written as they are") : zqw_last_error;
+        return false;
+    }
+
+    if(version)
+        *version = v;
+
+    body.assign(d.begin() + 8, d.end());
+    return true;
+}
+
+bool zq_subscr_section_types_ok(const std::vector<byte> &body, int v, std::string &why);    // zq_subscr_layout.cpp
+
+// Puts a whole SUBS section in from the subscreen layout editor: it must read back as the player
+// reads it. From then on it is what 2.53's subscreen edits and the subscreen data editor's edits
+// go on (zq255.subs_base): it already holds both, so the data editor's keyed edits are folded in
+// and ZQuest's 2.53 view of the subscreens (custom_subscreen, the first pages) is read from it
+// again, as a load reads it.
+bool zq255_subs_put_section(const std::vector<byte> &body, std::string &why)
+{
+    std::vector<byte> rec;
+    int v = 0;
+
+    if(!zq255_subs_record(rec, &v))
+    {
+        why = "this quest's subscreens aren't in 2.55's or 3.0's own format";
+        return false;
+    }
+
+    // only the widget types the section's version holds: our reader takes every type in every
+    // version, but 2.55.17 refuses to load a 3.0 type in a section of version 12 or older
+    if(!zq_subscr_section_types_ok(body, v, why))
+        return false;
+
+    Q255Section r;
+    r.data = body.empty() ? NULL : &body[0];
+    r.size = body.size();
+    r.version = (word)v;
+    r.keep = false;
+    r.header = &header;
+
+    if(q255_read_subscreens(r) != 0 || r.failed || r.pos != r.size)
+    {
+        why = "the subscreens wouldn't read back";
+        return false;
+    }
+
+    // the 2.53 view (custom_subscreen) from the new section, then taken as unchanged by 2.53's
+    // subscreen editor, so the writer copies the section and patches only later edits
+    Q255Section k = r;
+    k.pos = 0;
+    k.failed = false;
+    k.keep = true;
+
+    if(q255_read_subscreens(k) != 0 || k.failed)
+    {
+        why = "the subscreens wouldn't read back";
+        return false;
+    }
+
+    zq255.subs_base = body;
+    zq255.sub_fields.clear();
+    snapshot_subscreens();
     return true;
 }
 

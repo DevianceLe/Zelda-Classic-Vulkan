@@ -36,6 +36,7 @@
 #include "port/zqeditor/zq_q255.h"
 #include "port/zqeditor/zq_writers.h"
 #include "port/zqeditor/zq_tile_refs.h"
+#include "port/zqeditor/zq_exports.h"
 #include "port/game/quest_version.h"
 #endif
 
@@ -665,12 +666,353 @@ int zq255_saving_not_ready()
 #endif
 
 #ifdef ZC_ZQEDITOR
-// The partial exports write 2.53 files, which keep tile numbers in 16 bits.
+// A 2.53 file can't hold a 2.55 / 3.0 quest's data. (File > Export no longer needs this: those
+// quests export upstream's own files, below; kept for any other export that writes a 2.53 file.)
 int zq255_export_not_ready()
 {
     jwin_alert("ZQuest","This quest was made in ZC 2.55 or a 3.0 Nightly.",
                "This export writes a 2.53 file, which can't hold",
                "this quest's data yet. Nothing was exported.","O&K",NULL,'k',0,lfont);
+    return D_O_K;
+}
+
+// ---- exports and imports of 2.55 and 3.0 Nightly quests (port/zqeditor/zq_exports.h) ------
+//
+// For these quests File > Export and Import write and read upstream's files for the quest's
+// version (.zdmap, .zqs, .zcombo, .ztileset, .guy, .zgp, and the quest itself as .zqt or .qsu),
+// from and into ZQuest's data and its store for these quests, so the quest's own-version save
+// writes what came in. 2.53 quests keep 2.53's files.
+
+// A message of any length in 2.53's alerts, which show three lines: wrapped to what the screen
+// takes, and going on in further alerts when it needs more than three lines, so none of it is
+// cut.
+static void zq_long_alert(const char *title, const std::string &text)
+{
+    const size_t width = is_large ? 96 : 48;
+    std::vector<std::string> lines(1);
+    size_t i = 0;
+
+    while(i < text.size())
+    {
+        size_t sp = text.find(' ', i);
+        std::string word = text.substr(i, sp == std::string::npos ? std::string::npos : sp - i);
+        i = sp == std::string::npos ? text.size() : sp + 1;
+
+        if(!lines.back().empty() && lines.back().size() + 1 + word.size() > width)
+            lines.push_back(std::string());
+
+        lines.back() += (lines.back().empty() ? "" : " ") + word;
+    }
+
+    for(size_t k = 0; k < lines.size(); k += 3)
+        jwin_alert(title, lines[k].c_str(), k + 1 < lines.size() ? lines[k + 1].c_str() : NULL,
+                   k + 2 < lines.size() ? lines[k + 2].c_str() : NULL, "O&K", NULL, 'k', 0, lfont);
+}
+
+// What an export or import of a newer quest's file came to: done (note: anything the user
+// should know) or not (why).
+static void zq_newer_file_done(bool saving, const char *path, bool ok, const std::string &why, const std::string &note)
+{
+    char name[256];
+    extract_name((char *)path, name, FILENAMEALL);
+    std::string text = std::string(ok ? (saving ? "Saved " : "Loaded ") : (saving ? "Unable to save " : "Unable to load ")) + name;
+    const std::string &more = ok ? note : why;
+
+    if(!more.empty())
+        text += ": " + more;
+
+    zq_long_alert(ok ? "ZQuest" : "Error", text);
+}
+
+static int zq_newer_export_dmaps()
+{
+    int first = getnumber("First DMap", 0);
+
+    if(cancelgetnum)
+        return D_O_K;
+
+    int last = getnumber("Last DMap", first);
+
+    if(cancelgetnum)
+        return D_O_K;
+
+    if(!getname("Export DMaps (.zdmap)","zdmap",NULL,datapath,false))
+        return D_O_K;
+
+    std::string why;
+    bool ok = zqx_export_dmaps(temppath, first, last, why);
+    zq_newer_file_done(true, temppath, ok, why, "");
+    return D_O_K;
+}
+
+static int zq_newer_import_dmaps()
+{
+    if(!getname("Import DMaps (.zdmap)","zdmap",NULL,datapath,false))
+        return D_O_K;
+
+    std::string why, note;
+    int max_map = 0;
+    bool ok = zqx_import_dmaps(temppath, &max_map, why, note);
+
+    if(ok)
+    {
+        saved=false;
+
+        // as 2.53 and upstream: more maps, or the DMaps on missing maps go to map 0
+        if(max_map >= map_count)
+        {
+            int ret=jwin_alert("Not enough maps",
+                               "The imported DMaps use more maps than are",
+                               " currently available. Do you want to add",
+                               "more maps or change the DMaps' settings?",
+                               "&Add maps","&Modify DMaps",'a','m',lfont);
+            if(ret==1)
+                setMapCount2(max_map+1);
+            else if(!zqx_dmaps_fit_maps(map_count, why))
+                note += "; " + why;
+        }
+    }
+
+    zq_newer_file_done(false, temppath, ok, why, note);
+    refresh(rALL);
+    return D_O_K;
+}
+
+static int zq_newer_export_strings()
+{
+    if(!getname("Export String Table (.zqs)","zqs",NULL,datapath,false))
+        return D_O_K;
+
+    std::string why;
+    bool ok = zqx_export_strings(temppath, why);
+    zq_newer_file_done(true, temppath, ok, why, "");
+    return D_O_K;
+}
+
+static int zq_newer_import_strings()
+{
+    if(!getname("Import String Table (.zqs)","zqs",NULL,datapath,false))
+        return D_O_K;
+
+    std::string why, note;
+    bool ok = zqx_import_strings(temppath, why, note);
+
+    if(ok)
+    {
+        saved=false;
+        rebuild_string_list();
+    }
+
+    zq_newer_file_done(false, temppath, ok, why, note);
+    refresh(rALL);
+    return D_O_K;
+}
+
+static int zq_newer_export_combos()
+{
+    if(!getname("Export Combos (.zcombo)","zcombo",NULL,datapath,false))
+        return D_O_K;
+
+    std::string why;
+    bool ok = zqx_export_combos(temppath, why);
+    zq_newer_file_done(true, temppath, ok, why, "");
+    return D_O_K;
+}
+
+static int zq_newer_import_combos()
+{
+    int page = getnumber("Import Start Page", 0);
+
+    if(cancelgetnum)
+        return D_O_K;
+
+    bound(page, 0, COMBO_PAGES-1);
+
+    if(!getname("Import Combos (.zcombo)","zcombo",NULL,datapath,false))
+        return D_O_K;
+
+    std::string why, note;
+    bool ok = zqx_import_combos(temppath, page*COMBOS_PER_PAGE, why, note);
+
+    if(ok)
+        saved=false;
+
+    zq_newer_file_done(false, temppath, ok, why, note);
+    refresh(rALL);
+    return D_O_K;
+}
+
+static int zq_newer_export_tiles()
+{
+    // 3.0 exports the pages asked for; 2.55.17 every tile
+    int first = 0, pages = 0;
+
+    if(zqx_is_30())
+    {
+        const int all = zq_tile_limit() / TILES_PER_PAGE;
+        first = getnumber("Start Page", 0);
+
+        if(cancelgetnum)
+            return D_O_K;
+
+        bound(first, 0, all-1);
+        pages = getnumber("Page Count", 1);
+
+        if(cancelgetnum)
+            return D_O_K;
+
+        bound(pages, 1, all-first);
+    }
+
+    if(!getname("Export Tiles (.ztileset)","ztileset",NULL,datapath,false))
+        return D_O_K;
+
+    std::string why;
+    bool ok = zqx_export_tiles(temppath, first, pages, why);
+    zq_newer_file_done(true, temppath, ok, why, "");
+    return D_O_K;
+}
+
+static int zq_newer_import_tiles()
+{
+    int page = getnumber(zqx_is_30() ? "Destination Page" : "Import Start Page", 0);
+
+    if(cancelgetnum)
+        return D_O_K;
+
+    bound(page, 0, zq_tile_limit()/TILES_PER_PAGE-1);
+
+    if(!getname("Import Tiles (.ztileset)","ztileset",NULL,datapath,false))
+        return D_O_K;
+
+    std::string why, note;
+    bool ok = zqx_import_tiles(temppath, page*TILES_PER_PAGE, why, note);
+
+    if(ok)
+    {
+        saved=false;
+        register_blank_tiles();
+    }
+
+    zq_newer_file_done(false, temppath, ok, why, note);
+    refresh(rALL);
+    return D_O_K;
+}
+
+static int zq_newer_export_guys()
+{
+    if(!getname("Export Enemies (.guy)","guy",NULL,datapath,false))
+        return D_O_K;
+
+    std::string why;
+    bool ok = zqx_export_guys(temppath, why);
+    zq_newer_file_done(true, temppath, ok, why, "");
+    return D_O_K;
+}
+
+static int zq_newer_import_guys()
+{
+    if(!getname("Import Enemies (.guy)","guy",NULL,datapath,false))
+        return D_O_K;
+
+    std::string why, note;
+    bool ok = zqx_import_guys(temppath, why, note);
+
+    if(ok)
+        saved=false;
+
+    zq_newer_file_done(false, temppath, ok, why, note);
+    refresh(rALL);
+    return D_O_K;
+}
+
+static int zq_newer_export_zgp()
+{
+    if(!getname("Export Graphics Pack (.zgp)","zgp",NULL,datapath,false))
+        return D_O_K;
+
+    std::string why;
+    bool ok = zqx_export_zgp(temppath, why);
+    zq_newer_file_done(true, temppath, ok, why, "");
+    return D_O_K;
+}
+
+static int zq_newer_import_zgp()
+{
+    if(!getname("Import Graphics Pack (.zgp)","zgp",NULL,datapath,false))
+        return D_O_K;
+
+    std::string why, note;
+    bool ok = zqx_import_zgp(temppath, why, note);
+
+    if(ok)
+    {
+        saved=false;
+        register_blank_tiles();
+        loadlvlpal(Color);
+        setup_combo_animations();
+        setup_combo_animations2();
+    }
+
+    zq_newer_file_done(false, temppath, ok, why, note);
+    refresh(rALL);
+    refresh_pal();
+    return D_O_K;
+}
+
+// The whole quest in its own version, unencoded: .zqt packed, .qsu not.
+static int zq_newer_export_quest(bool packed)
+{
+    if(!getname(packed ? "Export Quest Template (.zqt)" : "Export Unencoded Quest (.qsu)", packed ? "zqt" : "qsu",NULL,datapath,false))
+        return D_O_K;
+
+    std::string why;
+    bool ok = zqx_export_quest(temppath, packed, why);
+    zq_newer_file_done(true, temppath, ok, why, "");
+    return D_O_K;
+}
+
+// A quest template or unencoded quest in place of this quest, as 2.53 imports them (everything
+// is the file's, the quest keeps its file name), when it was made in this quest's version or a
+// newer one: the quest is then saved in that version, never an older one.
+static int zq_newer_import_quest(bool packed)
+{
+    if(!getname(packed ? "Import Quest Template (.zqt)" : "Import Unencoded Quest (.qsu)", packed ? "zqt" : "qsu",NULL,datapath,false))
+        return D_O_K;
+
+    std::string why, made;
+
+    if(!zqx_quest_not_older(temppath, packed, made, why))
+    {
+        zq_newer_file_done(false, temppath, false, why, "");
+        return D_O_K;
+    }
+
+    saved=false;
+    int ret = load_quest(temppath, packed, false);
+
+    if(ret != qe_OK && ret != qe_cancel)
+    {
+        char buf[300],name[256];
+        extract_name(temppath,name,FILENAMEALL);
+        sprintf(buf,"Unable to load %s",name);
+        jwin_alert("Error",buf,NULL,NULL,"O&K",NULL,'k',0,lfont);
+    }
+    else if(ret == qe_OK && !packed)
+    {
+        // The quest keeps its own file: File > Save writes a .qst packed, as upstream always
+        // does, not as the unencoded file that was imported is stored (a .qsu stays unpacked).
+        const char *ext = get_extension(filepath);
+        zq_quest_file.compressed = !(ext && stricmp(ext, "qsu") == 0);
+    }
+
+    register_blank_tiles();
+    loadlvlpal(Color);
+    setup_combo_animations();
+    setup_combo_animations2();
+    Map.setCurrMap(Map.getCurrMap());                         // for bound checking
+    refresh(rALL);
+    refresh_pal();
     return D_O_K;
 }
 
@@ -1287,6 +1629,10 @@ int onExport_Map()
 
 int onImport_DMaps()
 {
+#ifdef ZC_ZQEDITOR
+    if(zq255_quest_is_newer())
+        return zq_newer_import_dmaps();
+#endif
     if(!getname("Import DMaps (.dmp)","dmp",NULL,datapath,false))
         return D_O_K;
         
@@ -1335,7 +1681,7 @@ int onExport_DMaps()
 {
 #ifdef ZC_ZQEDITOR
     if(zq255_quest_is_newer())
-        return zq255_export_not_ready();
+        return zq_newer_export_dmaps();
 #endif
     if(!getname("Export DMaps (.dmp)","dmp",NULL,datapath,false))
         return D_O_K;
@@ -1401,6 +1747,10 @@ int onExport_Pals()
 
 int onImport_Msgs()
 {
+#ifdef ZC_ZQEDITOR
+    if(zq255_quest_is_newer())
+        return zq_newer_import_strings();
+#endif
     if(!getname("Import String Table (.zqs)","zqs",NULL,datapath,false))
         return D_O_K;
         
@@ -1421,7 +1771,7 @@ int onExport_Msgs()
 {
 #ifdef ZC_ZQEDITOR
     if(zq255_quest_is_newer())
-        return zq255_export_not_ready();
+        return zq_newer_export_strings();
 #endif
     if(!getname("Export String Table (.zqs)","zqs",NULL,datapath,false))
         return D_O_K;
@@ -1470,6 +1820,10 @@ int onExport_MsgsText()
 
 int onImport_Combos()
 {
+#ifdef ZC_ZQEDITOR
+    if(zq255_quest_is_newer())
+        return zq_newer_import_combos();
+#endif
     int ret=getnumber("Import Start Page",0);
     
     if(cancelgetnum)
@@ -1501,7 +1855,7 @@ int onExport_Combos()
 {
 #ifdef ZC_ZQEDITOR
     if(zq255_quest_is_newer())
-        return zq255_export_not_ready();
+        return zq_newer_export_combos();
 #endif
     if(!getname("Export Combo Table (.cmb)","cmb",NULL,datapath,false))
         return D_O_K;
@@ -1526,6 +1880,10 @@ int onExport_Combos()
 
 int onImport_Tiles()
 {
+#ifdef ZC_ZQEDITOR
+    if(zq255_quest_is_newer())
+        return zq_newer_import_tiles();
+#endif
     int ret=getnumber("Import Start Page",0);
     
     if(cancelgetnum)
@@ -1561,7 +1919,7 @@ int onExport_Tiles()
 {
 #ifdef ZC_ZQEDITOR
     if(zq255_quest_is_newer())
-        return zq255_export_not_ready();
+        return zq_newer_export_tiles();
 #endif
     if(!getname("Export Tiles (.til)","til",NULL,datapath,false))
         return D_O_K;
@@ -1586,6 +1944,10 @@ int onExport_Tiles()
 
 int onImport_Guys()
 {
+#ifdef ZC_ZQEDITOR
+    if(zq255_quest_is_newer())
+        return zq_newer_import_guys();
+#endif
     if(!getname("Import Enemies (.guy)","guy",NULL,datapath,false))
         return D_O_K;
         
@@ -1605,7 +1967,7 @@ int onExport_Guys()
 {
 #ifdef ZC_ZQEDITOR
     if(zq255_quest_is_newer())
-        return zq255_export_not_ready();
+        return zq_newer_export_guys();
 #endif
     if(!getname("Export Enemies (.guy)","guy",NULL,datapath,false))
         return D_O_K;
@@ -1676,6 +2038,10 @@ int onExport_ComboAlias()
 
 int onImport_ZGP()
 {
+#ifdef ZC_ZQEDITOR
+    if(zq255_quest_is_newer())
+        return zq_newer_import_zgp();
+#endif
     if(!getname("Import Graphics Pack (.zgp)","zgp",NULL,datapath,false))
         return D_O_K;
         
@@ -1698,7 +2064,7 @@ int onExport_ZGP()
 {
 #ifdef ZC_ZQEDITOR
     if(zq255_quest_is_newer())
-        return zq255_export_not_ready();
+        return zq_newer_export_zgp();
 #endif
     if(!getname("Export Graphics Pack (.zgp)","zgp",NULL,datapath,false))
         return D_O_K;
@@ -1775,6 +2141,10 @@ int onExport_Subscreen()
 
 int onImport_ZQT()
 {
+#ifdef ZC_ZQEDITOR
+    if(zq255_quest_is_newer())
+        return zq_newer_import_quest(true);
+#endif
     if(!getname("Import Quest Template (.zqt)","zqt",NULL,datapath,false))
         return D_O_K;
         
@@ -1804,7 +2174,7 @@ int onExport_ZQT()
 {
 #ifdef ZC_ZQEDITOR
     if(zq255_quest_is_newer())
-        return zq255_saving_not_ready();
+        return zq_newer_export_quest(true);
 #endif
     if(!getname("Export Quest Template (.zqt)","zqt",NULL,datapath,false))
         return D_O_K;
@@ -1837,6 +2207,10 @@ int onExport_ZQT()
 
 int onImport_UnencodedQuest()
 {
+#ifdef ZC_ZQEDITOR
+    if(zq255_quest_is_newer())
+        return zq_newer_import_quest(false);
+#endif
     if(!getname("Import Unencoded Quest (.qsu)","qsu",NULL,datapath,false))
         return D_O_K;
         
@@ -1866,7 +2240,7 @@ int onExport_UnencodedQuest()
 {
 #ifdef ZC_ZQEDITOR
     if(zq255_quest_is_newer())
-        return zq255_saving_not_ready();
+        return zq_newer_export_quest(false);
 #endif
     if(!getname("Export Unencoded Quest (.qsu)","qsu",NULL,datapath,false))
         return D_O_K;

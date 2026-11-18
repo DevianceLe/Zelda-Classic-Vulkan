@@ -36,25 +36,204 @@ extern "C" void zplayer_install_crash_report(void); // crash_win32.cpp
 #if defined(__ANDROID__)
 extern "C" int zplayer_android_prepare_data(void); // android_data.cpp
 #endif
-#if defined(__APPLE__)
+#if (defined(__APPLE__) || defined(__linux__)) && !defined(__ANDROID__)
+#define ZCPORT_FIND_DATA 1
 #include <SDL3/SDL_filesystem.h>
+#include <SDL3/SDL_stdinc.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
 #include <string>
+#include <vector>
 #include <unistd.h>
 
-// The player opens its data relative to the working directory. Started from a
-// terminal inside its folder that's already right; double-clicked in Finder it
-// starts in the user's home folder, so move to the program's own folder when the
-// game data isn't where it started.
-static void zplayer_macos_find_data(void)
+extern char **environ;
+
+// The programs open their data (zelda.dat or zquest.dat, the other .dat files, the
+// configs) relative to the working directory. Started from a terminal inside their
+// folder that's already right. Double-clicked in Finder, started from a desktop
+// launcher or file manager, or typed as ~/zc/zqeditor in another folder, they start
+// elsewhere, so move to the program's own folder when its data isn't where it
+// started but is there. Before that, command-line arguments and ZC_*, ZQ* and
+// ZPLAYER_* environment variables that name files or folders where it started (a
+// quest to open, the files a test switch reads and writes, ZQ_UI_SCRIPT) get the
+// starting folder in front, so they still name the same thing.
+
+namespace
 {
-    if(access("zelda.dat", R_OK) == 0)
+
+// Switches whose next arguments name files or folders, one letter for each of those
+// arguments: 'i' for a file the program reads (or reads and writes), 'o' for one it
+// only writes, '-' for one that is not a path (a number, "30", "item").
+struct PathSwitch
+{
+    const char *name;
+    const char *args;
+};
+
+const PathSwitch path_switches[] =
+{
+    // zqeditor's test switches (zquest.cpp main)
+    { "-resave", "io" },
+    { "-qst-own-save", "io" },
+    { "-qst-lens-edit-test", "io--" },
+    { "-qst-string-edit-test", "io---" },
+    { "-qst-capture-check", "io" },
+    { "-qst-rewrite-check", "io" },
+    { "-qst-dump-hashes", "io" },
+    { "-qst-compare", "iio" },
+    { "-qst-save-newer", "io-o" },
+    { "-qst-tile-check", "io" },
+    { "-qst-tile-limit-test", "io" },
+    { "-qst-roundtrip-check", "io" },
+    { "-qst-dump-record", "i--o" },
+    { "-qst-dump-combo", "i-o" },
+    { "-qst-sections", "io" },
+    // zplayer's (zelda.cpp main, replay.cpp replay_init)
+    { "-standalone", "i" },
+    { "-savefile", "i" },
+    { "-quest-load-check", "io" },
+    { "-q255-check", "io" },
+    { "-record", "o" },
+    { "-replay", "i" },
+    { "-framehash", "o" },
+    { "-quest-smoke", "o" },
+    { "-quest-tour", "o" },
+    { "-framedump", "o--" },
+};
+
+// The letters for the arguments after a switch, or NULL for any other argument.
+const char *switch_args(const char *a)
+{
+    for(size_t i = 0; i < sizeof(path_switches) / sizeof(path_switches[0]); ++i)
+        if(strcasecmp(a, path_switches[i].name) == 0)
+            return path_switches[i].args;
+    return NULL;
+}
+
+// "out.qst" or "Shot.JPG", not "30", "1.5" or "item".
+bool has_letter_extension(const char *a)
+{
+    const char *dot = strrchr(a, '.');
+    if(!dot || dot == a || !dot[1] || strchr(dot, '/'))
+        return false;
+    bool letter = false;
+    for(const char *c = dot + 1; *c; ++c)
+    {
+        if(!((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9')))
+            return false;
+        if(!(*c >= '0' && *c <= '9'))
+            letter = true;
+    }
+    return letter;
+}
+
+// Whether a name means a file or folder in the starting folder, and gets that folder in
+// front; otherwise it stays as it is (not a path, or one in the program's folder).
+//   'o'  a file the program writes: always the starting folder's.
+//   'i'  a file it reads: the starting folder's if it is there, else the program folder's
+//        if it is there (a quest named as 2.53 expects, from its own folder), else the
+//        starting folder's (a new file, or a mistyped name reported with the folder meant).
+//   'g'  any other argument or a variable's value: as 'i' when it looks like a path (it
+//        has a folder part or an extension with a letter), but a name in a folder that
+//        isn't in the starting folder stays as it is.
+bool from_start(const char *a, char how, const std::string &base)
+{
+    if(!a || !a[0] || a[0] == '-' || a[0] == '/')
+        return false;
+    if(how == 'o')
+        return true;
+    const char *slash = strrchr(a, '/');
+    if(how == 'g' && !slash && !has_letter_extension(a))
+        return false;
+    if(access(a, F_OK) == 0)
+        return true;
+    if(access((base + a).c_str(), F_OK) == 0)
+        return false;
+    if(how == 'g' && slash)
+        return access(std::string(a, slash - a).c_str(), F_OK) == 0;
+    return true;
+}
+
+bool our_variable(const char *name_value)
+{
+    return strncmp(name_value, "ZC_", 3) == 0 || strncmp(name_value, "ZQ", 2) == 0 ||
+           strncmp(name_value, "ZPLAYER_", 8) == 0;
+}
+
+} // namespace
+
+// Called first thing in main(), before the program starts its threads, as it may set
+// variables. (Only the ZQ_UI_SCRIPT test driver, autotest.cpp, starts earlier: it makes
+// that path absolute itself and waits for the window.)
+static void zcport_find_data(int argc, char *argv[])
+{
+#if defined(ZC_ZQEDITOR)
+    const char *dat = "zquest.dat";
+#else
+    const char *dat = "zelda.dat";
+#endif
+    if(access(dat, R_OK) == 0)
         return;
-    const char *base = SDL_GetBasePath();
-    if(!base)
+    const char *b = SDL_GetBasePath();
+    if(!b || !*b)
         return;
-    std::string dat = std::string(base) + "zelda.dat";
-    if(access(dat.c_str(), R_OK) == 0)
-        chdir(base);
+    std::string base(b);
+    if(base[base.size() - 1] != '/')
+        base += '/';
+    if(access((base + dat).c_str(), R_OK) != 0)
+        return;
+
+    // What needs the starting folder in front.
+    std::vector<int> args;
+    for(int i = 1; i < argc; ++i)
+    {
+        if(const char *spec = switch_args(argv[i]))
+        {
+            for(; *spec && i + 1 < argc; ++spec)
+            {
+                ++i;
+                if(*spec != '-' && from_start(argv[i], *spec, base))
+                    args.push_back(i);
+            }
+        }
+        else if(from_start(argv[i], 'g', base))
+            args.push_back(i);
+    }
+    std::vector<std::string> names, values;
+    for(char **e = environ; e && *e; ++e)
+    {
+        const char *eq = strchr(*e, '=');
+        if(eq && our_variable(*e) && from_start(eq + 1, 'g', base))
+        {
+            names.push_back(std::string(*e, eq - *e));
+            values.push_back(eq + 1);
+        }
+    }
+    if(!args.empty() || !names.empty())
+    {
+        char *c = getcwd(NULL, 0);      // of any length: glibc and macOS allocate it
+        if(!c)
+        {
+            // without it those names would mean files in the program's folder instead
+            fprintf(stderr, "Can't read the current folder's name, so staying in it (the data files are in %s)\n", base.c_str());
+            return;
+        }
+        std::string cwd(c);
+        free(c);
+        if(cwd.empty() || cwd[cwd.size() - 1] != '/')
+            cwd += '/';
+        for(size_t k = 0; k < args.size(); ++k)
+            if(char *copy = strdup((cwd + argv[args[k]]).c_str()))
+                argv[args[k]] = copy;   // kept for the whole run, as argv itself
+        for(size_t k = 0; k < names.size(); ++k)
+            // (SDL's own copy of the environment, read by SDL_getenv, as well)
+            SDL_setenv_unsafe(names[k].c_str(), (cwd + values[k]).c_str(), 1);
+    }
+    // (if this fails the program stays where it started and reports the missing data itself)
+    int moved = chdir(base.c_str());
+    (void)moved;
 }
 #endif
 
@@ -74,9 +253,6 @@ static int SDLCALL zplayer_entry(int argc, char *argv[])
     // Game data from the APK into internal storage, which becomes the
     // working directory (the player opens its files relative to it).
     zplayer_android_prepare_data();
-#endif
-#if defined(__APPLE__)
-    zplayer_macos_find_data();
 #endif
     // Instead of the executable's name until the game sets its title.
     set_window_title(ZPLAYER_WINDOW_TITLE);
@@ -111,6 +287,9 @@ extern "C" int zcport_sdl_host_main(int (*game)(int, char **), int argc, char **
 // Android, called by SDL's own main() on the other systems.
 int main(int argc, char *argv[])
 {
+#if defined(ZCPORT_FIND_DATA)
+    zcport_find_data(argc, argv);   // before macOS starts the game's thread
+#endif
 #if defined(__APPLE__)
     return zcport_sdl_host_main(zplayer_entry, argc, argv);
 #else

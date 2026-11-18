@@ -75,10 +75,40 @@ set(ZQEDITOR_SOURCES
 	${ZCPORT_DIR}/zqeditor/zq_tape_misc.cpp
 	${ZCPORT_DIR}/zqeditor/zq_tape_strings.cpp
 	${ZCPORT_DIR}/zqeditor/zq_tape_subscreens.cpp
+	${ZCPORT_DIR}/zqeditor/zq_tape_link.cpp
 	${ZCPORT_DIR}/zqeditor/zq_item_names.cpp
 	${ZCPORT_DIR}/zqeditor/zq_record_editor.cpp
 	${ZCPORT_DIR}/zqeditor/zq_rule_names.cpp
 	${ZCPORT_DIR}/zqeditor/zq_rules_editor.cpp
+	# compiling 2.55 / 3.0 quests' ZScript with zscript255 / zscript30
+	${ZCPORT_DIR}/zqeditor/zq_compile.cpp
+	${ZCPORT_DIR}/zqeditor/zq_compile_dialog.cpp
+	${ZCPORT_DIR}/zqeditor/zq_compile_proc.cpp
+	# 3.0's scrolling regions, and the combo pools and autocombos of 2.55.17 and 3.0: the store,
+	# the editors, the map editor's Pool and Autocombo drawing modes and upstream's patterns
+	${ZCPORT_DIR}/zqeditor/zq_cpool.cpp
+	${ZCPORT_DIR}/zqeditor/zq_cpool_editor.cpp
+	${ZCPORT_DIR}/zqeditor/zq_autocombo_draw.cpp
+	${ZCPORT_DIR}/zqeditor/zq_engravings.cpp
+	${ZCPORT_DIR}/zqeditor/autocombo/autopattern_base.cpp
+	${ZCPORT_DIR}/zqeditor/autocombo/pattern_basic.cpp
+	${ZCPORT_DIR}/zqeditor/autocombo/pattern_cakemtn.cpp
+	${ZCPORT_DIR}/zqeditor/autocombo/pattern_denseforest.cpp
+	${ZCPORT_DIR}/zqeditor/autocombo/pattern_dormtn.cpp
+	${ZCPORT_DIR}/zqeditor/autocombo/pattern_dungeoncarve.cpp
+	${ZCPORT_DIR}/zqeditor/autocombo/pattern_extend.cpp
+	${ZCPORT_DIR}/zqeditor/autocombo/pattern_fence.cpp
+	${ZCPORT_DIR}/zqeditor/autocombo/pattern_flatmtn.cpp
+	${ZCPORT_DIR}/zqeditor/autocombo/pattern_relational.cpp
+	${ZCPORT_DIR}/zqeditor/autocombo/pattern_replace.cpp
+	${ZCPORT_DIR}/zqeditor/autocombo/pattern_tiling.cpp
+	${ZCPORT_DIR}/zqeditor/zq_music_editor.cpp
+	${ZCPORT_DIR}/zqeditor/zq_hero_editor.cpp
+	${ZCPORT_DIR}/zqeditor/zq_zinfo_editor.cpp
+	${ZCPORT_DIR}/zqeditor/zq_exports.cpp
+	# the subscreen layout editor, and the fonts it draws newer quests' widgets with
+	${ZCPORT_DIR}/zqeditor/zq_subscr_layout.cpp
+	${ZCPORT_DIR}/game/q30_fonts.cpp
 )
 # Image import: the Windows Imaging Component on Windows, SDL elsewhere (PNG, BMP).
 if(WIN32)
@@ -119,7 +149,7 @@ target_include_directories(zqeditor PRIVATE
 # The game's main() becomes zcport_game_main(); see src/port/entry/zplayer_main.cpp.
 # (On the target: a source file's properties would reach zplayer's copy too.)
 target_compile_definitions(zqeditor PRIVATE ZCPORT_MAGIC_MAIN ZC_ZQEDITOR
-	"ZPLAYER_WINDOW_TITLE=\"ZQuest Vulkan 2.53.444.7\"")
+	"ZPLAYER_WINDOW_TITLE=\"ZQuest Vulkan 2.53.444.8\"")
 target_link_libraries(zqeditor PRIVATE zcport_sdl zcport zc_stb_vorbis zc_minimp3 zc_gme zc_dumb)
 if(WIN32)
 	target_link_libraries(zqeditor PRIVATE windowscodecs ole32)

@@ -26,6 +26,7 @@
 #include "init.h"
 #include <assert.h>
 #include "mem_debug.h"
+#include <string>
 
 #ifndef _MSC_VER
 #include <strings.h>
@@ -6956,8 +6957,25 @@ DIALOG sslist_dlg[] =
     { NULL,                 0,    0,    0,    0,   0,       0,       0,       0,          0,             0,       NULL,                           NULL,  NULL }
 };
 
+bool zq255_quest_is_newer();                                // port/zqeditor/zq_q255.h
+int zq_subscreen_layout_menu(std::string &why);             // port/zqeditor/zq_subscr_layout.cpp
+
 int onEditSubscreens()
 {
+    // a 2.55 / 3.0 quest's subscreens in upstream's own format: the subscreen layout editor,
+    // which edits every page, as upstream's subscreen editor does
+    if(zq255_quest_is_newer())
+    {
+        std::string why;
+        const int shown = zq_subscreen_layout_menu(why);
+
+        if(shown < 0)
+            jwin_alert("Subscreens","The subscreen editor can't open:",why.c_str(),NULL,"O&K",NULL,'k',0,lfont);
+
+        if(shown != 0)
+            return D_O_K;
+    }
+
     int ret=-1;
     sslist_dlg[0].dp2=lfont;
     sstemplatelist_dlg[0].dp2=lfont;

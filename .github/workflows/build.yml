@@ -44,7 +44,7 @@ jobs:
         run: cmake -S . -B build -G "Visual Studio 17 2022" -A ${{ matrix.platform }} -DBISON_EXECUTABLE="$PWD/other/winflex/win_bison.exe" -DFLEX_EXECUTABLE="$PWD/other/winflex/win_flex.exe"
 
       - name: Build
-        run: cmake --build build --config Release --target zplayer zqeditor -- /m /v:minimal /nologo
+        run: cmake --build build --config Release --target zplayer zqeditor zscript30 zscript255 -- /m /v:minimal /nologo
 
       - name: Package
         run: |
@@ -53,6 +53,14 @@ jobs:
           Copy-Item packaging\windows\* $folder -Recurse
           (Get-Content "$folder\README.txt") -replace '^Windows, 32-bit$', '${{ matrix.label }}' | Set-Content "$folder\README.txt"
           Copy-Item build\Release\zplayer.exe, build\Release\zqeditor.exe $folder
+          # The ZScript compilers ZQuest runs for 2.55 quests (zscript255, its headers in
+          # zscript255_files) and 3.0 Nightly quests (zscript30 in its own folder with include,
+          # headers and base_config), beside zqeditor as the build lays them out.
+          Copy-Item build\Release\zscript255.exe $folder
+          Copy-Item build\Release\zscript255_files $folder -Recurse
+          New-Item -ItemType Directory "$folder\zscript30" | Out-Null
+          Copy-Item build\Release\zscript30\zscript30.exe "$folder\zscript30"
+          Copy-Item build\Release\zscript30\include, build\Release\zscript30\headers, build\Release\zscript30\base_config "$folder\zscript30" -Recurse
           Compress-Archive -Path $folder -DestinationPath "ZCZQ-$env:VERSION-Vulkan-Windows-${{ matrix.arch }}.zip"
 
       - uses: actions/upload-artifact@v4
@@ -137,7 +145,7 @@ jobs:
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DZC_ZPLAYER_ONLY=ON -DZC_PORT_SDL=ON
 
       - name: Build
-        run: cmake --build build --target zplayer zqeditor
+        run: cmake --build build --target zplayer zqeditor zscript30 zscript255
 
       - name: Package
         run: |
@@ -148,7 +156,28 @@ jobs:
           sed -i 's/^Linux, 64-bit$/${{ matrix.label }}/' "$folder/README.txt"
           install -m 755 build/zplayer "$folder/zplayer"
           install -m 755 build/zqeditor "$folder/zqeditor"
+          # The ZScript compilers ZQuest runs for 2.55 and 3.0 Nightly quests, as the build lays them out.
+          install -m 755 build/zscript255 "$folder/zscript255"
+          cp -r build/zscript255_files "$folder/"
+          mkdir "$folder/zscript30"
+          install -m 755 build/zscript30/zscript30 "$folder/zscript30/zscript30"
+          cp -r build/zscript30/include build/zscript30/headers build/zscript30/base_config "$folder/zscript30/"
           tar -czf "ZC-$VERSION-Vulkan-Linux-${{ matrix.arch }}.tar.gz" "$folder"
+
+      - name: Try ZQuest without a display
+        # Not a pass/fail check: SDL's dummy video driver needs no screen or GPU. A 2.53 quest
+        # re-saved by ZQuest is the same file on every system, so these hashes should match the
+        # macOS job's and a Windows -resave of the same quest.
+        continue-on-error: true
+        run: |
+          set +e
+          cd "ZC-$VERSION-Vulkan-Linux"
+          for q in 1st 2nd 5th; do
+            SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy timeout 300 ./zqeditor -resave $q.qst /tmp/$q.qsu; echo "zqeditor -resave $q exit $?"
+            sha256sum /tmp/$q.qsu || true
+          done
+          SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy timeout 120 ./zplayer -quest-load-check 1st.qst /tmp/load.txt; echo "zplayer exit $?"; cat /tmp/load.txt || true
+          rm -f allegro.log zquest.cfg zc.sav
 
       - uses: actions/upload-artifact@v4
         with:
@@ -196,8 +225,8 @@ jobs:
 
       - name: Build
         run: |
-          cmake --build build --target zplayer zqeditor --parallel 4
-          for p in zplayer zqeditor; do
+          cmake --build build --target zplayer zqeditor zscript30 zscript255 --parallel 4
+          for p in zplayer zqeditor zscript255 zscript30/zscript30; do
             echo "$p: $(lipo -archs build/$p)"
             lipo -archs build/$p | grep -q arm64 && lipo -archs build/$p | grep -q x86_64
           done
@@ -210,6 +239,12 @@ jobs:
           cp packaging/macos/README.txt packaging/android/soundfont.sf2 "$folder/"
           install -m 755 build/zplayer "$folder/zplayer"
           install -m 755 build/zqeditor "$folder/zqeditor"
+          # The ZScript compilers ZQuest runs for 2.55 and 3.0 Nightly quests, as the build lays them out.
+          install -m 755 build/zscript255 "$folder/zscript255"
+          cp -R build/zscript255_files "$folder/"
+          mkdir "$folder/zscript30"
+          install -m 755 build/zscript30/zscript30 "$folder/zscript30/zscript30"
+          cp -R build/zscript30/include build/zscript30/headers build/zscript30/base_config "$folder/zscript30/"
           cp "$MVK_DYLIB" "$folder/libMoltenVK.dylib"
           [ -f "$MVK_LICENSE" ] && cp "$MVK_LICENSE" "$folder/licenses/MoltenVK.txt"
           tar -czf "ZC-$VERSION-Vulkan-macOS.tar.gz" "$folder"
@@ -224,6 +259,15 @@ jobs:
           perl -e 'alarm 120; exec @ARGV' arch -x86_64 ./zplayer -quest-load-check 1st.qst load_x86_64.txt; echo "x86_64 exit $?"; cat load_x86_64.txt || true
           tail -n 30 allegro.log || true
           rm -f load_*.txt allegro.log zc.sav
+          # ZQuest with SDL's dummy video driver (no screen or GPU needed): the hashes should match
+          # the Linux job's.
+          for q in 1st 2nd 5th; do
+            SDL_VIDEO_DRIVER=dummy perl -e 'alarm 300; exec @ARGV' ./zqeditor -resave $q.qst /tmp/$q.qsu; echo "zqeditor -resave $q exit $?"
+            shasum -a 256 /tmp/$q.qsu || true
+          done
+          SDL_VIDEO_DRIVER=dummy perl -e 'alarm 120; exec @ARGV' ./zplayer -quest-load-check 1st.qst load_dummy.txt; echo "zplayer (dummy video) exit $?"; cat load_dummy.txt || true
+          tail -n 30 allegro.log || true
+          rm -f load_*.txt allegro.log zc.sav zquest.cfg
 
       - uses: actions/upload-artifact@v4
         with:

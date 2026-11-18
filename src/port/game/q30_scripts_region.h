@@ -18,10 +18,10 @@
 struct Zasm30ScreenState
 {
     // its FFCs' scripts
-    refInfo ffc_ri[32];                 // ffcScriptData
-    long ffc_misc[32][16];              // ffmisc
-    Zasm30Frame *ffc_frames;            // zasm30_ffc_frames (32)
-    dword ffc_waitdraw;                 // zasm30_ffc_waitdraw
+    refInfo ffc_ri[Q30_MAXFFCS];        // ffcScriptData
+    long ffc_misc[Q30_MAXFFCS][16];     // ffmisc
+    Zasm30Frame *ffc_frames;            // zasm30_ffc_frames (Q30_MAXFFCS)
+    Zasm30FfcBits ffc_waitdraw;         // zasm30_ffc_waitdraw
     // its screen script
     refInfo screen_ri;
     long screen_stack[ZSCRIPT_STACK_ALLOC];
@@ -42,8 +42,8 @@ void *zasm30_screen_state_new(const mapscr *scr)
 {
     Zasm30ScreenState *s = new Zasm30ScreenState;
     memset(s->ffc_misc, 0, sizeof(s->ffc_misc));
-    s->ffc_frames = new Zasm30Frame[32];
-    s->ffc_waitdraw = 0;
+    s->ffc_frames = new Zasm30Frame[Q30_MAXFFCS];
+    s->ffc_waitdraw.clear();
     memset(s->screen_stack, 0, sizeof(s->screen_stack));
     s->screen_done = true;
     s->screen_index = -1;
@@ -76,7 +76,7 @@ void zasm30_screen_state_swap(void *state)
     if(!s)
         return;
 
-    for(int i = 0; i < 32; ++i)
+    for(int i = 0; i < Q30_MAXFFCS; ++i)
     {
         std::swap(ffcScriptData[i], s->ffc_ri[i]);
 
@@ -150,7 +150,7 @@ bool zasm30_screen_state_busy(void *state, int what)
         return false;
 
     if(what == Q30_EACH_FFC_WAITDRAW)
-        return s->ffc_waitdraw != 0;
+        return s->ffc_waitdraw.any();
 
     if(what == Q30_EACH_COMBO_WAITDRAW)
     {
@@ -169,15 +169,15 @@ static void zasm30_mark_region_states(std::vector<long> &work)
     {
         const Zasm30ScreenState *s = *it;
 
-        for(int i = 0; i < 32; ++i)
+        for(int i = 0; i < Q30_MAXFFCS; ++i)
         {
-            if(s->scr && s->scr->ffscript[i])
+            if(s->scr && i < s->scr->ffc_count() && s->scr->ffscript[i])
                 zasm30_mark_script(s->ffc_ri[i], NULL, s->ffc_frames[i], work);
 
             for(int n = 0; n < 16; ++n)
                 zasm30_mark(s->ffc_misc[i][n], work);
 
-            for(int n = 0; s->scr && n < 8; ++n)
+            for(int n = 0; s->scr && i < s->scr->ffc_count() && n < 8; ++n)
                 zasm30_mark(s->scr->initd[i][n], work);
         }
 
@@ -199,12 +199,13 @@ static long zasm30_ffc_ref(int screen, int index)
 }
 
 // The FFC a reference names: its slot, and its screen (-1: the current one). False when there is
-// none (its slot is past this engine's 32, or its screen isn't in the region): *index is then
-// 127, an FFC upstream has and this engine doesn't, which reads as missing without a log line.
+// none (its slot is past the slots its screen has, or its screen isn't in the region): *index is
+// then Z30_NO_FFC, which reads as missing without a log line. (Not 127: that is a real slot of
+// every 2.55/3.0 screen now.)
 static bool zasm30_ffc_from_ref(long ref, int *screen, int *index)
 {
     *screen = -1;
-    *index = 127;
+    *index = Z30_NO_FFC;
 
     if(ref < 0x7FF00000L)
         return false;
@@ -212,7 +213,9 @@ static bool zasm30_ffc_from_ref(long ref, int *screen, int *index)
     const long id = ref - 0x7FF00000L;
     const int scr = q30_region_index_screen((int)(id / 128));
 
-    if(scr < 0 || id % 128 >= MAXFFCS || (scr != currscr && !q30_region_ffc_table(scr)))
+    const mapscr *table = scr < 0 ? NULL : q30_region_ffc_table(scr);
+
+    if(!table || id % 128 >= table->ffc_count())
         return false;
 
     *screen = scr == currscr ? -1 : scr;
@@ -231,7 +234,7 @@ static long zasm30_load_ffc(long id)
 // screen outside one), or 0.
 static long zasm30_load_ffc_at(long screen, long index)
 {
-    if(index < 0 || index >= MAXFFCS || q30_region_screen_index((int)screen) < 0)
+    if(index < 0 || index >= Q30_MAXFFCS || q30_region_screen_index((int)screen) < 0)
         return 0;
 
     return zasm30_load_ffc((long)q30_region_screen_index((int)screen) * 128 + index);
@@ -246,9 +249,12 @@ static void zasm30_select_ffc(long value)
     zasm30_frame().ffc_screen = screen;
 }
 
-// The selected FFC's reference (REFFFC read, ffc->ID).
+// The selected FFC's reference (REFFFC read, ffc->ID); 0 (NULL) when the script named none.
 static long zasm30_selected_ffc_ref()
 {
+    if(ri->ffcref == Z30_NO_FFC)
+        return 0;
+
     const int screen = zasm30_frame().ffc_screen < 0 ? currscr : zasm30_frame().ffc_screen;
     return zasm30_ffc_ref(screen, ri->ffcref);
 }
@@ -344,8 +350,9 @@ struct Zasm30OtherFFCs
 
     void swap()
     {
-        // (a slot past the 32 names no FFC: the register code reports it missing, reading nothing)
-        if(slot < 0 || slot >= MAXFFCS)
+        // (a slot past the ones either screen has names no FFC: the register code reports it
+        // missing, reading nothing)
+        if(slot < 0 || slot >= tmpscr[0].ffc_count() || slot >= m->ffc_count())
             return;
 
         zasm30_swap_ffc(tmpscr[0], *m, slot);
@@ -389,7 +396,7 @@ static bool zasm30_region_ffc_get(const long arg, long &ret)
     ret = get_register(arg);
     zasm30_ffc_hook_busy = false;
 
-    if((arg == FX || arg == FY) && ri->ffcref < MAXFFCS)
+    if((arg == FX || arg == FY) && ri->ffcref < tmpscr->ffc_count())
         ret += (arg == FX ? in.px : in.py) * 10000L;
 
     return true;
@@ -415,7 +422,7 @@ static bool zasm30_region_ffc_set(const long arg, long value)
         // (as 2.53's FFSCRIPT, with that screen's script state; tmpscr and ffmisc hold its FFCs)
         const int i = ri->ffcref;
 
-        if(i < MAXFFCS)
+        if(i < tmpscr->ffc_count())
         {
             tmpscr->ffscript[i] = vbound(value / 10000, 0, NUMSCRIPTFFC - 1);
             memset(ffmisc[i], 0, sizeof(ffmisc[i]));

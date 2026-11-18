@@ -5,7 +5,11 @@
 //
 // Commands, one per line (coordinates are window pixels):
 //   move X Y | click X Y [HOLD_MS] | rclick X Y | dclick X Y | wait MS | key NAME [MS] | type TEXT
+//   wheel X Y N     (the mouse wheel over X Y: N notches, positive away from the user)
 //   down NAME | up NAME     (a key held across other commands, for shortcuts)
+//   drag X1 Y1 X2 Y2        (the left button held from one point to the other)
+//   waitsize W H [MS]       (waits, MS at most (30000), until the window is W x H pixels, 0 for
+//                            any, and has stayed so for 300 ms: test windows get resized by a tiler)
 //   padraw | padstd | padbtn N V | padhat H V | padaxis A V   (a virtual pad, see pad_attach)
 // The number of commands handled is written to <file>.pos after each one.
 //
@@ -21,6 +25,9 @@
 #include <fstream>
 #include <string>
 #include <thread>
+#if !defined(_WIN32)
+#include <unistd.h>
+#endif
 
 extern "C" int set_display_switch_mode(int mode);
 
@@ -88,6 +95,23 @@ void button(int which, bool down, float x, float y)
     pause_ms(70);
 }
 
+// A turn of the mouse wheel by n notches (positive: up / away) with the mouse at x, y.
+void wheel(float x, float y, int n)
+{
+    motion(x, y);
+    SDL_Event e;
+    SDL_zero(e);
+    e.type = SDL_EVENT_MOUSE_WHEEL;
+    e.wheel.windowID = window_id();
+    e.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+    e.wheel.y = (float)n;
+    e.wheel.integer_y = n;
+    e.wheel.mouse_x = x;
+    e.wheel.mouse_y = y;
+    SDL_PushEvent(&e);
+    pause_ms(70);
+}
+
 // hold: how long the button stays down. The editor polls the mouse once a frame, and while
 // it is busy redrawing a 70 ms press can fall between two polls.
 void click(int which, float x, float y, int hold = 0)
@@ -122,6 +146,9 @@ SDL_Scancode scancode_of(const std::string &name)
         return (SDL_Scancode)(SDL_SCANCODE_A + (name[0] - 'A'));
     if(name.size() == 1 && name[0] >= '1' && name[0] <= '9')
         return (SDL_Scancode)(SDL_SCANCODE_1 + (name[0] - '1'));
+    if(name == "0") return SDL_SCANCODE_0;
+    if(name == "LBRACKET") return SDL_SCANCODE_LEFTBRACKET;     // [ and ], ZQuest's flag keys
+    if(name == "RBRACKET") return SDL_SCANCODE_RIGHTBRACKET;
     if(name.size() == 2 && name[0] == 'F' && name[1] >= '1' && name[1] <= '9')
         return (SDL_Scancode)(SDL_SCANCODE_F1 + (name[1] - '1'));
     return SDL_SCANCODE_UNKNOWN;
@@ -173,6 +200,47 @@ void key(const std::string &name, int ms)
         }
         pause_ms(down ? ms : 60);
     }
+}
+
+// On the thread that owns the window: its size in pixels.
+void SDLCALL read_size(void *out)
+{
+    int *wh = (int *)out;
+    int n = 0;
+    SDL_Window **list = SDL_GetWindows(&n);
+    wh[0] = wh[1] = 0;
+    if(list && n > 0)
+        SDL_GetWindowSizeInPixels(list[0], &wh[0], &wh[1]);
+    SDL_free(list);
+}
+
+// waitsize W H [MS]: until the window has been W x H pixels (0: any) for 300 ms, or MS passed.
+void wait_size(int w, int h, int ms)
+{
+    int held = 0;
+
+    for(int left = ms > 0 ? ms : 30000; left > 0 && !g_stop && held < 300; left -= 50)
+    {
+        int wh[2] = { 0, 0 };
+        SDL_RunOnMainThread(read_size, wh, true);
+        held = ((!w || wh[0] == w) && (!h || wh[1] == h)) ? held + 50 : 0;
+        pause_ms(50);
+    }
+}
+
+// The left button pressed at one point, moved to another in steps (a frame or more each, as a
+// hand would), and let go there.
+void drag(float x1, float y1, float x2, float y2)
+{
+    motion(x1, y1);
+    button(SDL_BUTTON_LEFT, true, x1, y1);
+    pause_ms(150);
+
+    for(int i = 1; i <= 8; ++i)
+        motion(x1 + (x2 - x1) * i / 8.0f, y1 + (y2 - y1) * i / 8.0f);
+
+    pause_ms(150);
+    button(SDL_BUTTON_LEFT, false, x2, y2);
 }
 
 // Virtual pads (SDL's virtual joysticks), so pad handling can be tested without one:
@@ -246,9 +314,18 @@ void run(const std::string &path)
                 if(sscanf(line.c_str(), "%31s %d %d %d", word, &a, &b, &c) >= 1)
                 {
                     float x = (float)a, y = (float)b;
-                    if(!strcmp(word, "move")) motion(x, y);
+                    if(!strcmp(word, "drag"))
+                    {
+                        // drag X1 Y1 X2 Y2: the left button held from one point to the other
+                        int d = 0;
+                        sscanf(line.c_str(), "%31s %d %d %d %d", word, &a, &b, &c, &d);
+                        drag((float)a, (float)b, (float)c, (float)d);
+                    }
+                    else if(!strcmp(word, "waitsize")) wait_size(a, b, c);
+                    else if(!strcmp(word, "move")) motion(x, y);
                     else if(!strcmp(word, "click")) click(SDL_BUTTON_LEFT, x, y, c);
                     else if(!strcmp(word, "rclick")) click(SDL_BUTTON_RIGHT, x, y);
+                    else if(!strcmp(word, "wheel")) wheel(x, y, c);
                     else if(!strcmp(word, "dclick")) { click(SDL_BUTTON_LEFT, x, y); click(SDL_BUTTON_LEFT, x, y); }
                     else if(!strcmp(word, "wait")) pause_ms(a);
                     else if(!strcmp(word, "type"))
@@ -300,6 +377,14 @@ struct Start
         if(e && e[0])
         {
             std::string path(e);
+#if !defined(_WIN32)
+            // Made absolute while the working directory is still the one the program
+            // was started in: this runs before main(), which on Linux and macOS may
+            // move to the program's folder to find its data (zplayer_main.cpp).
+            char cwd[4096];
+            if(path[0] != '/' && getcwd(cwd, sizeof(cwd)))
+                path = std::string(cwd) + "/" + path;
+#endif
             g_running = true;
             std::thread(run, path).detach();
         }

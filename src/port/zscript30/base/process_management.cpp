@@ -1,0 +1,787 @@
+#include "base/process_management.h"
+#include "base/util.h"
+#include "base/win_encoding.h"
+#include "base/zapp.h"
+#include <fmt/format.h>
+#include <fmt/ranges.h>
+#include <sstream>
+
+#ifndef _WIN32
+	#include <cerrno>
+	#include <csignal>
+	#include <cstring>
+	#include <sys/types.h>
+	#include <sys/wait.h>
+	#include <spawn.h>
+	#include <pstream.h>
+#endif
+
+using namespace util;
+
+#define ERR_EXIT(str, pm, errcode) \
+	do \
+	{ \
+		if(pm) \
+			delete pm; \
+		zprint2("[PROCESS_LAUNCH: '%s' ERROR %d]: %s\n", file.c_str(), errcode, str); \
+		return NULL; \
+	} while(false)
+
+#ifdef _WIN32
+void process_killer::init_process(void* h, uint32_t exitcode)
+{
+	if(process_handle)
+		kill(exitcode);
+	process_handle = h;
+}
+#else
+void process_killer::init_process(int32_t pr_id)
+{
+	if(pid)
+		kill();
+	pid = pr_id;
+	reaped = false;
+	wait_status = 0;
+}
+
+void process_killer::reap(bool block) const
+{
+	if(reaped || !pid)
+		return;
+	int status = 0;
+	pid_t ret;
+	do
+		ret = waitpid(pid, &status, block ? 0 : WNOHANG);
+	while(ret == -1 && errno == EINTR);
+	if(ret == pid)
+	{
+		reaped = true;
+		wait_status = status;
+	}
+	else if(ret == -1 && errno == ECHILD)
+	{
+		// Already waited on elsewhere, so the exit status is gone.
+		reaped = true;
+		wait_status = -1;
+	}
+}
+#endif
+bool process_killer::is_alive() const
+{
+#ifdef _WIN32
+	return process_handle && WaitForSingleObject(process_handle,0) == WAIT_TIMEOUT;
+#else
+	reap(false);
+	if(reaped)
+		return false;
+	if(::kill(pid,0) == -1)
+	{
+		if(errno != ESRCH)
+			return true;
+		return false;
+	}
+	return true;
+#endif
+}
+#ifdef _WIN32
+bool process_killer::kill(uint32_t exitcode)
+{
+	if(process_handle)
+	{
+		if(TerminateProcess(process_handle, exitcode))
+		{
+			process_handle = NULL;
+			return true;
+		}
+		return false;
+	}
+	return true;
+}
+#else
+bool process_killer::kill()
+{
+	if(pid)
+	{
+		reap(false);
+		if(reaped)
+		{
+			pid = 0;
+			return true;
+		}
+		if(::kill(pid,SIGKILL) == 0)
+		{
+			// Reap it, so it doesn't linger as a zombie.
+			reap(true);
+			pid = 0;
+			return true;
+		}
+		return false;
+	}
+	return true;
+}
+#endif
+
+std::string process_killer::describe_exit() const
+{
+#ifdef _WIN32
+	if(!process_handle)
+		return "was killed";
+	if(WaitForSingleObject(process_handle, 2000) != WAIT_OBJECT_0)
+		return "is still running";
+	DWORD code = 0;
+	if(!GetExitCodeProcess(process_handle, &code))
+		return "exited for an unknown reason";
+	return fmt::format("exited with code {} (0x{:08X})", (int32_t)code, code);
+#else
+	if(!pid)
+		return "was killed";
+	// A closed pipe usually means the process is exiting, but it may not have finished yet.
+	for(int i = 0; i < 200 && !reaped; i++)
+	{
+		reap(false);
+		if(!reaped)
+			usleep(10 * 1000);
+	}
+	if(!reaped)
+		return "is still running";
+	if(WIFSIGNALED(wait_status))
+	{
+		int sig = WTERMSIG(wait_status);
+		return fmt::format("was killed by signal {} ({})", sig, strsignal(sig));
+	}
+	if(WIFEXITED(wait_status))
+		return fmt::format("exited with code {}", WEXITSTATUS(wait_status));
+	return "exited for an unknown reason";
+#endif
+}
+
+//
+
+#ifdef _WIN32
+static size_t callback_complete_count = 0;
+static bool callback_error = false;
+static VOID WINAPI FileCallback(DWORD error_code, [[maybe_unused]] DWORD bytes_transferred, [[maybe_unused]] LPOVERLAPPED ptr_overlapped)
+{
+	if(error_code)
+		callback_error = true;
+}
+
+bool io_manager::ProcessReadFile(HANDLE read_handle, LPVOID buf, DWORD bytes_to_read, LPDWORD bytes_read)
+{
+	OVERLAPPED ov;
+	LPOVERLAPPED p_ov = &ov;
+	LPOVERLAPPED_COMPLETION_ROUTINE callback = FileCallback;
+	memset(&ov, 0, sizeof(OVERLAPPED));
+	
+	callback_error = false;
+	
+	typedef BOOL (WINAPI *GetOverlappedResultExPROC)(HANDLE, LPOVERLAPPED, LPDWORD, DWORD, BOOL);
+	HMODULE kernel32 = LoadLibraryW(L"kernel32");
+	GetOverlappedResultExPROC imp_GetOverlappedResultEx =
+		(GetOverlappedResultExPROC) GetProcAddress(kernel32, "GetOverlappedResultEx");
+	
+	// Windows 7 compat: GetOverlappedResultEx was added in Windows 8. See docs/windows_support.md.
+	if (!kernel32 || kernel32 == INVALID_HANDLE_VALUE || !imp_GetOverlappedResultEx)
+	{
+		DWORD num_read = 0;
+		if(!ReadFile(read_handle, buf, bytes_to_read, (LPDWORD)&num_read, NULL))
+		{
+			zprint2("READ FAILURE: %d\n",GetLastError());
+			return false;
+		}
+		return !callback_error;
+	}
+	
+	if (!ReadFileEx(read_handle, buf, bytes_to_read, p_ov, callback))
+	{
+		zprint2("READ FAILURE: %d\n",GetLastError());
+		return false;
+	}
+	
+	dword timeout_ms = timeout_seconds*1000;
+	if(!timeout_ms) timeout_ms = INFINITE;
+	while (!imp_GetOverlappedResultEx(read_handle, p_ov, bytes_read, timeout_ms, true))
+	{
+		if (!is_alive())
+		{
+			FreeLibrary(kernel32);
+			throw zc_io_exception::dead();
+		}
+		auto error = GetLastError();
+		switch(error)
+		{
+			case WAIT_TIMEOUT:
+			{
+				FreeLibrary(kernel32);
+				throw zc_io_exception::timeout();
+			}
+			break;
+
+			case WAIT_IO_COMPLETION:
+			case ERROR_IO_INCOMPLETE:
+				continue;
+			default:
+				FreeLibrary(kernel32);
+				throw zc_io_exception::unknown();
+		}
+	}
+	
+	FreeLibrary(kernel32);
+	return !callback_error;
+}
+bool io_manager::ProcessWriteFile(HANDLE write_handle, LPVOID buf, DWORD bytes_to_write, LPDWORD bytes_written)
+{
+	return WriteFile(write_handle, buf, bytes_to_write, bytes_written, NULL);
+}
+#endif
+
+//
+
+process_manager::~process_manager()
+{
+#ifdef _WIN32
+	if(write_handle)
+	{
+		CloseHandle(write_handle);
+		write_handle = NULL;
+	}
+	if(read_handle)
+	{
+		CloseHandle(read_handle);
+		read_handle = NULL;
+	}
+	if(wr_2)
+	{
+		CloseHandle(wr_2);
+		wr_2 = NULL;
+	}
+	if(re_2)
+	{
+		CloseHandle(re_2);
+		re_2 = NULL;
+	}
+#else
+	if(write_handle > 0)
+		close(write_handle);
+	if(read_handle > 0)
+		close(read_handle);
+#endif
+	if(kill_on_destructor)
+		kill();
+}
+
+bool process_manager::read(void* buf, uint32_t bytes_to_read, uint32_t* bytes_read)
+{
+#ifdef _WIN32
+	if(!bytes_read) bytes_read = &__dummy_;
+	*bytes_read = 0;
+
+	if(!read_handle) return false;
+
+	if(!is_alive())
+		throw zc_io_exception::dead();
+
+	bool ret = ProcessReadFile((HANDLE)read_handle, (LPVOID)buf, (DWORD)bytes_to_read, (LPDWORD)bytes_read);
+	
+	if(!is_alive())
+		throw zc_io_exception::dead();
+
+	return ret;
+#else
+	if(!read_handle) return false;
+	// The pipe only reaches EOF once the child has closed its end, which is to say it exited
+	// (or crashed). Callers would otherwise go on with whatever was already in buf.
+	uint32_t total = 0;
+	while(total < bytes_to_read)
+	{
+		ssize_t ret = ::read(read_handle, (char*)buf + total, bytes_to_read - total); //!TODO handle timeouts
+		if(ret < 0 && errno == EINTR)
+			continue;
+		if(ret <= 0)
+		{
+			if(bytes_read) *bytes_read = total;
+			throw zc_io_exception::dead();
+		}
+		total += ret;
+	}
+	if(bytes_read) *bytes_read = total;
+	return true;
+#endif
+}
+
+bool process_manager::write(void* buf, uint32_t bytes_to_write, uint32_t* bytes_written)
+{
+#ifdef _WIN32
+	if(!write_handle) return false;
+	if(!is_alive())
+		throw zc_io_exception::dead();
+	if(!bytes_written) bytes_written = &__dummy_;
+	bool ret = ProcessWriteFile((HANDLE)write_handle, (LPVOID)buf, (DWORD)bytes_to_write, (LPDWORD)bytes_written);
+	if(!is_alive())
+		throw zc_io_exception::dead();
+	return ret;
+#else
+	if(!write_handle) return false;
+	// Writing to a pipe whose reader is gone raises SIGPIPE, which would kill this process
+	// instead of letting it report that the child died. Ignore it, so the write fails with
+	// EPIPE instead. That alone doesn't mean the child failed (it may have finished without
+	// waiting for this), so it is left to the next read to find out.
+	struct sigaction ignore_action = {}, old_action;
+	ignore_action.sa_handler = SIG_IGN;
+	sigaction(SIGPIPE, &ignore_action, &old_action);
+	uint32_t total = 0;
+	while(total < bytes_to_write)
+	{
+		ssize_t ret = ::write(write_handle, (const char*)buf + total, bytes_to_write - total); //!TODO handle timeouts
+		if(ret < 0 && errno == EINTR)
+			continue;
+		if(ret < 0)
+			break;
+		total += ret;
+	}
+	sigaction(SIGPIPE, &old_action, nullptr);
+	if(bytes_written) *bytes_written = total;
+	return total==bytes_to_write;
+#endif
+}
+
+//
+
+bool child_process_handler::init()
+{
+#ifdef _WIN32
+	out = GetStdHandle(STD_OUTPUT_HANDLE);
+	in = GetStdHandle(STD_INPUT_HANDLE);
+	return (out != INVALID_HANDLE_VALUE && in != INVALID_HANDLE_VALUE);
+#else
+#ifdef __EMSCRIPTEN__
+	// The web build runs zscript in the page (see web/main.js), with no parent process on the
+	// other end of stdin to reply.
+	read_handle = -1;
+#else
+	read_handle = fileno(stdin);
+#endif
+	write_handle = fileno(stdout);
+	return true;
+#endif
+}
+
+bool child_process_handler::read(void* buf, uint32_t bytes_to_read, uint32_t* bytes_read)
+{
+#ifdef _WIN32
+	if(!bytes_read) bytes_read = &__dummy_;
+	if(in != INVALID_HANDLE_VALUE)
+		return ReadFile((HANDLE)in, (LPVOID)buf, (DWORD)bytes_to_read, (LPDWORD)bytes_read, NULL);
+	return false;
+#else
+	// stdin is fd 0, so a check for 0 here would skip every read.
+	if(read_handle < 0) return false;
+	// A read that returns early (ex: interrupted by a signal) must not count as the parent's
+	// reply, or every later message is out of step with it.
+	uint32_t total = 0;
+	while(total < bytes_to_read)
+	{
+		ssize_t ret = ::read(read_handle, (char*)buf + total, bytes_to_read - total);
+		if(ret < 0 && errno == EINTR)
+			continue;
+		if(ret <= 0)
+			break;
+		total += ret;
+	}
+	if(bytes_read) *bytes_read = total;
+	return total==bytes_to_read;
+#endif
+}
+
+bool child_process_handler::write(void* buf, uint32_t bytes_to_write, uint32_t* bytes_written)
+{
+#ifdef _WIN32
+	if(!bytes_written) bytes_written = &__dummy_;
+	if(out != INVALID_HANDLE_VALUE)
+		return WriteFile((HANDLE)out, (LPVOID)buf, (DWORD)bytes_to_write, (LPDWORD)bytes_written, NULL);
+	return false;
+#else
+	if(!write_handle) return false;
+	uint32_t total = 0;
+	while(total < bytes_to_write)
+	{
+		ssize_t ret = ::write(write_handle, (const char*)buf + total, bytes_to_write - total);
+		if(ret < 0 && errno == EINTR)
+			continue;
+		if(ret < 0)
+			break;
+		total += ret;
+	}
+	if(bytes_written) *bytes_written = total;
+	return total==bytes_to_write;
+#endif
+}
+
+//
+
+static std::vector<char*> create_argv_unix(std::string file, const std::vector<std::string>& args)
+{
+	std::vector<char*> argv;
+	argv.reserve(args.size() + 2);
+	argv.push_back(strcpy(new char[file.length() + 1], file.c_str()));
+	std::transform(args.begin(), args.end(), std::back_inserter(argv), [](const std::string& s) {
+		char *pc = new char[s.size()+1];
+		std::strcpy(pc, s.c_str());
+		return pc; 
+	});
+	argv.push_back(nullptr);
+	return argv;
+}
+
+#ifdef _WIN32
+// Launching with the wide-char API gives a child process its arguments in whatever code page it
+// uses. Each part is converted on its own, since they can come from different sources (and so,
+// before Windows 10 1903, different code pages). See docs/windows_support.md.
+static std::wstring create_command_line(const std::string& file, const std::vector<std::string>& args)
+{
+	std::wstring cmd = L"\"" + util::utf8_to_wide(file) + L"\"";
+	for (auto& arg : args)
+		cmd += L" \"" + util::utf8_to_wide(arg) + L"\"";
+	return cmd;
+}
+
+/******************************************************************
+* https://groups.google.com/g/microsoft.public.win32.programmer.kernel/c/5UX78EXhyz0/m/oA-_hfk3_A0J
+*
+* BOOL RunOneShot(file, args, output)
+*
+* Spawn a child process and capture the redirect output.
+*
+* return TRUE if successful. Otherwise FALSE, read extended error.
+******************************************************************/
+
+BOOL RunOneShot(const std::string& file, const std::vector<std::string>& args, std::string& output) {
+  SECURITY_ATTRIBUTES sa;
+  ZeroMemory(&sa, sizeof(sa));
+  sa.nLength = sizeof(sa);
+  sa.bInheritHandle = TRUE;
+
+  HANDLE hOut = INVALID_HANDLE_VALUE;
+  HANDLE hRedir = INVALID_HANDLE_VALUE;
+
+  // Create Temp File for redirection
+
+  char szTempPath[MAX_PATH];
+  char szOutput[MAX_PATH];
+  GetTempPath(sizeof(szTempPath), szTempPath);
+  GetTempFileName(szTempPath, "tmp", 0, szOutput);
+
+  // setup redirection handles
+  // output handle must be WRITE mode, share READ
+  // redirect handle must be READ mode, share WRITE
+
+  hOut = CreateFile(szOutput, GENERIC_WRITE, FILE_SHARE_READ, &sa,
+                    CREATE_ALWAYS, FILE_ATTRIBUTE_TEMPORARY, 0);
+
+  if (hOut == INVALID_HANDLE_VALUE) {
+    return FALSE;
+  }
+
+  hRedir = CreateFile(szOutput, GENERIC_READ, FILE_SHARE_WRITE, 0,
+                      OPEN_EXISTING, 0, 0);
+
+  if (hRedir == INVALID_HANDLE_VALUE) {
+    CloseHandle(hOut);
+    return FALSE;
+  }
+
+  // setup startup info, set std out/err handles
+  // hide window
+
+  STARTUPINFOW si;
+  ZeroMemory(&si, sizeof(si));
+  si.cb = sizeof(si);
+  if (hOut != INVALID_HANDLE_VALUE) {
+    si.dwFlags |= STARTF_USESTDHANDLES;
+    si.hStdOutput = hOut;
+    si.hStdError = hOut;
+    si.wShowWindow = SW_HIDE;
+  }
+
+  printf("-Process: \"%s\" %s\n", file.c_str(), fmt::format("{}", fmt::join(args, " ")).c_str());
+  std::wstring wcmd = create_command_line(file, args);
+
+  PROCESS_INFORMATION pi;
+  ZeroMemory(&pi, sizeof(pi));
+
+  DWORD dwFlags = CREATE_NO_WINDOW; // NT/2000 only
+
+  if (!CreateProcessW(NULL, wcmd.data(), NULL, NULL, TRUE, dwFlags, NULL, NULL,
+                     &si, &pi)) {
+
+    int err = GetLastError(); // preserve the CreateProcess error
+
+    if (hOut != INVALID_HANDLE_VALUE) {
+      CloseHandle(hOut);
+      CloseHandle(hRedir);
+    }
+
+    SetLastError(err);
+    return FALSE;
+  }
+
+  // let go of the child thread
+  CloseHandle(pi.hThread);
+
+  // wait for process to finish, capture redirection and
+  // send it to the parent window/console
+
+  std::stringstream ss;
+
+  DWORD dw;
+  char buf[256];
+  do {
+    ZeroMemory(&buf, sizeof(buf));
+    while (ReadFile(hRedir, &buf, sizeof(buf) - 1, &dw, NULL)) {
+      if (dw == 0)
+        break;
+	  ss << buf;
+      ZeroMemory(&buf, sizeof(buf));
+    }
+  } while (WaitForSingleObject(pi.hProcess, 0) != WAIT_OBJECT_0);
+
+  // perform any final flushing
+
+  while (ReadFile(hRedir, &buf, sizeof(buf) - 1, &dw, NULL)) {
+    if (dw == 0)
+      break;
+    ss << buf;
+    ZeroMemory(&buf, sizeof(buf));
+  }
+
+  WaitForSingleObject(pi.hProcess, INFINITE);
+  CloseHandle(pi.hProcess);
+  CloseHandle(hOut);
+  CloseHandle(hRedir);
+  DeleteFile(szOutput);
+
+  output = ss.str();
+  return true;
+}
+#endif
+
+std::string locate_zapp_file(std::string const& file)
+{
+#ifdef _WIN32
+	return zapp_get_exe_folder_path() + "\\" + file + ".exe";
+#else
+	return zapp_get_exe_folder_path() + "/" + file;
+#endif
+}
+
+process_killer launch_process(std::string file, const std::vector<std::string>& args)
+{
+#ifdef _WIN32
+	STARTUPINFOW si;
+	PROCESS_INFORMATION pi{};
+
+	std::wstring cmd = create_command_line(file, args);
+	GetStartupInfoW(&si);
+	if (!CreateProcessW(NULL,cmd.data(),NULL,NULL,FALSE,CREATE_NEW_CONSOLE,NULL,NULL,&si,&pi))
+		zprint2("[PROCESS_LAUNCH: '%s' ERROR %d]: Failed to create process\n", file.c_str(), (int)GetLastError());
+	return process_killer(pi.hProcess);
+#else
+	std::vector<char*> argv = create_argv_unix(file, args);
+	pid_t pid;
+#ifdef __linux__
+	int s = posix_spawnp(&pid, file.c_str(), NULL, NULL, argv.data(), environ);
+#else
+	extern char** environ;
+	int s = posix_spawnp(&pid, file.c_str(), NULL, NULL, argv.data(), environ);
+#endif
+	for (auto arg : argv) free(arg);
+	if (s != 0) ERR_EXIT("Failed posix_spawnp", (process_manager*)0, 0);
+	return process_killer(pid);
+#endif
+}
+
+process_manager* launch_piped_process(std::string file, [[maybe_unused]] std::string pipename, const std::vector<std::string>& args)
+{
+	process_manager* pm = new process_manager();
+#ifdef _WIN32
+	SECURITY_ATTRIBUTES saAttr;
+	saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
+	saAttr.bInheritHandle = TRUE;
+	saAttr.lpSecurityDescriptor = NULL;
+	#define PIPE_BUFFER_SZ 256
+	
+	std::string pipename_1 = fmt::format("\\\\.\\pipe\\{}",pipename),
+		pipename_2 = pipename_1+"2";
+	
+	// if ( !CreatePipe(&(pm->read_handle), &(pm->re_2), &saAttr, 0))
+		// ERR_EXIT("Failed to create child output pipe", pm);
+	HANDLE PipeHandle1 = CreateNamedPipeA(pipename_1.c_str(),PIPE_ACCESS_DUPLEX|FILE_FLAG_OVERLAPPED,PIPE_TYPE_BYTE,1,PIPE_BUFFER_SZ,PIPE_BUFFER_SZ,0,&saAttr);
+	if(PipeHandle1==INVALID_HANDLE_VALUE)
+		ERR_EXIT("Failed to create child output pipe", pm, GetLastError());
+	if(!WaitNamedPipeA(pipename_1.c_str(), 1000*5))
+		ERR_EXIT("Failed to recognize opened child output pipe", pm, 0);
+	pm->read_handle = CreateFileA(pipename_1.c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,&saAttr,OPEN_EXISTING,FILE_FLAG_OVERLAPPED,NULL);
+	if(pm->read_handle==INVALID_HANDLE_VALUE)
+		ERR_EXIT("Failed to open child output pipe read end", pm, GetLastError());
+	pm->re_2 = PipeHandle1;//CreateFileA(pipename_1.c_str(),GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE,&saAttr,OPEN_EXISTING,FILE_FLAG_OVERLAPPED,NULL);
+	// if(pm->re_2==INVALID_HANDLE_VALUE)
+		// ERR_EXIT("Failed to open child output pipe write end", pm, GetLastError());
+	
+	if ( !SetHandleInformation(pm->read_handle, HANDLE_FLAG_INHERIT, 0))
+		ERR_EXIT("Failed to set handle information for child output", pm, GetLastError()); 
+	
+	// if ( !CreatePipe(&(pm->wr_2), &(pm->write_handle), &saAttr, 0))
+		// ERR_EXIT("Failed to create child input pipe", pm);
+	HANDLE PipeHandle2 = CreateNamedPipeA(pipename_2.c_str(),PIPE_ACCESS_DUPLEX|FILE_FLAG_OVERLAPPED,PIPE_TYPE_BYTE,1,PIPE_BUFFER_SZ,PIPE_BUFFER_SZ,0,&saAttr);
+	if(PipeHandle2==INVALID_HANDLE_VALUE)
+		ERR_EXIT("Failed to create child input pipe", pm, GetLastError());
+	if(!WaitNamedPipeA(pipename_2.c_str(), 1000*5))
+		ERR_EXIT("Failed to recognize opened child input pipe", pm, 0);
+	pm->wr_2 = PipeHandle2;//CreateFileA(pipename_2.c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE,&saAttr,OPEN_EXISTING,FILE_FLAG_OVERLAPPED,NULL);
+	// if(pm->wr_2==INVALID_HANDLE_VALUE)
+		// ERR_EXIT("Failed to open child input pipe read end", pm, GetLastError());
+	pm->write_handle = CreateFileA(pipename_2.c_str(),GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE,&saAttr,OPEN_EXISTING,FILE_FLAG_OVERLAPPED,NULL);
+	if(pm->write_handle==INVALID_HANDLE_VALUE)
+		ERR_EXIT("Failed to open child input pipe write end", pm, GetLastError());
+	
+	if ( !SetHandleInformation(pm->write_handle, HANDLE_FLAG_INHERIT, 0))
+		ERR_EXIT("Failed to set handle information for child input", pm, GetLastError()); 
+	
+	
+	PROCESS_INFORMATION pi;
+	STARTUPINFOW si;
+	BOOL bSuccess = FALSE;
+	
+	ZeroMemory(&pi,sizeof(PROCESS_INFORMATION));
+	ZeroMemory(&si,sizeof(STARTUPINFOW));
+	si.cb = sizeof(STARTUPINFOW);
+	
+	si.hStdError = pm->re_2;
+	si.hStdOutput = pm->re_2;
+	si.hStdInput = pm->wr_2;
+	si.dwFlags |= STARTF_USESTDHANDLES;
+	std::wstring cmd = create_command_line(file, args);
+	bSuccess = CreateProcessW(NULL, 
+		cmd.data(), // command line 
+		NULL,          // process security attributes 
+		NULL,          // primary thread security attributes 
+		TRUE,          // handles are inherited 
+		0,             // creation flags 
+		NULL,          // use parent's environment 
+		NULL,          // use parent's current directory 
+		&si, &pi);
+	if(!bSuccess)
+		ERR_EXIT("Failed to create process", pm, GetLastError());
+	pm->init_process(pi.hProcess);
+	return pm;
+#else
+	int32_t pdes_r[2], pdes_w[2];
+	posix_spawn_file_actions_t file_actions;
+	int s;
+
+	pipe(pdes_r);
+	pipe(pdes_w);
+
+	s = posix_spawn_file_actions_init(&file_actions);
+	if (s != 0) ERR_EXIT("Failed posix_spawn_file_actions_init", pm, 0);
+	
+	posix_spawn_file_actions_adddup2(&file_actions, pdes_r[1], fileno(stdout));
+	posix_spawn_file_actions_addclose(&file_actions, pdes_r[1]);
+	posix_spawn_file_actions_addclose(&file_actions, pdes_r[0]);
+
+	posix_spawn_file_actions_adddup2(&file_actions, pdes_w[0], fileno(stdin));
+	posix_spawn_file_actions_addclose(&file_actions, pdes_w[0]);
+	posix_spawn_file_actions_addclose(&file_actions, pdes_w[1]);
+
+	std::vector<char*> argv = create_argv_unix(file, args);
+	pid_t child_pid;
+#ifdef __linux__
+	s = posix_spawnp(&child_pid, file.c_str(), &file_actions, NULL, argv.data(), environ);
+#else
+	extern char** environ;
+	s = posix_spawnp(&child_pid, file.c_str(), &file_actions, NULL, argv.data(), environ);
+#endif
+	if (s != 0) ERR_EXIT("Failed posix_spawnp", pm, 0);
+	
+	pm->read_handle = pdes_r[0];
+	pm->write_handle = pdes_w[1];
+	close(pdes_r[1]);
+	close(pdes_w[0]);
+	pm->init_process(child_pid);
+	return pm;
+#endif
+}
+
+void launch_file(std::string const& file)
+{
+#ifdef _WIN32
+	char path_buf[2048];
+	GetCurrentDirectory(2047, path_buf);
+	//trim trailing slashes
+	for (int32_t q = strlen(path_buf) - 1; q >= 0; --q)
+	{
+		if (path_buf[q] == '/' || path_buf[q] == '\\')
+			path_buf[q] = 0;
+		else break;
+	}
+	strcat(path_buf, "\\\\");
+	strcat(path_buf, file.c_str());
+	ShellExecute(0, 0, path_buf, 0, 0, SW_NORMAL);
+#elif defined(__EMSCRIPTEN__)
+	// TODO
+#else
+	std::string command = "open " + file;
+	system(command.c_str());
+#endif
+}
+
+// TODO: also need to read stderr in windows
+bool run_and_get_output(std::string file, const std::vector<std::string>& args, std::string& output)
+{
+#ifndef _WIN32
+	// For unix, bypass the whole pipe thing (which breaks terribly when zlauncher calls zupdater) by
+	// using pstream library. Bonus, gives us stderr too.
+	std::stringstream result;
+	std::vector args2 = args;
+	args2.insert(args2.begin(), file);
+	redi::ipstream proc(file, args2, redi::pstreams::pstdout | redi::pstreams::pstderr);
+	if (proc.bad())
+		return false;
+
+	std::string line;
+	while (std::getline(proc.out(), line))
+		result << line << '\n';
+	if (proc.eof() && proc.fail())
+		proc.clear();
+	while (std::getline(proc.err(), line))
+		result << "[stderr] " << line << '\n';
+
+	output = result.str();
+	return true;
+#else
+	return RunOneShot(file, args, output);
+#endif
+}
+
+// Utility function for parsing structured data from process output.
+std::map<std::string, std::string> parse_output_map(std::string output)
+{
+	std::map<std::string, std::string> result;
+
+	util::removechar(output, '\r');
+	std::vector<std::string> lines;
+	util::split(output, lines, '\n');
+
+	for (auto line : lines)
+	{
+		size_t pos = line.find_first_of(' ');
+		if (pos != std::string::npos)
+		{
+			auto key = line.substr(0, pos);
+			auto value = line.substr(pos + 1);
+			result[key] = value;
+		}
+	}
+
+	return result;
+}

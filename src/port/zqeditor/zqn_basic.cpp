@@ -29,6 +29,7 @@
 #include "zsys.h"
 #include "zq_sections.h"
 #include "zq_writers.h"
+#include "zq_zinfo.h"
 #include "zqn_doors.h"
 #include "zqn_music.h"
 #include "zqn_rules.h"
@@ -340,7 +341,9 @@ int zqn_header(PACKFILE *f, const ZqNewerContext &ctx)
     // the build's time zone: not known (__TIME__ is the build machine's clock, local time on
     // a desktop and UTC on a CI runner); empty is what headers before version 5 read as
     o.zeros(6);
-    o.c(0);                             // zinfo in the quest file, not beside it
+    // the editor names in the quest file, or (a 2.55 quest's header that says so, which upstream
+    // keeps) in a .zinfo file beside it: zq_save_newer writes them there (zq_zinfo.h)
+    o.c(ctx.src_zelda_version >= 0x255 && zq_zinfo_external() ? 1 : 0);
     o.c(0);                             // not a nightly (3.0: isStableRelease of 3.0.0)
 
     if(t30)

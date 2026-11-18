@@ -845,7 +845,7 @@ bool tour_screen_used(int map, int scr)
         if(s.data[c])
             return true;
 
-    for(int f = 0; f < 32; ++f)
+    for(int f = 0; f < s.ffc_count(); ++f)
         if(s.ffdata[f] || s.ffscript[f])
             return true;
 

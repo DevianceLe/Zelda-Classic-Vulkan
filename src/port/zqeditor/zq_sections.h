@@ -66,6 +66,12 @@ void zq_sections_note_loaded();
 // True when ZQuest's data for this part is no longer what was loaded.
 bool zq_part_changed(const ZqQuestPart &p);
 
+// After an import put a whole section in (zq_exports.cpp): the first part with this id keeps
+// bytes from now on (its id first, as a writer writes the part) and its fingerprint is taken
+// again, as though the file had held them; the other parts are left as they are. ZQuest's data
+// for the section must be what reading those bytes gives. False if there's no such part.
+bool zq_part_rebase(dword id, const std::vector<byte> &bytes);
+
 // Writes one kind of section (its id first) with ZQuest's 2.53 writer, as a 2.53 save
 // would. False when there is no 2.53 writer for that id.
 bool zq_write_253_section(PACKFILE *f, dword id);
