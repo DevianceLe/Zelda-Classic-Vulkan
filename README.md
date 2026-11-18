@@ -41,7 +41,10 @@ What that means in practice:
 - Vulkan rendering with window sizes, resolutions, scaling and fullscreen modes. Without Vulkan the game uses Direct3D, OpenGL or Metal instead, or software drawing as a last resort
 - New Dear ImGui menus, dialogs and file browser in the player and the editor
 - ZQuest on SDL3 and Vulkan, with Large and Small layouts you can switch while it runs
+- ZQuest edits 2.55 and 3.0 Nightly quests with their own features: combos, items, enemies, DMaps, screens, strings, init data, quest rules, scrolling regions, combo pools, autocombos, music, hero data, ZInfo names and subscreen layouts (drag widgets on a live preview). Exports, imports and timed autosave work for them too
+- ZScript in ZQuest: the 2.55.17 and 3.0 Nightly compilers ship with it, and Compile ZScript builds a quest's scripts and assigns their slots. On a test quest the compiled scripts match upstream's byte for byte
 - 2.55 and 3.0 Nightly quest files, scripts of every type, music objects, and combo triggers in the player
+- On 2.55 and 3.0 Nightly quests: FFCs on their own layers, the hero's falling, carrying and lava-drowning animations, item costs for bombs, and newer subscreen life and magic gauges
 - On 2.55 and 3.0 Nightly quests: slopes, bottles and bottle shops, the switch hook, sprite rotation and scaling, script lighting and dark rooms, subscreen widgets and overlay subscreens, subscreens with more than one page, the Moon Pearl and bunny form, the magic mirror, the bug net, lifting and throwing, torches, item pickup messages and secret items. Each has been tried in one to four quests so far
 - Older quests (1.90 to 2.50.1) keep more of how their own version played, from a survey of the original source branches
 - The player on 64-bit Linux, tested on Debian 13 and Arch Linux with Mesa's software Vulkan driver
@@ -57,8 +60,9 @@ What that means in practice:
 **Still to do**
 
 - Z-heights
-- Editing what only 2.55 and 3.0 Nightly have. ZQuest opens those quests and saves them in their own version, but its menus edit only what 2.53 has
-- Real-hardware testing of ZQuest on Linux and macOS, which is new
+- Sideview swimming, and the hero's water-drowning, timed lifting and bug-net animations confirmed in a quest
+- In ZQuest: the subscreen wizards, adding or deleting whole subscreens, music loop preview, the autocombo cursor preview, moving script variables when slots change, and single item or enemy files (`.zitem`, `.znpc`)
+- Real-hardware testing of ZQuest and the compilers on macOS, and on Linux beyond the Debian and Arch test machines
 
 The [compatibility page](COMPATIBILITY.md#what-still-doesnt-work) has the full list of what still doesn't work, including known bugs.
 
@@ -151,7 +155,7 @@ cmake --build build-switch --target zplayer_nro
 | Quest made in | Player | ZQuest |
 |---|---|---|
 | 2.53.1 and earlier | Plays exactly as before | Opens and saves as 2.53 |
-| 2.55 and 3.0 Nightlies | Plays; never saved as an older quest | Refused for now |
+| 2.55 and 3.0 Nightlies | Plays; never saved as an older quest | Edits and saves in its own version, or as 3.0 Nightly; compiles its ZScript |
 
 Every change has to pass the 2.53 checks. Re-saved reference quests must match byte for byte, and [replays](tests/replay/) must produce identical frames.
 
@@ -162,6 +166,8 @@ Every change has to pass the 2.53 checks. Re-saved reference quests must match b
 | `src/` | The game and editor code |
 | `src/port/` | The SDL3 and Vulkan port, including our Allegro replacement |
 | `src/port/game/` | Readers and engine code for 2.55 and 3.0 Nightly quests |
+| `src/port/zqeditor/` | ZQuest's port code: the newer quests' writers and editors |
+| `src/port/zscript30/`, `src/port/zscript255/` | The 3.0 Nightly and 2.55.17 ZScript compilers, ported from ZQuestClassic |
 | `android/` | Android project |
 | `third_party/` | Bundled libraries ([details](third_party/README.md)) |
 | `tests/replay/` | Recorded play-throughs and their expected frame hashes |
