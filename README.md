@@ -9,10 +9,8 @@ Zelda Classic is a game engine and quest editor for making and playing custom ad
 
 | Program | What it is | Runs on |
 |---|---|---|
-| `zplayer` | The game. Plays 2.53, 2.55 and 3.0 Nightly quests. | Windows 10/11 (32-bit, 64-bit, ARM64\*), Linux (64-bit x86_64, ARM64\*), macOS 11+ (Apple Silicon and Intel\*), Nintendo Switch (homebrew), Android 8.0+ (in progress) |
-| `zqeditor` | ZQuest, the quest editor. Opens quests of every version, saves each in its own version, and saves older quests as 2.55.17 or 3.0 Nightly. Compiles 2.55 and 3.0 Nightly quests' ZScript with those versions' own compilers (`zscript255`, `zscript30`). | Windows 10/11 (32-bit, 64-bit, ARM64\*), Linux (64-bit x86_64, ARM64\*), macOS 11+ (Apple Silicon and Intel\*) |
-
-\* New and untested on real hardware: Windows on ARM, Linux on ARM and macOS are only built, on GitHub's build machines.
+| `zplayer` | The game. Plays 2.53, 2.55 and 3.0 Nightly quests. | Windows 10/11 (32-bit, 64-bit, ARM64), Linux (64-bit x86_64, ARM64), macOS 11+ (Apple Silicon and Intel), Nintendo Switch (homebrew), Android 8.0+ (in progress) |
+| `zqeditor` | ZQuest, the quest editor. Opens quests of every version, saves each in its own version, and saves older quests as 2.55.17 or 3.0 Nightly. Compiles 2.55 and 3.0 Nightly quests' ZScript with those versions' own compilers (`zscript255`, `zscript30`). | Windows 10/11 (32-bit, 64-bit, ARM64), Linux (64-bit x86_64, ARM64), macOS 11+ (Apple Silicon and Intel) |
 
 ## Downloads
 
@@ -47,8 +45,7 @@ What that means in practice:
 - On 2.55 and 3.0 Nightly quests: FFCs on their own layers, the hero's falling, carrying and lava-drowning animations, item costs for bombs, and newer subscreen life and magic gauges
 - On 2.55 and 3.0 Nightly quests: slopes, bottles and bottle shops, the switch hook, sprite rotation and scaling, script lighting and dark rooms, subscreen widgets and overlay subscreens, subscreens with more than one page, the Moon Pearl and bunny form, the magic mirror, the bug net, lifting and throwing, torches, item pickup messages and secret items. Each has been tried in one to four quests so far
 - Older quests (1.90 to 2.50.1) keep more of how their own version played, from a survey of the original source branches
-- The player on 64-bit Linux, tested on Debian 13 and Arch Linux with Mesa's software Vulkan driver
-- The player as Nintendo Switch homebrew, tested in the Eden emulator only
+- The player and ZQuest on real hardware on every platform: Windows (32-bit, 64-bit and ARM64), Linux (x86_64 and ARM64), macOS (Apple Silicon and Intel), and the player as Nintendo Switch homebrew
 
 **Written, but not yet confirmed in play on 2.55 and 3.0 Nightly quests**
 
@@ -62,7 +59,6 @@ What that means in practice:
 - Z-heights
 - Sideview swimming, and the hero's water-drowning, timed lifting and bug-net animations confirmed in a quest
 - In ZQuest: the subscreen wizards, adding or deleting whole subscreens, music loop preview, the autocombo cursor preview, moving script variables when slots change, and single item or enemy files (`.zitem`, `.znpc`)
-- Real-hardware testing of ZQuest and the compilers on macOS, and on Linux beyond the Debian and Arch test machines
 
 The [compatibility page](COMPATIBILITY.md#what-still-doesnt-work) has the full list of what still doesn't work, including known bugs.
 

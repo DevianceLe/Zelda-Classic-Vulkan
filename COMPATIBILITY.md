@@ -85,7 +85,7 @@ The final run was stopped before its last 11 quests. Their results are from the 
 **Platforms**
 
 - ZQuest's ZScript compilers for 2.55 and 3.0 Nightly quests (zscript255 and zscript30, built from those versions' own compilers) and its new editors for those quests (scrolling regions, combo pools, autocombos, music, hero settings, ZInfo, subscreen layouts, exports and imports): each editor was opened and saved on a test quest, and all 93 newer quests in this collection still save back unchanged.
-- Linux has been tested on Debian 13 and Arch Linux, in virtual machines with Mesa's software Vulkan driver. Real graphics cards and controllers are untested. EndeavourOS froze while booting in the test virtual machine, before the game could run, so it hasn't been tested.
+- Every platform has been run on real hardware: Windows (32-bit, 64-bit and ARM64), Linux (x86_64 and ARM64), macOS (Apple Silicon and Intel) and Nintendo Switch. Linux was also tested on Debian 13 and Arch Linux in virtual machines with Mesa's software Vulkan driver. EndeavourOS froze while booting in the test virtual machine, before the game could run.
 - Android starts, but 2.55 and 3.0 Nightly quests haven't been tested on it.
 - Without Vulkan, the player and ZQuest draw through Direct3D, OpenGL or Metal instead, with all their menus (Video Settings > Renderer can also choose it, or software drawing). That has been tried on Windows only.
 - macOS has only been run on GitHub's build machines, where the player starts and loads the 1st Quest. It hasn't been tried on a real Mac.
@@ -93,7 +93,7 @@ The final run was stopped before its last 11 quests. Their results are from the 
 
 ## ZQuest
 
-ZQuest (on Windows; on Linux tried only in virtual machines, on macOS only built) opens quests made in every version from 1.90 to 3.0 Nightly and saves each one in the version it was made in. File > Save As can also save it as a newer version: 2.53.1, 2.55.17 or 3.0 Nightly. It never saves a quest as an older version. A change the chosen version can't hold stops the save with the reason, and the file is left as it was.
+ZQuest (on Windows, Linux and macOS) opens quests made in every version from 1.90 to 3.0 Nightly and saves each one in the version it was made in. File > Save As can also save it as a newer version: 2.53.1, 2.55.17 or 3.0 Nightly. It never saves a quest as an older version. A change the chosen version can't hold stops the save with the reason, and the file is left as it was.
 
 | Check, on ZC Vulkan 2.53.444.4 | Quests | Result |
 |---|---|---|

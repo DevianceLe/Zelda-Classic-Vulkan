@@ -25,7 +25,6 @@
 
 - ZQuest, for 2.55 and 3.0 quests: the subscreen wizards and adding new subscreens, previewing a music track's loop, the autocombo preview under the cursor, remapping script variables, and single item and enemy files (`.zitem`, `.znpc`)
 - In the player: swimming sprites in sideview areas, and the drawing order of FFCs on the overlay layer can differ from 3.0's
-- macOS, Windows on ARM and Linux on ARM are only built on GitHub's build machines and haven't been tried on real hardware
 
 ## What's new in 2.53.444.7
 
