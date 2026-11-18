@@ -179,7 +179,9 @@ if(NOT WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 8)
 	set(_zq_lp64_sources ${ZQEDITOR_SOURCES})
 	# (nor the entry point, test driver and image decoder, which use no quest data: as in
 	# zplayer, the entry must not see <allegro.h>, whose ZCPORT_MAGIC_MAIN renames main)
-	list(FILTER _zq_lp64_sources EXCLUDE REGEX "zcmusic_decoders[.]cpp$|[.]c$|/entry/|autotest[.]cpp$|image_sdl[.]cpp$")
+	# zq_compile_proc.cpp only starts the compiler and reads its pipes (system headers such as
+	# poll.h break under the 32-bit long of lp64.h) and touches no quest data.
+	list(FILTER _zq_lp64_sources EXCLUDE REGEX "zcmusic_decoders[.]cpp$|[.]c$|/entry/|autotest[.]cpp$|image_sdl[.]cpp$|zq_compile_proc[.]cpp$")
 	set_property(SOURCE ${_zq_lp64_sources} APPEND PROPERTY COMPILE_OPTIONS
 		-include "${ZCPORT_DIR}/include/zcport/lp64.h")
 endif()

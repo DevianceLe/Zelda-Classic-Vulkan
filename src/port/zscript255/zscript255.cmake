@@ -108,6 +108,11 @@ target_include_directories(zscript255 PRIVATE
 	${ZS255_GEN_DIR}
 	${ZS255_DIR}/third_party/fmt/include)
 target_compile_definitions(zscript255 PRIVATE IS_PARSER)
+if(APPLE)
+	# fmt 10.0.1 (2.55.17's copy) checks FMT_STRING formats with consteval, which newer Apple
+	# clang rejects inside fmt itself; an empty FMT_CONSTEVAL checks them at run time instead.
+	target_compile_definitions(zscript255 PRIVATE "FMT_CONSTEVAL=")
+endif()
 set_target_properties(zscript255 PROPERTIES
 	CXX_STANDARD 20
 	CXX_STANDARD_REQUIRED ON
