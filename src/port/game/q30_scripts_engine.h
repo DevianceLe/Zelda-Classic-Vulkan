@@ -82,6 +82,7 @@ static const Q30ScriptRef *zasm30_get_ref(std::map<int, Q30ScriptRef> &t, int ke
 
 void q30_clear_guy_scripts() { zasm30_guy_scripts.clear(); zasm30_guy_weapon_scripts.clear(); zasm30_guy_moveflags.clear(); }
 void q30_set_guy_moveflags(int guy, dword flags) { if(flags) zasm30_guy_moveflags[guy] = flags; else zasm30_guy_moveflags.erase(guy); }
+dword q30_guy_moveflags(int guy) { std::map<int, dword>::const_iterator it = zasm30_guy_moveflags.find(guy); return it == zasm30_guy_moveflags.end() ? 0 : it->second; }
 void q30_set_guy_script(int guy, word script, const long *initd) { zasm30_put_ref(zasm30_guy_scripts, guy, script, initd); }
 const Q30ScriptRef *q30_guy_script(int guy) { return zasm30_get_ref(zasm30_guy_scripts, guy); }
 void q30_set_guy_weapon_script(int guy, word script, const long *initd) { zasm30_put_ref(zasm30_guy_weapon_scripts, guy, script, initd); }

@@ -2954,8 +2954,40 @@ static void q30_draw_air_shadows(sprite_list &list, bool items_list, int behind)
         else if(behind >= 0 && ((weapon *)s)->behind != (behind != 0))
             continue;
 
+        int aframe = 0;
+
+        if(items_list)
+            aframe = ((item *)s)->aframe;
+        else
+        {
+            // upstream weapon::animate_graphics: the shadow sprite plays its own frames, a step
+            // each game frame the weapon is in the air
+            struct ShadowAnim { int last, clk, fr; };
+            static std::map<long, ShadowAnim> anims;
+
+            if(anims.size() > 256)
+                anims.clear();
+
+            ShadowAnim &a = anims[s->getUID()];
+
+            if(a.last != frame)
+            {
+                a.last = frame;
+
+                if(++a.clk >= zc_max((int)wpnsbuf[iwShadow].speed, 1))
+                {
+                    a.clk = 0;
+
+                    if(++a.fr >= zc_max((int)wpnsbuf[iwShadow].frames, 1))
+                        a.fr = 0;
+                }
+            }
+
+            aframe = a.fr;
+        }
+
         int keep = s->shadowtile;
-        s->shadowtile = wpnsbuf[iwShadow].tile + (items_list ? ((item *)s)->aframe : 0);
+        s->shadowtile = wpnsbuf[iwShadow].tile + aframe;
         s->sprite::drawshadow(framebuf, trans);
         s->shadowtile = keep;
     }

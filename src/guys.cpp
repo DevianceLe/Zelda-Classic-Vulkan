@@ -13010,6 +13010,18 @@ bool is_starting_pos(int i, int x, int y, int t)
              MAPCOMBOFLAG(x+8,y+8)==mfNOENEMY))
         return false;
         
+    // 2.55+ quests (upstream is_starting_pos and enemy::groundblocked): no jumper starts over a
+    // pitfall, nor a walker whose move flags don't let it walk on pits (4, 0x80)
+    {
+        bool q30_active();
+        int q30_pitfall_at(int x, int y);
+        dword q30_guy_moveflags(int guy);
+
+        if(q30_active() && !isflier(tmpscr->enemy[i]) && guysbuf[tmpscr->enemy[i]].family!=eeZORA && q30_pitfall_at(x+8,y+8)
+                && (guysbuf[tmpscr->enemy[i]].family==eeTEK || !(q30_guy_moveflags(tmpscr->enemy[i]) & 0x84)))
+            return false;
+    }
+        
     // Other off-limit combos
     if((!isflier(tmpscr->enemy[i])&& guysbuf[tmpscr->enemy[i]].family!=eeTEK &&
             (_walkflag(x,y+8,2) || groundblocked(x+8,y+8))) &&

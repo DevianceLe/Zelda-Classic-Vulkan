@@ -318,6 +318,9 @@ static void z30_file_open(long path_ptr, const char *mode)
     ri->d[2] = 0;
     ri->d[3] = 0;
 
+    if(getenv("ZC_Q30_TRACE"))      // diagnostics: the files the quest's scripts open
+        al_trace("q30: script opens file '%s' mode '%s'\n", user.c_str(), mode);
+
     if(!z30_mode_ok(mode) || !z30_resolve_path(user, true, path))
     {
         Z_scripterrlog("Script tried to open a bad file path or mode: '%s', '%s'.\n", user.c_str(), mode);
@@ -2460,6 +2463,11 @@ static int z30_tint[4] = { 0, 0, 0, -1 };   // r, g, b, base: -1 none, 0 uniform
 
 extern void (*q30_tint_palette_loaded_hook)();
 
+// what the last tint left in the palette, to tell the colours the game loaded since
+static RGB z30_tint_applied[PAL_SIZE];
+
+// Upstream's addColour, on colours 0 to 0xEF. (Its clamp is 255, but the palette it tints is this
+// 6-bit one: what passes 63 shows as white there, as the 63 here does.)
 static void z30_add_colour()
 {
     for(int i = 0; i <= 0xEF; ++i)
@@ -2475,10 +2483,21 @@ static void z30_add_colour()
         RAMpal[i].g = vbound(RAMpal[i].g + z30_tint[1], 0, 63);
         RAMpal[i].b = vbound(RAMpal[i].b + z30_tint[2], 0, 63);
     }
+
+    memcpy(z30_tint_applied, RAMpal, sizeof(z30_tint_applied));
 }
 
 static void z30_apply_tint(int r, int g, int b, int base)
 {
+    // diagnostics (ZC_Q30_TRACE): where the quest's scripts tint the screen
+    static int traces = getenv("ZC_Q30_TRACE") ? 40 : 0;
+
+    if(traces > 0)
+    {
+        --traces;
+        al_trace("q30: tint %d %d %d base %d on dmap %d screen %d, frame %d\n", r, g, b, base, (int)currdmap, (int)currscr, (int)frame);
+    }
+
     if(z30_tinted)
     {
         memcpy(RAMpal, z30_tint_backup, sizeof(z30_tint_backup));
@@ -2511,11 +2530,19 @@ static void z30_clear_tint()
 }
 
 // The game just loaded a palette over the tinted one: keep the tint on the new colours.
+// Only the colours that changed are new (a level palette brings a few CSets): the others still
+// hold the tint, and their true colours stay as they were kept (upstream's loaders write the new
+// colours into its copy one by one, then tint it again).
 static void z30_tint_palette_loaded()
 {
     if(z30_tinted)
     {
-        memcpy(z30_tint_backup, RAMpal, sizeof(z30_tint_backup));
+        for(int i = 0; i < PAL_SIZE; ++i)
+            if(i > 0xEF || RAMpal[i].r != z30_tint_applied[i].r || RAMpal[i].g != z30_tint_applied[i].g
+               || RAMpal[i].b != z30_tint_applied[i].b)
+                z30_tint_backup[i] = RAMpal[i];
+
+        memcpy(RAMpal, z30_tint_backup, sizeof(z30_tint_backup));
         z30_add_colour();
         refreshpal = true;
     }
@@ -2643,6 +2670,20 @@ bool q30_msg_run_generic_frozen(int script, const long *initd, int count)
 
 static bool zasm30_command(word cmd)
 {
+    // diagnostics (ZC_Q30_TRACE): the first time each file, directory or stack command runs
+    static const bool trace_cmds = getenv("ZC_Q30_TRACE") != NULL;
+
+    if(trace_cmds && (cmd == Z30C_FILEEXISTS || (cmd >= Z30C_FILECLOSE && cmd <= Z30C_FILEGETERROR) || cmd == Z30C_FILEREMOVE
+                      || cmd == Z30C_FILESYSREMOVE || (cmd >= Z30C_DIRECTORYGET && cmd <= Z30C_FILEWRITEBYTES) || cmd == Z30C_FILEREADBYTES || cmd == Z30C_FILEOWN
+                      || cmd == Z30C_DIRECTORYOWN || (cmd >= Z30C_STACKFREE && cmd <= Z30C_STACKCLEAR)))
+    {
+        static std::set<int> seen;
+
+        if(seen.insert(cmd).second)
+            al_trace("q30: file/directory/stack command %d first runs on dmap %d screen %d, frame %d\n", (int)cmd, (int)currdmap,
+                     (int)currscr, (int)frame);
+    }
+
     if(zasm30_sub_command(cmd))
         return true;
 

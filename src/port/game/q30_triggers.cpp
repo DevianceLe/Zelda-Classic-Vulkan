@@ -8073,10 +8073,11 @@ int q30_ice_move(bool u, bool d, bool l, bool r)
     if(!g_ice_vx && !g_ice_vy)
         g_ice_entry = 0;
 
-    // whole pixels only, so 2.53's grid-based checks stay valid
+    // whole pixels only, so 2.53's grid-based checks stay valid: the nearest one to the exact
+    // position, a half going up, which is where upstream's sprite draws (zfix's getInt)
     g_ice_ax += g_ice_vx;
     g_ice_ay += g_ice_vy;
-    int sx = (int)g_ice_ax, sy = (int)g_ice_ay;
+    int sx = (int)floor(g_ice_ax + 0.5), sy = (int)floor(g_ice_ay + 0.5);
     g_ice_ax -= sx;
     g_ice_ay -= sy;
     int sign = sx < 0 ? -1 : 1;
@@ -8605,44 +8606,51 @@ void beam_draw_cell(BITMAP *b, int x, int y, word val, int id)
     if(offs < 0)
         return;
 
+    // As upstream's generate_beam_bitmap and its masked blit: the cell's picture is made apart
+    // and put on masked, so its colour 0 leaves another beam's cell under it alone.
+    static BITMAP *cell = NULL;
+
+    if(!cell)
+        cell = create_bitmap_ex(8, 16, 16);
+
+    clear_bitmap(cell);
+
     if(id > 0 && id != (1 << 24))
+        puttile16(cell, (id & 0xFFFFFF) + offs, 0, 0, (id >> 24) & 15, 0);
+    else
     {
-        puttile16(b, (id & 0xFFFFFF) + offs, x, y, (id >> 24) & 15, 0);
-        return;
+        int cid = (id == (1 << 24)) ? 0 : -id;
+        const int colors[3] = {(cid >> 16) & 0xFF, (cid >> 8) & 0xFF, cid & 0xFF};  // outer, middle, inner
+        const int half[3] = {4, 2, 1};
+        const int rad[3] = {offs ? 3 : 7, offs ? 1 : 5, offs ? 0 : 3};
+
+        // the hub: four circles about the cell's middle four pixels (round, not a square)
+        for(int q = 0; q < 3; ++q)
+            for(int k = 0; k < 4; ++k)
+                circlefill(cell, 8 - (k & 1), 8 - (k >> 1), rad[q], colors[q]);
+
+        // then the arms over it, each colour in turn
+        int dirs = offs ? (val & SP_MASK) >> 1 : 0;
+
+        for(int q = 0; q < 3; ++q)
+        {
+            int h = half[q];
+
+            if(dirs & 1)
+                rectfill(cell, 8 - h, 0, 7 + h, 7, colors[q]);
+
+            if(dirs & 2)
+                rectfill(cell, 8 - h, 8, 7 + h, 15, colors[q]);
+
+            if(dirs & 4)
+                rectfill(cell, 0, 8 - h, 7, 7 + h, colors[q]);
+
+            if(dirs & 8)
+                rectfill(cell, 8, 8 - h, 15, 7 + h, colors[q]);
+        }
     }
 
-    int cid = (id == (1 << 24)) ? 0 : -id;
-    int colors[3] = {(cid >> 16) & 0xFF, (cid >> 8) & 0xFF, cid & 0xFF};
-    int half[3] = {4, 2, 1};
-
-    if(offs == 0)
-    {
-        circlefill(b, x + 8, y + 8, 7, colors[0]);
-        circlefill(b, x + 8, y + 8, 5, colors[1]);
-        circlefill(b, x + 8, y + 8, 3, colors[2]);
-        return;
-    }
-
-    int dirs = (val & SP_MASK) >> 1;
-
-    for(int q = 0; q < 3; ++q)
-    {
-        int h = half[q];
-
-        if(dirs & 1)
-            rectfill(b, x + 8 - h, y, x + 7 + h, y + 7, colors[q]);
-
-        if(dirs & 2)
-            rectfill(b, x + 8 - h, y + 8, x + 7 + h, y + 15, colors[q]);
-
-        if(dirs & 4)
-            rectfill(b, x, y + 8 - h, x + 7, y + 7 + h, colors[q]);
-
-        if(dirs & 8)
-            rectfill(b, x + 8, y + 8 - h, x + 15, y + 7 + h, colors[q]);
-
-        rectfill(b, x + 8 - h, y + 8 - h, x + 7 + h, y + 7 + h, colors[q]);
-    }
+    masked_blit(cell, b, 0, 0, x, y, 16, 16);
 }
 
 bool cond_light(const Q30Trigger &t, size_t, void *ctx)
@@ -9190,7 +9198,10 @@ static void release_lift(int step_100, int fall)
     ThrownInfo info = g_lift_info;
     g_lift_wpn = NULL;
     g_lift_clk = g_lift_tclk = 0;
-    info.ax = info.ay = 0;
+    // (upstream's position is exact and draws on the nearest pixel, a half going up: an object
+    // thrown right or down starts half a pixel in, so the whole pixels here are the same)
+    info.ax = Link.getDir() == right ? 0.5 : 0;
+    info.ay = Link.getDir() == down ? 0.5 : 0;
     info.z = g_lift_height + (double)int(Link.getZ());
     info.fall = fall;
     info.step = step_100 / 100.0;
@@ -10110,13 +10121,20 @@ static void thrown_tick(weapon *w)
     w->x = (fix)x;
     w->y = (fix)y;
 
-    t.fall += q30_link_gravity();
-
-    if(t.fall > q30_link_terminalv())
-        t.fall = q30_link_terminalv();
-
+    // As upstream's weapon::animate: the height changes by the fall speed first, and only an
+    // object still in the air speeds up after that; it draws on the nearest pixel (zfix's getInt).
     t.z -= t.fall / 100.0;
-    w->z = (fix)(int)(t.z < 0 ? 0 : t.z);
+
+    if(t.z > 0)
+    {
+        if(t.fall <= q30_link_terminalv())
+            t.fall += q30_link_gravity();
+
+        if(t.fall > q30_link_terminalv())
+            t.fall = q30_link_terminalv();
+    }
+
+    w->z = (fix)(int)(t.z < 0 ? 0 : floor(t.z + 0.5));
 
     bool solid = t.break_solid && _walkflag(x + 8, y + 8, 1);
     bool gone = x < -16 || y < -16 || x > 256 || y > 176;
@@ -10137,6 +10155,12 @@ static void thrown_tick(weapon *w)
         case -2: decorations.add(new dBushLeaves((fix)x, (fix)y, dBUSHLEAVES, 0)); break;
         case -3: decorations.add(new dFlowerClippings((fix)x, (fix)y, dFLOWERCLIPPINGS, 0)); break;
         case -4: decorations.add(new dGrassClippings((fix)x, (fix)y, dGRASSCLIPPINGS, 0)); break;
+
+        default:    // a sprite of the quest's, played once where the object broke (upstream weapon::do_death_fx's comboSprite)
+            if(t.death_sprite >= 0 && t.death_sprite < MAXWPNS)
+                q30_add_sprite_deco(x, (int)floor(y - (t.z > 0 ? t.z : 0) + 0.5), t.death_sprite,
+                                    zc_max(1, (int)wpnsbuf[t.death_sprite].frames) * zc_max(1, (int)wpnsbuf[t.death_sprite].speed), false);
+            break;
         }
 
         if(t.death_sfx > 0)

@@ -52,6 +52,7 @@ void q30_set_guy_script(int guy, word script, const long *initd);
 const Q30ScriptRef *q30_guy_script(int guy);
 void q30_set_guy_weapon_script(int guy, word script, const long *initd);
 void q30_set_guy_moveflags(int guy, dword flags);
+dword q30_guy_moveflags(int guy);            // 0 when the enemy's editor data sets none
 const Q30ScriptRef *q30_guy_weapon_script(int guy);
 
 // Item and enemy fields 2.53's structures have no room for (q30_scripts_regs.h).
