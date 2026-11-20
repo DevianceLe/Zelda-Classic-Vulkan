@@ -81,6 +81,21 @@ void playLevelMusic();
 const byte lsteps[8] = { 1, 1, 2, 1, 1, 2, 1, 1 };
 
 
+// 2.55/3.0: upstream's _walkflag takes Link's position cut off to whole pixels (zfix_round's
+// ROUND_TRUNC) where 2.53's fix goes to the nearest. With the fractions of a pixel Link stops on
+// in those quests (the swim steps, for one) that decides whether his head meets a ceiling.
+extern word quest_header_zelda_version;
+
+// (Written under its real name: in this file _walkflag is a macro for q30_hero_walkflag, which
+// tests from the height Link stands at; this is that function's overload for fix positions.)
+static inline bool q30_hero_walkflag(fix fx, fix fy, int cnt)
+{
+    if(quest_header_zelda_version < 0x255)
+        return q30_hero_walkflag(int(fx), int(fy), cnt);
+
+    return q30_hero_walkflag(int(fx.v / 65536), int(fy.v / 65536), cnt);
+}
+
 static inline bool isSideview()
 {
     return (tmpscr->flags7&fSIDEVIEW)!=0 && !ignoreSideview;
@@ -136,10 +151,233 @@ void q30_reset_step_statics()
     q30_hero_newstep = q30_hero_newstep_diag = 1.5;
 }
 
+// ---- 2.55/3.0 sideview swimming (qr_SIDESWIM) ----------------------------------------
+//
+// In a sideview screen's water Link swims freely, with no gravity. Upstream gives that actions
+// of its own; here Link keeps the 2.53 action and q30_ss says it is the sideview kind: swimming
+// (upstream's sideswimming), swimhit (sideswimhit), attacking (sideswimattacking), waterhold1/2
+// (sidewaterhold1/2), casting (sideswimcasting) and freeze (sideswimfreeze). Only q30_set_swim
+// sets it, and only under the rule, so a 2.53 quest never has it.
+static bool q30_ss = false;
+static bool q30_ss_drown = false;       // the drowning under way is upstream's sidedrowning
+static bool q30_ss_draw = false;        // LinkClass::draw: Link is drawn from the sideswim sets
+static int q30_ss_dir = right;          // upstream's sideswimdir
+// The init data's steps (1/100 pixel a frame), jump out of the water and swim gravity (1/10000).
+static int q30_ss_up = 150, q30_ss_side = 100, q30_ss_down = 75;
+static long q30_ss_jump = 0, q30_ss_grav = 5;
+
+void q30_set_init_sideswim(int up_step, int side_step, int down_step, long jump, long gravity)
+{
+    q30_ss_up = up_step;
+    q30_ss_side = side_step;
+    q30_ss_down = down_step;
+    q30_ss_jump = jump;
+    q30_ss_grav = gravity;
+
+    if(getenv("ZC_Q30_TRACE"))  // diagnostics: the values as read, and the quest's flippers
+    {
+        al_trace("q30 sideswim: steps up %d side %d down %d, jump %ld, gravity %ld; flippers:", up_step, side_step, down_step, jump, gravity);
+
+        for(int i = 0; i < 256; ++i)
+            if(itemsbuf[i].family == itype_flippers)
+                al_trace(" %d (level %d)", i, itemsbuf[i].fam_type);
+
+        al_trace("\n");
+    }
+}
+
+// upstream's CanSideSwim
+bool LinkClass::q30_can_side_swim()
+{
+    return isSideview() && q30_quest_rule(244);     // qr_SIDESWIM
+}
+
+// upstream's IsSideSwim
+bool LinkClass::q30_is_side_swim()
+{
+    if(!q30_ss)
+        return false;
+
+    switch(action)
+    {
+    case swimming: case swimhit: case attacking: case waterhold1: case waterhold2: case casting: case freeze:
+        return true;
+
+    default:
+        return false;
+    }
+}
+
+// The casting sprite while Link swims in a sideview screen (upstream's ls_sideswimcast)
+void LinkClass::q30_side_swim_cast_tile()
+{
+    const int *spr = q30_is_side_swim() ? q255_hero_sprite(Q255HS_SIDESWIMCAST, 0) : NULL;
+
+    if(spr)
+    {
+        tile = spr[spr_tile];
+        flip = spr[spr_flip];
+        extend = spr[spr_extend];
+    }
+}
+
+// upstream's SetSwim: Link swims, the sideview way where the screen and the rule say so
+void LinkClass::q30_set_swim()
+{
+    q30_ss = q30_can_side_swim();
+
+    if(!q30_ss)
+    {
+        action = swimming;
+        return;
+    }
+
+    if(action != attacking)     // (an attack goes on, as upstream's sideswimattacking)
+        action = swimming;
+
+    if(q30_quest_rule(245) && spins <= 0 && dir != left && dir != right)   // qr_SIDESWIMDIR
+        dir = q30_ss_dir;
+}
+
 // Which layer 1 and 2 combos this sword swing has already cut (qr_BUSHESONLAYERS1AND2).
 static byte q30_layer_grid[2][22];
 
 // 2.55+ slopes are ground in sideview. q30_slope_under is false at once on a screen with none.
+// Water for a sideview swim: upstream's iswaterex (maps.cpp) as Link asks it at a point. Besides
+// the screen's own combo it is water put on layers 1 and 2 (qr_WATER_ON_LAYER_1 and _2); a bridge
+// combo over it, solid water under qr_NO_SOLID_SWIM, and solid water Link can't swim (not enough
+// flippers, or lava without the flippers' flag 3) are not water. Returns the combo, 0 for none.
+// shallow: shallow water counts too (upstream's ShallowCheck: the combo type, or water with its flag 4).
+static int q30_ss_water_layer(int layer, int x, int y, bool shallow)   // layer -1: the screen; 0 and 1: layers 1 and 2
+{
+    const int b = ((x & 8) ? 2 : 0) + ((y & 8) ? 1 : 0);    // the quarter of the combo
+
+    for(int m = layer; m <= 1; ++m)
+    {
+        const int cid = MAPCOMBO2(m, x, y);
+        const Q30Combo *c = q30_combo(cid);
+        const int walk = c ? c->walk : (combobuf[cid].walk | 0xF0);
+
+        if(c && c->type == Q30C_BRIDGE && (q30_quest_rule(313) ? !(walk & (1 << b)) : (walk & (0x10 << b)) != 0))  // qr_OLD_BRIDGE_COMBOS
+            return 0;
+
+        // (solid water with its "shallow" flag 4 is shallow water)
+        const bool shallow_here = shallow && c && iswater_type(combobuf[cid].type) && (walk & (1 << b)) && (c->usrflags & 0x8);
+
+        if(q30_quest_rule(Q30_QR_NO_SOLID_SWIM) && (walk & (1 << b)) && !(shallow_here && (walk & (0x10 << b))))
+            return 0;
+
+        if(c && iswater_type(combobuf[cid].type) && (walk & (1 << b)) && !shallow_here)
+        {
+            const int flippers = current_item_id(itype_flippers);
+
+            if((c->usrflags & 0xC) || current_item(itype_flippers) < c->attributes[8] / 10000
+               || ((c->usrflags & 0x1) && !(flippers >= 0 && q30_item_flag(flippers, ITEM_FLAG3))))
+                return 0;
+        }
+    }
+
+    const int cid = MAPCOMBO2(layer, x, y);
+    const Q30Combo *c = q30_combo(cid);
+
+    if(c && !(c->walk & (0x10 << b)))   // (the combo has no effect in this quarter)
+        return 0;
+
+    return (iswater_type(combobuf[cid].type) || (shallow && combobuf[cid].type == cSHALLOWWATER)) ? cid : 0;
+}
+
+static int q30_ss_water(int x, int y, bool shallow = false)
+{
+    x = vbound(x, 0, 255);
+    y = vbound(y, 0, 175);
+
+    if(!q30_quest_rule(217))    // without qr_SMARTER_WATER: the screen's combo alone
+    {
+        const int cid = MAPCOMBO(x, y), b = ((x & 8) ? 2 : 0) + ((y & 8) ? 1 : 0);
+        const Q30Combo *c = q30_combo(cid);
+        const int walk = c ? c->walk : (combobuf[cid].walk | 0xF0);
+
+        if((q30_quest_rule(Q30_QR_NO_SOLID_SWIM) && (walk & (1 << b))) || !(walk & (0x10 << b)))
+            return 0;
+
+        return ((iswater_type(combobuf[cid].type) || (shallow && combobuf[cid].type == cSHALLOWWATER)) && !DRIEDLAKE) ? cid : 0;
+    }
+
+    if(DRIEDLAKE)
+        return 0;
+
+    const bool layer1 = q30_quest_rule(220), layer2 = q30_quest_rule(221);     // qr_WATER_ON_LAYER_1, _2
+
+    if(!layer1 && !layer2)
+        return q30_ss_water_layer(-1, x, y, shallow);
+
+    for(int m = -1; m <= 1; ++m)
+        if(m < 0 || (m == 0 && layer1) || (m == 1 && layer2))
+            if(const int cid = q30_ss_water_layer(m, x, y, shallow))
+                return cid;
+
+    return 0;
+}
+
+// dRipples::animate under qr_SHALLOW_SENSITIVE (2.55/3.0): 1 when the ripples go, 0 while they
+// stay, -1 for the 2.53 rule. They stay while Link stands in water and (as upstream) through a
+// drowning in lava or in a sideview screen, but not through a plain one, nor a swim.
+int q30_ripples_gone()
+{
+    if(!q30_quest_rule(Q30_QR_SHALLOW_SENSITIVE))
+        return -1;
+
+    const int act = Link.getAction();
+    const int lx = int(Link.getX()), ly = int(Link.getY());
+
+    if(Link.getZ() != 0 || act == swimming || act == isdiving || (q30_ss && (act == swimhit || act == attacking))
+       || (act == drowning && !q30_ss_drown && !q30_lava_drowning()))
+        return 1;
+
+    return (q30_ss_water(lx+11,ly+15,true) && q30_ss_water(lx+4,ly+15,true) && q30_ss_water(lx+11,ly+9,true) && q30_ss_water(lx+4,ly+9,true)) ? 0 : 1;
+}
+
+// upstream's drown_check: in the water combo cid Link drowns without flippers, with flippers
+// under the level the water asks (its attribute 8), or in lava without the flippers' flag 3.
+static bool q30_ss_drowns(int cid)
+{
+    const int flippers = current_item_id(itype_flippers);
+
+    if(flippers < 0)
+        return true;
+
+    const Q30Combo *c = q30_combo(cid);
+
+    return c && (itemsbuf[flippers].fam_type < c->attributes[8] / 10000 || ((c->usrflags & 0x1) && !q30_item_flag(flippers, ITEM_FLAG3)));
+}
+
+// In such a screen every iswater(MAPCOMBO(x, y)) of this file asks q30_ss_water(x, y): MAPCOMBO
+// notes the point it looks up, and iswater takes it when handed that very combo. Anywhere else,
+// and for a combo that didn't just come from MAPCOMBO, it is maps.cpp's iswater as ever.
+static int q30_mc_x = 0, q30_mc_y = 0, q30_mc_combo = -1;
+
+static inline int q30_mapcombo(int x, int y)
+{
+    q30_mc_x = x;
+    q30_mc_y = y;
+    return q30_mc_combo = MAPCOMBO(x, y);
+}
+
+static inline bool q30_iswater(int combo)
+{
+    const bool noted = combo == q30_mc_combo;
+
+    q30_mc_combo = -1;
+
+    if(noted && isSideview() && q30_quest_rule(244))
+        return q30_ss_water(q30_mc_x, q30_mc_y) != 0;
+
+    return iswater(combo);
+}
+
+#define MAPCOMBO(x, y) q30_mapcombo((x), (y))
+#define iswater(c) q30_iswater(c)
+
 #undef ON_SIDEPLATFORM
 #define ON_SIDEPLATFORM (_walkflag(x+4,y+16,0) || (y>=160 && currscr>=0x70 && !(tmpscr->flags2&wfDOWN)) || q30_slope_under(0, false))
 
@@ -235,6 +473,7 @@ void LinkClass::Freeze()
 {
     if (action != inwind)
     {
+        q30_ss = q30_is_side_swim();    // (2.55/3.0: upstream's sideswimfreeze)
         action = freeze;
         // also cancel Link's attack
         attackclk = 0;
@@ -242,7 +481,7 @@ void LinkClass::Freeze()
 }
 void LinkClass::unfreeze()
 {
-    if(action==freeze && fairyclk<1) action=none;
+    if(action==freeze && fairyclk<1) action = q30_is_side_swim() ? swimming : none;
 }
 
 void LinkClass::Drown(int clk)
@@ -251,6 +490,8 @@ void LinkClass::Drown(int clk)
     if(ladderx+laddery)
         return;
         
+    q30_ss_drown = q30_can_side_swim();    // (2.55/3.0: upstream's sidedrowning)
+    q30_ss = false;
     action=drowning;
     attackclk=0;
     attack=wNone;
@@ -771,7 +1012,7 @@ bool LinkClass::isSwimming()
 {
     return ((action==swimming)||(action==swimhit)||
             (action==waterhold1)||(action==waterhold2)||
-            (hopclk==0xFF));
+            (hopclk==0xFF)||q30_is_side_swim());
 }
 
 void LinkClass::setDontDraw(bool new_dontdraw)
@@ -805,6 +1046,8 @@ void LinkClass::init()
     q30_steprate = q30_zinit_hero_step;
     q30_step_boost = 0;
     q30_standing_reset();
+    q30_ss = q30_ss_drown = false;
+    q30_ss_dir = right;
 
     hookshot_used=false;
     hookshot_frozen=false;
@@ -1285,7 +1528,9 @@ static void q255_herotile(int *tile, int *flip, int *extend, int set, int dir)
 // Drowning: upstream draws the drowning sprites (or the lava ones) where 2.53 draws diving.
 static void q255_drowntile(int *tile, int *flip, int *extend, int drownclk, int dir)
 {
-    if(drownclk > 60 || !q30_active())
+    if(q30_ss_drown && q30_active() && !q30_lava_drowning())    // upstream's sidedrowning
+        q255_herotile(tile, flip, extend, Q255HS_SIDEDROWN, up);
+    else if(drownclk > 60 || !q30_active())
         linktile(tile, flip, extend, (drownclk > 60) ? ls_float : ls_dive, dir, zinit.linkanimationstyle);
     else
         q255_herotile(tile, flip, extend, q30_lava_drowning() ? Q255HS_LAVADROWN : Q255HS_DROWN, dir);
@@ -1294,15 +1539,47 @@ static void q255_drowntile(int *tile, int *flip, int *extend, int drownclk, int 
 // Walking: carrying a lifted object, upstream draws the lift-walk sprites (unless qr_NO_LIFT_SPRITE).
 static void q255_walktile(int *tile, int *flip, int *extend, int dir)
 {
-    if(q30_lifting() && !q30_quest_rule(351))
+    if(q30_ss_draw)     // sideview swimming (upstream's sideswimfreeze and the like)
+        q255_herotile(tile, flip, extend, Q255HS_SIDESWIM, dir);
+    else if(q30_lifting() && !q30_quest_rule(351))
         q255_herotile(tile, flip, extend, Q255HS_LIFTWALK, dir);
     else
         linktile(tile, flip, extend, ls_walk, dir, zinit.linkanimationstyle);
 }
 
+// 2.55/3.0 sideview swimming: while Link swims that way, draw() takes his stab, slash, pound,
+// charge and item-hold sprites from the sideswim sets (upstream's ls_sideswimstab and the rest).
+static void q30_ss_linktile(int *tile, int *flip, int *extend, int state, int dir, int style)
+{
+    int set = -1, d = dir;
+
+    if(q30_ss_draw)
+    {
+        switch(state)
+        {
+        case ls_stab: set = Q255HS_SIDESWIMSTAB; break;
+        case ls_slash: set = Q255HS_SIDESWIMSLASH; break;
+        case ls_pound: set = Q255HS_SIDESWIMPOUND; break;
+        case ls_charge: set = Q255HS_SIDESWIMCHARGE; break;
+        case ls_waterhold1: set = Q255HS_SIDESWIMHOLD; d = 0; break;
+        case ls_waterhold2: set = Q255HS_SIDESWIMHOLD; d = 1; break;
+        default: break;
+        }
+    }
+
+    if(set >= 0)
+        q255_herotile(tile, flip, extend, set, d);
+    else
+        linktile(tile, flip, extend, state, dir, style);
+}
+
+#define linktile q30_ss_linktile    // (LinkClass::draw only; undone after it)
+
 void LinkClass::draw(BITMAP* dest)
 {
     Q30LinkDrawLayers q30_layers(dest);
+
+    q30_ss_draw = q30_is_side_swim();
 
     q30_draw_prompt(dest);
 
@@ -1606,6 +1883,9 @@ attack:
                 
                 break;
             }
+
+            if(q30_ss_draw && attackclk<15)     // sideview swimming: upstream's hammeroffsets
+                wy += (int)q255_hero_hammer_swim_offset(dir);
             
             if(BSZ || ((isdungeon() && currscr<128) && !get_bit(quest_rules,qr_LINKDUNGEONPOSFIX)))
             {
@@ -1678,7 +1958,22 @@ attack:
 
         // 2.55/3.0: a pit's fall (played here as a drowning, 70 frames as upstream's) and the
         // lift animation, as every style of upstream's hero drawing has them
-        if(q30_pit_falling())
+        if(q30_ss_draw && (action==swimming || action==swimhit))
+        {
+            // sideview swimming (upstream's sideswimming and sideswimhit), each style's own steps
+            q255_herotile(&tile, &flip, &extend, Q255HS_SIDESWIM, dir);
+
+            if(zinit.linkanimationstyle != las_original)
+                tile += anim_3_4(lstep,7)*(extend==2?2:1);
+            else if(lstep>=6)
+            {
+                if(dir==up)
+                    ++flip;
+                else
+                    extend==2?tile+=2:++tile;
+            }
+        }
+        else if(q30_pit_falling())
         {
             q255_herotile(&tile, &flip, &extend, Q255HS_FALLING, dir);
             tile += (zc_max(0, 70 - drownclk) / 10) * (extend == 2 ? 2 : 1);
@@ -1699,7 +1994,7 @@ attack:
         case las_original:                                               //normal
             if(action==drowning)
             {
-                if(inwater || q30_lava_drowning())
+                if(inwater || q30_lava_drowning() || q30_ss_drown)
                 {
                     q255_drowntile(&tile, &flip, &extend, drownclk, dir);
                     tile+=((frame>>3) & 1)*(extend==2?2:1);
@@ -1794,7 +2089,7 @@ attack:
         case las_bszelda:                                               //BS
             if(action==drowning)
             {
-                if(inwater || q30_lava_drowning())
+                if(inwater || q30_lava_drowning() || q30_ss_drown)
                 { //Not sure if drowning should use the walking sprites in 1.90, BS ANim, too. -Z (22-Jan-2019)
 		    //if ( emulation_patches[emuCOPYSWIMSPRITES] ) 
 		    //{
@@ -1873,7 +2168,7 @@ attack:
         case las_zelda3:                                               //8-frame Zelda 3
             if(action == drowning)
             {
-                if(inwater || q30_lava_drowning())
+                if(inwater || q30_lava_drowning() || q30_ss_drown)
                 {
                     q255_drowntile(&tile, &flip, &extend, drownclk, dir);
                     tile += anim_3_4(lstep,7)*(extend==2?2:1);
@@ -2019,11 +2314,11 @@ attack:
         {
             if(get_bit(quest_rules,qr_HOLDITEMANIMATION))
             {
-                putitem2(dest,x-((action==waterhold1)?4:0),y+yofs-12-(get_bit(quest_rules, qr_NOITEMOFFSET)),holditem,lens_hint_item[holditem][0], lens_hint_item[holditem][1], 0);
+                putitem2(dest,x-((action==waterhold1)?4:0),y+yofs-(q30_ss_draw?16:12)-(get_bit(quest_rules, qr_NOITEMOFFSET)),holditem,lens_hint_item[holditem][0], lens_hint_item[holditem][1], 0);
             }
             else
             {
-                putitem(dest,x-((action==waterhold1)?4:0),y+yofs-12-(get_bit(quest_rules, qr_NOITEMOFFSET)),holditem);
+                putitem(dest,x-((action==waterhold1)?4:0),y+yofs-(q30_ss_draw?16:12)-(get_bit(quest_rules, qr_NOITEMOFFSET)),holditem);
             }
         }
     }
@@ -2067,6 +2362,8 @@ attack:
     xofs=oxofs;
     yofs=oyofs;
 }
+
+#undef linktile
 
 void LinkClass::masked_draw(BITMAP* dest)
 {
@@ -3335,7 +3632,7 @@ void LinkClass::checkhit()
         action=none;
         
     if(hclk<39 && action==swimhit)
-        action=swimming;
+        q30_set_swim();
         
     if(hclk>=40 && action==gothit)
     {
@@ -3415,7 +3712,7 @@ void LinkClass::checkhit()
 
                 if (action != rafting && action != freeze)
                 {
-                    if (action == swimming || hopclk == 0xFF)
+                    if (action == swimming || hopclk == 0xFF || q30_is_side_swim())
                         action = swimhit;
                     else
                         action = gothit;
@@ -3569,7 +3866,7 @@ killweapon:
 
                 if (action != rafting && action != freeze)
                 {
-                    if (action == swimming || hopclk == 0xFF)
+                    if (action == swimming || hopclk == 0xFF || q30_is_side_swim())
                         action = swimhit;
                     else
                         action = gothit;
@@ -3640,7 +3937,7 @@ killweapon:
         {
             // the weapon was removed by the script that saw the hit: the hit itself stands
             hitdir = q30_hdir;
-            action = (action==swimming || hopclk==0xFF) ? swimhit : gothit;
+            action = (action==swimming || hopclk==0xFF || q30_is_side_swim()) ? swimhit : gothit;
             hclk = q30_iframes;
             sfx(q30_hero_hurt_sfx(),pan(int(x)));
             return;
@@ -3656,7 +3953,7 @@ if(q30_hit < 0 && NayrusLoveShieldClk<=0)
         hitdir = q30_hdir;
         ((weapon*)Lwpns.spr(hit2))->onhit(false);
         
-        if(action==swimming || hopclk==0xFF)
+        if(action==swimming || hopclk==0xFF || q30_is_side_swim())
             action=swimhit;
         else
             action=gothit;
@@ -3692,7 +3989,7 @@ if(q30_hit < 0 && NayrusLoveShieldClk<=0)
         {
             // the weapon was removed by the script that saw the hit: the hit itself stands
             hitdir = q30_hdir;
-            action = (action==swimming || hopclk==0xFF) ? swimhit : gothit;
+            action = (action==swimming || hopclk==0xFF || q30_is_side_swim()) ? swimhit : gothit;
             hclk = q30_iframes;
             sfx(q30_hero_hurt_sfx(),pan(int(x)));
             return;
@@ -3708,7 +4005,7 @@ if(q30_hit < 0 && NayrusLoveShieldClk<=0)
         hitdir = q30_hdir;
         ((weapon*)Ewpns.spr(hit2))->onhit(false);
         
-        if(action==swimming || hopclk==0xFF)
+        if(action==swimming || hopclk==0xFF || q30_is_side_swim())
             action=swimhit;
         else
             action=gothit;
@@ -3819,7 +4116,7 @@ bool LinkClass::checkdamagecombos(int dx1, int dx2, int dy1, int dy2, int layer,
             
             if (action != rafting && action != freeze)
             {
-                if (action == swimming || hopclk == 0xFF)
+                if (action == swimming || hopclk == 0xFF || q30_is_side_swim())
                     action = swimhit;
                 else
                     action = gothit;
@@ -3886,7 +4183,7 @@ void LinkClass::hitlink(int hit2)
     
     hitdir = q30_hdir;
     
-    if(action==swimming || hopclk==0xFF)
+    if(action==swimming || hopclk==0xFF || q30_is_side_swim())
         action=swimhit;
     else
         action=gothit;
@@ -4097,6 +4394,9 @@ bool LinkClass::animate(int)
     q30_cutscene_input();
     q30_slopes_begin();
 
+    if(q30_ss && !q30_is_side_swim())   // (2.55/3.0 sideview swimming, left some other way)
+        q30_ss = false;
+
     if(do_cheat_goto)
     {
         didpit=true;
@@ -4128,7 +4428,16 @@ bool LinkClass::animate(int)
         }
     }
     
-    if((COMBOTYPE(x,y+15)==cSHALLOWWATER)&&(COMBOTYPE(x+15,y+15)==cSHALLOWWATER) && z==0)
+    if(q30_quest_rule(Q30_QR_SHALLOW_SENSITIVE))
+    {
+        // 2.55/3.0 (qr_SHALLOW_SENSITIVE): ripples wherever Link stands in water, shallow or deep
+        if(action!=swimming && action!=isdiving && action!=drowning && action!=rafting && action!=inwind && !q30_is_side_swim()
+           && !(ladderx+laddery) && !pull_link && !toogam
+           && q30_ss_water(x+11,y+15,true) && q30_ss_water(x+4,y+15,true) && q30_ss_water(x+11,y+9,true) && q30_ss_water(x+4,y+9,true)
+           && q30_ss_water(int(x)+7,int(y)+12,true) && decorations.idCount(dRIPPLES)==0)
+            decorations.add(new dRipples(x, y, dRIPPLES, 0));
+    }
+    else if((COMBOTYPE(x,y+15)==cSHALLOWWATER)&&(COMBOTYPE(x+15,y+15)==cSHALLOWWATER) && z==0)
     {
         if(decorations.idCount(dRIPPLES)==0)
         {
@@ -4144,7 +4453,7 @@ bool LinkClass::animate(int)
         q30_slope_fall_through();
 
         // Fall, unless on a ladder, rafting, using the hookshot, drowning or cheating.
-        if(!(toogam && Up()) && !drownclk && action!=rafting && !pull_link && !((ladderx || laddery) && fall>0))
+        if(!(toogam && Up()) && !drownclk && action!=rafting && !pull_link && !((ladderx || laddery) && fall>0) && !q30_is_side_swim())
         {
             int ydiff = fall/(spins && fall<0 ? 200:100);
             falling_oldy = y; // Stomp Boots-related variable
@@ -4166,7 +4475,10 @@ bool LinkClass::animate(int)
                 Lwpns.spr(Lwpns.idFirst(wHSHandle))->y+=ydiff;
             }
         }
-        
+        // 2.55/3.0 sideview swimming: no gravity in the water, only the swim gravity's drift
+        else if(q30_is_side_swim() && action!=waterhold1 && action!=waterhold2 && action!=casting && action!=freeze)
+            q30_side_swim_float();
+
         // Stop hovering/falling if you land on something.
         if(ON_SIDEPLATFORM && !(pull_link && dir==down) && action!=rafting && !q30_platformfell)
         {
@@ -4233,7 +4545,7 @@ bool LinkClass::animate(int)
                     
                 sfx(itemsbuf[itemid].usesound,pan(int(x)));
             }
-            else if(!ladderx && !laddery)
+            else if(!ladderx && !laddery && !q30_is_side_swim())
             {
                 fall += q30_link_gravity();
             }
@@ -4601,6 +4913,10 @@ bool LinkClass::animate(int)
         holdclk=0;
     }
     
+    // 2.55/3.0 sideview swimming (upstream's sideswimming, sideswimattacking and sideswimhit)
+    if(q30_is_side_swim() && (action==swimming || action==attacking || action==swimhit))
+        q30_side_swim_tick();
+
     switch(action)
     {
     case gothit:
@@ -4687,7 +5003,7 @@ bool LinkClass::animate(int)
             if(get_bit(quest_rules, qr_HOLDNOSTOPMUSIC) == 0  && (specialcave < GUYCAVE))
                 playLevelMusic();
                 
-            action=swimming;
+            q30_set_swim();
             q30_throw_generic_event(Z30EV_POST_COLLECT_ITEM);  // 2.55+ quests: the item held up is taken
         }
         else
@@ -5875,7 +6191,7 @@ bool LinkClass::startwpn(int itemid)
         break;
         
     case itype_dinsfire:
-        if(z!=0 || (isSideview() && !ON_SIDEPLATFORM))
+        if(z!=0 || (isSideview() && !ON_SIDEPLATFORM && !q30_is_side_swim()))
             return false;
             
         if(!checkmagiccost(itemid))
@@ -5887,7 +6203,7 @@ bool LinkClass::startwpn(int itemid)
         break;
         
     case itype_faroreswind:
-        if(z!=0 || (isSideview() && !ON_SIDEPLATFORM))
+        if(z!=0 || (isSideview() && !ON_SIDEPLATFORM && !q30_is_side_swim()))
             return false;
             
         if(!checkmagiccost(itemid))
@@ -5899,7 +6215,7 @@ bool LinkClass::startwpn(int itemid)
         break;
         
     case itype_nayruslove:
-        if(z!=0 || (isSideview() && !ON_SIDEPLATFORM))
+        if(z!=0 || (isSideview() && !ON_SIDEPLATFORM && !q30_is_side_swim()))
             return false;
             
         if(!checkmagiccost(itemid))
@@ -6251,7 +6567,7 @@ bool LinkClass::can_attack()
     if(q30_link_stunned())
         return false;
 
-if(action==hopping || action==swimming || action==freeze ||
+if(action==hopping || (action==swimming && !q30_is_side_swim()) || action==freeze ||
             (action==attacking && (attack!=wSword || attack!=wWand || !get_bit(quest_rules,qr_QUICKSWORD)) && charging!=0) || spins>0)
     {
         return false;
@@ -6386,10 +6702,14 @@ void LinkClass::do_hopping()
         
         if((!(int(x)&7) && !(int(y)&7)) || diagonalMovement || q30_no_gridlock())
         {
-            action = swimming;
+            q30_set_swim();
             hopclk = 0;
-            charging = attackclk = 0;
-            tapping = false;
+
+            if(!q30_is_side_swim())
+            {
+                charging = attackclk = 0;
+                tapping = false;
+            }
         }
         else
         {
@@ -6550,7 +6870,7 @@ void LinkClass::do_hopping()
                     {
                         hopclk=0xFF;
                         diveclk=0;
-                        action=swimming;
+                        q30_set_swim();
                     }
                 }
                 
@@ -6574,7 +6894,7 @@ void LinkClass::do_hopping()
                         hopclk=0xFF;
                         diveclk=0;
                         reset_swordcharge();
-                        action=swimming;
+                        q30_set_swim();
                     }
                 }
                 
@@ -6597,7 +6917,7 @@ void LinkClass::do_hopping()
                     {
                         hopclk=0xFF;
                         diveclk=0;
-                        action=swimming;
+                        q30_set_swim();
                     }
                 }
                 
@@ -6621,7 +6941,7 @@ void LinkClass::do_hopping()
                     {
                         hopclk=0xFF;
                         diveclk=0;
-                        action=swimming;
+                        q30_set_swim();
                     }
                 }
             }
@@ -6639,7 +6959,7 @@ void LinkClass::do_hopping()
                 {
                     // hopped in
                     attackclk = charging = spins = 0;
-                    action = swimming;
+                    q30_set_swim();
                 }
             }
             else
@@ -6850,11 +7170,13 @@ void LinkClass::movelink()
         }
     }
 
-    if(diveclk>0)
+    if(diveclk>0 && q30_can_side_swim())    // (2.55/3.0: no diving while sideview swimming)
+        diveclk=0;
+    else if(diveclk>0)
     {
         --diveclk;
     }
-    else if(action==swimming)
+    else if(action==swimming && !q30_can_side_swim())
     {
         bool global_diving=q30_no_diving();     // (2.55/3.0: the flippers' flag 1)
         bool screen_diving=(tmpscr->flags5&fTOGGLEDIVING) != 0;
@@ -6913,6 +7235,14 @@ void LinkClass::movelink()
         }
         
         if(directWpn > 255) directWpn = 0;
+
+        // 2.55/3.0: an item "disabled in sideview water" acts as if its button wasn't pressed
+        if(btnwpn > -1 && q30_is_side_swim() && q30_item_flag(directWpn > -1 ? directWpn : dowpn, 1UL << 25))
+        {
+            directWpn = olddirectwpn;
+            btnwpn = -1;
+            dowpn = -1;
+        }
 
         // The Quick Sword only allows repeated sword or wand swings.
         if(action==attacking && ((attack==wSword && btnwpn!=itype_sword) || (attack==wWand && btnwpn!=itype_wand)))
@@ -7062,7 +7392,7 @@ void LinkClass::movelink()
         bool attacked = doattack();
         
         // This section below interferes with script-setting Link->Dir, so it comes after doattack
-        if(!inlikelike && attackclk>4 && (attackclk&3)==0 && charging==0 && spins==0)
+        if(!inlikelike && attackclk>4 && (attackclk&3)==0 && charging==0 && spins==0 && !q30_is_side_swim())
         {
             if((xoff==0)||diagonalMovement)
             {
@@ -7079,7 +7409,7 @@ void LinkClass::movelink()
             }
         }
         
-        if(attacked && (charging==0 && spins<=5) && jumping<1)
+        if(attacked && (charging==0 && spins<=5) && jumping<1 && !q30_is_side_swim())
         {
             return;
         }
@@ -7121,12 +7451,12 @@ void LinkClass::movelink()
                 spins=0;
             }
             
-            action=none;
+            action = q30_is_side_swim() ? swimming : none;
             attackclk=0;
             charging=0;
         }
     }
-    
+
     if(action==walking) //still walking
     {
         if(!DrunkUp() && !DrunkDown() && !DrunkLeft() && !DrunkRight() && !autostep)
@@ -7215,9 +7545,15 @@ void LinkClass::movelink()
 	
     } // endif (action==walking)
     
-    if((action!=swimming)&&(action!=casting)&&(action!=drowning) && charging==0 && spins==0 && jumping<1)
+    if((action!=swimming)&&(action!=casting)&&(action!=drowning) && charging==0 && spins==0 && jumping<1 && !q30_is_side_swim())
     {
         action=none;
+    }
+
+    if(q30_is_side_swim())      // 2.55/3.0 sideview swimming
+    {
+        q30_side_swim_move(push);
+        return;
     }
 
     if(q30_no_gridlock() && action!=swimming && action!=casting && action!=drowning && !(ladderx+laddery))
@@ -8347,6 +8683,18 @@ bool LinkClass::q30_walk_solid(double wx, double wy, int d2)
        ((ix >= 112 && ix < 120) || (ix >= 136 && ix < 144)))
         solid = true;
 
+    // 2.55/3.0 sideview swimming (upstream's scr_walkflag while swimming): solid water lets Link
+    // through, and without qr_DROWN he can't leave the water
+    if(q30_is_side_swim())
+    {
+        const bool wet = q30_ss_water(ix, iy) != 0;
+
+        if(solid)
+            solid = !wet;
+        else if(landswim < 1 && ix >= 0 && iy >= 0 && ix < 256 && iy < 176 && !(get_bit(quest_rules, qr_DROWN) && !ilswim))
+            solid = !wet;
+    }
+
     return solid;
 }
 
@@ -8480,7 +8828,9 @@ bool LinkClass::q30_move_xy(double dx, double dy, bool shove)
 {
     bool ret = true;
 
-    if(isSideview() && !(ladderx && laddery && ladderdir == up))
+    // (no walking up or down in a sideview screen; swimming there goes every way)
+    if(isSideview() && !(ladderx && laddery && ladderdir == up)
+       && !(q30_is_side_swim() && (action == swimming || action == swimhit || action == attacking)))
         dy = 0;
 
     if(dx != 0 && dy != 0)
@@ -8792,6 +9142,14 @@ void LinkClass::q30_free_walk(int push)
     if(movedir < 0 || inlikelike)
         return;
 
+    if(diagonalMovement && q30_new_hero_movement())    // (the way a sideview swim will face)
+    {
+        if(movedir == left || movedir == right)
+            q30_ss_dir = movedir;
+        else if(shiftdir == left || shiftdir == right)
+            q30_ss_dir = shiftdir;
+    }
+
     // Under the new movement rules Link walks (steprate + tmp_step_boost) / 100 pixels a frame
     // (upstream's moveOld2 and get_move); otherwise upstream's moveOld, about 1.5.
     const bool new_movement = q30_new_hero_movement();
@@ -8902,6 +9260,638 @@ void LinkClass::q30_free_walk(int push)
     }
 
     execute(info);
+}
+
+// ---- 2.55/3.0 sideview swimming: each frame's upkeep and the movement ------------------
+// (upstream's hero.cpp; the state and SetSwim are at the top of this file)
+
+// zfix keeps four decimals, cut off: its products and quotients, for the swim steps
+static inline double q30_ss_zfix(double v)
+{
+    return (v < 0 ? ceil(v * 10000) : floor(v * 10000)) / 10000;
+}
+
+// upstream's zfix::getInt, which its whole-pixel look-ups here go through: the nearest pixel,
+// halves away from 0 (not cut off, as the free walk's q30_round)
+static inline int q30_ss_int(double v)
+{
+    return (int)(v < 0 ? ceil(v - 0.5) : floor(v + 0.5));
+}
+
+// upstream keeps Link's position in 1/10000 pixels; put him back on that grid after a step
+static inline fix q30_ss_grid(double v)
+{
+    return fix(floor(v * 10000 + 0.5) / 10000);
+}
+
+// Each frame Link swims, attacks or is hit in a sideview screen's water (animate's
+// sideswimming, sideswimattacking and sideswimhit case): once any of his four points is out of
+// the water he stops swimming, and gravity has him again.
+void LinkClass::q30_side_swim_tick()
+{
+    if(DRIEDLAKE)
+    {
+        if(action != swimming)      // (the swimming case does this for itself)
+        {
+            action = none;
+            hopclk = 0;
+        }
+
+        q30_ss = false;
+        return;
+    }
+
+    if(action == attacking && (frame & 1))     // (so does it step)
+        linkstep();
+
+    const int ix = q30_ss_int(double(x)), iy = q30_ss_int(double(y));
+
+    // in solid water Link hops out, as in any water
+    if(_walkflag(x + 7, y + (bigHitbox ? 6 : 11), 1) || _walkflag(x + 7, y + (bigHitbox ? 9 : 12), 1) ||
+       _walkflag(x + 8, y + (bigHitbox ? 6 : 11), 1) || _walkflag(x + 8, y + (bigHitbox ? 9 : 12), 1))
+        return;
+
+    if(!iswater(MAPCOMBO(ix + 4, iy + 9)) || !iswater(MAPCOMBO(ix + 4, iy + 15)) ||
+       !iswater(MAPCOMBO(ix + 11, iy + 9)) || !iswater(MAPCOMBO(ix + 11, iy + 15)))
+    {
+        hopclk = 0;
+        diveclk = 0;
+
+        if(action != attacking)
+            action = none;
+
+        hopdir = -1;
+        q30_ss = false;
+    }
+}
+
+// Sideview gravity's part: no falling in the water. With no direction held Link drifts by the
+// swim gravity (down when positive) while that way is open.
+void LinkClass::q30_side_swim_float()
+{
+    fall = hoverclk = jumping = 0;
+
+    if(DrunkUp() || DrunkDown() || DrunkLeft() || DrunkRight() || autostep)
+        return;
+
+    const int ix = q30_ss_int(double(x));
+    const int above = q30_ss_int(double(y) + (bigHitbox ? 0 : 8) - 2);
+    WalkflagInfo info = q30_ss_grav < 0 ? walkflag(ix, above, 2, up) : walkflag(ix, q30_ss_int(double(y) + 15 + 2), 2, down);
+
+    execute(info);
+
+    if(!info.isUnwalkable() && (q30_ss_grav > 0 || iswater(MAPCOMBO(ix, above))))
+        y = q30_ss_grid(double(y) + q30_ss_grav / 10000.0);
+}
+
+// The way Link faces after a swim step d2 (moveOld2's and get_move's): not turned by an attack,
+// and under qr_SIDESWIMDIR only ever left or right.
+void LinkClass::q30_side_swim_face(int d2)
+{
+    const bool swimdir = q30_quest_rule(245);
+    const bool vert = d2 == up || d2 == down;
+
+    if((charging == 0 || attack == wHammer) && spins == 0 && (attackclk != HAMMERCHARGEFRAME || q30_quest_rule(491))
+       && action != attacking && !(swimdir && vert))
+        dir = d2;
+    else if(swimdir && vert && (shiftdir == left || shiftdir == right) && charging == 0 && spins == 0)
+        dir = shiftdir;
+}
+
+// Swimming up through the surface: the init data's jump throws Link out of the water (he stops
+// swimming); with none he is put back by the step dy he took.
+void LinkClass::q30_side_swim_surface(double dy)
+{
+    if(q30_ss_jump != 0)
+    {
+        fall = fix(-(FEATHERJUMP * (q30_ss_jump / 10000.0)));
+        sfx(WAV_ZN1SPLASH, int(x));
+        hopclk = 0;
+        action = (charging || spins) ? attacking : none;
+        q30_ss = false;
+    }
+    else
+        y = q30_ss_grid(double(y) - dy);
+}
+
+// upstream's moveOld2 for the sideview swimming actions: a step at the init data's up, side or
+// down rate. d2 is the way; walkable and shiftdir are as moveheroOld left them.
+void LinkClass::q30_side_swim_step(int d2)
+{
+    if(inlikelike)
+        return;
+
+    const double movepix = (q30_steprate + q30_step_boost) / 100.0;
+    const int top = bigHitbox ? 0 : 8;
+    double steps[4];    // up, down, left, right
+    double dx = 0, dy = 0;
+    bool checkladder = false;
+
+    steps[up] = q30_ss_up / -100.0;
+    steps[down] = q30_ss_down / 100.0;
+    steps[left] = q30_ss_side / -100.0;
+    steps[right] = q30_ss_side / 100.0;
+
+    // (a top-down swim's 2/3 or 1/2 speed isn't this swim's; charging and slow combos still slow it)
+    const bool slowcombo = (combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement && (z == 0 || (tmpscr->flags2 & fAIRCOMBOS))) ||
+                           (isSideview() && ON_SIDEPLATFORM && combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement);
+    const bool slowcharging = charging > 0 &&
+        q30_slow_charging((directWpn>-1 && itemsbuf[directWpn].family==itype_sword) ? directWpn : current_item_id(itype_sword));
+
+    for(int i = 0; i < 4; ++i)
+    {
+        if(slowcharging != slowcombo)
+            steps[i] = q30_ss_zfix(q30_ss_zfix(steps[i] / 3.0) * 2);
+        else if(slowcharging && slowcombo)
+            steps[i] = q30_ss_zfix(steps[i] / 2);
+    }
+
+    if(diagonalMovement)
+    {
+        const bool vert = d2 == up || d2 == down;
+        const bool across = vert ? (shiftdir == left || shiftdir == right) : (shiftdir == up || shiftdir == down);
+
+        if(across && q30_hero_newstep > 0 && q30_hero_newstep_diag > 0)
+            for(int i = 0; i < 4; ++i)
+                steps[i] = q30_ss_zfix(steps[i] * 0.7071);
+
+        const bool surface = !iswater(MAPCOMBO(q30_ss_int(double(x)), q30_ss_int(double(y) + top + floor(steps[up]))));
+
+        if(vert)
+        {
+            if(across)
+                dx = steps[shiftdir];
+
+            if(walkable)
+            {
+                dy = steps[d2];
+                checkladder = d2 == up && surface;
+            }
+        }
+        else
+        {
+            if(across)
+            {
+                dy = steps[shiftdir];
+                checkladder = shiftdir == up && surface;
+            }
+
+            if(walkable)
+                dx = steps[d2];
+        }
+    }
+    else if(d2 == up || d2 == down)
+        dy = steps[d2];
+    else
+        dx = steps[d2];
+
+    q30_hero_newstep = q30_hero_newstep_diag = movepix;
+    q30_side_swim_face(d2);
+
+    if(dx == 0 && dy == 0)
+        return;
+
+    if(!(frame & 1))
+        linkstep();
+
+    if(charging != 0 && attack == wHammer)
+        return;
+
+    x = q30_ss_grid(double(x) + dx);
+    y = q30_ss_grid(double(y) + dy);
+
+    const double head = double(y) + top - 4;
+    WalkflagInfo info = walkflag(q30_ss_int(double(x)), q30_ss_int(head), 2, up);
+
+    execute(info);
+
+    if(checkladder && !info.isUnwalkable() && head > 0)
+        q30_side_swim_surface(dy);
+}
+
+// moveheroOld's wall checks with diagonal movement: the step s the way d from where Link is,
+// along his way (main) or across it.
+LinkClass::WalkflagInfo LinkClass::q30_side_swim_probe(int d, double s, bool main)
+{
+    const double bx = double(x), by = double(y);
+    const int top = bigHitbox ? 0 : 8;
+    WalkflagInfo info;
+
+    if(d == up)
+    {
+        const double ty = by - s;
+        const int py = q30_ss_int(top + ty);
+
+        info = walkflag(q30_ss_int(bx), py, 2, up) || walkflag(q30_ss_int(bx + 15), py, 1, up);
+
+        if(ty < 0 && !bigHitbox)    // (the screen above)
+        {
+            info = info || walkflag(q30_ss_int(bx), 0, 2, up);
+            info = info || walkflag(q30_ss_int(bx + 15), 0, 1, up);
+        }
+
+        info = info || walkflagMBlock(q30_ss_int(bx + 15), py);
+    }
+    else if(d == down)
+    {
+        const int py = q30_ss_int(15 + by + s);
+
+        info = walkflag(q30_ss_int(bx), py, 2, down);
+
+        if(int(floor(bx)) & 7)
+            info = info || walkflag(q30_ss_int(bx + 15), py, 1, down);
+        else
+            info = info || walkflagMBlock(q30_ss_int(bx + 15), py);
+    }
+    else
+    {
+        const int px = q30_ss_int(d == left ? bx - s : bx + 15 + s);
+
+        info = walkflag(px, q30_ss_int(by + top), 1, d);
+
+        if(main)
+            info = info || walkflag(px, q30_ss_int(by + 8), 1, d);
+
+        info = info || walkflag(px, q30_ss_int(by + 15), 1, d);
+    }
+
+    return info;
+}
+
+// Blocked the way d with nothing held across it: Link is put on whole pixels and nudged round a
+// corner he only clips, else he pushes. (With diagonal movement always; with four ways only
+// off the half-tile grid, shove false otherwise.)
+void LinkClass::q30_side_swim_blocked(int d, int push, bool shove)
+{
+    if(!shove)
+    {
+        pushing = push + 1;
+        return;
+    }
+
+    x = q30_ss_int(double(x));
+    y = q30_ss_int(double(y));
+
+    const int ix = int(x), iy = int(y), top = bigHitbox ? 0 : 8;
+    const bool sensitive = q30_quest_rule(Q30_QR_SENSITIVE_SOLID_DAMAGE);
+    const bool no_damage = hclk || q30_quest_rule(Q30_QR_LENIENT_SOLID_DAMAGE) || get_bit(quest_rules, qr_NOSOLIDDAMAGECOMBOS) ||
+                           (z > 0 && !(tmpscr->flags2 & fAIRCOMBOS));
+
+    if(d == up || d == down)
+    {
+        const int py = d == up ? iy + top - 1 : iy + 16;
+
+        if(!_walkflag(ix, py, 1) && !_walkflag(ix + 8, py, 1) && _walkflag(ix + 15, py, 1))
+        {
+            if(no_damage || !checkdamagecombos(ix + (sensitive ? 15 : 11), py))
+                x = ix - 1;
+        }
+        else if(_walkflag(ix, py, 1) && !_walkflag(ix + 7, py, 1) && !_walkflag(ix + 15, py, 1))
+        {
+            if(no_damage || !checkdamagecombos(ix + (sensitive ? 0 : 4), py))
+                x = ix + 1;
+        }
+        else
+            pushing = push + 1;
+    }
+    else
+    {
+        const int px = d == left ? ix - 1 : ix + 16, v2 = bigHitbox ? 8 : 12;
+
+        if(!_walkflag(px, iy + top, 1) && !_walkflag(px, iy + v2, 1) && _walkflag(px, iy + 15, 1))
+        {
+            if(no_damage || !checkdamagecombos(px, iy + (sensitive ? 15 : v2)))
+                y = iy - 1;
+        }
+        else if(_walkflag(px, iy + top, 1) && !_walkflag(px, iy + v2 - 1, 1) && !_walkflag(px, iy + 15, 1))
+        {
+            if(no_damage || !checkdamagecombos(px, iy + (sensitive ? top : v2 - 1)))
+                y = iy + 1;
+        }
+        else
+            pushing = push + 1;
+    }
+}
+
+// Link's movement while he swims in a sideview screen's water: upstream's moveheroOld (its
+// qr_NEW_HERO_MOVEMENT walk, which this swim always takes) or, under qr_NEW_HERO_MOVEMENT2,
+// movehero with get_move and movexy.
+void LinkClass::q30_side_swim_move(int push)
+{
+    const bool du = DrunkUp(), dd = DrunkDown(), dl = DrunkLeft(), dr = DrunkRight();
+    const bool freeform = get_bit(quest_rules, qr_FREEFORM) != 0;
+    const bool can_turn = charging == 0 && spins == 0;
+    const bool swimdir = q30_quest_rule(245);       // qr_SIDESWIMDIR: Link only faces left or right
+    const bool edge_x = isdungeon() && (x <= 26 || x >= 214) && !freeform;
+    const bool edge_y = isdungeon() && (y <= 26 || y >= 134) && !freeform;
+    const int top = bigHitbox ? 0 : 8;
+    WalkflagInfo info;
+
+    if(diagonalMovement && ((holddir == up && !Up()) || (holddir == down && !Down()) ||
+                            (holddir == left && !Left()) || (holddir == right && !Right())))
+        holddir = -1;
+
+    const bool go_up = du && (holddir == -1 || holddir == up), go_down = dd && (holddir == -1 || holddir == down);
+    const bool go_left = dl && (holddir == -1 || holddir == left), go_right = dr && (holddir == -1 || holddir == right);
+
+    if(q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2))
+    {
+        const bool nohorz = edge_y && !toogam, novert = edge_x && !toogam;
+        int movedir = -1;
+
+        if(!diagonalMovement)
+        {
+            shiftdir = holddir = -1;
+
+            if(!novert && du) movedir = up;
+            else if(!novert && dd) movedir = down;
+            else if(!nohorz && dl) movedir = left;
+            else if(!nohorz && dr) movedir = right;
+
+            if(movedir >= 0)
+                holddir = dir = movedir;
+        }
+        else if((go_up || go_down) && !novert)
+        {
+            movedir = holddir = go_up ? up : down;
+
+            if(can_turn && action != attacking && !swimdir)
+                dir = movedir;
+
+            shiftdir = (dr && shiftdir != left && !nohorz) ? right : (dl && shiftdir != right && !nohorz) ? left : -1;
+
+            if(shiftdir >= 0 && can_turn)
+            {
+                if(swimdir)
+                    dir = shiftdir;
+
+                q30_ss_dir = shiftdir;
+            }
+        }
+        else if((go_left || go_right) && !nohorz)
+        {
+            movedir = holddir = go_left ? left : right;
+
+            if(can_turn && action != attacking)
+                dir = movedir;
+
+            q30_ss_dir = movedir;
+            shiftdir = (du && shiftdir != down && !novert) ? up : (dd && shiftdir != up && !novert) ? down : -1;
+        }
+
+        if(movedir < 0 || inlikelike)
+            return;
+
+        const bool vert = movedir == up || movedir == down;
+        const double scale = (diagonalMovement && shiftdir >= 0) ? 0.7071 : 1;
+        const double up_step = q30_ss_zfix(q30_ss_up / -100.0 * scale), down_step = q30_ss_zfix(q30_ss_down / 100.0 * scale);
+        const double side_step = q30_ss_zfix(q30_ss_side / 100.0 * scale);
+        const int hd = vert ? shiftdir : movedir, vd = vert ? movedir : shiftdir;
+        const double dx = hd == left ? -side_step : hd == right ? side_step : 0;
+        const double dy = vd == up ? up_step : vd == down ? down_step : 0;
+
+        q30_side_swim_face(movedir);
+
+        if(!(frame & 1))
+            linkstep();
+
+        if(charging != 0 && attack == wHammer)
+            return;
+
+        const bool moved = q30_move_xy(dx, dy, true);
+
+        x = q30_ss_grid(double(x));
+        y = q30_ss_grid(double(y));
+
+        if(dy < 0 && !iswater(MAPCOMBO(q30_ss_int(double(x)), q30_ss_int(double(y) + top - 2)))
+           && q30_can_move(0, -2) && double(y) + top - 4 > 0)
+        {
+            if(q30_ss_jump != 0)
+                q30_side_swim_surface(0);
+            else
+                q30_move_xy(0, -dy, false);
+        }
+
+        if(!moved)
+            pushing = push + 1;
+
+        return;
+    }
+
+    if(diagonalMovement)
+    {
+        int d = -1;
+
+        walkable = false;
+
+        if(go_up && !(edge_x && !toogam)) d = up;
+        else if(go_down && !(edge_x && !toogam)) d = down;
+        else if(go_left && !(edge_y && !toogam)) d = left;
+        else if(go_right && !(edge_y && !toogam)) d = right;
+
+        if(d < 0)
+            return;
+
+        const bool vert = d == up || d == down;
+
+        holddir = d;
+
+        if(vert)
+        {
+            if(can_turn && action != attacking && !swimdir)
+                dir = d;
+
+            shiftdir = (dr && shiftdir != left) ? right : (dl && shiftdir != right) ? left : -1;
+
+            if(shiftdir >= 0 && can_turn)
+            {
+                if(swimdir)
+                    dir = shiftdir;
+
+                q30_ss_dir = shiftdir;
+            }
+        }
+        else
+        {
+            if(can_turn && action != attacking)
+                dir = d;
+
+            q30_ss_dir = d;
+            shiftdir = (du && shiftdir != down) ? up : (dd && shiftdir != up) ? down : -1;
+        }
+
+        // the step along d: while it ends in a wall Link's position is rounded, then the step cut
+        for(;;)
+        {
+            info = q30_side_swim_probe(d, q30_hero_newstep, true);
+            execute(info);
+
+            if(!info.isUnwalkable())
+            {
+                walkable = true;
+                break;
+            }
+
+            fix &pos = vert ? y : x;
+            const double p = double(pos);
+
+            if(p != floor(p))
+                pos = fix(p < 0 ? ceil(p - 0.5) : floor(p + 0.5));
+            else if(q30_hero_newstep > 1)
+                q30_hero_newstep = q30_hero_newstep != floor(q30_hero_newstep) ? floor(q30_hero_newstep) : q30_hero_newstep - 1;
+            else
+                break;
+        }
+
+        // the step across it, and the corner both lead to; a blocked one is dropped for this frame
+        const int s = shiftdir;
+
+        if(vert ? edge_y : edge_x)
+            shiftdir = -1;
+
+        while(shiftdir != -1)
+        {
+            info = q30_side_swim_probe(s, q30_hero_newstep_diag, false);
+            execute(info);
+
+            if(!info.isUnwalkable())
+            {
+                if(!walkable)
+                    break;
+
+                const double hs = vert ? q30_hero_newstep_diag : q30_hero_newstep, vs = vert ? q30_hero_newstep : q30_hero_newstep_diag;
+                const int h = vert ? s : d, v = vert ? d : s;
+                const int px = q30_ss_int(h == left ? double(x) - hs : double(x) + 15 + hs);
+                const int py = q30_ss_int(v == up ? top + double(y) - vs : double(y) + 15 + vs);
+
+                info = walkflag(px, py, 1, s);
+                execute(info);
+
+                if(!info.isUnwalkable())
+                    break;
+            }
+
+            fix &pos = vert ? x : y;
+            const double p = double(pos);
+
+            if(p != floor(p))
+                pos = fix(p < 0 ? ceil(p - 0.5) : floor(p + 0.5));
+            else if(q30_hero_newstep_diag > 1)
+                q30_hero_newstep_diag = q30_hero_newstep_diag != floor(q30_hero_newstep_diag) ? floor(q30_hero_newstep_diag) : q30_hero_newstep_diag - 1;
+            else
+                shiftdir = -1;
+        }
+
+        q30_side_swim_step(d);
+        shiftdir = s;
+
+        if(!walkable)
+        {
+            if(shiftdir == -1)
+                q30_side_swim_blocked(d, push, true);
+            else
+                pushing = push + 1;
+        }
+
+        return;
+    }
+
+    // Four ways: up or down first, then left or right when that is blocked or not held.
+    if(!(edge_x && !toogam) && (du || dd))
+    {
+        const int d = du ? up : down;
+        double tx = double(x), ty = double(y), ts = q30_hero_newstep;
+
+        for(;;)
+        {
+            const int py = q30_ss_int(d == up ? ty + top - ts : ty + 15 + ts);
+
+            info = walkflag(q30_ss_int(tx), py, 2, d);
+
+            // the far corner in a wall counts, unless both corners are (solid) water
+            if(_walkflag(int(tx + 15), int(d == up ? ty + top - ts : ty + 15 + ts), 1) && !(iswater(MAPCOMBO(q30_ss_int(tx), py)) && iswater(MAPCOMBO(q30_ss_int(tx + 15), py))))
+                info.setUnwalkable(true);
+
+            if(!info.isUnwalkable())
+                break;
+
+            if(ty != floor(ty))
+                ty = floor(ty);
+            else if(ts > 1)
+                ts = ts != floor(ts) ? floor(ts) : ts - 1;
+            else
+                break;
+        }
+
+        execute(info);
+
+        if(!info.isUnwalkable())
+        {
+            x = fix(tx);
+            y = fix(ty);
+            q30_hero_newstep = ts;
+            q30_side_swim_step(d);
+            return;
+        }
+
+        if(!dl && !dr)
+        {
+            q30_side_swim_blocked(d, push, q30_no_gridlock());
+
+            if(can_turn)
+                dir = d;
+
+            return;
+        }
+    }
+
+    if(edge_y && !toogam)
+        return;
+
+    if(dl || dr)
+    {
+        const int d = dl ? left : right;
+        double tx = double(x), ty = double(y), ts = q30_hero_newstep;
+
+        for(;;)
+        {
+            const int px = q30_ss_int(d == left ? tx - ts : tx + 15 + ts);
+
+            info = walkflag(px, q30_ss_int(ty + top), 1, d) || walkflag(px, q30_ss_int(ty), 1, d);
+
+            if(q30_ss_int(double(y)) & 7)
+                info = info || walkflag(px, q30_ss_int(ty + 16), 1, d);
+
+            if(!info.isUnwalkable())
+                break;
+
+            if(tx != floor(tx))
+                tx = floor(tx);
+            else if(ts > 1)
+                ts = ts != floor(ts) ? floor(ts) : ts - 1;
+            else
+                break;
+        }
+
+        execute(info);
+
+        if(!info.isUnwalkable())
+        {
+            x = fix(tx);
+            y = fix(ty);
+            q30_hero_newstep = ts;
+            q30_side_swim_step(d);
+            return;
+        }
+
+        if(!du && !dd)
+        {
+            q30_side_swim_blocked(d, push, q30_no_gridlock());
+
+            if(can_turn)
+                dir = d;
+        }
+    }
 }
 
 // qr_BETTER_RAFT: a dock whose raft path doesn't lead the way Link faces can still start
@@ -9810,8 +10800,13 @@ LinkClass::WalkflagInfo LinkClass::walkflag(int wx,int wy,int cnt,byte d2)
         }
     }
     //All problems related to exiting water are probably here. -Z
-    if(action==swimming)
+    if(action==swimming || q30_is_side_swim())
     {
+        // 2.55/3.0 sideview swimming: Link never hops out, unless the water he is in is solid
+        const bool q30_nohop = q30_can_side_swim() &&
+            !(_walkflag(x+7,y+(bigHitbox?6:11),1) || _walkflag(x+7,y+(bigHitbox?9:12),1) ||
+              _walkflag(x+8,y+(bigHitbox?6:11),1) || _walkflag(x+8,y+(bigHitbox?9:12),1));
+
         if(!wf)
         {
             if(landswim>= (get_bit(quest_rules,qr_DROWN) && isSwimming() ? 1
@@ -9833,12 +10828,12 @@ LinkClass::WalkflagInfo LinkClass::walkflag(int wx,int wy,int cnt,byte d2)
                 }
                 //This may be where the hang-up for exiting water exists. -Z
                 // hop out of the water
-                if(changehop)
+                if(changehop && !q30_nohop)
                     ret.setHopClk(1);
             }
             else
             {
-                if(dir==d2 || shiftdir==d2)
+                if(!q30_nohop && (dir==d2 || shiftdir==d2))
                 {
                     //int vx=((int)x+4)&0xFFF8;
                     //int vy=((int)y+4)&0xFFF8;
@@ -12173,10 +13168,13 @@ void LinkClass::checkspecial2(int *ls)
     //
     // Now, let's check for Drowning combos...
     //
-    if(get_bit(quest_rules,qr_DROWN))
+    if(get_bit(quest_rules,qr_DROWN) || q30_can_side_swim())
     {
         y1 = ty+9;
         y2 = ty+15;
+
+        if(q30_can_side_swim())     // (upstream's onWater: the bottom edge a pixel in, like the top)
+            y2 = ty+14;
         types[0] = COMBOTYPE(x1,y1);
         
         if(MAPFFCOMBO(x1,y1))
@@ -12200,6 +13198,11 @@ void LinkClass::checkspecial2(int *ls)
         if(combo_class_buf[types[0]].water && combo_class_buf[types[1]].water &&
                 combo_class_buf[types[2]].water && combo_class_buf[types[3]].water)
             water = true;
+
+        // 2.55/3.0 sideview swimming: upstream's onWater, with water on layers (qr_SMARTER_WATER)
+        if(q30_can_side_swim() && q30_quest_rule(217))
+            water = q30_ss_water(x1,y1) && q30_ss_water(x1,y2) && q30_ss_water(x2,y1) && q30_ss_water(x2,y2)
+                    && q30_ss_water((x1+x2)/2,(y1+y2)/2);
     }
     
     // Pits have a bigger 'hitbox' than stairs...
@@ -12333,16 +13336,20 @@ void LinkClass::checkspecial2(int *ls)
     // * Not swimming,
     // * Not swallowed,
     // * Not a dried lake.
-    if(water && get_bit(quest_rules,qr_DROWN) && z==0  && fall>=0 && !ladderx && !hoverclk && action!=rafting && !isSwimming() && !inlikelike && !DRIEDLAKE)
+    if(water && (get_bit(quest_rules,qr_DROWN) || q30_can_side_swim()) && z==0  && fall>=0 && !ladderx && !hoverclk && action!=rafting && !isSwimming() && !inlikelike && !DRIEDLAKE)
     {
-        if(!current_item(itype_flippers))
+        // (2.55/3.0 sideview swimming: upstream's drown_check, by the water Link is in)
+        if(q30_can_side_swim() ? q30_ss_drowns(q30_ss_water(tx+7,ty+11)) : !current_item(itype_flippers))
         {
             Drown();
         }
         else
         {
-            attackclk = charging = spins = 0;
-            action=swimming;
+            q30_set_swim();
+
+            if(!q30_is_side_swim())     // (a sideview swim keeps Link's attack)
+                attackclk = charging = spins = 0;
+
             landswim=0;
         }
         
@@ -13350,7 +14357,7 @@ bool LinkClass::dowarp(int type, int index)
             
             if(wasswimming)
             {
-                action = swimming;
+                q30_set_swim();
                 diveclk = olddiveclk;
             }
             
@@ -13418,7 +14425,7 @@ bool LinkClass::dowarp(int type, int index)
         {
             hopclk=0xFF;
             attackclk = charging = spins = 0;
-            action=swimming;
+            q30_set_swim();
         }
         else
             action = none;
@@ -13494,7 +14501,7 @@ bool LinkClass::dowarp(int type, int index)
 		    
 		    if(wasswimming)
 		    {
-			action = swimming;
+			q30_set_swim();
 			diveclk = olddiveclk;
 		    }
 		    
@@ -13562,7 +14569,7 @@ bool LinkClass::dowarp(int type, int index)
 		{
 		    hopclk=0xFF;
 		    attackclk = charging = spins = 0;
-		    action=swimming;
+		    q30_set_swim();
 		}
 		else
 		    action = none;
@@ -13634,7 +14641,7 @@ bool LinkClass::dowarp(int type, int index)
             && (current_item(itype_flippers)) && (action!=inwind))
     {
         hopclk=0xFF;
-        action=swimming;
+        q30_set_swim();
     }
     
     newscr_clk=frame;
@@ -15480,9 +16487,9 @@ void LinkClass::scrollscr(int scrolldir, int destscr, int destdmap)
         }
         else if(iswater(ahead) && (current_item(itype_flippers)))
         {
-            if(lastaction==swimming)
+            if(lastaction==swimming || (q30_ss && (lastaction==swimhit || lastaction==attacking || lastaction==casting || lastaction==waterhold1 || lastaction==waterhold2)))
             {
-                action = swimming;
+                q30_set_swim();
                 hopclk = 0xFF;
                 nowinwater = true;
             }
@@ -15937,7 +16944,7 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
     
     if(nowinwater)
     {
-        action = swimming;
+        q30_set_swim();
         hopclk = 0xFF;
     }
     
@@ -18120,9 +19127,9 @@ void LinkClass::checkitems(int index)
         attackclk=0;
         reset_swordcharge();
         
-        if(action!=swimming)
+        if(action!=swimming && !q30_is_side_swim())
             reset_hookshot();
-            
+
         if(msg_onscreen)
         {
             dismissmsg();
@@ -18135,10 +19142,10 @@ void LinkClass::checkitems(int index)
             fadeclk=66;
         }
         
-        if(id2!=iBombs || action==swimming || get_bit(quest_rules,qr_BOMBHOLDFIX))
+        if(id2!=iBombs || (action==swimming && !q30_is_side_swim()) || get_bit(quest_rules,qr_BOMBHOLDFIX))
         {
             // don't hold up bombs unless swimming or the bomb hold fix quest rule is on
-            if(action==swimming)
+            if(action==swimming || q30_is_side_swim())     // (2.55/3.0: upstream's sidewaterhold)
             {
                 action=waterhold1;
             }

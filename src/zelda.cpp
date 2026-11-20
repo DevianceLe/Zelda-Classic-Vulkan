@@ -2773,6 +2773,7 @@ void do_magic_casting()
         if(castnext)
         {
             linktile(&Link.tile, &Link.flip, &Link.extend, ls_cast, Link.getDir(), zinit.linkanimationstyle);
+            Link.q30_side_swim_cast_tile();
             
             if(get_bit(quest_rules,qr_EXPANDEDLTM))
             {
@@ -2924,6 +2925,7 @@ void do_magic_casting()
             w1->step=4;
             //          Link.tile=(BSZ)?32:29;
             linktile(&Link.tile, &Link.flip, &Link.extend, ls_cast, Link.getDir(), zinit.linkanimationstyle);
+            Link.q30_side_swim_cast_tile();
             
             if(get_bit(quest_rules,qr_EXPANDEDLTM))
             {
@@ -2952,6 +2954,7 @@ void do_magic_casting()
             w1->step=4;
             //          Link.tile=29;
             linktile(&Link.tile, &Link.flip, &Link.extend, ls_cast, Link.getDir(), zinit.linkanimationstyle);
+            Link.q30_side_swim_cast_tile();
             
             if(get_bit(quest_rules,qr_EXPANDEDLTM))
             {

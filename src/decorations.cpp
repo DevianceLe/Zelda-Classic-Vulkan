@@ -32,7 +32,10 @@ decoration::decoration(fix X,fix Y,int Id,int Clk) : sprite()
     id=Id;
     clk=Clk;
     misc = 0;
-    yofs = playing_field_offset - 2;
+    // (2.55/3.0: decorations sit two pixels lower, on the playing field's own offset, unless
+    // qr_DECO_2_YOFFSET keeps the old place; q30_compat_rule is true for every 2.53 quest)
+    bool q30_compat_rule(int id);
+    yofs = playing_field_offset - (q30_compat_rule(344) ? 2 : 0);
     
 }
 
@@ -537,6 +540,15 @@ bool dRipples::animate(int index)
 {
     index=index;  //this is here to bypass compiler warnings about unused arguments
     clk++;
+
+    {
+        int q30_ripples_gone();    // link.cpp: 2.55/3.0 quests under qr_SHALLOW_SENSITIVE, -1 otherwise
+        const int gone = q30_ripples_gone();
+
+        if(gone >= 0)
+            return gone != 0;
+    }
+
     return ((COMBOTYPE(LinkX(),LinkY()+15)!=cSHALLOWWATER)||
             (COMBOTYPE(LinkX()+15,LinkY()+15)!=cSHALLOWWATER) || LinkZ() != 0);
 }

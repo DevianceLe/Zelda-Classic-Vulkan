@@ -519,8 +519,15 @@ bool q30_pit_slide();
 // Whether the drowning under Link is in lava (the water combo's flag 1: upstream's Drown(1)).
 bool q30_lava_drowning();
 // 2.55/3.0 hero sprite sets the player draws (q255_init.cpp): tile/flip/extend per direction.
-enum { Q255HS_DROWN, Q255HS_LAVADROWN, Q255HS_FALLING, Q255HS_LIFTING, Q255HS_LIFTWALK, Q255HS_REVSLASH, Q255HS_MAX };
+enum { Q255HS_DROWN, Q255HS_LAVADROWN, Q255HS_FALLING, Q255HS_LIFTING, Q255HS_LIFTWALK, Q255HS_REVSLASH,
+       // sideview swimming (qr_SIDESWIM); the hold set is one-hand, two-hand, sword, the cast set one sprite
+       Q255HS_SIDESWIM, Q255HS_SIDESWIMSLASH, Q255HS_SIDESWIMSTAB, Q255HS_SIDESWIMPOUND, Q255HS_SIDESWIMCHARGE,
+       Q255HS_SIDESWIMHOLD, Q255HS_SIDESWIMCAST, Q255HS_SIDEDROWN, Q255HS_MAX };
 const int *q255_hero_sprite(int set, int dir);
+long q255_hero_hammer_swim_offset(int dir);  // the hammer's y shift while sideview swimming, by direction
+// The init data's sideview swimming: steps in 1/100 pixel, the jump out of the water and the
+// swim gravity in 1/10000 (upstream's zinit.heroSideswim*Step, exitWaterJump, swimgravity).
+void q30_set_init_sideswim(int up_step, int side_step, int down_step, long jump, long gravity);
 int q255_hero_lift_frames(int dir);          // liftingspr's frame count, 1-255
 void q30_draw_darkness(BITMAP *dest);
 // The same through a scroll (LinkClass::scrollscr, its view at sx, sy): the old and new screens.

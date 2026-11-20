@@ -495,12 +495,18 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
         g_init_msg_advance_delay = s.getc();    // message advance delay
 
     temp.gravity = clamp_byte(s.igetl_s() / 100);
-    s.skip(4);  // swim gravity
+    long swim_grav = s.igetl_s();   // swim gravity (sideview swimming's sinking)
     temp.terminalv = s.igetw();
     temp.link_swim_speed = s.getc();
     s.skip(2);  // swim multiplier and divisor
-    s.skip(6);  // sideswim steps
-    s.skip(4);  // exit water jump
+    {
+        // sideview swimming: the up, side and down steps, then the jump out of the water
+        word ss_up = s.igetw(), ss_side = s.igetw(), ss_down = s.igetw();
+        long ss_jump = s.igetl_s();
+
+        if(s.keep && !s.failed)
+            q30_set_init_sideswim(ss_up, ss_side, ss_down, ss_jump, swim_grav);
+    }
     {
         word step = s.igetw();  // Link's walk step (upstream's zinit.heroStep), kept beside zinit
 
@@ -877,16 +883,29 @@ int q255_read_initdata(Q255Section &s)
     if(v > 24)
         g_init_light[5] = s.getc();     // darkness colour
 
-    if(v > 25)
     {
-        temp.gravity = clamp_byte(s.igetl_s() / 100);
-        s.skip(4);  // swim gravity
-    }
+        // sideview swimming (upstream's defaults for the versions without them)
+        long swim_grav = 5, ss_jump = 0;
+        word ss_up = 150, ss_side = 100, ss_down = 75;
 
-    if(v > 26)
-        s.skip(6);  // sideswim steps
-    if(v > 27)
-        s.skip(4);  // exit water jump
+        if(v > 25)
+        {
+            temp.gravity = clamp_byte(s.igetl_s() / 100);
+            swim_grav = s.igetl_s();
+        }
+
+        if(v > 26)
+        {
+            ss_up = s.igetw();
+            ss_side = s.igetw();
+            ss_down = s.igetw();
+        }
+        if(v > 27)
+            ss_jump = s.igetl_s();
+
+        if(s.keep && !s.failed)
+            q30_set_init_sideswim(ss_up, ss_side, ss_down, ss_jump, swim_grav);
+    }
     if(v > 29)
         g_init_bunny_ltm = s.igetl_s();     // bunny LTM
     if(v > 30)
@@ -1016,6 +1035,7 @@ static void skip_sprites(Q255Section &s, int count)
 // rest of the set; link.cpp picks them through q255_hero_sprite.
 static int g_hero_spr[Q255HS_MAX][4][3];
 static int g_lift_frames[4];
+static long g_hammer_swim_ofs[4];   // upstream's hammeroffsets: the hammer's y shift while sideview swimming
 
 const int *q255_hero_sprite(int set, int dir)
 {
@@ -1023,6 +1043,11 @@ const int *q255_hero_sprite(int set, int dir)
         return NULL;
 
     return g_hero_spr[set][dir];
+}
+
+long q255_hero_hammer_swim_offset(int dir)
+{
+    return (dir < 0 || dir > 3) ? 0 : g_hammer_swim_ofs[dir];
 }
 
 int q255_hero_lift_frames(int dir)
@@ -1072,6 +1097,7 @@ int q255_read_linksprites(Q255Section &s)
         setuplinktiles(zinit.linkanimationstyle);
         memset(g_hero_spr, 0, sizeof(g_hero_spr));
         memset(g_lift_frames, 0, sizeof(g_lift_frames));
+        memset(g_hammer_swim_ofs, 0, sizeof(g_hammer_swim_ofs));
     }
 
     get_sprites(s, walkspr, 4);
@@ -1108,18 +1134,33 @@ int q255_read_linksprites(Q255Section &s)
         memcpy(g_hero_spr[Q255HS_DROWN], divespr, sizeof(divespr));
         memcpy(g_hero_spr[Q255HS_LAVADROWN], divespr, sizeof(divespr));
     }
+    // sideview swimming (qr_SIDESWIM): upstream's sideswimspr, the slash, stab, pound and
+    // charge sets, the hammer offsets, the holds (one-hand, two-hand, sword), casting and
+    // sidedrowningspr; all zero where the section is older, as upstream
     if(v > 8)
-        skip_sprites(s, 4);             // sideswim
+        get_sprites(s, g_hero_spr[Q255HS_SIDESWIM], 4);
     if(v > 9)
-        skip_sprites(s, 4 * 4);         // sideswim slash, stab, pound, charge
+    {
+        get_sprites(s, g_hero_spr[Q255HS_SIDESWIMSLASH], 4);
+        get_sprites(s, g_hero_spr[Q255HS_SIDESWIMSTAB], 4);
+        get_sprites(s, g_hero_spr[Q255HS_SIDESWIMPOUND], 4);
+        get_sprites(s, g_hero_spr[Q255HS_SIDESWIMCHARGE], 4);
+    }
     if(v > 10)
-        s.skip(4 * 4);                  // hammer offsets
+    {
+        for(int d = 0; d < 4; ++d)
+        {
+            long ofs = s.igetl_s();
+            if(s.keep && !s.failed)
+                g_hammer_swim_ofs[d] = ofs;
+        }
+    }
     if(v > 11)
-        skip_sprites(s, 3);             // sideswim hold
+        get_sprites(s, g_hero_spr[Q255HS_SIDESWIMHOLD], 3);
     if(v > 12)
-        skip_sprites(s, 1);             // sideswim casting
+        get_sprite(s, g_hero_spr[Q255HS_SIDESWIMCAST][0]);
     if(v > 13)
-        skip_sprites(s, 4);             // side drowning
+        get_sprites(s, g_hero_spr[Q255HS_SIDEDROWN], 4);
     if(v > 14)
     {
         for(int d = 0; d < 4; ++d)      // reverse slash

@@ -137,6 +137,7 @@ dword q30_compat_rule_since(int id)
     case Q30_QR_STEPTEMP_SECRET_ONLY_16_31: return 6;
     case Q30_QR_ALLTRIG_PERMSEC_NO_TEMP: return 7;
     case Q30_QR_DMAP_0_CONTINUE_BUG: return 24;
+    case 344: return 30;        // qr_DECO_2_YOFFSET
     case 348: return 31;        // qr_FFCPRELOAD_BUGGED_LOAD
     case Q30_QR_PUSHBLOCK_SPRITE_LAYER: return 51;
     case Q30_QR_BROKEN_PUSHBLOCK_TOP_HALF_SOLIDS: return 71;

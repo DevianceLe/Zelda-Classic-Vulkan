@@ -11101,6 +11101,41 @@ void q30_test_list_features()
                         al_trace("test: feature %s: ZC_TEST_START=%d,%d,%d,%d (combo at %d,%d)\n", names[k], dm, s - DMaps[dm].xoff,
                                  (found[k] % 16) * 16, (found[k] / 16) * 16 + 16, (found[k] % 16) * 16, (found[k] / 16) * 16);
                 }
+
+            // sideview screens with water (qr_SIDESWIM): Link starts in the open above it
+            static int sw_shown = 0;
+
+            if((m.flags7 & fSIDEVIEW) && sw_shown < 12)
+            {
+                int wet = 0, top = -1;
+
+                for(int p = 16; p < 176; ++p)
+                    if(combo_class_buf[combobuf[m.data[p]].type].water)
+                    {
+                        ++wet;
+                        if(top < 0 && !combo_class_buf[combobuf[m.data[p - 16]].type].water && !(combobuf[m.data[p - 16]].walk & 0xF))
+                            top = p;
+                    }
+
+                if(wet >= 4 && top >= 0 && ++sw_shown)
+                    al_trace("test: feature sideswim: ZC_TEST_START=%d,%d,%d,%d (%d water combos, surface at %d,%d)\n", dm, s - DMaps[dm].xoff,
+                             (top % 16) * 16, (top / 16) * 16 - 16, wet, (top % 16) * 16, (top / 16) * 16);
+            }
+
+            // top-down screens with water beside open floor (drowning): Link starts on the floor, to walk right
+            static int dr_shown = 0;
+
+            if(!(m.flags7 & fSIDEVIEW) && dr_shown < 16 && (m.valid & mVALID))
+                for(int p = 17; p < 159; ++p)
+                    if((p % 16) > 1 && (p % 16) < 14 && combo_class_buf[combobuf[m.data[p]].type].water && !(combobuf[m.data[p]].walk & 0xF)
+                       && combobuf[m.data[p - 1]].type == cNONE && !(combobuf[m.data[p - 1]].walk & 0xF)
+                       && combobuf[m.data[p - 2]].type == cNONE && !(combobuf[m.data[p - 2]].walk & 0xF))
+                    {
+                        ++dr_shown;
+                        al_trace("test: feature drown: ZC_TEST_START=%d,%d,%d,%d (water at %d,%d; walk right)\n", dm, s - DMaps[dm].xoff,
+                                 (p % 16) * 16 - 32, (p / 16) * 16, (p % 16) * 16, (p / 16) * 16);
+                        break;
+                    }
         }
     }
 }

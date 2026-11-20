@@ -280,9 +280,29 @@ bool sprite::animate(int)
     ++c_clk;
     return false;
 }
+// 2.55/3.0 quests: upstream draws a sprite at its position to the nearest pixel (zfix::getInt,
+// halves away from 0), where 2.53 cuts the fraction off. Their sprites stop on fractions of a
+// pixel all the time (Link's 1.5 pixel step, the swim steps), so it shows.
+extern word quest_header_zelda_version;     // qst.cpp
+
+static inline int q30_sprite_pixel(fix f)
+{
+    if(quest_header_zelda_version < 0x255)
+        return f.v>>16;
+
+    int r = f.v / 65536, rem = f.v % 65536;
+
+    if(rem >= 32768)
+        ++r;
+    else if(rem <= -32768)
+        --r;
+
+    return r;
+}
+
 int sprite::real_x(fix fx)
 {
-    int rx=fx.v>>16;
+    int rx=q30_sprite_pixel(fx);
     
     switch(dir)
     {
@@ -299,12 +319,12 @@ int sprite::real_x(fix fx)
 
 int sprite::real_y(fix fy)
 {
-    return fy.v>>16;
+    return q30_sprite_pixel(fy);
 }
 
 int sprite::real_z(fix fz)
 {
-    return fz.v>>16;
+    return q30_sprite_pixel(fz);
 }
 
 bool sprite::hit(sprite *s)

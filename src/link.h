@@ -252,6 +252,18 @@ class LinkClass : public sprite
     bool q30_move_xy(double dx, double dy, bool shove);
     bool q30_solid_coord(double tx, double ty, int sdir, int mdir, double earlyterm, double &out);
     void q30_free_walk(int push);
+    // 2.55/3.0 sideview swimming (qr_SIDESWIM; link.cpp). No data members.
+    bool q30_can_side_swim();
+    bool q30_is_side_swim();
+    void q30_set_swim();
+    void q30_side_swim_tick();
+    void q30_side_swim_float();
+    void q30_side_swim_face(int d2);
+    void q30_side_swim_surface(double dy);
+    void q30_side_swim_step(int d2);
+    WalkflagInfo q30_side_swim_probe(int d, double s, bool main);
+    void q30_side_swim_blocked(int d, int push, bool shove);
+    void q30_side_swim_move(int push);
     bool q30_step_blocked(int d, double s, int cd, double cs);
     bool q30_fit_step(int d, double &step, int cd, double cs);
     void q30_board_raft(int tx, int ty);
@@ -427,6 +439,7 @@ void reset_swordcharge();
     void setHeldItem(int newitem);
     bool isDiving();
     bool isSwimming();
+    void q30_side_swim_cast_tile();     // 2.55/3.0: the casting sprite while sideview swimming
     void setDontDraw(bool new_dontdraw);
     bool getDontDraw();
     void setHClk(int newhclk);
