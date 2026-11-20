@@ -81,6 +81,7 @@ static inline bool q30_sfx_is_ogg(int) { return false; }
 static inline const SAMPLE *q30_sfx_sample(int) { return NULL; }
 #endif
 byte linear_quest_loading = 0;
+int title_random_last = -1;   // Settings > Title Screen > Random: the title it showed last
 int intro_choice = 0;   // Settings > Intro, what follows the arcade title: 0 random, 1 flames, 2 ZC 3.0 Nightly
 // Settings > Controls > Extra Pad Support: SDL's HIDAPI controller drivers. The
 // platform reads zc.cfg for it at startup (platform_sdl.cpp, which explains why
@@ -361,6 +362,7 @@ void load_game_configs()
     NESquit = get_config_int(cfg_sect,"fastquit",0)!=0;
     ClickToFreeze = get_config_int(cfg_sect,"clicktofreeze",1)!=0;
     title_version = get_config_int(cfg_sect,"title",2);
+    title_random_last = get_config_int(cfg_sect,"title_random_last",-1);
     
     //default - scale x2, 640 x 480
     resx = get_config_int(cfg_sect,"resx",640);
@@ -532,6 +534,10 @@ void save_game_configs()
     set_config_int(cfg_sect,"fastquit",(int)NESquit);
     set_config_int(cfg_sect,"clicktofreeze", (int)ClickToFreeze);
     set_config_int(cfg_sect,"title",title_version);
+
+    if(title_random_last >= 0)
+        set_config_int(cfg_sect,"title_random_last",title_random_last);
+
     
     set_config_int(cfg_sect,"resx",resx);
     set_config_int(cfg_sect,"resy",resy);
@@ -7168,6 +7174,16 @@ int onTitle_25()
     title_version=2;
     return D_O_K;
 }
+int onTitle_ZQC()
+{
+    title_version=TITLE_ZQC;
+    return D_O_K;
+}
+int onTitle_Random()
+{
+    title_version=TITLE_RANDOM;
+    return D_O_K;
+}
 
 int onDebug()
 {
@@ -7551,6 +7567,8 @@ static MENU title_menu[] =
     { (char *)"&Original",                 onTitle_NES,              NULL,                      0, NULL },
     { (char *)"&Zelda Classic",            onTitle_DX,               NULL,                      0, NULL },
     { (char *)"Zelda Classic &2.50",       onTitle_25,               NULL,                      0, NULL },
+    { (char *)"ZQuest &Classic",           onTitle_ZQC,              NULL,                      0, NULL },
+    { (char *)"&Random",                   onTitle_Random,           NULL,                      0, NULL },
     { NULL,                                NULL,                     NULL,                      0, NULL }
 };
 
@@ -9217,6 +9235,8 @@ void System()
         title_menu[0].flags = (title_version==0) ? D_SELECTED : 0;
         title_menu[1].flags = (title_version==1) ? D_SELECTED : 0;
         title_menu[2].flags = (title_version==2) ? D_SELECTED : 0;
+        title_menu[3].flags = (title_version==TITLE_ZQC) ? D_SELECTED : 0;
+        title_menu[4].flags = (title_version==TITLE_RANDOM) ? D_SELECTED : 0;
         
         settings_menu[5].flags = Throttlefps?D_SELECTED:0;
         settings_menu[6].flags = ShowFPS?D_SELECTED:0;

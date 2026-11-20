@@ -17,6 +17,7 @@
 #include "zdefs.h"
 #include "zeldadat.h"
 #include "zc_malloc.h"
+#include "aglogo.h"
 
 #include <chrono>
 #include <math.h>
@@ -768,10 +769,17 @@ static void Zc3Show(BITMAP *frame, int resx, int resy)
     poll_joystick();
 }
 
-// Returns false, having shown nothing, if the intro's files aren't there.
-static bool Zc3Intro(BITMAP *frame, int resx, int resy)
+// The logo's file, assets/zc/intro_logo.dat (tools/make_intro_logo.py): "ZC3L", width, height
+// and colour count as 16-bit words, the colours as RGB bytes, then three pictures of one byte a
+// pixel: the whole logo, the logo without its sword, the sword alone. 0 is see-through, n is
+// colour n - 1.
+//
+// height 0 gives the pictures as stored. Any other height gives them shrunk to it, each pixel
+// the average of the art it covers, in at most max_colours colours. Either way a pixel's value
+// is its entry in logo.pal, and 0 stays see-through. False if the file is missing or damaged.
+bool Zc3LogoLoad(Zc3Logo &logo, int height, int max_colours)
 {
-    enum { CRAWL = 150, THRUST = 16, FLASH = 12, HIT = CRAWL + THRUST, LEAVE = 30, WHITE_INDEX = 255 };
+    memset(&logo, 0, sizeof(logo));
 
     char exe[2048], path[2048];
     get_executable_name(exe, sizeof(exe));
@@ -796,8 +804,200 @@ static bool Zc3Intro(BITMAP *frame, int resx, int resy)
     const int w = file[4] | (file[5] << 8), h = file[6] | (file[7] << 8), colours = file[8] | (file[9] << 8);
     const size_t pixels = 10 + (size_t)colours * 3;
 
-    if(colours > 250 || file.size() < pixels + (size_t)w * h * 3)
+    if(w < 1 || h < 1 || colours < 1 || colours > 250 || file.size() < pixels + (size_t)w * h * 3)
         return false;
+
+    const bool shrink = height > 0 && height < h;
+    const int tw = shrink ? (w * height + h / 2) / h : w, th = shrink ? height : h;
+
+    if(max_colours > 255)
+        max_colours = 255;
+
+    if(tw < 1 || max_colours < 1 || (!shrink && colours > max_colours))
+        return false;
+
+    for(int n = 0; n < 3; ++n)
+        if((logo.layer[n] = create_bitmap_ex(8, tw, th)) == NULL)
+        {
+            Zc3LogoFree(logo);
+            return false;
+        }
+
+    logo.w = tw;
+    logo.h = th;
+
+    if(!shrink)
+    {
+        logo.colours = colours;
+
+        for(int i = 0; i < colours; ++i)
+        {
+            logo.pal[i + 1].r = file[10 + i * 3] >> 2;
+            logo.pal[i + 1].g = file[11 + i * 3] >> 2;
+            logo.pal[i + 1].b = file[12 + i * 3] >> 2;
+        }
+
+        for(int n = 0; n < 3; ++n)
+            for(int y = 0; y < h; ++y)
+                memcpy(logo.layer[n]->line[y], &file[pixels + (size_t)n * w * h + (size_t)y * w], w);
+
+        return true;
+    }
+
+    // Each small pixel is the average of an 8 x 8 grid of samples of the art under it, and is
+    // see-through where most of them are. A colour is kept as 6 bits a channel, like the palette.
+    enum { GRID = 8 };
+    std::vector<int> shrunk((size_t)3 * tw * th, -1);
+    std::vector<int> used, count;
+
+    for(int n = 0; n < 3; ++n)
+    {
+        const byte *art = &file[pixels + (size_t)n * w * h];
+
+        for(int ty = 0; ty < th; ++ty)
+            for(int tx = 0; tx < tw; ++tx)
+            {
+                int r = 0, g = 0, b = 0, solid = 0;
+
+                for(int j = 0; j < GRID; ++j)
+                    for(int i = 0; i < GRID; ++i)
+                    {
+                        const int sx = ((tx * GRID + i) * 2 + 1) * w / (tw * GRID * 2);
+                        const int sy = ((ty * GRID + j) * 2 + 1) * h / (th * GRID * 2);
+                        const int c = art[(size_t)sy * w + sx];
+
+                        if(c > 0 && c <= colours)
+                        {
+                            r += file[7 + c * 3];
+                            g += file[8 + c * 3];
+                            b += file[9 + c * 3];
+                            ++solid;
+                        }
+                    }
+
+                if(solid * 2 < GRID * GRID)
+                    continue;
+
+                const int rgb = ((r / solid) >> 2) << 12 | ((g / solid) >> 2) << 6 | ((b / solid) >> 2);
+                shrunk[((size_t)n * th + ty) * tw + tx] = rgb;
+
+                size_t k = 0;
+
+                while(k < used.size() && used[k] != rgb)
+                    ++k;
+
+                if(k == used.size())
+                {
+                    used.push_back(rgb);
+                    count.push_back(0);
+                }
+
+                ++count[k];
+            }
+    }
+
+    // The averages make more colours than the palette has room for. The most used ones are
+    // kept, and a colour within `reach` of a kept one shares it; reach grows until all fit.
+    std::vector<int> order(used.size());
+
+    for(size_t i = 0; i < order.size(); ++i)
+        order[i] = (int)i;
+
+    for(size_t i = 1; i < order.size(); ++i)        // by use, most first
+    {
+        const int o = order[i];
+        size_t j = i;
+
+        for(; j > 0 && count[order[j - 1]] < count[o]; --j)
+            order[j] = order[j - 1];
+
+        order[j] = o;
+    }
+
+    std::vector<int> kept, slot(used.size());
+
+    for(int reach = 0; ; ++reach)
+    {
+        kept.clear();
+
+        for(size_t i = 0; i < order.size() && (int)kept.size() <= max_colours; ++i)
+        {
+            const int c = used[order[i]];
+            int best = -1, best_d = reach * reach + 1;
+
+            for(size_t k = 0; k < kept.size(); ++k)
+            {
+                const int dr = ((c >> 12) & 63) - ((kept[k] >> 12) & 63), dg = ((c >> 6) & 63) - ((kept[k] >> 6) & 63), db = (c & 63) - (kept[k] & 63);
+                const int d = dr * dr + dg * dg + db * db;
+
+                if(d < best_d)
+                {
+                    best_d = d;
+                    best = (int)k;
+                }
+            }
+
+            if(best < 0)
+            {
+                best = (int)kept.size();
+                kept.push_back(c);
+            }
+
+            slot[order[i]] = best;
+        }
+
+        if((int)kept.size() <= max_colours)
+            break;
+    }
+
+    logo.colours = (int)kept.size();
+
+    for(size_t k = 0; k < kept.size(); ++k)
+    {
+        logo.pal[k + 1].r = (kept[k] >> 12) & 63;
+        logo.pal[k + 1].g = (kept[k] >> 6) & 63;
+        logo.pal[k + 1].b = kept[k] & 63;
+    }
+
+    for(int n = 0; n < 3; ++n)
+        for(int ty = 0; ty < th; ++ty)
+            for(int tx = 0; tx < tw; ++tx)
+            {
+                const int rgb = shrunk[((size_t)n * th + ty) * tw + tx];
+                size_t k = 0;
+
+                while(rgb >= 0 && used[k] != rgb)
+                    ++k;
+
+                logo.layer[n]->line[ty][tx] = rgb < 0 ? 0 : slot[k] + 1;
+            }
+
+    return true;
+}
+
+void Zc3LogoFree(Zc3Logo &logo)
+{
+    for(int n = 0; n < 3; ++n)
+    {
+        if(logo.layer[n])
+            destroy_bitmap(logo.layer[n]);
+
+        logo.layer[n] = NULL;
+    }
+}
+
+// Returns false, having shown nothing, if the intro's files aren't there.
+static bool Zc3Intro(BITMAP *frame, int resx, int resy)
+{
+    enum { CRAWL = 150, THRUST = 16, FLASH = 12, HIT = CRAWL + THRUST, LEAVE = 30, WHITE_INDEX = 255 };
+
+    Zc3Logo logo;
+
+    if(!Zc3LogoLoad(logo, 0, 250))
+        return false;
+
+    const int w = logo.w, h = logo.h;
+    BITMAP **layer = logo.layer;
 
     PALETTE pal, shown;
     memset(pal, 0, sizeof(PALETTE));
@@ -806,33 +1006,11 @@ static bool Zc3Intro(BITMAP *frame, int resx, int resy)
     pal[0].b = 0xAB >> 2;
     pal[WHITE_INDEX].r = pal[WHITE_INDEX].g = pal[WHITE_INDEX].b = 63;
 
-    for(int i = 0; i < colours; ++i)
-    {
-        pal[i + 1].r = file[10 + i * 3] >> 2;
-        pal[i + 1].g = file[11 + i * 3] >> 2;
-        pal[i + 1].b = file[12 + i * 3] >> 2;
-    }
+    for(int i = 1; i <= logo.colours; ++i)
+        pal[i] = logo.pal[i];
 
-    BITMAP *layer[3];
-
-    for(int n = 0; n < 3; ++n)
-    {
-        layer[n] = create_bitmap_ex(8, w, h);
-
-        if(layer[n])
-            for(int y = 0; y < h; ++y)
-                memcpy(layer[n]->line[y], &file[pixels + (size_t)n * w * h + (size_t)y * w], w);
-    }
-
-    if(!layer[0] || !layer[1] || !layer[2])
-    {
-        for(int n = 0; n < 3; ++n)
-            if(layer[n])
-                destroy_bitmap(layer[n]);
-
-        return false;
-    }
-
+    char exe[2048], path[2048];
+    get_executable_name(exe, sizeof(exe));
     replace_filename(path, exe, "assets/zc/ZC_Sword_Woosh.wav", sizeof(path));
     SAMPLE *woosh = load_wav(path);
 
@@ -927,8 +1105,7 @@ static bool Zc3Intro(BITMAP *frame, int resx, int resy)
     if(woosh)
         destroy_sample(woosh);
 
-    for(int n = 0; n < 3; ++n)
-        destroy_bitmap(layer[n]);
+    Zc3LogoFree(logo);
 
     set_palette(black_palette);
     clear_keybuf();

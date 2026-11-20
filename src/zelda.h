@@ -311,6 +311,10 @@ extern int DUkey, DDkey, DLkey, DRkey, DUbtn, DDbtn, DLbtn, DRbtn, ss_after, ss_
 extern int hs_startx, hs_starty, hs_xdist, hs_ydist, clockclk, clock_zoras[eMAXGUYS];
 extern int swordhearts[4], currcset, gfc, gfc2, pitx, pity, refill_what, refill_why;
 extern int heart_beep_timer, new_enemy_tile_start, nets, magicitem, nayruitem, title_version;
+// title_version, Settings > Title Screen (zc.cfg "title"): 0 Original, 1 Zelda Classic, 2 Zelda Classic 2.50,
+// then ZC 3.0's title and a different one of the four each time
+enum { TITLE_ZQC = 3, TITLE_RANDOM = 4 };
+extern int title_random_last;
 extern int magiccastclk, castx, casty, quakeclk, wavy, df_x, df_y, nl1_x, nl1_y, nl2_x, nl2_y, magicdrainclk, conveyclk, memrequested;
 extern dword fps_secs;
 extern float avgfps;

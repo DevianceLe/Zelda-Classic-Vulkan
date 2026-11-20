@@ -29,6 +29,7 @@
 //#include "jwin.h"
 #include "jwinfsel.h"
 #include "title.h"
+#include "aglogo.h"   // the ZQuest Classic logo
 #if defined(__SWITCH__)
 #include "replay.h"   // replay_active()
 #endif
@@ -36,6 +37,12 @@
 #include "link.h"
 #include "mem_debug.h"
 #include <fstream>
+#include <chrono>
+#include <math.h>
+
+#ifdef ZC_PORT
+#include "port/game/zcmusic_port.h"
+#endif
 
 
 inline bool quest_exists(const char *filename) 
@@ -803,6 +810,212 @@ static void v25_titlescreen()
     clear_to_color(screen,BLACK);
     CSET_SIZE=16;
     CSET_SHFT=4;
+}
+
+/***************************************/
+/****  ZQuest Classic title screen  ****/
+/***************************************/
+
+// ZC 3.0's title screen, from upstream's actual_titlescreen() with its timings: the ZQuest
+// Classic logo crawls up a deep blue screen without its sword, the sword thrusts in from the
+// left and slots through the letters with a flash, and the screen waits for a press. Upstream
+// lays the logo over the game's picture at the window's own resolution; here it is part of the
+// 8-bit frame, at the same place and size (46 lines high), in palette entries 1 to 222 with the
+// backdrop in 223. The art and the music are in assets/zc, with their terms and credits.
+
+extern byte epilepsyFlashReduction;
+
+// "Press anything": a key, a pad button, or the game's own Start, A and B. Esc and the pad's
+// menu button open the menu and the function keys are the system's, so those don't count.
+static bool ZQC_pressed(unsigned &held)
+{
+    bool pressed = rSbtn() || rAbtn() || rBbtn();
+
+    while(keypressed())
+    {
+        const int k = readkey() >> 8;
+
+        if(k != KEY_ESC && (k < KEY_F1 || k > KEY_F12))
+            pressed = true;
+    }
+
+    // a pad button counts when it goes down, not while it is still held from the screen before
+    unsigned down = 0;
+
+    for(int b = 1; b <= joy[joystick_index].num_buttons && b <= 32; ++b)
+        if(b != Mbtn && joybtn(b))
+            down |= 1u << (b - 1);
+
+    if(down & ~held)
+        pressed = true;
+
+    held = down;
+    return pressed;
+}
+
+// Returns false, having shown nothing, if the logo's file isn't there.
+static bool ZQC_titlescreen()
+{
+    enum { LOGO_H = 46, LOGO_COLOURS = 222, BACKDROP = 223, CRAWL = 150, THRUST = 16, FLASH = 12, HIT = CRAWL + THRUST, LEAVE = 30 };
+
+    Zc3Logo logo;
+
+    if(!Zc3LogoLoad(logo, LOGO_H, LOGO_COLOURS))
+        return false;
+
+    set_palette(black_palette);
+    memset(emulation_patches,0,sizeof(emulation_patches));
+    music_stop();
+
+    // a title_music.mp3 of the player's own plays at full volume, upstream's tune at 70%
+    char exe[2048], path[2048];
+    get_executable_name(exe, sizeof(exe));
+    replace_filename(path, exe, "assets/title_music.mp3", sizeof(path));
+
+    int volume = emusic_volume;
+    bool music = exists(path) && try_zcmusic((char*)"assets/title_music.mp3", 0, -1000);
+
+    if(!music)
+    {
+        volume = emusic_volume * 7 / 10;
+        music = try_zcmusic((char*)"assets/zc/ZC_Forever_HD.mp3", 0, -1000);
+    }
+
+#ifdef ZC_PORT
+
+    if(music)
+        zcmusic_set_volume(zcmusic, volume);
+
+#endif
+
+    // the woosh ends in the tick of the sword landing, 16 frames in
+    replace_filename(path, exe, "assets/zc/ZC_Sword_Woosh.wav", sizeof(path));
+    SAMPLE *woosh = load_wav(path);
+
+    clear_to_color(screen,BLACK);
+    clear_bitmap(framebuf);
+    init_NES_mode();
+    reset_items(true, &QHeader);
+    ALLOFF();
+    clear_keybuf();
+
+    for(int i = 1; i <= logo.colours; ++i)
+        RAMpal[i] = logo.pal[i];
+
+    RAMpal[BACKDROP] = _RGB(0x07 >> 2, 0x2A >> 2, 0xAB >> 2);
+    RAMpal[255] = _RGB(0, 0, 0);        // the one entry the select screen doesn't reload: as the 2.50 title leaves it
+    refreshpal = true;
+
+    PALETTE steady;
+    memcpy(steady, RAMpal, sizeof(PALETTE));
+
+    const int x = (framebuf->w - logo.w) / 2;
+    const double start_y = framebuf->h + LOGO_H, rest_y = (double)(framebuf->h - LOGO_H) / 2;
+    const char *prompt = "PRESS ANYTHING TO START";
+    double y = start_y;
+    int counter = 0, f = 0;
+    bool show_text = false, done = false;
+    unsigned held = ~0u;
+
+    do
+    {
+        load_control_state();
+        y = start_y + (rest_y - start_y) * zc_min(1.0, (double)counter / CRAWL);
+        clear_to_color(framebuf, BACKDROP);
+
+        if(counter == CRAWL)
+        {
+            if(woosh)
+                play_sample(woosh, zc_min(sfx_volume, 255), 128, 1000, 0);
+            else
+                sfx(WAV_SWORD);
+        }
+
+        // the blade passes under the letters
+        if(counter >= CRAWL && counter < HIT)
+        {
+            const double from = -logo.w, r = (double)(counter - CRAWL + 1) / THRUST;
+            draw_sprite(framebuf, logo.layer[2], (int)floor(from + (x - from) * r), (int)y);
+        }
+
+        draw_sprite(framebuf, logo.layer[counter >= HIT ? 0 : 1], x, (int)y);
+
+        // the flash on impact lifts the picture toward white
+        if(counter >= HIT && counter <= HIT + FLASH && !epilepsyFlashReduction)
+        {
+            const double flash = 0.85 * (1.0 - (double)(counter - HIT) / FLASH);
+
+            for(int i = 1; i <= BACKDROP; ++i)
+            {
+                RAMpal[i].r = (unsigned char)(steady[i].r + (63 - steady[i].r) * flash);
+                RAMpal[i].g = (unsigned char)(steady[i].g + (63 - steady[i].g) * flash);
+                RAMpal[i].b = (unsigned char)(steady[i].b + (63 - steady[i].b) * flash);
+            }
+
+            refreshpal = true;
+        }
+
+        // The prompt comes in with the tune, 5.9 seconds into it (or by 8 seconds if the tune's
+        // clock is stuck); with no music, when the crawl ends.
+        if(!show_text)
+        {
+            int pos = -1;
+#ifdef ZC_PORT
+            pos = zcmusic_get_curpos(zcmusic);
+#endif
+            show_text = pos >= 0 ? (pos >= 59000 || f >= 480) : counter == CRAWL;
+        }
+
+        if(show_text)
+            textout_ex(framebuf, zfont, prompt, (framebuf->w - text_length(zfont, prompt)) / 2, framebuf->h - 20, WHITE, -1);
+
+        if(counter <= HIT + FLASH)
+            ++counter;
+
+        ++f;
+        advanceframe(true);
+
+        if(ZQC_pressed(held))
+        {
+            sfx(WAV_CHIME);
+            done = true;
+        }
+    }
+    while(!done && !Quit);
+
+    if(woosh)
+        stop_sample(woosh);         // skipped in mid-thrust
+
+    memcpy(RAMpal, steady, sizeof(PALETTE));
+    refreshpal = true;
+
+    // Upstream parks the logo at the top, above its own file select screen. Ours has no room
+    // for it there, so it carries on up and out while the music fades.
+    for(int c = 0; c <= LEAVE && !Quit; ++c)
+    {
+        const double ratio = (double)c / LEAVE;
+
+#ifdef ZC_PORT
+
+        if(music)
+            zcmusic_set_volume(zcmusic, (int)(volume - volume * sqrt(ratio)));
+
+#endif
+
+        clear_to_color(framebuf, BACKDROP);
+        draw_sprite(framebuf, logo.layer[0], x, (int)floor(y + (-LOGO_H - y) * ratio));
+        advanceframe(true);
+    }
+
+    music_stop();
+
+    if(woosh)
+        destroy_sample(woosh);
+
+    Zc3LogoFree(logo);
+    clear_to_color(screen,BLACK);
+    clear_bitmap(framebuf);
+    return true;
 }
 
 /***********************************/
@@ -3249,8 +3462,34 @@ void titlescreen(int lsave)
         show_subscreen_items=true;
         show_subscreen_life=true;
         
-        switch(title_version)
+        int title = title_version;
+
+        // Random: a different title each time, and never the last one again. The pick goes by
+        // the clock, because rand() belongs to the game.
+        if(title == TITLE_RANDOM)
         {
+            const int roll = (int)((std::chrono::steady_clock::now().time_since_epoch().count() / 1000) & 0xFFFF);
+            const bool repeat = title_random_last >= 0 && title_random_last < TITLE_RANDOM;
+
+            title = roll % (repeat ? TITLE_RANDOM - 1 : TITLE_RANDOM);
+
+            if(repeat && title >= title_random_last)
+                ++title;
+
+            title_random_last = title;
+            set_config_int("zeldadx", "title_random_last", title);     // kept across runs
+            flush_config_file();
+        }
+
+        // without its logo file, the ZQuest Classic title gives way to the 2.50 one
+        if(title == TITLE_ZQC && !ZQC_titlescreen())
+            title = 2;
+
+        switch(title)
+        {
+        case TITLE_ZQC:
+            break;
+
         case 2:
             v25_titlescreen();
             break;
