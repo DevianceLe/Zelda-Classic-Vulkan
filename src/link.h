@@ -340,6 +340,7 @@ public:
     int DrunkClock();
     void setDrunkClock(int newdrunkclk);
     void setEntryPoints(int x, int y);
+    void q30_keep_respawn_point();      // (2.55/3.0 quests with upstream's newer respawn points)
     int getEntryX() const { return int(entry_x); }   // for 3.0 scripts' Screen->EntryX/Y
     int getEntryY() const { return int(entry_y); }
     LinkClass();
@@ -358,7 +359,7 @@ public:
     void Freeze();
     void unfreeze();
     void finishedmsg();
-    void Drown();
+    void Drown(int clk = 64);      // (2.55/3.0 pits: a 70-frame fall, as upstream's)
     int getEaten();
     void setEaten(int i);
     fix  getX();
@@ -406,6 +407,8 @@ public:
     int  getPushing();
     void setPushing(int p) { pushing = p; }
     bool getInWallm() const { return inwallm; }
+    bool getBigHitbox() const { return bigHitbox; }           // (for 2.55/3.0 pits)
+    bool getDiagMove() const { return diagonalMovement; }
     void setInWallm(bool v) { inwallm = v; }
     // For scripts' Hero->CanMove, Move and their forms (2.55+ quests).
     bool q30_script_can_move(double dx, double dy);

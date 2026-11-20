@@ -510,6 +510,8 @@ void q30_draw_lift(BITMAP *dest);
 bool q30_lift_anim(int *clk, int *tclk);
 // A pit's fall, played as a drowning here (upstream's fallclk): true while it runs.
 bool q30_pit_falling();
+// Before Link moves (upstream's pitslide): the fall into a pit, or its pull; true when he can't move.
+bool q30_pit_slide();
 // Whether the drowning under Link is in lava (the water combo's flag 1: upstream's Drown(1)).
 bool q30_lava_drowning();
 // 2.55/3.0 hero sprite sets the player draws (q255_init.cpp): tile/flip/extend per direction.
@@ -524,6 +526,9 @@ void q30_cutscene_clear();
 void q30_cutscene_input();                  // call after the control state is read
 bool q30_sideview_platform_at(int x, int y);
 bool q30_unsafe_ground(int x, int y);
+// Upstream's newer respawn points (no qr_OLD_RESPAWN_POINTS): the last safe ground Link stood on.
+bool q30_new_respawn_points();
+bool q30_respawn_unsafe(int x, int y);      // on a pit's edge, sliding on ice, on unsafe ground
 void q30_draw_beams(BITMAP *dest);          // light beams, over the playing field
 // Upstream's placed flag numbers, which the map reader can note for flags 2.53 can't hold.
 void q30_clear_placed_flags();
@@ -596,8 +601,9 @@ void q30_throw_generic_event(int event);
 void q30_generic_time_exit(int state);      // ends or restarts the generic scripts set to on this
 void q30_screen_change_events(bool loaded); // loadscr: DMap, level and screen changes
 // Link's drowning ends in a 2.55/3.0 quest: PLAYER_DROWN, then the damage and invincibility it
-// costs (none for a pit's fall played as a drowning). False for 2.53 quests.
-bool q30_player_drown_end(int *damage, int *inv_timer);
+// costs; a pit's fall played as a drowning ends as upstream's pitfall does (*warped: the pit
+// warps, so Link isn't put back at the screen's entry). False for 2.53 quests.
+bool q30_player_drown_end(int *damage, int *inv_timer, bool *warped = NULL);
 bool q30_no_active_subscreen();
 int q30_hero_cset_base(int normal);
 bool q30_hero_immortal();

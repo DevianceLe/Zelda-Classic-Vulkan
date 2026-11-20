@@ -1900,8 +1900,18 @@ static void update_ffc_movement(int)
                 if(tmpscr->ffx[j]/10000==ffposx[i]&&tmpscr->ffy[j]/10000==ffposy[i])
                     continue;
                     
+                // 2.55/3.0 FFC flags (upstream's ffc_ignorechanger and ffc_imprecisionchanger): the
+                // FFC ignores changers, or meets one it is within a pixel of
+                extern long zasm30_ffscript_version;     // ffscript.cpp: 0 for a 2.53 quest
+
+                if(zasm30_ffscript_version && (tmpscr->ffflags[i]&0x800))
+                    continue;
+
+                const bool q30_near_changer = zasm30_ffscript_version && (tmpscr->ffflags[i]&0x1000)
+                                              && abs(tmpscr->ffx[i]-tmpscr->ffx[j]) < 10000 && abs(tmpscr->ffy[i]-tmpscr->ffy[j]) < 10000;
+
                 if((isonline(tmpscr->ffx[i], tmpscr->ffy[i], ffprvx[i],ffprvy[i], tmpscr->ffx[j], tmpscr->ffy[j]) || // Along the line, or...
-                        (tmpscr->ffx[i]==tmpscr->ffx[j] && tmpscr->ffy[i]==tmpscr->ffy[j])) && // At exactly the same position, and...
+                        (tmpscr->ffx[i]==tmpscr->ffx[j] && tmpscr->ffy[i]==tmpscr->ffy[j]) || q30_near_changer) && // At exactly the same position, and...
                         (ffprvx[i]>-10000000 && ffprvy[i]>-10000000)) // This isn't the first frame on this screen
                 {
                     if(tmpscr->ffflags[j]&ffCHANGETHIS)

@@ -3168,11 +3168,17 @@ void do_dcounters()
     const int counters = quest_header_zelda_version >= 0x255 ? 107 : 32;
 
     static const char *q30_ctr_trace = getenv("ZC_Q30_CTRTRACE");     // a counter's value, drain, max
-    if(q30_ctr_trace && frame % 30 == 0)
+    if(q30_ctr_trace)
     {
+        // every 30 frames, and on any frame its value, drain or maximum changed
         const int c = atoi(q30_ctr_trace);
-        al_trace("q30: frame %d counter %d = %d, drain %d, max %d\n", frame, c, (int)game->get_counter(c),
-                 (int)game->get_dcounter(c), (int)game->get_maxcounter(c));
+        static int last[3] = { -1, -1, -1 };
+        const int now[3] = { (int)game->get_counter(c), (int)game->get_dcounter(c), (int)game->get_maxcounter(c) };
+
+        if(frame % 30 == 0 || memcmp(now, last, sizeof(now)))
+            al_trace("q30: frame %d counter %d = %d, drain %d, max %d\n", frame, c, now[0], now[1], now[2]);
+
+        memcpy(last, now, sizeof(now));
     }
 
     for(int i=0; i<counters; i++)

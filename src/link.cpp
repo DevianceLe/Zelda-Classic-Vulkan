@@ -242,7 +242,7 @@ void LinkClass::unfreeze()
     if(action==freeze && fairyclk<1) action=none;
 }
 
-void LinkClass::Drown()
+void LinkClass::Drown(int clk)
 {
     // Link should never drown if the ladder is out
     if(ladderx+laddery)
@@ -253,7 +253,7 @@ void LinkClass::Drown()
     attack=wNone;
     attackid=-1;
     reset_swordcharge();
-    drownclk=64;
+    drownclk=clk;
     z=fall=0;
 }
 
@@ -1672,12 +1672,12 @@ attack:
         //if (jumping!=0) al_trace("%d %d %f %d\n",jumping,q30_link_gravity(),q30_link_gravity()/16.0,jumping2);
         int q30_liftclk = 0, q30_tliftclk = 0;
 
-        // 2.55/3.0: a pit's fall (played here as a drowning, 64 frames to upstream's 70) and the
+        // 2.55/3.0: a pit's fall (played here as a drowning, 70 frames as upstream's) and the
         // lift animation, as every style of upstream's hero drawing has them
         if(q30_pit_falling())
         {
             q255_herotile(&tile, &flip, &extend, Q255HS_FALLING, dir);
-            tile += (zc_max(0, 64 - drownclk) / 10) * (extend == 2 ? 2 : 1);
+            tile += (zc_max(0, 70 - drownclk) / 10) * (extend == 2 ? 2 : 1);
         }
         else if(!q30_quest_rule(351) && q30_lift_anim(&q30_liftclk, &q30_tliftclk)
                 && !((z > 0 || isSideview()) && jumping2 > 0 && jumping2 < 24 && game->get_life() > 0))
@@ -4615,11 +4615,16 @@ bool LinkClass::animate(int)
         {
             action=none;
             int q30_damage = 0, q30_inv = 0;
-            const bool q30_drown = q30_player_drown_end(&q30_damage, &q30_inv);
-            x=entry_x;
-            y=entry_y;
-            warpx=x;
-            warpy=y;
+            bool q30_warped = false;    // (a 2.55/3.0 warp pit: Link stays for its warp)
+            const bool q30_drown = q30_player_drown_end(&q30_damage, &q30_inv, &q30_warped);
+
+            if(!q30_warped)
+            {
+                x=entry_x;
+                y=entry_y;
+                warpx=x;
+                warpy=y;
+            }
 
             if(q30_drown)
             {
@@ -4789,6 +4794,8 @@ bool LinkClass::animate(int)
         }
     }
     
+    q30_keep_respawn_point();   // (after the ladder goes, as upstream: its point is kept across 1-tile gaps)
+
     if(ilswim)
         landswim++;
     else landswim=0;
@@ -6811,6 +6818,9 @@ void LinkClass::movelink()
     pushing=0;
 
     if(q30_link_stunned())
+        return;
+
+    if(q30_pit_slide())     // 2.55/3.0 pits: the fall, or a pull he can't fight (upstream's pitslide)
         return;
 
     if(q30_active() && (action==none || action==walking))
@@ -12672,6 +12682,63 @@ void kill_enemy_sfx()
     
     if(tmpscr->room==rGANON)
         stop_sfx(WAV_ROAR);
+}
+
+// 2.55/3.0 quests with upstream's newer respawn points (its HeroClass::set_respawn_point, run
+// each frame): a fall or a drowning puts Link back on the last safe ground he stood on, not
+// where he came on the screen. As upstream, the point is kept only where he stands or walks on
+// the ground, clear of pits, water, the ladder, ice, conveyors, damage combos and "unsafe
+// ground" flags. (Upstream's return to another screen's point isn't done: a screen's entry
+// is always a point here.)
+void LinkClass::q30_keep_respawn_point()
+{
+    if(!q30_new_respawn_points() || currscr >= 0x80 || (action != none && action != walking))
+        return;
+
+    const fix oldx = x, oldy = y;
+
+    if(x < (fix)0) x = 0;
+    if(x > (fix)240) x = 240;
+    if(y < (fix)0) y = 0;
+    if(y > (fix)160) y = 160;
+
+    if(q30_quest_rule(585))     // qr_RESPAWN_POINTS_HALF_GRID
+    {
+        x = (fix)(((int)floor(double(x)) + 4) & ~7);
+        y = (fix)(((int)floor(double(y)) + 4) & ~7);
+    }
+
+    bool safe = !(z > 0 || hoverclk || (ladderx + laddery) || inlikelike || pull_link || is_on_conveyor);
+
+    if(safe && isSideview() && !q30_sideview_solid(0, true, 0))    // in the air
+        safe = false;
+
+    if(safe && iswater(MAPCOMBO(x+4,y+9)) && iswater(MAPCOMBO(x+4,y+14)) && iswater(MAPCOMBO(x+11,y+9)) && iswater(MAPCOMBO(x+11,y+14)))
+        safe = false;
+
+    if(safe)
+    {
+        const int cs = tmpscr->csensitive, cy = int(y) + (bigHitbox ? 8 : 12);
+        const int dx[2] = { int(x) + 8 - cs, int(x) + 8 + (cs - 1) };
+        const int dy[2] = { cy - (bigHitbox ? cs : (cs + 1) / 2), cy + (bigHitbox ? cs - 1 : ((cs + 1) / 2) - 1) };
+
+        for(int lyr = get_bit(quest_rules, qr_DMGCOMBOLAYERFIX) ? 1 : -1; lyr >= -1 && safe; --lyr)
+            for(int i = 0; i < 4 && safe; ++i)
+                switch(combobuf[lyr > -1 ? MAPCOMBO2(lyr, dx[i >> 1], dy[i & 1]) : MAPCOMBO(dx[i >> 1], dy[i & 1])].type)
+                {
+                case cDAMAGE1: case cDAMAGE2: case cDAMAGE3: case cDAMAGE4: case cDAMAGE5: case cDAMAGE6: case cDAMAGE7:
+                    safe = false;
+                }
+    }
+
+    if(safe && !q30_respawn_unsafe(int(x), int(y)))
+    {
+        entry_x = x;
+        entry_y = y;
+    }
+
+    x = oldx;
+    y = oldy;
 }
 
 void LinkClass::setEntryPoints(int x2, int y2)

@@ -1857,6 +1857,11 @@ void q30_set_hi_counter(gamedata *g, int c, int kind, long value)
 
     ZScriptArray *a = hi_counter_array(g, value != 0);
 
+    static const char *trace = getenv("ZC_Q30_CTRTRACE");
+    if(trace && atoi(trace) == c && kind == 2)
+        al_trace("q30: set counter %d drain %ld -> %ld (array %s)\n", c, a ? (long)(*a)[(dword)(1 + kind * Q30_HI_CTRS + (c - 32))] : 0L,
+                 value, a ? "found" : "none");
+
     if(a)
         (*a)[(dword)(1 + kind * Q30_HI_CTRS + (c - 32))] = value;
 }
@@ -6413,7 +6418,6 @@ static bool has_step_trigger(const Q30Combo *c)
     return false;
 }
 
-static void check_pitfall();
 void q30_light_update();
 static void lift_frame();
 static void new_darkroom_palette();
@@ -6598,8 +6602,6 @@ if(g_pending_warp_type >= 0)
         }
     }
 
-    check_pitfall();
-
     // stepped-on sfx combos, landmines
     {
         int rpos = (((y + 8) >> 4) << 4) + ((x + 8) >> 4);
@@ -6662,107 +6664,266 @@ int q30_pitfall_at(int x, int y)
     return pit_cid_at(x, y);
 }
 
-// A pit's fall is played as a drowning (Link.Drown); this marks that one, so its end isn't
-// taken for a real drowning (q30_player_drown_end), with the invincibility the pit gives as the
+// Upstream's HeroClass::pitfall, check_pitslide and pitslide. A pit's fall is played as a
+// drowning (Link.Drown, 70 frames as upstream's fall); g_pit_drown marks that one, so its end
+// isn't taken for a real drowning (q30_player_drown_end): as upstream, the pit's damage, its
+// invincibility, the PLAYER_FALL event, its CType Causes-> triggers and its warp come as the
 // fall ends. Gone once Link isn't drowning.
 static bool g_pit_drown = false;
-static int g_pit_inv = 0;
+static int g_pit_combo = 0;                         // the pit Link fell in (upstream's fallCombo)
+static int g_pit_pulldir = -1, g_pit_pullclk = 0;   // the pit's pull (upstream's pit_pulldir, pit_pullclk)
+enum { PIT_FALL_FRAMES = 70, PIT_IRRESISTABLE = 1 << 24 };
 
-static void check_pitfall()
+// upstream's qr_OLD_PIT_SENSITIVITY, which its readrules turns on for quests from before the rule
+static bool pit_old_sensitivity()
 {
-    int x = int(Link.getX()), y = int(Link.getY());
+    extern dword q255_compat_rule_version;
+    extern int q255_header_version[3];
+    const int *v = q255_header_version;
+
+    if(q30_quest_rule(472))
+        return true;
+
+    if(v[0] >= 3)
+        return q255_compat_rule_version < 92;
+
+    return v[0] < 2 || (v[0] == 2 && (v[1] < 55 || (v[1] == 55 && v[2] < 11)));
+}
+
+// the pit under a point of Link's (the sums round as upstream's zfix does)
+static int pit_at(fix x, int dx, fix y, int dy)
+{
+    return pit_cid_at(int(x + (fix)dx), int(y + (fix)dy));
+}
+
+static bool can_pitfall()
+{
     int act = Link.getAction();
+    return !(((tmpscr[0].flags7 & fSIDEVIEW) && !ignoreSideview) || act == rafting || act == drowning || Link.getZ() > (fix)0 || Link.getFall() < (fix)0
+             || Link.getHoverClk() || Link.getEaten() || Link.getInWallm() || pull_link || toogam
+             || Link.getLadderX() || Link.getLadderY() || msgstr);
+}
 
-    if(act != drowning)
-        g_pit_drown = false;
+// All of Link's box is over pits: he falls (the start of upstream's HeroClass::pitfall).
+static bool pit_fall_start()
+{
+    if(!can_pitfall())
+        return false;
 
-    if(int(Link.getZ()) > 0 || Link.getHoverClk() || act == rafting || act == drowning
-       || Link.getLadderX() || Link.getLadderY() || msgstr)
-        return;
+    const bool big = Link.getBigHitbox(), old = pit_old_sensitivity();
+    const int so = old ? 0 : 1, top = big ? 0 : 8;
+    fix &x = Link.x, &y = Link.y;
 
-    int x1 = x + 1, x2 = x + 14, y1 = y + 9, y2 = y + 14;
+    if(!pit_at(x, so, y, top + so) || !pit_at(x, so, y, 15 - so) || !pit_at(x, 15 - so, y, top + so) || !pit_at(x, 15 - so, y, 15 - so))
+        return false;
 
-    if(!pit_cid_at(x1, y1) || !pit_cid_at(x1, y2) || !pit_cid_at(x2, y1) || !pit_cid_at(x2, y2))
-        return;
-
-    int cid = pit_cid_at(x + 8, y + 12);
+    const int cid = pit_at(x, 8, y, big ? 8 : 12);
 
     if(!cid)
-        return;
+        return false;
+
+    // the falling sprite goes fully over the pit
+    if(old)
+    {
+        if(!big && !pit_at(x, 8, y, 0))
+            y = (fix)(int(y) + 8 - (int(y) % 8));
+    }
+    else
+    {
+        if(!pit_at(x, 8, y, 0))
+            for(int q = 1; q < (big ? 8 : 12); ++q)
+                if(pit_at(x, 8, y, q))
+                {
+                    y += (fix)q;
+                    break;
+                }
+
+        if(!pit_at(x, 8, y, 15))
+            for(int q = 1; q < 8; ++q)
+                if(pit_at(x, 8, y, 15 - q))
+                {
+                    y -= (fix)q;
+                    break;
+                }
+
+        if(!pit_at(x, 0, y, 8))
+            for(int q = 1; q < 8; ++q)
+                if(pit_at(x, q, y, 8))
+                {
+                    x += (fix)q;
+                    break;
+                }
+
+        if(!pit_at(x, 15, y, 8))
+            for(int q = 1; q < 8; ++q)
+                if(pit_at(x, 15 - q, y, 8))
+                {
+                    x -= (fix)q;
+                    break;
+                }
+    }
+
+    Link.Drown(PIT_FALL_FRAMES);
+
+    if(Link.getAction() != drowning)
+        return false;
+
+    g_pit_drown = true;
+    g_pit_combo = cid;
+    q30_drop_lift();
 
     const Q30Combo *c = q30_combo(cid);
 
-    if(!c)
-        return;
+    if(c && a_int(c->attributes[8]))
+        sfx(a_int(c->attributes[8]), pan(int(x)));
 
-    if(a_int(c->attributes[8]))
-        sfx(a_int(c->attributes[8]), pan(x));
+    if(getenv("ZC_Q30_TRACE"))     // diagnostics: where the fall starts
+        al_trace("q30: pit fall starts, frame %d, Link at %.2f,%.2f, pit combo %d, old sensitivity %d\n", frame, double(x), double(y), cid, old ? 1 : 0);
 
-    // The PLAYER_FALL generic script event (upstream HeroClass::pitfall throws it as the fall
-    // ends; this engine resolves the fall as Link drops in): a script may name another combo to
-    // act as the pit, or none (a quarter heart, back to the screen's entry). The pit Link fell in
-    // still sets off its CType Causes-> triggers.
-    const int pit_cid = cid;
+    return true;
+}
 
-    if(q30_generic_listening(Z30EV_PLAYER_FALL))
+// Which way the pits under Link pull him (upstream's HeroClass::check_pitslide): -1 for no pull,
+// -2 when he is fully over pits, or a direction, with PIT_IRRESISTABLE if he can't walk against it
+// and the pit's combo from bit 8.
+static int pit_check_slide()
+{
+    if(!can_pitfall())
+        return -1;
+
+    const bool big = Link.getBigHitbox();
+    const bool diag = Link.getDiagMove() || q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2) || q30_quest_rule(Q30_QR_DISABLE_4WAY_GRIDLOCK);
+    const int so = pit_old_sensitivity() ? 0 : 1, top = big ? 0 : 8;
+    const fix x = Link.x, y = Link.y;
+
+    const int ul = pit_at(x, so, y, top + so), bl = pit_at(x, so, y, 15 - so);
+    const int ur = pit_at(x, 15 - so, y, top + so), br = pit_at(x, 15 - so, y, 15 - so);
+
+    if(!ul && !bl && !ur && !br)    // (no pit near: the input isn't read)
+        return -1;
+
+    const bool in_up = DrunkUp(), in_down = DrunkDown(), in_left = DrunkLeft(), in_right = DrunkRight();
+    const int ul50 = pit_at(x, 8, y, big ? 8 : 12), bl50 = pit_at(x, 8, y, big ? 7 : 11);
+    const int ur50 = pit_at(x, 7, y, big ? 8 : 12), br50 = pit_at(x, 7, y, big ? 7 : 11);
+    const int ul75 = pit_at(x, 12, y, big ? 12 : 14), bl75 = pit_at(x, 12, y, big ? 3 : 9);
+    const int ur75 = pit_at(x, 3, y, big ? 12 : 14), br75 = pit_at(x, 3, y, big ? 3 : 9);
+
+    // a pit under one corner: no pull while Link walks away with less than three quarters over it
+    auto one = [&](int pit, int p75, int ddir, int sdir, bool away) -> int
     {
-        long ev[1] = { cid * 10000L };
-        q30_throw_generic_event(Z30EV_PLAYER_FALL, ev, 1);
-        const int to = int(ev[0] / 10000);
+        if(!p75 && away)
+            return -1;
 
-        if(to != cid)
+        return (diag ? ddir : sdir) | (p75 ? PIT_IRRESISTABLE : 0) | (pit << 8);
+    };
+
+    // pits under the two corners of one side
+    auto two = [&](int a, int a50, int a75, int b, int b50, int b75, int straight, int adiag, int bdiag, int side_a, int side_b,
+                   bool away, bool away_a, bool away_b) -> int
+    {
+        if(away)
         {
-            cid = (to < 0 || to >= MAXCOMBOS) ? 0 : to;
-            c = cid ? q30_combo(cid) : NULL;
+            if(a75 && b75) return straight | PIT_IRRESISTABLE | (a << 8);
+            if(a75) return (diag ? adiag : side_a) | PIT_IRRESISTABLE | (a << 8);
+            if(b75) return (diag ? bdiag : side_b) | PIT_IRRESISTABLE | (b << 8);
+            return -1;
         }
-    }
 
-    int dmg = c ? a_int(c->attributes[0]) : HP_PER_HEART / 4;
-    bool dmg_perc = c && (c->usrflags & 0x4) != 0;
-    bool warp = c && (c->usrflags & 0x1) != 0;
-    int inv_timer = c ? a_int(c->attributes[3]) : 0;
+        if(a50 && b50) return straight | ((a75 || b75) ? PIT_IRRESISTABLE : 0) | (a << 8);
+        if(a50) return one(a, a75, adiag, side_a, away_a);
+        if(b50) return one(b, b75, bdiag, side_b, away_b);
+        return -1;
+    };
 
-    if(!inv_timer && dmg > 0)
-        inv_timer = 48;
-
-    if(dmg)
+    switch((ul ? 1 : 0) + (ur ? 1 : 0) + (bl ? 1 : 0) + (br ? 1 : 0))
     {
-        int life = game->get_life();
+    case 4:
+        return -2;      // fully over pits: the fall takes him
 
-        if(dmg_perc)
-            life -= (zc_min(zc_max(dmg, -100), 100) * game->get_maxlife()) / 100;
-        else
-            life -= dmg;
+    case 3:
+        if(ul && ur && bl) return ul50 ? one(ul, ul75, l_up, left, in_down || in_right) : -1;
+        if(ul && ur && br) return ur50 ? one(ur, ur75, r_up, right, in_down || in_left) : -1;
+        if(ul && bl && br) return bl50 ? one(bl, bl75, l_down, left, in_up || in_right) : -1;
+        return br50 ? one(br, br75, r_down, right, in_up || in_left) : -1;
 
-        game->set_life(zc_max(0, zc_min(life, (int)game->get_maxlife())));
+    case 2:
+        if(ul && ur) return two(ul, ul50, ul75, ur, ur50, ur75, up, l_up, r_up, left, right, in_down, in_right, in_left);
+        if(bl && br) return two(bl, bl50, bl75, br, br50, br75, down, l_down, r_down, left, right, in_up, in_right, in_left);
+        if(bl && ul) return two(ul, ul50, ul75, bl, bl50, bl75, left, l_up, l_down, up, down, in_right, in_down, in_up);
+        if(br && ur) return two(ur, ur50, ur75, br, br50, br75, right, r_up, r_down, up, down, in_left, in_down, in_up);
+        break;
+
+    case 1:
+        if(ul && ul50) return one(ul, ul75, l_up, left, in_down || in_right);
+        if(ur && ur50) return one(ur, ur75, r_up, right, in_down || in_left);
+        if(bl && bl50) return one(bl, bl75, l_down, left, in_up || in_right);
+        if(br && br50) return one(br, br75, r_down, right, in_up || in_left);
+        break;
     }
 
-    if(inv_timer > 0)
-        Link.setHClk(inv_timer);
+    return -1;
+}
 
-    // the combo's CType Causes-> triggers
-    int cx = (x + 8) >> 4, cy = (y + 12) >> 4;
+// 2.55/3.0 quests, before Link moves (upstream's HeroClass::pitslide): he falls into the pit he
+// is over, or the pits under a part of him pull him in. True when he can't move this frame.
+bool q30_pit_slide()
+{
+    if(!q30_active())
+        return false;
 
-    for(int lyr = 2; lyr >= 0; --lyr)
+    if(Link.getAction() != drowning)
+        g_pit_drown = false;
+
+    if(pit_fall_start())
+        return true;
+
+    const int val = pit_check_slide();
+
+    if(val < 0)
     {
-        H h(lyr, cy * 16 + cx);
-
-        if(h_scr(h) && h_data(h) == pit_cid)
-        {
-            execute(h, cond_flag, (void *)(intptr_t)Q30TF_CMBTYPECAUSES);
-            break;
-        }
+        g_pit_pulldir = -1;
+        g_pit_pullclk = 0;
+        return false;
     }
 
-    if(warp)
-        Link.dowarp(0, zc_max(0, zc_min(3, a_int(c->attributes[9]))));
-    else
+    const bool irresistable = (val & PIT_IRRESISTABLE) != 0;
+    const int d = val & 0xFF;
+    const Q30Combo *c = q30_combo((val & 0xFFFF00) >> 8);
+    int sensitivity = c ? a_int(c->attributes[10]) : 0;
+
+    if(c && (c->usrflags & 0x10))      // no pull at all
     {
-        // the drowning that stands in for the fall throws no PLAYER_DROWN and takes no more life
-        g_pit_drown = true;
-        g_pit_inv = zc_max(inv_timer, 0);
-        Link.Drown();
+        g_pit_pulldir = -1;
+        g_pit_pullclk = 0;
+        return false;
     }
+
+    g_pit_pulldir = d;
+    int step = 1;
+
+    if(sensitivity <= 0)
+    {
+        step = 2;
+        sensitivity = 1;
+    }
+
+    if(g_pit_pullclk++ % sensitivity)   // no pull this frame
+        return irresistable;
+
+    bool fell = false;
+
+    for(; step > 0 && !fell; --step)
+    {
+        if(d == l_up || d == l_down || d == left) Link.x -= (fix)1;
+        else if(d == r_up || d == r_down || d == right) Link.x += (fix)1;
+
+        if(d == l_up || d == r_up || d == up) Link.y -= (fix)1;
+        else if(d == l_down || d == r_down || d == down) Link.y += (fix)1;
+
+        fell = pit_fall_start();
+    }
+
+    return fell || irresistable;
 }
 
 bool q30_pit_falling()
@@ -6784,11 +6945,17 @@ bool q30_lava_drowning()
 // script event comes first, with the combo he drowned in (a script may name another); then a
 // water combo's attributes give the damage and the invincibility (4 damage for quests whose
 // combos predate those attributes, as upstream's loader sets it), anything else 4 and 48 frames.
-// A drowning that stands in for a pit's fall costs nothing more: the pit took its damage in
-// check_pitfall, and its invincibility starts again as the fall ends. Upstream's stun isn't kept
-// by this engine. False for 2.53 quests, whose drowning is unchanged.
-bool q30_player_drown_end(int *damage, int *inv_timer)
+// A drowning that stands in for a pit's fall ends as upstream's HeroClass::pitfall does: the
+// PLAYER_FALL generic script event (a script may name another combo to act as the pit, or none:
+// a quarter heart), then that combo's damage and invincibility, the CType Causes-> triggers of
+// the pit Link fell in, and its warp (*warped: Link stays where he fell until it runs) or the
+// way back to the screen's entry. Upstream's stun isn't kept by this engine. False for 2.53
+// quests, whose drowning is unchanged.
+bool q30_player_drown_end(int *damage, int *inv_timer, bool *warped)
 {
+    if(warped)
+        *warped = false;
+
     if(!q30_active())
         return false;
 
@@ -6797,8 +6964,84 @@ bool q30_player_drown_end(int *damage, int *inv_timer)
 
     if(pit)
     {
+        const bool big = Link.getBigHitbox();
+        const int so = pit_old_sensitivity() ? 0 : 1, top = big ? 0 : 8;
+        const int pts[5][2] = {{8, big ? 8 : 12}, {so, top + so}, {15 - so, top + so}, {so, 15 - so}, {15 - so, 15 - so}};
+        const int pit_cid = g_pit_combo;
+        int trig_lyr = -1, trig_pos = -1;
+
+        // the pit he fell in, under his middle or a corner
+        for(int i = 0; i < 5 && trig_lyr < 0; ++i)
+        {
+            const int px = int(Link.x + (fix)pts[i][0]), py = int(Link.y + (fix)pts[i][1]);
+
+            if(px < 0 || py < 0 || px > 255 || py > 175)
+                continue;
+
+            for(int lyr = 2; lyr >= 0 && trig_lyr < 0; --lyr)
+            {
+                H h(lyr, (py >> 4) * 16 + (px >> 4));
+
+                if(h_scr(h) && h_data(h) == pit_cid)
+                {
+                    trig_lyr = lyr;
+                    trig_pos = (py >> 4) * 16 + (px >> 4);
+                }
+            }
+        }
+
+        int cid = pit_cid;
+
+        if(q30_generic_listening(Z30EV_PLAYER_FALL))
+        {
+            long ev[1] = { cid * 10000L };
+            q30_throw_generic_event(Z30EV_PLAYER_FALL, ev, 1);
+            cid = int(ev[0] / 10000);
+        }
+
+        if(cid < 0 || cid >= MAXCOMBOS)
+            cid = 0;
+
+        const Q30Combo *c = cid ? q30_combo(cid) : NULL;
+        int dmg = c ? a_int(c->attributes[0]) : HP_PER_HEART / 4;
+        const bool dmg_perc = c && (c->usrflags & 0x4) != 0;
+        const bool warp = c && (c->usrflags & 0x1) != 0;
+        int inv = c ? a_int(c->attributes[3]) : 0;
+
+        if(!inv && dmg > 0)
+            inv = 48;
+
+        if(dmg)
+        {
+            int life = game->get_life();
+
+            if(dmg_perc)
+                life -= (zc_min(zc_max(dmg, -100), 100) * game->get_maxlife()) / 100;
+            else
+                life -= dmg;
+
+            game->set_life(zc_max(0, zc_min(life, (int)game->get_maxlife())));
+        }
+
         *damage = 0;
-        *inv_timer = g_pit_inv;
+        *inv_timer = zc_max(inv, 0);
+
+        if(trig_lyr >= 0)
+            execute(H(trig_lyr, trig_pos), cond_flag, (void *)(intptr_t)Q30TF_CMBTYPECAUSES);
+
+        if(warp)
+        {
+            g_pending_warp_type = 0;
+            g_pending_warp_index = zc_max(0, zc_min(3, a_int(c->attributes[9])));
+
+            if(warped)
+                *warped = true;
+        }
+
+        if(getenv("ZC_Q30_TRACE"))     // diagnostics: what the fall cost
+            al_trace("q30: pit fall ends, frame %d, combo %d: damage %d%s, invincible %d frames, warp %d\n", frame, cid, dmg,
+                     dmg_perc ? "%" : "", *inv_timer, warp ? 1 : 0);
+
         return true;
     }
 
@@ -8604,6 +8847,14 @@ static void set_lift_flags(int liftid)
                    | ((fl & ITEM_FLAG4) ? LIFT_DIS_ITEMS : 0) | ((fl & ITEM_FLAG5) ? LIFT_DROP_HIT : 0);
 }
 
+// base + d as upstream's zfix holds it (1/10000 pixel, the offset cut off there), rounded to the
+// pixel its sprites draw on
+static int lift_round(fix base, double d)
+{
+    const long raw = (long)floor(double(base) * 10000 + 0.5) + (long)(d * 10000);
+    return (int)floor((raw + 5000) / 10000.0);
+}
+
 static void handle_lift(bool dec)
 {
     if(!g_lift_wpn)
@@ -8612,7 +8863,10 @@ static void handle_lift(bool dec)
         return;
     }
 
-    int x = int(Link.getX()), y = int(Link.getY()), d = Link.getDir();
+    // Upstream's HeroClass::handle_lift: the object follows Link's exact position, and the pixel
+    // it draws on is the sum rounded (zfix's getInt), a large one centred on him.
+    const fix x = Link.getX(), y = Link.getY();
+    const int d = Link.getDir(), tw = g_lift_wpn->txsz, th = g_lift_wpn->tysz;
     g_lift_wpn->dir = d;
 
     if(g_lift_clk <= (dec ? 1 : 0))
@@ -8621,9 +8875,9 @@ static void handle_lift(bool dec)
             g_lift_end_frame = frame;
 
         g_lift_clk = g_lift_tclk = 0;
-        g_lift_wpn->x = (fix)x;
-        g_lift_wpn->y = (fix)y;
-        g_lift_wpn->z = (fix)(int)g_lift_height;
+        g_lift_wpn->x = (fix)lift_round(x, (tw > 1 || th > 1) ? 8 - tw * 8 : 0);
+        g_lift_wpn->y = (fix)lift_round(y, (tw > 1 || th > 1) ? 8 - th * 8 : 0);
+        g_lift_wpn->z = (fix)lift_round((fix)0, g_lift_height);
         return;
     }
 
@@ -8631,19 +8885,34 @@ static void handle_lift(bool dec)
         --g_lift_clk;
 
     double perc = g_lift_clk / (double)g_lift_tclk;
-    int xd = 0, yd = 0;
+    double xd = 0, yd = 0;
 
     switch(d)
     {
-    case up: yd = (int)(-16 * perc); break;
-    case down: yd = (int)(16 * perc); break;
-    case left: xd = (int)(-16 * perc); break;
-    case right: xd = (int)(16 * perc); break;
+    case up:
+        xd = tw > 1 ? -(tw * 8 - 8) : 0;
+        yd = (th > 1 ? -(th * 16) : -16) * perc;
+        break;
+
+    case down:
+        xd = tw > 1 ? -(tw * 8 - 8) : 0;
+        yd = 16 * perc;
+        break;
+
+    case left:
+        xd = (tw > 1 ? -(tw * 16) : -16) * perc;
+        yd = th > 1 ? -(th * 8 - 8) : 0;
+        break;
+
+    case right:
+        xd = 16 * perc;
+        yd = th > 1 ? -(th * 8 - 8) : 0;
+        break;
     }
 
-    g_lift_wpn->x = (fix)(x + xd);
-    g_lift_wpn->y = (fix)(y + yd);
-    g_lift_wpn->z = (fix)(int)(g_lift_height * (1.0 - perc));
+    g_lift_wpn->x = (fix)lift_round(x, xd);
+    g_lift_wpn->y = (fix)lift_round(y, yd);
+    g_lift_wpn->z = (fix)lift_round((fix)0, g_lift_height * (1.0 - perc));
 }
 
 static void release_lift(int step_100, int fall)
@@ -8791,7 +9060,7 @@ static bool lift_combo(const H &base, int glove)
     weapon *w = new weapon((fix)left_x, (fix)top_y, (fix)0, Q30W_THROWN, itemsbuf[glove].fam_type,
                            c->liftdmg * DAMAGE_MULTIPLIER, Link.getDir() ^ 1, glove, Link.getUID());
     w->xofs = 0;
-    w->yofs = playing_field_offset;
+    w->yofs = playing_field_offset - 2;     // (upstream leaves the weapon's own offset: 2 pixels up)
     w->hxofs = w->hyofs = 0;
     w->hxsz = zc_max(1, right_x - left_x);
     w->hysz = zc_max(1, bottom_y - top_y);
@@ -10033,6 +10302,22 @@ bool q30_unsafe_ground(int x, int y)
                 return true;
 
     return flag_at_point(x + 8, y + 12, Q30MF_UNSAFEGROUND, 6);
+}
+
+// 2.55/3.0 quests without upstream's qr_OLD_RESPAWN_POINTS (its readrules turns that on for quests
+// from before the rule): a fall or a drowning puts Link back on the last safe ground he stood on,
+// not where he came on the screen (LinkClass::q30_keep_respawn_point).
+bool q30_new_respawn_points()
+{
+    extern dword q255_compat_rule_version;
+    return q30_active() && !q30_quest_rule(254) && q255_compat_rule_version >= 11;
+}
+
+// What link.cpp can't see of upstream's HeroClass::set_respawn_point: no respawn point where a
+// trigger fixed it, on a pit's edge, on sliding ice or on "unsafe ground" flags.
+bool q30_respawn_unsafe(int x, int y)
+{
+    return g_respawn_forced || pit_check_slide() != -1 || g_sliding || q30_unsafe_ground(x, y);
 }
 
 // ---- switch hook ---------------------------------------------------------------------

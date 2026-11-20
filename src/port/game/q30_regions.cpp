@@ -1015,9 +1015,14 @@ void q30_region_viewport(int *vx, int *vy)
 static bool g_lower_canvas = false;     // the lower layers are on the canvas this frame
 static int g_lower_cx = 0, g_lower_cy = 0;  // the camera for them (relative to this screen)
 
+static void log_region_ffc_hash();
+
 BITMAP *q30_region_lower_begin(BITMAP *scrollbuf)
 {
     g_lower_canvas = false;
+
+    if(g_reg.on)
+        log_region_ffc_hash();
 
     if(!g_reg.on || q30_scroll_on())
         return scrollbuf;
@@ -1868,6 +1873,55 @@ static void log_region_ffcs()
                             (int)m->ffdata[i], (int)m->ffscript[i]);
         }
 
+    fflush(f);
+}
+
+// ZC_REGION_FFCHASH=file (tests): each drawn frame, upstream's -state-hash-log "ffc=" value (FNV-1a
+// over x, y, vx, vy of every FFC of the region, each screen up to its last used one, in region
+// pixels), with Link's region position and the viewport: frame, hash, x, y, viewport x, y
+static void log_region_ffc_hash()
+{
+    static const char *path = getenv("ZC_REGION_FFCHASH");
+    static FILE *f = path ? fopen(path, "w") : NULL;
+
+    if(!f)
+        return;
+
+    uint64_t h = (uint64_t(0x14650FB0UL) << 32) | 0x739D0383UL;      // upstream's seed
+    const uint64_t prime = (uint64_t(0x100UL) << 32) | 0x000001B3UL;
+
+    for(int y = 0; y < g_reg.h; ++y)
+        for(int x = 0; x < g_reg.w; ++x)
+        {
+            const int scr = g_reg.ox + x + (g_reg.oy + y) * 16;
+            const mapscr *m = q30_region_ffc_table(scr);
+            int count = 0;
+
+            for(int i = 0; m && i < m->ffc_count(); ++i)
+                if(m->ffdata[i])
+                    count = i + 1;
+
+            if(m && count < 32 && q30_quest_rule(400))      // qr_OLD_FFC_FUNCTIONALITY
+                count = 32;
+
+            for(int i = 0; i < count; ++i)
+            {
+                const int32_t v[4] = { int32_t(m->ffx[i] + x * 2560000L), int32_t(m->ffy[i] + y * 1760000L),
+                                       int32_t(m->ffxdelta[i]), int32_t(m->ffydelta[i]) };
+                const unsigned char *b = (const unsigned char *)v;
+
+                for(size_t n = 0; n < sizeof(v); ++n)
+                {
+                    h ^= b[n];
+                    h *= prime;
+                }
+            }
+        }
+
+    int vx = 0, vy = 0;
+    q30_region_viewport(&vx, &vy);
+    fprintf(f, "%d %08lx%08lx %d %d %d %d\n", frame, (unsigned long)(h >> 32), (unsigned long)(h & 0xFFFFFFFFUL),
+            int(Link.getX()) + q30_region_offset_x(), int(Link.getY()) + q30_region_offset_y(), vx, vy);
     fflush(f);
 }
 
