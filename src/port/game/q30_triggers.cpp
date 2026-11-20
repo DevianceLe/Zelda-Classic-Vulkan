@@ -128,7 +128,7 @@ int q30_combo_flag(int id)
 // ZC_Q255_DUMP_USE: where the quest's slopes and standing combos are placed
 void q30_slope_audit()
 {
-    int standing = 0, withz = 0, dive = 0;
+    int standing = 0, withz = 0, dive = 0, swblock = 0, shown = 0;
 
     for(size_t n = 0; n < TheMaps.size(); ++n)
     {
@@ -173,6 +173,17 @@ void q30_slope_audit()
                 if(c->z_height || c->z_step_height)
                     ++withz;
 
+                if(c->type == Q30C_CSWITCHBLOCK && (c->usrflags & 0x100))
+                    ++swblock;
+
+                if(((c->genflags & 4) || (c->type == Q30C_CSWITCHBLOCK && (c->usrflags & 0x100))) && shown < 12 && (p == 0 || s->data[p - 1] != cid))
+                {
+                    ++shown;
+                    al_trace("zheight audit place: map %d scr %d layer %d pos %d cid %d type %d walk %x gen %x usr %x z %ld step %ld a2 %ld a3 %ld\n", (int)(n / MAPSCRS), (int)(n % MAPSCRS),
+                             layer, (int)p, cid, (int)c->type, (unsigned)c->walk, (unsigned)c->genflags, (unsigned)c->usrflags, (long)c->z_height, (long)c->z_step_height,
+                             (long)c->attributes[2], (long)c->attributes[3]);
+                }
+
                 if(c->dive_under_level)
                     ++dive;
             }
@@ -183,7 +194,88 @@ void q30_slope_audit()
                 al_trace("slope ffc map %d scr %d ffc %d cid %d flags %x side %d\n", (int)(n / MAPSCRS), (int)(n % MAPSCRS), i, m.ffdata[i], (unsigned)m.ffflags[i], (m.flags7 & fSIDEVIEW) ? 1 : 0);
     }
 
-    al_trace("standing audit: standing %d withz %d dive %d\n", standing, withz, dive);
+    int t_stand = 0, t_z = 0, t_swb = 0, t_dive = 0;
+
+    for(int i = 0; i < MAXCOMBOS; ++i)
+        if(const Q30Combo *c = q30_combo(i))
+        {
+            if(c->genflags & 4) ++t_stand;
+            if(c->z_height || c->z_step_height) ++t_z;
+            if(c->type == Q30C_CSWITCHBLOCK && (c->usrflags & 0x100)) ++t_swb;
+            if(c->dive_under_level) ++t_dive;
+        }
+
+    al_trace("standing audit: standing %d withz %d dive %d swblock %d | table: standing %d withz %d swblock %d dive %d\n", standing, withz, dive, swblock, t_stand, t_z, t_swb, t_dive);
+
+    // ZC_Q30_STAND_MAP=map,screen: that screen's solidity (layers 0-2) as a grid, to plan test runs.
+    // '.' open, '#' solid, '+' partly solid, 'B' a raised combo that can be stood on, 'b' one not solid
+    if(const char *spec = getenv("ZC_Q30_STAND_MAP"))
+    {
+        int mp = 0, sc = 0;
+        sscanf(spec, "%d,%d", &mp, &sc);
+        const size_t at = (size_t)mp * MAPSCRS + sc;
+
+        for(int dm = 0; dm < MAXDMAPS; ++dm)
+            if(DMaps[dm].map == mp && (dm == 0 || DMaps[dm - 1].map != mp))
+                al_trace("stand map: dmap %d uses map %d (xoff %d, type %d)\n", dm, mp, (int)DMaps[dm].xoff, (int)(DMaps[dm].type & dmfTYPE));
+
+        if(at < TheMaps.size())
+        {
+            const mapscr &m = TheMaps[at];
+
+            for(int row = 0; row < 11; ++row)
+            {
+                char line[40];
+
+                for(int col = 0; col < 16; ++col)
+                {
+                    const int p2 = row * 16 + col;
+                    int solid = 0;
+                    char ch = 0;
+
+                    for(int layer = -1; layer < 2; ++layer)
+                    {
+                        const mapscr *ls = &m;
+
+                        if(layer >= 0)
+                        {
+                            if(m.layermap[layer] <= 0)
+                                continue;
+
+                            const size_t lat = (size_t)(m.layermap[layer] - 1) * MAPSCRS + m.layerscreen[layer];
+
+                            if(lat >= TheMaps.size() || TheMaps[lat].data.size() <= (size_t)p2)
+                                continue;
+
+                            ls = &TheMaps[lat];
+                        }
+
+                        if(ls->data.size() <= (size_t)p2)
+                            continue;
+
+                        const int cid = ls->data[p2];
+                        const Q30Combo *c = q30_combo(cid);
+                        const int w = c ? c->walk : combobuf[cid].walk;
+                        solid |= w & 15;
+
+                        if(c && ((c->genflags & 4) || (c->type == Q30C_CSWITCHBLOCK && (c->usrflags & 0x100))))
+                            ch = (w & 0xFF) == 0xFF ? 'B' : 'b';
+                    }
+
+                    line[col] = ch ? ch : solid == 0 ? '.' : solid == 15 ? '#' : '+';
+                }
+
+                line[16] = 0;
+                char ids[120];
+                ids[0] = 0;
+
+                for(int col = 0; col < 16 && m.data.size() >= 176; ++col)
+                    sprintf(ids + strlen(ids), " %5d", (int)m.data[row * 16 + col]);
+
+                al_trace("stand map %d,%d row %2d: %s %s\n", mp, sc, row, line, ids);
+            }
+        }
+    }
 
     // screens with switch-hook targets, pits and push blocks, to find test screens
     for(size_t n = 0; n < TheMaps.size(); ++n)
@@ -5113,6 +5205,179 @@ int q30_link_mapcombo(int x, int y)
     return MAPCOMBO(x, y);
 }
 
+// ---- standing on combos -------------------------------------------------------------
+// 3.0's "Allow walk-on-top" combos with their Z height and Z step height, and the crystal switch
+// blocks that may be walked on (upstream HeroClass::standing_on_z, get_standing_z_state() and
+// maps.cpp's standing_on_z()). Heights are zfix numbers (1/10000 pixel).
+
+static const double STAND_MAX = 2147483647.0;   // upstream's STANDING_Z_MAX: on top of any height
+static double g_stand_z = 0;        // the height of what Link stands on
+static bool g_stand_offs = false;   // ... which draws him 8 pixels up
+static double g_walk_z = 0;         // the height the walkability test under way is made from (0: the ground)
+
+// A combo that can be stood on: its height, the step up it allows and the 8 pixel draw offset.
+static bool stand_combo(const Q30Combo *c, double *z, double *step, bool *offs)
+{
+    static const bool off = getenv("ZC_Q30_NO_STAND") != NULL;  // test runs: as before this was ported
+
+    if(!c || off)
+        return false;
+
+    if(c->type == Q30C_CSWITCHBLOCK && (c->usrflags & 0x100))
+    {
+        *z = c->attributes[2];
+        *step = c->attributes[3];
+        *offs = (c->usrflags & 0x200) != 0;
+    }
+    else if(c->genflags & 0x4)
+    {
+        *z = c->z_height;
+        *step = c->z_step_height;
+        *offs = (c->genflags & 0x8) != 0;
+    }
+    else
+        return false;
+
+    if(*step < 0)
+        *step = 0;
+
+    return true;
+}
+
+// From that height the combo's solid parts are walked over.
+static bool stand_over(const Q30Combo *c, double state)
+{
+    double z, step;
+    bool offs;
+
+    if(!stand_combo(c, &z, &step, &offs))
+        return false;
+
+    if(state >= STAND_MAX)
+        return true;
+
+    if(!z)
+        return false;       // no height given: only from on top of it
+
+    return z - step <= state;
+}
+
+// upstream's get_standing_z_state(): what Link stands on plus his own Z
+static double stand_state()
+{
+    double ret = g_stand_z + double(Link.getZ()) * 10000.0;
+    return ret > STAND_MAX ? STAND_MAX : ret;
+}
+
+bool _walkflag(int x, int y, int cnt);
+
+// _walkflag for Link (link.cpp)
+bool q30_hero_walkflag(int x, int y, int cnt)
+{
+    if(!q30_active())
+        return _walkflag(x, y, cnt);
+
+    const double old = g_walk_z;
+    g_walk_z = stand_state();
+    const bool ret = _walkflag(x, y, cnt);
+    g_walk_z = old;
+    return ret;
+}
+
+void q30_standing_reset()
+{
+    g_stand_z = 0;
+    g_stand_offs = false;
+}
+
+// Once a frame (LinkClass::animate, where upstream's HeroClass::animate does it): what Link's
+// middle is on. On the ground the height is that combo's; in the air over one he is kept above it.
+void q30_standing_update(double x, double y, bool ground, bool sideview, fix *yofs)
+{
+    if(!q30_active())
+        return;
+
+    if(ground)
+    {
+        if(g_stand_offs)
+        {
+            g_stand_offs = false;
+            *yofs += 8;
+        }
+
+        g_stand_z = 0;
+    }
+
+    if(sideview)
+        return;
+
+    const int tx = (int)(x + 0.00001) + 8, ty = (int)(y + 0.00001) + 8;
+
+    if(tx < 0 || ty < 0 || tx > 255 || ty > 175)
+        return;
+
+    const bool check_bridge = !rule(588);   // qr_OLD_BRIDGE_COMBO_COVER
+
+    if(check_bridge && q30_has_bridge_above(tx, ty, 2))
+        return;
+
+    const int pos = ((ty >> 4) << 4) + (tx >> 4);
+    int b = 1;
+
+    if(tx & 8) b <<= 2;
+
+    if(ty & 8) b <<= 1;
+
+    b |= b << 4;    // solid, and with its effect on
+
+    for(int q = 2; q >= 0; --q)
+    {
+        H h(q, pos);
+
+        if(!h_scr(h))
+            continue;
+
+        double z, step;
+        bool offs;
+
+        if((walk_byte(h_data(h)) & b) == b && stand_combo(h_combo(h), &z, &step, &offs))
+        {
+            if(!z)
+                z = STAND_MAX;
+
+            if(ground)
+            {
+                if(z > g_stand_z)
+                    g_stand_z = z;
+            }
+            else
+            {
+                const double state = stand_state();
+
+                if(state < z)
+                    g_stand_z += z - state;
+            }
+
+            if(ground && offs && !g_stand_offs)
+            {
+                g_stand_offs = true;
+                *yofs -= 8;
+            }
+
+            static const bool trace = getenv("ZC_Q30_STAND_TRACE") != NULL;
+
+            if(trace)
+                al_trace("q30 stand: frame %d layer %d pos %d cid %d z %.0f step %.0f ground %d -> on %.0f offs %d\n", (int)frame, q, pos, h_data(h), z, step, ground ? 1 : 0, g_stand_z,
+                         g_stand_offs ? 1 : 0);
+
+            break;
+        }
+
+        if(check_bridge && q30_has_bridge_at(tx, ty, q))
+            break;
+    }
+}
+
 static bool cell_solid(int pos, int b)
 {
     const mapscr *s0 = &tmpscr[0];
@@ -5128,7 +5393,9 @@ static bool cell_solid(int pos, int b)
     bool old_bridge = rule(qr30_OLD_BRIDGE_COMBOS);
     int cwalk = w0;
 
-    if((t0 == Q30C_BRIDGE && old_bridge) || (water0 && ((w0 >> 4) & b) && (u0 & 0xC)))
+    if(stand_over(x0, g_walk_z))
+        cwalk &= (w0 >> 4) ^ 0xF;
+    else if((t0 == Q30C_BRIDGE && old_bridge) || (water0 && ((w0 >> 4) & b) && (u0 & 0xC)))
         cwalk = 0;
 
     for(int l = 1; l <= 2; ++l)
@@ -5143,7 +5410,9 @@ static bool cell_solid(int pos, int b)
         bool water = l == 1 ? water1 : water2;
         bool waterrule = rule(l == 1 ? qr30_WATER_ON_LAYER_1 : qr30_WATER_ON_LAYER_2);
 
-        if(water && ((w >> 4) & b) && waterrule && !(u & 0xC))
+        if(stand_over(l == 1 ? x1 : x2, g_walk_z))
+            cwalk &= (w >> 4) ^ 0xF;
+        else if(water && ((w >> 4) & b) && waterrule && !(u & 0xC))
             cwalk &= w;
         else if(t == Q30C_BRIDGE)
         {
@@ -7664,11 +7933,11 @@ static bool slide_blocked(int nx, int ny, bool horizontal, int sign)
     if(horizontal)
     {
         int px = nx + (sign > 0 ? 15 : 0);
-        return _walkflag(px, ny + (big ? 0 : 8), 1) || _walkflag(px, ny + 15, 1);
+        return q30_hero_walkflag(px, ny + (big ? 0 : 8), 1) || q30_hero_walkflag(px, ny + 15, 1);
     }
 
     int py = sign > 0 ? ny + 15 : ny + (big ? 0 : 8);
-    return _walkflag(nx, py, 1) || _walkflag(nx + 8, py, 1) || _walkflag(nx + 15, py, 1);
+    return q30_hero_walkflag(nx, py, 1) || q30_hero_walkflag(nx + 8, py, 1) || q30_hero_walkflag(nx + 15, py, 1);
 }
 
 // Returns 0 if Link isn't on ice, 1 sliding with no direction held, 2 with one held.

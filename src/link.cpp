@@ -41,6 +41,9 @@
 // On 2.55+ quests a bridge hides what's under it from Link; 2.53 quests get MAPCOMBO unchanged.
 #define MAPCOMBO(x,y) q30_link_mapcombo((x),(y))
 #define COMBOTYPE(x,y) (combobuf[q30_link_mapcombo((x),(y))].type)
+// Link's walkability tests are made from the height he stands at (2.55+ quests: "walk-on-top"
+// combos with a Z height, crystal switch blocks walked on); plain _walkflag for a 2.53 quest.
+#define _walkflag(x,y,cnt) q30_hero_walkflag((x),(y),(cnt))
 extern byte zc_192b163_compatibility;
 extern word quest_header_zelda_version;
 extern word quest_header_zelda_build; 
@@ -801,6 +804,7 @@ void LinkClass::init()
     // upstream's HeroClass::init: steprate = zinit.heroStep, tmp_step_boost = 0
     q30_steprate = q30_zinit_hero_step;
     q30_step_boost = 0;
+    q30_standing_reset();
 
     hookshot_used=false;
     hookshot_frozen=false;
@@ -4535,6 +4539,7 @@ bool LinkClass::animate(int)
         else paymagiccost(itemid);
     }
     
+    q30_standing_update(double(x), double(y), z == 0, isSideview(), &yofs);    // what Link stands on (2.55+)
     q30_hero_hit_clear();
     checkhit();
 

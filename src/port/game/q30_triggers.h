@@ -460,6 +460,10 @@ bool q30_has_bridge_at(int x, int y, int layer);
 bool q30_has_bridge_above(int x, int y, int target_layer);
 int q30_link_mapcombo(int x, int y);        // MAPCOMBO, but 0 where a bridge covers the screen combo
 bool q30_walkflag(int x, int y, int cnt);   // _walkflag for 2.55+ quests
+// "Allow walk-on-top" combos (Z height, Z step height) and walked-on crystal switch blocks
+bool q30_hero_walkflag(int x, int y, int cnt);  // _walkflag from the height Link stands at
+void q30_standing_reset();
+void q30_standing_update(double x, double y, bool ground, bool sideview, fix *yofs);    // once a frame
 double q30_walk_speed_scale(int x, int y, int z, double step);   // combo walk-speed modifiers on a step
 // link.cpp: the Hero step rate in 1/100 pixel a frame (upstream's steprate; Hero->Step), used
 // under qr_NEW_HERO_MOVEMENT/2; the quest's init data sets it as it loads, Link's init resets it.
