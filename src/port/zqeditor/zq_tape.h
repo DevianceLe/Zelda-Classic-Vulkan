@@ -216,7 +216,10 @@ unsigned zq_bitstr_size(const std::vector<byte> &stored);
 // a recompile moves a script's exported variables). key: the config's field key, or for the
 // configs init and misc data keep as raw bytes "init.global", "init.hero", "init.gen_inst",
 // "init.gen_initd" and "misc.save_menu"; script: its slot number; initd: 8 run arguments
-// (NULL: none); inst: pairs of a word variable id and an int value, 6 bytes each.
+// (NULL: none); inst: pairs of a word variable id and an int value, 6 bytes each (in the
+// record's bytes, their count just before them). After init data's generic script values
+// ("init.gen_inst", one call per slot) comes "init.gen_inst.map": inst the start of that whole
+// container and pairs its size in bytes.
 typedef void (*ZqTapeInstHook)(const char *key, int script, const long *initd, const byte *inst, size_t pairs);
 extern ZqTapeInstHook zq_tape_inst_hook;    // NULL: nobody listens
 // for a raw walker: the config whose run arguments start at args_at and instance values at inst_at

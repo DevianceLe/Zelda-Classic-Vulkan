@@ -749,7 +749,8 @@ void build_255(const std::vector<byte> &body, const Layout255 &L, const std::vec
 
         std::map<int, std::vector<byte> >::const_iterator edited = zq255.item_records.find(i);
 
-        if(edited != zq255.item_records.end() && i < MAXITEMS)
+        // (an edited record past MAXITEMS: zq255_item_commit's, whose buffers ZQuest doesn't hold)
+        if(edited != zq255.item_records.end())
             out.insert(out.end(), edited->second.begin(), edited->second.end());
         else if(mode[i] == M_COPY || i >= MAXITEMS)
             r.keep(L.rec_at[i + 1] - L.rec_at[i]);
@@ -1147,7 +1148,9 @@ bool zq255_item_commit(int i, const std::vector<byte> &rec, std::string &why)
     std::vector<byte> orig, body;
     Layout255 L;
 
-    if(i < 0 || i >= MAXITEMS || !item_layout(orig, body, L) || i >= L.count)
+    // (a record past MAXITEMS, which ZQuest keeps as loaded, goes in as its bytes only: the
+    // values a recompile moves on its scripts, zq_compile_remap.cpp)
+    if(i < 0 || !item_layout(orig, body, L) || i >= L.count)
     {
         why = "this quest's items can't be edited this way";
         return false;
@@ -1171,6 +1174,12 @@ bool zq255_item_commit(int i, const std::vector<byte> &rec, std::string &why)
     {
         why = "the item reader doesn't take the record";
         return false;
+    }
+
+    if(i >= MAXITEMS)
+    {
+        zq255.item_records[i] = rec;
+        return true;
     }
 
     itemsbuf[i] = got.d[i];

@@ -818,6 +818,22 @@ void draw_widget(HostDialog &hd, const WidgetView &w, const Place &pl, bool inpu
                         push_event(hd, e);
                     }
                 }
+                // jwin's lists: a right click picks the row and tells the dialog (its own
+                // function, when the list has one: ZQuest's listers' Copy / Paste / Save / Load)
+                if(input && ImGui::IsItemClicked(ImGuiMouseButton_Right))
+                {
+                    if(i != sel)
+                    {
+                        change_value(hd, w, Event::SET, i);
+                        sel = i;
+                        o.list_shown = i;
+                    }
+                    Event e;
+                    e.type = Event::RCLICK;
+                    e.obj = w.obj;
+                    e.value = i;
+                    push_event(hd, e);
+                }
                 if(is_sel && o.list_shown != sel)
                     ImGui::SetScrollHereY(0.5f);
                 ImGui::PopID();

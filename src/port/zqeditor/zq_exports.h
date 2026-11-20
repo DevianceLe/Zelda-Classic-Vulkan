@@ -69,6 +69,19 @@ bool zqx_import_guys(const char *path, std::string &why, std::string &note);
 // colours and door sets, as upstream's import does.
 bool zqx_import_zgp(const char *path, std::string &why, std::string &note);
 
+// ---- one item or enemy (.zitem, .znpc: upstream's writeoneitem / readoneitem and writeonenpc /
+// readonenpc, the item and enemy listers' Save and Load) -------------------------------------
+// The file is upstream's: the program's version and build, the section's version and cversion,
+// the name (64 bytes: an enemy's always, an item's while its section keeps names apart, before
+// format 67) and the record as the section holds it, here in the quest's own section format.
+// 2.55.17 reads a 2.55 quest's files (it stops before the record's last fields, which its own
+// files leave out), 3.0 an item's of any format and an enemy's from format 57 on.
+bool zqx_export_one(bool item, int index, const char *path, std::string &why);
+// Replaces item or enemy 'index' with the file's. The file must be in the quest's own section
+// format (a record in another format isn't converted). A 2.55.17 file's missing last fields
+// read as 0, as 2.55.17 leaves them.
+bool zqx_import_one(bool item, int index, const char *path, std::string &why, std::string &note);
+
 // A quest template (.zqt, packed) or unencoded quest (.qsu) can replace a 2.55 / 3.0 quest
 // (2.53's Import Quest Template and Import Unencoded Quest) only when it was made in the quest's
 // version or a newer one, as the quest is then saved in its version: false (why says) when it

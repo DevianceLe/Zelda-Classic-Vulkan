@@ -3091,9 +3091,14 @@ bool zq255_dmap_records_all(std::vector<std::vector<byte> > &recs, int *version)
 }
 
 // Every screen record the file has (as zq255_screen_record gives them), read in one pass.
-bool zq255_screen_records_all(std::vector<std::vector<byte> > &recs, int *version)
+// indices: each one's screen index (map * MAPSCRS + screen), as zq255_screen_record takes it.
+bool zq255_screen_records_all(std::vector<std::vector<byte> > &recs, int *version, std::vector<int> *indices)
 {
     recs.clear();
+
+    if(indices)
+        indices->clear();
+
     const ZqQuestPart *part = find_part(ID_MAPS);
     std::vector<byte> orig;
 
@@ -3148,11 +3153,22 @@ bool zq255_screen_records_all(std::vector<std::vector<byte> > &recs, int *versio
                 return false;
 
             recs.push_back(std::vector<byte>(body.begin() + in.pos, body.begin() + in.pos + used));
+
+            if(indices)
+                indices->push_back(i * MAPSCRS + j);
+
             in.pos += used;
         }
     }
 
     return true;
+}
+
+// A screen's loaded record with the fields edited since put in, as a save writes them (true and
+// rec as it was when there are none; false when the record can't be laid out).
+bool zq255_screen_fields_apply(int index, int version, std::vector<byte> &rec)
+{
+    return index >= 0 && apply_screen_fields((size_t)index, (word)version, rec);
 }
 
 bool zq255_dmap_record(int i, std::vector<byte> &rec, int *version)

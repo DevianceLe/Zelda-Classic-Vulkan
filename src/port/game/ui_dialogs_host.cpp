@@ -555,6 +555,17 @@ void run_event(State &st, const Event &ev)
             tell(st, ev.obj, MSG_DCLICK, 0);
         break;
 
+    case Event::RCLICK:
+        // as 2.53's jwin list: a list that asks for it (D_USER << 1) has its function (dp3)
+        // called with the row and the mouse's place
+        if(d && usable(*d) && (d->flags & (D_USER << 1)) && d->dp3)
+        {
+            typedef void (*RightClick)(int index, int x, int y);
+            ((RightClick)d->dp3)(d->d1, gui_mouse_x(), gui_mouse_y());
+            changed(st);
+        }
+        break;
+
     case Event::SET:
 #ifdef ZC_ENGINE
         if(d && usable(*d) && zcui_engine_is_pane(d))

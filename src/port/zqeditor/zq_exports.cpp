@@ -93,6 +93,10 @@ bool zq255_guys_take(const std::vector<byte> &sec, std::string &why);
 int zq255_items_version(int *count);
 bool zq255_items_take(const std::vector<byte> &sec, std::string &why);
 void zq255_strings_rebased();
+bool zq255_item_record(int i, std::vector<byte> &rec, int *version);
+bool zq255_item_commit(int i, const std::vector<byte> &rec, std::string &why);
+bool zq255_guy_record(int i, std::vector<byte> &rec, int *version);
+bool zq255_guy_commit(int i, const std::vector<byte> &rec, std::string &why);
 
 namespace
 {
@@ -1272,6 +1276,160 @@ bool zqx_import_guys(const char *path, std::string &why, std::string &note)
     return true;
 }
 
+// ---- one item or enemy (.zitem, .znpc) -------------------------------------------------------
+
+namespace
+{
+
+// Whether the single file of this format carries the name in front of the record: an enemy's
+// always (readonenpc), an item's until its record holds the name itself (readoneitem).
+bool one_file_has_name(bool item, int v)
+{
+    return !item || v < 67;
+}
+
+}
+
+bool zqx_export_one(bool item, int index, const char *path, std::string &why)
+{
+    const ZqQuestPart *part = zq_find_part(item ? ID_ITEMS : ID_GUYS);
+    word v = 0, cv = 0;
+    std::vector<byte> rec;
+    int rv = 0;
+
+    if(!part || !zq_part_versions(*part, &v, &cv) ||
+       !(item ? zq255_item_record(index, rec, &rv) : zq255_guy_record(index, rec, &rv)) || rv != v)
+    {
+        why = item ? "this quest holds no such item" : "this quest holds no such enemy";
+        return false;
+    }
+
+    Out o;
+    o.p32(UP_VERSION);
+    o.p32(UP_BUILD);
+    o.p16(v);
+    o.p16(cv);
+
+    if(one_file_has_name(item, v))
+    {
+        char name[64];
+        memset(name, 0, sizeof(name));
+        strncpy(name, item ? item_string[index] : guy_string[index], 63);
+        o.b.insert(o.b.end(), name, name + 64);
+    }
+
+    o.pn(rec);
+    return write_file(path, o.b, why);
+}
+
+bool zqx_import_one(bool item, int index, const char *path, std::string &why, std::string &note)
+{
+    note.clear();
+    std::vector<byte> b;
+
+    if(!read_file(path, b, why))
+        return false;
+
+    In in(b);
+    const dword zversion = in.l();
+    in.l();     // the build
+    const word v = in.w();
+    in.w();     // the cversion: nothing reads it
+
+    if(in.bad || zversion < 0x192 || zversion > 0x999 || !v)
+    {
+        why = item ? "it isn't an item file" : "it isn't an enemy file";
+        return false;
+    }
+
+    // upstream's own check
+    if(zversion > UP_VERSION)
+    {
+        why = "it was made by a newer version of ZC than ZQuest reads";
+        return false;
+    }
+
+    const ZqQuestPart *part = zq_find_part(item ? ID_ITEMS : ID_GUYS);
+    word qv = 0, qcv = 0;
+    std::vector<byte> now;
+
+    if(!part || !zq_part_versions(*part, &qv, &qcv) ||
+       !(item ? zq255_item_record(index, now, NULL) : zq255_guy_record(index, now, NULL)))
+    {
+        why = item ? "this quest holds no such item" : "this quest holds no such enemy";
+        return false;
+    }
+
+    if(v != qv)
+    {
+        char t[200];
+        snprintf(t, sizeof(t), "it is in %s format %d and this quest's %s are in format %d; one %s isn't converted between "
+                 "formats", item ? "item" : "enemy", (int)v, item ? "items" : "enemies", (int)qv, item ? "item" : "enemy");
+        why = t;
+        return false;
+    }
+
+    char name[64];
+    memset(name, 0, sizeof(name));
+
+    if(one_file_has_name(item, v))
+    {
+        if(!in.has(64))
+        {
+            why = "the file ends early";
+            return false;
+        }
+
+        memcpy(name, &b[in.pos], 63);
+        in.pos += 64;
+    }
+
+    // the record as the quest's format lays it out. 2.55.17's files end before the last fields
+    // of the section's record (an item's display name, burn sprites and light radii; an enemy's
+    // move flags and shadow, death and spawn sprites), which its reader leaves at 0: the same
+    // here, for a file that ends where a 2.55 one does.
+    std::vector<byte> rec(b.begin() + in.pos, b.end());
+    const size_t in_file = rec.size();
+    size_t used = 0;
+
+    for(int pass = 0; pass < 2 && !used; ++pass)
+    {
+        Tape t;
+        TapeParser p(rec.empty() ? NULL : &rec[0], rec.size(), 0, &t);
+
+        if((item ? zq_tape_item(p, v) : zq_tape_guy(p, v)) && !p.bad)
+            used = p.pos;
+        else if(pass == 0 && v <= (item ? 59 : 48))
+            rec.insert(rec.end(), 64, 0);
+        else
+            break;
+    }
+
+    // (all of the file, and with the fields added nothing but them past its end)
+    if(!used || (rec.size() == in_file ? used != in_file : used < in_file))
+    {
+        why = "it doesn't read as its format says";
+        return false;
+    }
+
+    rec.resize(used);
+
+    if(!(item ? zq255_item_commit(index, rec, why) : zq255_guy_commit(index, rec, why)))
+        return false;
+
+    if(one_file_has_name(item, v))
+    {
+        char *to = item ? item_string[index] : guy_string[index];
+        strncpy(to, name, 63);
+        to[63] = 0;
+    }
+
+    extern bool saved;
+    saved = false;
+    note = std::string("replaced ") + (item ? "item " : "enemy ") + std::to_string(index);
+    return true;
+}
+
 bool zqx_import_zgp(const char *path, std::string &why, std::string &note)
 {
     note.clear();
@@ -1841,10 +1999,11 @@ int zqx_timed_save(const char *quest_path, int retention, bool uncompressed, std
 //
 // The same exports and imports the menus run, from the command line, for checking files against
 // upstream's (the menus are checked through the window):
-//   -qst-export in.qst dmaps|strings|combos|tiles|guys|zgp|zqt|qsu out [a b]
-//       (dmaps: first and last DMap; tiles: first page and page count)
+//   -qst-export in.qst dmaps|strings|combos|tiles|guys|zgp|zqt|qsu|zitem|znpc out [a b]
+//       (dmaps: first and last DMap; tiles: first page and page count; zitem, znpc: which one)
 //   -qst-import in.qst dmaps|strings|combos|tiles|guys|zgp|zqt|qsu file out.qst [dest]
-//       (combos and tiles: the first combo or tile; then saved in the quest's own version)
+//       (combos and tiles: the first combo or tile; zitem, znpc (also accepted here): the item
+//       or enemy to replace; then saved in the quest's own version)
 //   -qst-timed-save in.qst retention uncompressed
 // The result goes to allegro.log; the exit code is 0 when it worked.
 
@@ -1911,6 +2070,7 @@ int zqx_test_switches(int argc, char **argv)
         else if(kind == "combos") ok = zqx_export_combos(out, why);
         else if(kind == "tiles") ok = zqx_export_tiles(out, a, b, why);
         else if(kind == "guys") ok = zqx_export_guys(out, why);
+        else if(kind == "zitem" || kind == "znpc") ok = zqx_export_one(kind == "zitem", a, out, why);
         else if(kind == "zgp") ok = zqx_export_zgp(out, why);
         else if(kind == "zqt" || kind == "qsu") ok = zqx_export_quest(out, kind == "zqt", why);
         else if(kind == "all")
@@ -1960,6 +2120,7 @@ int zqx_test_switches(int argc, char **argv)
         else if(kind == "combos") ok = zqx_import_combos(file, dest, why, note);
         else if(kind == "tiles") ok = zqx_import_tiles(file, dest, why, note);
         else if(kind == "guys") ok = zqx_import_guys(file, why, note);
+        else if(kind == "zitem" || kind == "znpc") ok = zqx_import_one(kind == "zitem", dest, file, why, note);
         else if(kind == "zgp") ok = zqx_import_zgp(file, why, note);
         else if(kind == "zqt" || kind == "qsu")
         {

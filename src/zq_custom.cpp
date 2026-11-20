@@ -1249,6 +1249,7 @@ void test_item(itemdata test, int x, int y)
 bool zq_edit_item_newer(int index, bool *shown);     // port/zqeditor/zq_record_editor.cpp
 bool zq_edit_enemy_newer(int index, bool *shown);
 bool zq255_copy_record(bool item, int dest, int src);
+bool zq_newer_one_file(bool item, int index, bool saving);      // zq_files.cpp
 
 void edit_itemdata(int index)
 {
@@ -1743,6 +1744,8 @@ static MENU ilist_rclick_menu[] =
 {
     { (char *)"Copy",  NULL, NULL, 0, NULL },
     { (char *)"Paste", NULL, NULL, 0, NULL },
+    { (char *)"Save",  NULL, NULL, 0, NULL },   // 2.55 / 3.0 quests only (upstream's .zitem)
+    { (char *)"Load",  NULL, NULL, 0, NULL },
     { NULL,            NULL, NULL, 0, NULL }
 };
 
@@ -1756,9 +1759,19 @@ void ilist_rclick_func(int index, int x, int y)
     else
         ilist_rclick_menu[1].flags&=~D_DISABLED;
     
+    // a 2.53 quest's menu ends after Paste, as it always has
+    ilist_rclick_menu[2].text=zq255_quest_is_newer() ? (char *)"Save" : NULL;
+    
     int ret=popup_menu(ilist_rclick_menu, x, y);
     
-    if(ret==0) // copy
+    if(ret==2) // save (.zitem)
+        zq_newer_one_file(true, bii[index].i, true);
+    else if(ret==3) // load (.zitem)
+    {
+        if(zq_newer_one_file(true, bii[index].i, false))
+            ilist_dlg[2].flags|=D_DIRTY;
+    }
+    else if(ret==0) // copy
         copiedItem=bii[index].i;
     else if(ret==1) // paste
     {
@@ -3289,6 +3302,8 @@ static MENU elist_rclick_menu[] =
 {
     { (char *)"Copy",  NULL, NULL, 0, NULL },
     { (char *)"Paste", NULL, NULL, 0, NULL },
+    { (char *)"Save",  NULL, NULL, 0, NULL },   // 2.55 / 3.0 quests only (upstream's .znpc)
+    { (char *)"Load",  NULL, NULL, 0, NULL },
     { NULL,            NULL, NULL, 0, NULL }
 };
 
@@ -3302,13 +3317,25 @@ void elist_rclick_func(int index, int x, int y)
     else
         elist_rclick_menu[1].flags&=~D_DISABLED;
     
+    // a 2.53 quest's menu ends after Paste, as it always has
+    elist_rclick_menu[2].text=zq255_quest_is_newer() ? (char *)"Save" : NULL;
+    
     int ret=popup_menu(elist_rclick_menu, x, y);
     
-    if(ret==0) // copy
+    if(ret==2) // save (.znpc)
+        zq_newer_one_file(false, bie[index].i, true);
+    else if(ret==3) // load (.znpc)
+    {
+        if(zq_newer_one_file(false, bie[index].i, false))
+            elist_dlg[2].flags|=D_DIRTY;
+    }
+    else if(ret==0) // copy
         copiedGuy=bie[index].i;
     else if(ret==1) // paste
     {
-        guysbuf[bie[index].i]=guysbuf[copiedGuy];
+        // a newer quest's enemy is its whole record, past what guysbuf holds
+        if(!zq255_quest_is_newer() || !zq255_copy_record(false, bie[index].i, copiedGuy))
+            guysbuf[bie[index].i]=guysbuf[copiedGuy];
         elist_dlg[2].flags|=D_DIRTY;
         saved=false;
     }

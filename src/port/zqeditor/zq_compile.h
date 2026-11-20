@@ -15,6 +15,7 @@
 #define ZQ_COMPILE_H
 
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -53,13 +54,50 @@ struct ZqCompiledScript
 };
 
 // 3.0: how a script's instance variables moved since the quest's last compile (upstream's
-// InstVarRemap), for the scripts where they did.
+// InstVarRemap, components/zasm/inst_var_remap.h), for the scripts where they did.
+struct ZqInstVar
+{
+    word id;
+    std::string name, type_name;
+    byte kind;                      // upstream's InstVarKind: 0 other, 1 int (value * 10000), 2 long
+    ZqInstVar() : id(0), kind(0) {}
+};
+
+struct ZqInitDMove
+{
+    int initd;                      // the run() parameter's InitD index
+    byte kind;                      // the parameter's
+    word new_id;                    // the variable that takes its values
+};
+
 struct ZqVarRemap
 {
-    std::map<word, byte> old_kind;                      // every old variable: id -> kind
-    std::map<word, word> old_to_new;                    // old id -> new id, for variables both compiles have
-    std::map<word, byte> new_kind;                      // old id -> the kind of the variable it became
-    std::vector<std::pair<int, word> > initd_moves;     // run() parameter (InitD index) -> the new variable of its name
+    std::map<word, word> old_to_new;                // old id -> new id, for variables both compiles have
+    std::map<word, ZqInstVar> old_vars, new_vars;   // every variable of each compile, by id
+    // a script converted from run() parameters to variables (the new run() has none): the old
+    // parameters, their InitD index as the id, and where each one's InitD values are copied
+    std::vector<ZqInstVar> old_params;
+    std::vector<ZqInitDMove> initd_moves;
+};
+
+// One slot whose placed scripts' stored values have to move (upstream's SlotRemap,
+// zq/script_slot_remap.h).
+struct ZqSlotRemap
+{
+    int type, slot;                 // ZqSlotType and the table slot
+    std::string script_name;
+    ZqVarRemap remap;
+    std::set<word> new_exports;     // the new script's exported variables: only they can take values
+    std::map<word, std::string> old_labels, new_labels;     // export labels, by id
+    std::map<word, int> unmatched_value_counts;     // per old variable without a new one: placed scripts with a value
+    std::map<int, int> initd_value_counts;          // per old parameter: placed scripts with a value other than 0
+
+    ZqSlotRemap() : type(0), slot(0) {}
+    std::vector<ZqInstVar> unmatched_old() const;
+    std::vector<ZqInstVar> unmatched_new() const;
+    // the user is to be asked: values of a variable that is gone could go to a new one, or
+    // InitD values of a converted script to a variable
+    bool needs_user_mapping() const;
 };
 
 // What a compile gave: every script by name, and for 3.0 the shared command stream and the
@@ -105,10 +143,36 @@ void zq_slots_auto(const ZqCompileResult &r, int mode, std::map<int, std::string
 // which loses its code but keeps its name).
 bool zq_slot_found(const ZqCompileResult &r, int t, const std::string &name);
 
+// 3.0, before an assignment: the slots that keep their script but whose instance variables
+// moved (upstream's plan_slot_remaps), with how many placed scripts hold values for what has no
+// place after the compile. The dialog asks the user about those that need it (upstream's
+// InstVarRemapDialog) and changes the plan's remaps by the answers. False (why says why) when
+// the quest's placed scripts can't be read.
+bool zq_compile_plan_remaps(const ZqCompileResult &r, const std::map<int, std::string> names[ZQS_COUNT],
+                            std::vector<ZqSlotRemap> &plan, std::string &why);
+
 // Puts the compiled scripts into the slots by these names and keeps them for the save: the
-// scripts section is rebuilt and read back into ZQuest's tables. False (why says why) changes
-// nothing.
-bool zq_compile_assign(const ZqCompileResult &r, std::map<int, std::string> names[ZQS_COUNT], std::string &why);
+// scripts section is rebuilt and read back into ZQuest's tables, and for 3.0 the values placed
+// scripts hold for exported variables follow their variables (upstream's apply_slot_remaps) by
+// 'plan', or by a plan made here (what isn't matched by name is discarded, as upstream does
+// without a window). 'log' gets upstream's lines about what was moved. False (why says why)
+// changes nothing.
+bool zq_compile_assign(const ZqCompileResult &r, std::map<int, std::string> names[ZQS_COUNT], std::string &why,
+                       const std::vector<ZqSlotRemap> *plan = NULL, std::string *log = NULL);
+
+// zq_compile_remap.cpp: the placed scripts' stored values. Counts what the plan's remaps have no
+// place for; works out every record as the plan leaves it (false: a section couldn't be read or
+// laid out again, nothing is changed); puts those records in (after the assignment).
+struct ZqRemapPending;
+bool zq_remap_count(std::vector<ZqSlotRemap> &plan, std::string &why);
+ZqRemapPending *zq_remap_prepare(const std::vector<ZqSlotRemap> &plan, std::string &why);
+bool zq_remap_commit(ZqRemapPending *pending, const std::vector<ZqSlotRemap> &plan, std::string &log, std::string &why);
+void zq_remap_discard(ZqRemapPending *pending);
+// -qst-inst-dump: every placed script's run arguments and stored variable values, one per line.
+bool zq_remap_dump(const char *path);
+// testing: ZQ_COMPILE_SET_INST's "type,slot,variable,value;..." set on every placed script of
+// those slots; how many were set (-1: failed, why says)
+int zq_remap_test_set(const char *spec, std::string &why);
 
 // For the scripts section's writer (zqw_scripts.cpp): when a compile was assigned since the
 // load (or the last save), the whole section as it is to be written now (its id first, with

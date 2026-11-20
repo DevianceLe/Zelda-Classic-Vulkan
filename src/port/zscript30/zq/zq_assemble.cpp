@@ -21,9 +21,11 @@
 //   u32 size + the debug data, encoded (DebugData::encode), which writeffscript puts last
 //   u32 count, then per script whose instance variables moved since the quest's last compile
 //     (-remap-old <file>: that compile's encoded debug data; upstream's plan_slot_remaps, see
-//     write_remaps below): str name, u32 count + (u16 id, u8 kind) per old variable, u32 count +
-//     (u16 old id, u16 new id, u8 new kind) per variable both have, u32 count + (u32 InitD index,
-//     u16 new id) per run() parameter that became a variable of the same name
+//     write_remaps below), upstream's InstVarRemap whole: str name; u32 count + a variable (u16
+//     id, u8 kind, str name, str type name) per old variable; the same per new variable; u32
+//     count + (u16 old id, u16 new id) per variable both have; u32 count + a variable per old
+//     run() parameter (its id the InitD index) when the new run() has none; u32 count + (u32
+//     InitD index, u8 the parameter's kind, u16 new id) per parameter with a variable of its name
 // where str is a u32 length and the bytes.
 //
 // Ported from upstream ZQuest Classic 3.0 (GPL), src/zq/ffasm.cpp and src/zq/zq_class.cpp.
@@ -859,23 +861,33 @@ static void write_remaps(Out& o, ZScript::ZasmCompilerResult& result, std::strin
 				continue;
 			++count;
 			list.str(name);
+			auto put_var = [&](const InstVar& var)
+			{
+				list.w(var.id);
+				list.c(uint8_t(var.kind));
+				list.str(var.name);
+				list.str(var.type_name);
+			};
 			list.l(uint32_t(remap->old_vars.size()));
 			for(auto& [id, var] : remap->old_vars)
-			{
-				list.w(id);
-				list.c(uint8_t(var.kind));
-			}
+				put_var(var);
+			list.l(uint32_t(remap->new_vars.size()));
+			for(auto& [id, var] : remap->new_vars)
+				put_var(var);
 			list.l(uint32_t(remap->old_to_new.size()));
 			for(auto [old_id, new_id] : remap->old_to_new)
 			{
 				list.w(old_id);
 				list.w(new_id);
-				list.c(uint8_t(remap->new_vars.at(new_id).kind));
 			}
+			list.l(uint32_t(remap->old_params.size()));
+			for(auto& var : remap->old_params)
+				put_var(var);
 			list.l(uint32_t(remap->initd_moves.size()));
 			for(auto& move : remap->initd_moves)
 			{
 				list.l(uint32_t(move.initd));
+				list.c(uint8_t(move.kind));
 				list.w(move.new_id);
 			}
 		}
@@ -896,7 +908,7 @@ bool zs30_write_assembled(ZScript::ZasmCompilerResult& result, std::string const
 
 	Out o;
 	o.b.insert(o.b.end(), {'Z', 'S', '3', '0', 'A', 'S', 'M', 0});
-	o.l(2);
+	o.l(3);
 	o.l(V_FFSCRIPT);
 	o.l(METADATA_V);
 	o.l(ZASM_VERSION);

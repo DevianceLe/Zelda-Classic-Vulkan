@@ -5861,6 +5861,42 @@ void select_comboa(int clist)
 }
 
 int zq_cpool_brush_entry(int pool, int index, int &cid, int &cs);   // zq_autocombo_draw.cpp
+int zq_autocombo_floating_cid(int index, int screen, int pos);      // zq_autocombo_draw.cpp
+
+// The Autocombo mode's brush (upstream's combobrushoverride, get_autocombo_floating_cid): with
+// the mouse over the map, the combo the autocombo would place there. Worked out again when the
+// position, the autocombo, its height, the layer or the screen changes, and after each placement
+// (autocombo_brush_dirty); a pattern picking from a pool would otherwise change every frame.
+// Elsewhere, the autocombo's own combo.
+static int autocombo_brush_key[6]={-1,-1,-1,-1,-1,-1};
+static int autocombo_brush_cid=-1;
+static bool autocombo_brush_dirty=false;
+
+static int autocombo_brush_combo()
+{
+    int x=gui_mouse_x();
+    int y=gui_mouse_y();
+    int startxint=mapscreen_x+(showedges?int(16*mapscreensize):0);
+    int startyint=mapscreen_y+(showedges?int(16*mapscreensize):0);
+    int pos=-1;
+
+    if(isinRect(x,y,startxint,startyint,startxint+int(256*mapscreensize)-1,startyint+int(176*mapscreensize)-1))
+        pos=((y-startyint)/int(16*mapscreensize))*16+(x-startxint)/int(16*mapscreensize);
+
+    const int key[6]={pos,combo_auto_pos,zq_autocombo_height,CurrentLayer,Map.getCurrMap(),Map.getCurrScr()};
+
+    if(autocombo_brush_dirty || memcmp(key,autocombo_brush_key,sizeof(key)))
+    {
+        memcpy(autocombo_brush_key,key,sizeof(key));
+        autocombo_brush_dirty=false;
+        autocombo_brush_cid=pos<0 ? -1 : zq_autocombo_floating_cid(combo_auto_pos,Map.getCurrScr(),pos);
+
+        if(getenv("ZQ_AUTOCOMBO_TRACE"))
+            al_trace("autocombo brush: autocombo %d at %d: combo %d\n",combo_auto_pos,pos,autocombo_brush_cid);
+    }
+
+    return autocombo_brush_cid>=0 ? autocombo_brush_cid : cpool_preview_combo(NULL);
+}
 
 void update_combobrush()
 {
@@ -5880,7 +5916,7 @@ void update_combobrush()
     }
     else if(draw_mode==dm_auto)
     {
-        put_combo(brushbmp,0,0,cpool_preview_combo(NULL),CSet,Flags&(cFLAGS|cWALK),0);
+        put_combo(brushbmp,0,0,autocombo_brush_combo(),CSet,Flags&(cFLAGS|cWALK),0);
     }
     else if(draw_mode==dm_alias)
     {
@@ -6095,6 +6131,16 @@ static void draw_cpool_mode(bool justcset)
             else if(!zq_autocombo_draw(combo_auto_pos, Map.getCurrScr(), c, (gui_mouse_b()&2)!=0, pressframe, why))
             {
                 break;
+            }
+            else
+            {
+                // the brush shows what would go here now (upstream: get_autocombo_floating_cid
+                // after each draw_autocombo)
+                autocombo_brush_dirty=true;
+                update_combobrush();
+
+                if(getenv("ZQ_AUTOCOMBO_TRACE"))
+                    al_trace("autocombo placed: autocombo %d at %d: combo %d\n",combo_auto_pos,c,(int)Map.AbsoluteScr(drawmap, drawscr)->data[c]);
             }
 
             pressframe=false;
@@ -24484,6 +24530,21 @@ int main(int argc,char **argv)
             }
 
             exit(ret);
+        }
+
+        // -qst-inst-dump in.qst out.txt: every placed script's run arguments and stored
+        // variable values of a 3.0 quest, one per line (zq_compile_remap.cpp)
+        int inst_arg = used_switch(argc,argv,"-qst-inst-dump");
+
+        if(inst_arg && argc>inst_arg+2)
+        {
+            extern bool skip_quest_password;
+            extern bool zq_batch_load;
+            extern bool zq_remap_dump(const char *path);
+            skip_quest_password = true;
+            zq_batch_load = true;
+            int ret = load_quest(argv[inst_arg+1],true,true);
+            exit(ret == qe_OK ? (zq_remap_dump(argv[inst_arg+2]) ? 0 : 3) : 2);
         }
 
         // -qst-sections in.qst report.txt: a quest's section versions against this build's

@@ -2064,22 +2064,28 @@ static void walk_screen_data(TapeParser &p)
 // bounded_map<word, std::map<word, int>> (generic script instance values)
 static void walk_gen_inst(TapeParser &p)
 {
-    if(!p.rd(2))
-        return;
+    const size_t start = p.pos;
 
-    const uint64_t pairs = p.rd(1);
-    const size_t count = (size_t)p.rd(2);
-
-    for(size_t q = 0; q < count && !p.bad; ++q)
+    if(p.rd(2))
     {
-        const int slot = pairs ? (int)p.rd(2) : (int)q;
-        const size_t at = p.pos + 4;
-        const size_t n = (size_t)p.rd(4);
-        walk_count(p, n, 6);
+        const uint64_t pairs = p.rd(1);
+        const size_t count = (size_t)p.rd(2);
 
-        if(zq_tape_inst_hook && !p.src && !p.bad)
-            zq_tape_inst_hook("init.gen_inst", slot, NULL, p.d + at, n);
+        for(size_t q = 0; q < count && !p.bad; ++q)
+        {
+            const int slot = pairs ? (int)p.rd(2) : (int)q;
+            const size_t at = p.pos + 4;
+            const size_t n = (size_t)p.rd(4);
+            walk_count(p, n, 6);
+
+            if(zq_tape_inst_hook && !p.src && !p.bad)
+                zq_tape_inst_hook("init.gen_inst", slot, NULL, p.d + at, n);
+        }
     }
+
+    // the whole container, for a listener that writes it again: where it is and its size
+    if(zq_tape_inst_hook && !p.src && !p.bad)
+        zq_tape_inst_hook("init.gen_inst.map", 0, NULL, p.d + start, p.pos - start);
 }
 
 static void walk_script_args(TapeParser &p, const char *key, int slot)

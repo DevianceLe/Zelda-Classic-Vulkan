@@ -724,6 +724,29 @@ static void zq_newer_file_done(bool saving, const char *path, bool ok, const std
     zq_long_alert(ok ? "ZQuest" : "Error", text);
 }
 
+// The item and enemy listers' Save and Load for a 2.55 / 3.0 quest (upstream's .zitem and .znpc
+// files, zqx_export_one / zqx_import_one). True when the item or enemy changed.
+bool zq_newer_one_file(bool item, int index, bool saving)
+{
+    char title[160];
+    extern char *item_string[];
+    extern char *guy_string[];
+    const char *name = item ? item_string[index] : guy_string[index];
+
+    if(saving)
+        snprintf(title, sizeof(title), "Save %s '%s' #%d (.%s)", item ? "Item" : "NPC", name, index, item ? "zitem" : "znpc");
+    else
+        snprintf(title, sizeof(title), "Load %s (replacing '%s' #%d) (.%s)", item ? "Item" : "NPC", name, index, item ? "zitem" : "znpc");
+
+    if(!getname(title, item ? "zitem" : "znpc", NULL, datapath, false))
+        return false;
+
+    std::string why, note;
+    const bool ok = saving ? zqx_export_one(item, index, temppath, why) : zqx_import_one(item, index, temppath, why, note);
+    zq_newer_file_done(saving, temppath, ok, why, note);
+    return ok && !saving;
+}
+
 static int zq_newer_export_dmaps()
 {
     int first = getnumber("First DMap", 0);

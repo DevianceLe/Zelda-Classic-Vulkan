@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <chrono>
 #include <ctype.h>
+#include <float.h>
 #include <stdio.h>
 #include <string.h>
 #include <map>
@@ -40,7 +41,19 @@ extern zquestheader header;
 namespace
 {
 
-enum Page { PAGE_MAIN, PAGE_EDIT, PAGE_LOAD, PAGE_EXPORT, PAGE_SETTINGS, PAGE_VIEW, PAGE_COMPILING, PAGE_RESULT, PAGE_ASSIGN, PAGE_DONE };
+enum Page { PAGE_MAIN, PAGE_EDIT, PAGE_LOAD, PAGE_EXPORT, PAGE_SETTINGS, PAGE_VIEW, PAGE_COMPILING, PAGE_RESULT, PAGE_ASSIGN, PAGE_DONE,
+            PAGE_REMAP };
+
+// One row of the remap question (upstream's InstVarRemapDialog::Choice): an old variable with
+// values set, or a converted script's run() parameter with InitD values, and the new variable
+// that takes them (-1: none, the values are discarded / stay InitD only).
+struct RemapChoice
+{
+    int remap;          // which of the plan's slots
+    int old_id;
+    int new_id;
+    bool initd;
+};
 
 struct CompileDialog
 {
@@ -76,6 +89,13 @@ struct CompileDialog
     int assign_mode;
     int assign_ms;
 
+    // 3.0: the slots whose placed scripts' values move with this assignment, the question about
+    // them, and the names the assignment is made with once it is answered
+    std::vector<ZqSlotRemap> plan;
+    std::vector<RemapChoice> choices;
+    std::map<int, std::string> plan_names[ZQS_COUNT];
+    std::string moved;              // what the assignment moved (upstream's log lines)
+
     CompileDialog() : open(false), close(false), focus(false), have_rect(false), wx(0), wy(0), ww(0), wh(0), page(PAGE_MAIN), is30(false), confirm(false), timeout(30),
                       have_rules(false), static_members(-1), view_type(0), view_slot(0), alphabetize(false), hide_empty(false),
                       assign_type(0), assign_slot(0), assign_script(0), cancel(false), running(false), finished(false), want(0),
@@ -86,7 +106,7 @@ struct CompileDialog
     }
 };
 
-enum Want { WANT_NONE, WANT_COMPILE, WANT_ASSIGN, WANT_LOAD, WANT_EXPORT, WANT_SETTINGS };
+enum Want { WANT_NONE, WANT_COMPILE, WANT_ASSIGN, WANT_LOAD, WANT_EXPORT, WANT_SETTINGS, WANT_ASSIGN_REMAPPED = 50 };
 
 CompileDialog g_cd;
 std::thread g_worker;
@@ -283,6 +303,11 @@ const char *page_title(int page)
     case PAGE_RESULT: return "ZScript Parser";
     case PAGE_ASSIGN: return "Assign Compiled Scripts";
     case PAGE_DONE: return "Slots Assigned";
+    case PAGE_REMAP:
+        for(size_t i = 0; i < g_cd.choices.size(); ++i)
+            if(g_cd.choices[i].initd)
+                return "Move InitD Values?";
+        return "Renamed Script Variables?";
     }
     return "Compile ZScript";
 }
@@ -796,10 +821,285 @@ void page_assign(CompileDialog &e, float sc)
         e.page = PAGE_MAIN;
 }
 
+// ---- the remap question (upstream's zq/dialog/inst_var_remap.cpp) ---------------------------
+
+std::string describe_var(const ZqInstVar &var, const std::map<word, std::string> &labels)
+{
+    std::map<word, std::string>::const_iterator it = labels.find(var.id);
+    return var.type_name + " " + var.name + (it == labels.end() ? std::string() : " (\"" + it->second + "\")");
+}
+
+const ZqInstVar *param_of(const ZqVarRemap &m, int id)
+{
+    for(size_t i = 0; i < m.old_params.size(); ++i)
+        if(m.old_params[i].id == id)
+            return &m.old_params[i];
+
+    return NULL;
+}
+
+std::string choice_old_name(const CompileDialog &e, const RemapChoice &c)
+{
+    const ZqVarRemap &m = e.plan[c.remap].remap;
+
+    if(c.initd)
+    {
+        const ZqInstVar *p = param_of(m, c.old_id);
+        return p ? p->name : std::string();
+    }
+
+    std::map<word, ZqInstVar>::const_iterator it = m.old_vars.find((word)c.old_id);
+    return it == m.old_vars.end() ? std::string() : it->second.name;
+}
+
+// The rows to ask about: for every slot that needs it, its converted parameters that have InitD
+// values (each first going to the variable of its name) and its variables that are gone but
+// have values (a lone rename of the same type is chosen first; otherwise the user chooses).
+void build_choices(CompileDialog &e)
+{
+    e.choices.clear();
+
+    for(size_t ri = 0; ri < e.plan.size(); ++ri)
+    {
+        const ZqSlotRemap &r = e.plan[ri];
+
+        if(!r.needs_user_mapping())
+            continue;
+
+        const std::vector<ZqInstVar> uo = r.unmatched_old(), un = r.unmatched_new();
+
+        for(size_t i = 0; i < r.remap.old_params.size(); ++i)
+        {
+            const ZqInstVar &param = r.remap.old_params[i];
+
+            if(!r.initd_value_counts.count(param.id))
+                continue;
+
+            RemapChoice c = { (int)ri, param.id, -1, true };
+
+            for(size_t k = 0; k < r.remap.initd_moves.size(); ++k)
+                if(r.remap.initd_moves[k].initd == param.id)
+                    c.new_id = r.remap.initd_moves[k].new_id;
+
+            e.choices.push_back(c);
+        }
+
+        int guess = -1;
+
+        if(uo.size() == 1 && un.size() == 1 && uo[0].type_name == un[0].type_name)
+            guess = un[0].id;
+
+        for(size_t i = 0; i < uo.size(); ++i)
+            if(r.unmatched_value_counts.count(uo[i].id))
+            {
+                RemapChoice c = { (int)ri, uo[i].id, guess, false };
+                e.choices.push_back(c);
+            }
+    }
+}
+
+// Two rows of one script going to the same new variable: only one can give it values.
+std::string choice_conflict(const CompileDialog &e, size_t i)
+{
+    const RemapChoice &c = e.choices[i];
+    std::string others;
+
+    if(c.new_id < 0)
+        return others;
+
+    for(size_t k = 0; k < e.choices.size(); ++k)
+        if(k != i && e.choices[k].remap == c.remap && e.choices[k].new_id == c.new_id)
+            others += (others.empty() ? "" : ", ") + choice_old_name(e, e.choices[k]);
+
+    return others;
+}
+
+// The answers into the plan's remaps (upstream's handleMessage OK).
+void take_choices(CompileDialog &e)
+{
+    for(size_t i = 0; i < e.choices.size(); ++i)
+    {
+        const RemapChoice &c = e.choices[i];
+        ZqVarRemap &m = e.plan[c.remap].remap;
+
+        if(c.initd)
+        {
+            std::vector<ZqInitDMove> keep;
+
+            for(size_t k = 0; k < m.initd_moves.size(); ++k)
+                if(m.initd_moves[k].initd != c.old_id)
+                    keep.push_back(m.initd_moves[k]);
+
+            if(c.new_id >= 0)
+            {
+                const ZqInstVar *p = param_of(m, c.old_id);
+                ZqInitDMove mv = { c.old_id, (byte)(p ? p->kind : 0), (word)c.new_id };
+                keep.push_back(mv);
+            }
+
+            m.initd_moves.swap(keep);
+        }
+        else if(c.new_id >= 0)
+            m.old_to_new[(word)c.old_id] = (word)c.new_id;
+    }
+
+    e.choices.clear();
+}
+
+void page_remap(CompileDialog &e, float sc)
+{
+    bool any_initd = false, any_vars = false, conflicts = false;
+
+    for(size_t i = 0; i < e.choices.size(); ++i)
+        (e.choices[i].initd ? any_initd : any_vars) = true;
+
+    // the explanation scrolls with the rows, so the buttons stay in reach in a small window
+    const float bottom = ImGui::GetFrameHeightWithSpacing() * 3 + ImGui::GetStyle().ItemSpacing.y;
+
+    if(ImGui::BeginChild("remaps", ImVec2(0, -bottom), true))
+    {
+    if(any_initd)
+        ImGui::TextWrapped("These scripts' run() parameters (InitD) were replaced with variables. Each parameter's values (on "
+                           "FFCs, combos, items, etc.) are copied to the variable chosen for it - initially the one of the same "
+                           "name. InitD itself is left as is.");
+
+    if(any_vars)
+        ImGui::TextWrapped("These script variables have values set (on FFCs, combos, items, etc.), but no longer exist after "
+                           "compiling. If a variable was renamed, choose its new name to keep its values. Otherwise, its values "
+                           "will be discarded.");
+
+    ImGui::TextWrapped("Cancel to leave all scripts as they were.");
+
+        if(ImGui::BeginTable("rows", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp))
+        {
+            ImGui::TableSetupColumn("Script");
+            ImGui::TableSetupColumn("Old Variable");
+            ImGui::TableSetupColumn("New Variable");
+            ImGui::TableHeadersRow();
+
+            for(size_t i = 0; i < e.choices.size(); ++i)
+            {
+                RemapChoice &c = e.choices[i];
+                const ZqSlotRemap &r = e.plan[c.remap];
+                ImGui::PushID((int)i);
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::AlignTextToFramePadding();
+                ImGui::Text("%s '%s'", zq_slot_type(r.type).name, r.script_name.c_str());
+                ImGui::TableNextColumn();
+                ImGui::AlignTextToFramePadding();
+                std::string old_text;
+                int count = 0;
+
+                if(c.initd)
+                {
+                    const ZqInstVar *p = param_of(r.remap, c.old_id);
+                    old_text = "InitD[" + std::to_string(c.old_id) + "] " + (p ? p->type_name + " " + p->name : std::string());
+                    std::map<int, int>::const_iterator n = r.initd_value_counts.find(c.old_id);
+                    count = n == r.initd_value_counts.end() ? 0 : n->second;
+                }
+                else
+                {
+                    std::map<word, ZqInstVar>::const_iterator v = r.remap.old_vars.find((word)c.old_id);
+                    old_text = v == r.remap.old_vars.end() ? std::string() : describe_var(v->second, r.old_labels);
+                    std::map<word, int>::const_iterator n = r.unmatched_value_counts.find((word)c.old_id);
+                    count = n == r.unmatched_value_counts.end() ? 0 : n->second;
+                }
+
+                ImGui::TextUnformatted(old_text.c_str());
+
+                if(ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Has values set in %d place%s.", count, count == 1 ? "" : "s");
+
+                ImGui::TableNextColumn();
+
+                // any exported variable not taking an old variable of the same name
+                std::vector<std::pair<int, std::string> > list;
+                list.push_back(std::make_pair(-1, std::string("(Discard values)")));
+
+                for(std::map<word, ZqInstVar>::const_iterator v = r.remap.new_vars.begin(); v != r.remap.new_vars.end(); ++v)
+                {
+                    bool matched = false;
+
+                    for(std::map<word, word>::const_iterator o = r.remap.old_to_new.begin(); o != r.remap.old_to_new.end(); ++o)
+                        matched = matched || o->second == v->first;
+
+                    if(!matched && r.new_labels.count(v->first))
+                        list.push_back(std::make_pair((int)v->first, describe_var(v->second, r.new_labels)));
+                }
+
+                std::string now = list[0].second;
+
+                for(size_t k = 0; k < list.size(); ++k)
+                    if(list[k].first == c.new_id)
+                        now = list[k].second;
+
+                const std::string clash = choice_conflict(e, i);
+                conflicts = conflicts || !clash.empty();
+
+                if(!clash.empty())
+                    ImGui::PushStyleColor(ImGuiCol_Text, COL_ERROR);
+
+                ImGui::SetNextItemWidth(-FLT_MIN);
+
+                if(ImGui::BeginCombo("##new", now.c_str()))
+                {
+                    for(size_t k = 0; k < list.size(); ++k)
+                        if(ImGui::Selectable(list[k].second.c_str(), list[k].first == c.new_id))
+                            c.new_id = list[k].first;
+
+                    ImGui::EndCombo();
+                }
+
+                if(!clash.empty())
+                {
+                    ImGui::PopStyleColor();
+
+                    if(ImGui::IsItemHovered())
+                        ImGui::SetTooltip("It is also chosen for %s.\nOnly one of them can give it values.", clash.c_str());
+                }
+
+                ImGui::PopID();
+            }
+
+            ImGui::EndTable();
+        }
+    }
+
+    ImGui::EndChild();
+
+    if(conflicts)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, COL_ERROR);
+        ImGui::TextWrapped("Each new variable can only take one old variable's values. Choose a different variable, or "
+                           "discard, for all but one of those in red.");
+        ImGui::PopStyleColor();
+    }
+
+    ImGui::BeginDisabled(conflicts);
+
+    if(ImGui::Button("OK", ImVec2(90 * sc, 0)))
+        e.want = WANT_ASSIGN_REMAPPED;
+
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+
+    if(ImGui::Button("Cancel", ImVec2(90 * sc, 0)))
+    {
+        e.choices.clear();
+        e.plan.clear();
+        e.page = e.assign_mode ? PAGE_RESULT : PAGE_ASSIGN;
+    }
+}
+
 void page_done(CompileDialog &e, float sc)
 {
     ImGui::TextUnformatted("ZScripts successfully loaded into script slots");
     ImGui::Text("Assign Slots took %d ms", e.assign_ms);
+
+    if(!e.moved.empty())
+        ImGui::TextWrapped("%s", e.moved.c_str());
+
     ImGui::TextDisabled("The quest's scripts change when it is saved.");
 
     if(ImGui::Button("OK", ImVec2(90 * sc, 0)))
@@ -864,6 +1164,7 @@ void dialog_layer(void *)
         case PAGE_RESULT: page_result(e, sc); break;
         case PAGE_ASSIGN: page_assign(e, sc); break;
         case PAGE_DONE: page_done(e, sc); break;
+        case PAGE_REMAP: page_remap(e, sc); break;
         default: page_main(e, sc); break;
         }
 
@@ -1113,7 +1414,29 @@ void run(void)
             // under the UI lock: the dialog shows the buffer and the slots this replaces
             zcui::Lock lock;
             std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
-            const bool ok = zq_compile_assign(g_cd.result, names, why);
+
+            // 3.0: the values placed scripts hold follow their variables; when some have no
+            // variable of their name any more, the user says where they go first
+            bool ok = zq_compile_plan_remaps(g_cd.result, names, g_cd.plan, why);
+            g_cd.moved.clear();
+
+            if(ok)
+            {
+                build_choices(g_cd);
+
+                if(!g_cd.choices.empty())
+                {
+                    for(int t = 0; t < ZQS_COUNT; ++t)
+                        g_cd.plan_names[t] = names[t];
+
+                    g_cd.page = PAGE_REMAP;
+                    g_cd.error.clear();
+                    break;
+                }
+
+                ok = zq_compile_assign(g_cd.result, names, why, &g_cd.plan, &g_cd.moved);
+            }
+
             g_cd.assign_ms = (int)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
 
             if(ok)
@@ -1123,6 +1446,20 @@ void run(void)
             }
             else
                 g_cd.error = "The scripts couldn't be assigned: " + why + ". Nothing was changed.";
+            break;
+        }
+
+        case WANT_ASSIGN_REMAPPED:
+        {
+            // the question is answered: the assignment it was asked for
+            std::string why;
+            zcui::Lock lock;
+            std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+            take_choices(g_cd);
+            const bool ok = zq_compile_assign(g_cd.result, g_cd.plan_names, why, &g_cd.plan, &g_cd.moved);
+            g_cd.assign_ms = (int)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+            g_cd.page = ok ? PAGE_DONE : (g_cd.assign_mode ? PAGE_RESULT : PAGE_ASSIGN);
+            g_cd.error = ok ? std::string() : "The scripts couldn't be assigned: " + why + ". Nothing was changed.";
             break;
         }
 

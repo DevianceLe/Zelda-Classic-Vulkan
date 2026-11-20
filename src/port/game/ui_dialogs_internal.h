@@ -197,7 +197,8 @@ struct Event
         MENU_PICK,      // a menu item was chosen
         KEY,            // a key for the dialog (Allegro ascii / scancode)
         CLOSE,          // the window's close button
-        CANVAS          // a press on a K_CUSTOM object (value = mouse buttons)
+        CANVAS,         // a press on a K_CUSTOM object (value = mouse buttons)
+        RCLICK          // right click on a list item (value = the item)
     };
     Type type;
     int obj;

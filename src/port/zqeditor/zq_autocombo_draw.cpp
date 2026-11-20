@@ -143,6 +143,42 @@ bool zq_autocombo_draw(int index, int screen, int pos, bool rclick, bool pressfr
     return true;
 }
 
+// Upstream get_autocombo_floating_cid: the combo the autocombo would place at a screen's combo
+// position on the current map and layer, which the brush shows (upstream's combobrushoverride).
+// Nothing is changed. -1 when the autocombo isn't valid.
+int zq_autocombo_floating_cid(int index, int screen, int pos)
+{
+    if(index < 0 || index >= MAXAUTOCOMBOS || pos < 0 || pos >= 176)
+        return -1;
+
+    combo_auto &ca = combo_autos[index];
+
+    if(!ca.valid())
+        return -1;
+
+    const int type = ca.getType();
+    const int layer = CurrentLayer;
+
+#define ZQ_FLOAT(P, ...) { AutoPattern::P ap(type, layer, screen, pos, &ca, ##__VA_ARGS__); return ap.get_floating_cid(screen, pos); }
+    switch(type)
+    {
+    case AUTOCOMBO_BASIC: ZQ_FLOAT(autopattern_basic)
+    case AUTOCOMBO_Z1: ZQ_FLOAT(autopattern_flatmtn)
+    case AUTOCOMBO_FENCE: ZQ_FLOAT(autopattern_fence)
+    case AUTOCOMBO_Z4: ZQ_FLOAT(autopattern_cakemtn, (byte)zq_autocombo_height)
+    case AUTOCOMBO_RELATIONAL: ZQ_FLOAT(autopattern_relational)
+    case AUTOCOMBO_DGNCARVE: ZQ_FLOAT(autopattern_dungeoncarve)
+    case AUTOCOMBO_DOR: ZQ_FLOAT(autopattern_dormtn, (byte)zq_autocombo_height)
+    case AUTOCOMBO_TILING: ZQ_FLOAT(autopattern_tiling)
+    case AUTOCOMBO_REPLACE: ZQ_FLOAT(autopattern_replace)
+    case AUTOCOMBO_DENSEFOREST: ZQ_FLOAT(autopattern_denseforest)
+    case AUTOCOMBO_EXTEND: ZQ_FLOAT(autopattern_extend)
+    }
+#undef ZQ_FLOAT
+
+    return 0;
+}
+
 // Upstream draw_autocombo_command: Fence and Pancake Mountain flip everything connected to the
 // position between facing in and out (Ctrl+click), or (cmd 1) a Pancake Mountain changes height.
 void zq_autocombo_command(int index, int screen, int pos, int cmd, int arg)

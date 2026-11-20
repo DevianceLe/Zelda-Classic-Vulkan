@@ -84,6 +84,7 @@ set(ZQEDITOR_SOURCES
 	${ZCPORT_DIR}/zqeditor/zq_compile.cpp
 	${ZCPORT_DIR}/zqeditor/zq_compile_dialog.cpp
 	${ZCPORT_DIR}/zqeditor/zq_compile_proc.cpp
+	${ZCPORT_DIR}/zqeditor/zq_compile_remap.cpp
 	# 3.0's scrolling regions, and the combo pools and autocombos of 2.55.17 and 3.0: the store,
 	# the editors, the map editor's Pool and Autocombo drawing modes and upstream's patterns
 	${ZCPORT_DIR}/zqeditor/zq_cpool.cpp

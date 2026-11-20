@@ -61,15 +61,6 @@ extern zquestheader header;
 bool zq255_quest_is_newer();
 void zasm30_reset();
 bool zq255_misc_commit(const std::map<std::string, TapeField> &edits, std::string &why);
-bool zq255_item_records_all(std::vector<std::vector<byte> > &recs, int *version);  // zqw_items.cpp
-bool zq255_guy_records_all(std::vector<std::vector<byte> > &recs, int *version);   // zqw_guys.cpp
-bool zq255_dmap_records_all(std::vector<std::vector<byte> > &recs, int *version);  // zqw_maps.cpp
-bool zq255_screen_records_all(std::vector<std::vector<byte> > &recs, int *version);
-extern itemdata *itemsbuf;
-extern std::vector<mapscr> TheMaps;
-bool zq255_init_record(std::vector<byte> &rec, int *version);                 // zqw_init.cpp
-bool zq255_subs_record(std::vector<byte> &rec, int *version);
-bool zq255_misc_record(std::vector<byte> &rec, int *version);                 // zqw_basic.cpp
 
 namespace
 {
@@ -116,6 +107,7 @@ struct LoadedSlot
     int script_type;            // its metadata's script type
     std::string script_name;    // its metadata's script name
     std::vector<word> exports;  // 3.0: the ids of its exported variables
+    std::map<word, std::string> export_labels;     // and their labels
     std::vector<byte> bytes;    // the record, kept for slots holding a script
     LoadedSlot() : code(false), flags(0), script_type(0) {}
 };
@@ -251,7 +243,7 @@ void skip_literal(Rd &r)
 
 // A 3.0 slot's two tables: the instance variables' initial values, and the exported variables
 // (their ids are kept in 'exports').
-void instance_tables(Rd &r, int v, std::vector<word> &exports)
+void instance_tables(Rd &r, int v, std::vector<word> &exports, std::map<word, std::string> &labels)
 {
     long size = r.w();
 
@@ -273,8 +265,12 @@ void instance_tables(Rd &r, int v, std::vector<word> &exports)
         {
             // stored as (id, variable) pairs, or as every id from 0 with unused ones blank
             const long id = pairs ? r.w() : i;
-            if(!r.cstr_get().empty())
+            const std::string label = r.cstr_get();
+            if(!label.empty())
+            {
                 exports.push_back((word)id);
+                labels[(word)id] = label;
+            }
             r.lstr();
             r.skip(1);
 
@@ -310,7 +306,7 @@ void read_slot(Rd &r, int v, int meta, LoadedSlot *out)
             read_meta(r, meta, s);
             r.skip(8);      // start and end
             if(v >= 30)
-                instance_tables(r, v, s.exports);
+                instance_tables(r, v, s.exports, s.export_labels);
             s.code = true;
         }
     }
@@ -668,7 +664,7 @@ bool read_assembled_30(const std::string &path, ZqCompileResult &r)
     dword format = get32(d, pos, ok), v = get32(d, pos, ok), meta = get32(d, pos, ok);
     get32(d, pos, ok);
 
-    if(!ok || format != 2 || v != (dword)V_30 || meta != (dword)META_30)
+    if(!ok || format != 3 || v != (dword)V_30 || meta != (dword)META_30)
         return false;
 
     std::map<std::string, int> types;
@@ -716,34 +712,71 @@ bool read_assembled_30(const std::string &path, ZqCompileResult &r)
         std::vector<byte> nm;
         get_bytes(d, pos, nm, ok);
         ZqVarRemap &m = r.remaps[std::string(nm.begin(), nm.end())];
+
+        // a variable: id, kind, name, type name
+        struct Var
+        {
+            static bool get(const std::vector<byte> &d, size_t &pos, ZqInstVar &v, bool &ok)
+            {
+                if(!ok || d.size() - pos < 3)
+                    return ok = false;
+
+                v.id = (word)(d[pos] | (d[pos + 1] << 8));
+                v.kind = d[pos + 2];
+                pos += 3;
+                std::vector<byte> t;
+                get_bytes(d, pos, t, ok);
+                v.name.assign(t.begin(), t.end());
+                get_bytes(d, pos, t, ok);
+                v.type_name.assign(t.begin(), t.end());
+                return ok;
+            }
+        };
+
+        for(int which = 0; which < 2 && ok; ++which)
+        {
+            const dword k = get32(d, pos, ok);
+
+            for(dword j = 0; j < k && ok; ++j)
+            {
+                ZqInstVar v;
+
+                if(Var::get(d, pos, v, ok))
+                    (which ? m.new_vars : m.old_vars)[v.id] = v;
+            }
+        }
+
         dword k = get32(d, pos, ok);
 
-        if(!ok || k > (d.size() - pos) / 3)
+        if(!ok || k > (d.size() - pos) / 4)
             return false;
 
-        for(dword j = 0; j < k; ++j, pos += 3)
-            m.old_kind[(word)(d[pos] | (d[pos + 1] << 8))] = d[pos + 2];
+        for(dword j = 0; j < k; ++j, pos += 4)
+            m.old_to_new[(word)(d[pos] | (d[pos + 1] << 8))] = (word)(d[pos + 2] | (d[pos + 3] << 8));
 
         k = get32(d, pos, ok);
 
-        if(!ok || k > (d.size() - pos) / 5)
-            return false;
-
-        for(dword j = 0; j < k; ++j, pos += 5)
+        for(dword j = 0; j < k && ok; ++j)
         {
-            const word old_id = (word)(d[pos] | (d[pos + 1] << 8));
-            m.old_to_new[old_id] = (word)(d[pos + 2] | (d[pos + 3] << 8));
-            m.new_kind[old_id] = d[pos + 4];
+            ZqInstVar v;
+
+            if(Var::get(d, pos, v, ok))
+                m.old_params.push_back(v);
         }
 
         k = get32(d, pos, ok);
 
-        if(!ok || k > (d.size() - pos) / 6)
+        if(!ok || k > (d.size() - pos) / 7)
             return false;
 
-        for(dword j = 0; j < k; ++j, pos += 6)
-            m.initd_moves.push_back(std::make_pair((int)(d[pos] | (d[pos + 1] << 8) | (d[pos + 2] << 16) | (d[pos + 3] << 24)),
-                                                   (word)(d[pos + 4] | (d[pos + 5] << 8))));
+        for(dword j = 0; j < k; ++j, pos += 7)
+        {
+            ZqInitDMove mv;
+            mv.initd = (int)(d[pos] | (d[pos + 1] << 8) | (d[pos + 2] << 16) | (d[pos + 3] << 24));
+            mv.kind = d[pos + 4];
+            mv.new_id = (word)(d[pos + 5] | (d[pos + 6] << 8));
+            m.initd_moves.push_back(mv);
+        }
     }
 
     return ok && pos == d.size();
@@ -1295,219 +1328,88 @@ void zq_slots_auto(const ZqCompileResult &r, int mode, std::map<int, std::string
 
 // 3.0: a script's exported variables have values set per placed script (on FFCs, combos, items,
 // enemies, DMaps, screens, subscreens, init data), stored by the variable's index. When a compile
-// moves those variables, or turns run() parameters into exported variables, upstream's ZQuest
-// moves the stored values with them (src/zq/script_slot_remap.cpp, plan_slot_remaps and
-// apply_slot_remaps). This ZQuest doesn't hold those values in a form it can move, so such an
-// assignment is refused instead of leaving the values on the wrong variables. As upstream, only
-// a slot that keeps the script it had is looked at. False (why set) when a script is affected.
-// What the placed scripts of one slot hold: the exported variables that have a value set on
-// some placed script, and the run arguments (InitD) set to something other than 0.
-struct InstUse
+// moves those variables, or turns run() parameters into exported variables, the stored values
+// move with them, as in upstream's ZQuest (src/zq/script_slot_remap.cpp): this is its
+// plan_slot_remaps; zq_compile_remap.cpp counts and moves the values. As upstream, only a slot
+// that keeps the script it had is looked at.
+std::vector<ZqInstVar> ZqSlotRemap::unmatched_old() const
 {
-    std::set<word> vars;
-    std::set<int> args;
-};
+    std::vector<ZqInstVar> vars;
 
-// (slot type, slot) -> InstUse, filled by the tape hook below
-static std::map<std::pair<int, int>, InstUse> *g_inst_uses = NULL;
-static int g_inst_section = 0;      // which section the walk is in (an InstSection)
+    for(std::map<word, ZqInstVar>::const_iterator it = remap.old_vars.begin(); it != remap.old_vars.end(); ++it)
+        if(!remap.old_to_new.count(it->first))
+            vars.push_back(it->second);
 
-enum InstSection { IS_ITEM, IS_GUY, IS_DMAP, IS_SCREEN, IS_INIT, IS_MISC, IS_SUBS };
-
-static bool key_is(const char *key, const char *want)
-{
-    return strcmp(key, want) == 0;
+    return vars;
 }
 
-// The slot type a script config is for, by the section and its field key (upstream's
-// for_each_inst_init lists the same configs). -1: not one of them.
-static int inst_type(int section, const char *key)
+// only exported variables can take an old variable's values; one that gets InitD values can't
+// be a renamed variable
+std::vector<ZqInstVar> ZqSlotRemap::unmatched_new() const
 {
-    const size_t n = strlen(key);
-    const bool weapon = n >= 5 && strcmp(key + n - 5, "wd.sc") == 0;
+    std::vector<ZqInstVar> vars;
 
-    switch(section)
+    for(std::map<word, ZqInstVar>::const_iterator it = remap.new_vars.begin(); it != remap.new_vars.end(); ++it)
     {
-    case IS_ITEM:
-        return weapon ? ZQS_LWEAPON : key_is(key, "sc.sprite") ? ZQS_ITEMSPRITE : ZQS_ITEM;
-    case IS_GUY:
-        return weapon ? ZQS_EWEAPON : ZQS_NPC;
-    case IS_DMAP:
-        return ZQS_DMAP;
-    case IS_SCREEN:
-        return strncmp(key, "ffc", 3) == 0 ? ZQS_FFC : ZQS_SCREEN;
-    case IS_INIT:
-        return key_is(key, "init.global") ? ZQS_GLOBAL : key_is(key, "init.hero") ? ZQS_HERO :
-               strncmp(key, "init.gen", 8) == 0 ? ZQS_GENERIC : -1;
-    case IS_MISC:
-        return key_is(key, "misc.save_menu") ? ZQS_GENERIC : -1;
-    case IS_SUBS:
-    {
-        // "s3.script" is a subscreen's own script; a widget's ("s3.p0.w2.script") is generic
-        int sub = 0, len = 0;
-        return sscanf(key, "s%d.script%n", &sub, &len) == 1 && key[len] == 0 ? ZQS_SUBSCREEN : ZQS_GENERIC;
-    }
+        bool taken = !new_exports.count(it->first);
+
+        for(std::map<word, word>::const_iterator o = remap.old_to_new.begin(); o != remap.old_to_new.end() && !taken; ++o)
+            taken = o->second == it->first;
+
+        for(size_t i = 0; i < remap.initd_moves.size() && !taken; ++i)
+            taken = remap.initd_moves[i].new_id == it->first;
+
+        if(!taken)
+            vars.push_back(it->second);
     }
 
-    return -1;
+    return vars;
 }
 
-static void note_inst(int type, int script, const long *initd, const byte *inst, size_t pairs)
+bool ZqSlotRemap::needs_user_mapping() const
 {
-    if(type < 0 || (script <= 0 && type != ZQS_GLOBAL && type != ZQS_HERO && type != ZQS_GENERIC))
-        return;
+    const std::vector<ZqInstVar> un = unmatched_new();
 
-    InstUse &u = (*g_inst_uses)[std::make_pair(type, script)];
+    // a conversion is confirmed by the user, as long as there's a variable the InitD values
+    // could go to
+    if(!remap.old_params.empty() && !initd_value_counts.empty() && (!un.empty() || !remap.initd_moves.empty()))
+        return true;
 
-    for(size_t q = 0; inst && q < pairs; ++q)
-        u.vars.insert((word)(inst[q * 6] | (inst[q * 6 + 1] << 8)));
+    if(un.empty())
+        return false;
 
-    for(int q = 0; initd && q < 8; ++q)
-        if(initd[q])
-            u.args.insert(q);
+    const std::vector<ZqInstVar> uo = unmatched_old();
+
+    for(size_t i = 0; i < uo.size(); ++i)
+        if(unmatched_value_counts.count(uo[i].id))
+            return true;
+
+    return false;
 }
 
-static void inst_hook(const char *key, int script, const long *initd, const byte *inst, size_t pairs)
+static bool remap_is_identity(const ZqVarRemap &m)
 {
-    if(g_inst_uses)
-        note_inst(inst_type(g_inst_section, key), script, initd, inst, pairs);
-}
+    if(m.old_to_new.size() != m.old_vars.size() || !m.old_params.empty())
+        return false;
 
-typedef bool (*InstSchema)(TapeParser &, int);
-
-static bool walk_inst(int section, InstSchema schema, const std::vector<byte> &rec, int v)
-{
-    Tape t;
-    TapeParser p(rec.empty() ? NULL : &rec[0], rec.size(), 0, &t);
-    g_inst_section = section;
-    return schema(p, v) && !p.bad;
-}
-
-// Combo instance values, kept as bytes with their word count in front
-static void note_combo_inst(int type, word script, const long *initd, const std::vector<byte> &raw)
-{
-    const size_t pairs = raw.size() >= 2 ? (size_t)(raw[0] | (raw[1] << 8)) : 0;
-    note_inst(type, script, initd, raw.size() >= 2 + pairs * 6 ? &raw[2] : NULL, pairs);
-}
-
-// Every placed script's stored run arguments and exported-variable values, as ZQuest holds
-// the quest now (its edits included): screens and their FFCs, combos and their weapon data,
-// DMaps, items, enemies, subscreens and their widgets, save menus, init data. False when a
-// section couldn't be walked; the caller then has to assume values are there.
-static bool collect_inst_uses(std::map<std::pair<int, int>, InstUse> &uses)
-{
-    uses.clear();
-    g_inst_uses = &uses;
-    zq_tape_inst_hook = inst_hook;
-    bool ok = true;
-    std::vector<byte> rec;
-    std::vector<std::vector<byte> > recs;
-    int v = 0;
-
-    // a section that has records but can't be laid out counts as not walked
-    ok = (zq255_item_records_all(recs, &v) || !find_part(ID_ITEMS)) && ok;
-    for(size_t i = 0; i < recs.size(); ++i)
-        ok = walk_inst(IS_ITEM, zq_tape_item, recs[i], v) && ok;
-
-    ok = (zq255_guy_records_all(recs, &v) || !find_part(ID_GUYS)) && ok;
-    for(size_t i = 0; i < recs.size(); ++i)
-        ok = walk_inst(IS_GUY, zq_tape_guy, recs[i], v) && ok;
-
-    ok = (zq255_dmap_records_all(recs, &v) || !find_part(ID_DMAPS)) && ok;
-    for(size_t i = 0; i < recs.size(); ++i)
-        ok = walk_inst(IS_DMAP, zq_tape_dmap, recs[i], v) && ok;
-
-    ok = (zq255_screen_records_all(recs, &v) || !find_part(ID_MAPS)) && ok;
-    for(size_t i = 0; i < recs.size(); ++i)
-        ok = walk_inst(IS_SCREEN, zq_tape_screen, recs[i], v) && ok;
-
-    // run arguments set in 2.53's dialogs since the load (FFCs and items), which the records
-    // above don't show yet
-    for(size_t s = 0; s < TheMaps.size(); ++s)
-        for(int k = 0; k < 32; ++k)
-            if(TheMaps[s].ffscript[k])
-                note_inst(ZQS_FFC, TheMaps[s].ffscript[k], TheMaps[s].initd[k], NULL, 0);
-
-    for(int i = 0; itemsbuf && i < MAXITEMS; ++i)
-        if(itemsbuf[i].script)
-            note_inst(ZQS_ITEM, itemsbuf[i].script, itemsbuf[i].initiald, NULL, 0);
-
-    if(zq255_init_record(rec, &v))
-        ok = walk_inst(IS_INIT, zq_tape_init, rec, v) && ok;
-
-    if(zq255_misc_record(rec, &v))
-        ok = walk_inst(IS_MISC, zq_tape_misc, rec, v) && ok;
-
-    if(zq255_subs_record(rec, &v))
-        ok = walk_inst(IS_SUBS, zq_tape_subscreens, rec, v) && ok;
-
-    for(int i = 0; i < MAXCOMBOS; ++i)
+    for(std::map<word, word>::const_iterator it = m.old_to_new.begin(); it != m.old_to_new.end(); ++it)
     {
-        const Q30Combo *c = zq255.combos[i];
+        std::map<word, ZqInstVar>::const_iterator o = m.old_vars.find(it->first), n = m.new_vars.find(it->second);
 
-        if(!c)
-            continue;
-
-        note_combo_inst(ZQS_COMBO, c->script, c->initd, c->script_inst_raw);
-
-        // a combo's misc weapon is an LWeapon or an EWeapon by its type: count it for both
-        const Q30WeaponData *w[2] = { &c->lift_weap, &c->misc_weap };
-
-        for(int k = 0; k < 2; ++k)
-        {
-            note_combo_inst(ZQS_LWEAPON, w[k]->script, w[k]->initd, w[k]->inst_raw);
-
-            if(k == 1)
-                note_combo_inst(ZQS_EWEAPON, w[k]->script, w[k]->initd, w[k]->inst_raw);
-        }
+        if(it->first != it->second || o == m.old_vars.end() || n == m.new_vars.end() || o->second.kind != n->second.kind)
+            return false;
     }
 
-    zq_tape_inst_hook = NULL;
-    g_inst_uses = NULL;
-
-    // testing: ZQ_COMPILE_FAKE_INST="type,slot,var;..." adds stored values (var -1: InitD[0])
-    if(const char *fake = getenv("ZQ_COMPILE_FAKE_INST"))
-    {
-        int t = 0, sl = 0, var = 0, len = 0;
-
-        while(sscanf(fake, "%d,%d,%d%n", &t, &sl, &var, &len) == 3)
-        {
-            InstUse &u = uses[std::make_pair(t, sl)];
-
-            if(var < 0)
-                u.args.insert(0);
-            else
-                u.vars.insert((word)var);
-
-            fake += len;
-
-            if(*fake != ';')
-                break;
-
-            ++fake;
-        }
-    }
-
-    if(getenv("ZQ_COMPILE_TRACE"))
-        for(std::map<std::pair<int, int>, InstUse>::const_iterator it = uses.begin(); it != uses.end(); ++it)
-            fprintf(stderr, "inst use: type %d slot %d: %d variables, %d run arguments\n", it->first.first,
-                    it->first.second, (int)it->second.vars.size(), (int)it->second.args.size());
-
-    if(getenv("ZQ_COMPILE_TRACE"))
-        fprintf(stderr, "inst use: every section walked: %s\n", ok ? "yes" : "no");
-
-    return ok;
+    return true;
 }
 
-static bool check_var_remaps(const ZqCompileResult &r, const std::map<int, std::string> names[ZQS_COUNT], std::string &why)
+bool zq_compile_plan_remaps(const ZqCompileResult &r, const std::map<int, std::string> names[ZQS_COUNT],
+                            std::vector<ZqSlotRemap> &plan, std::string &why)
 {
-    // As upstream's plan_slot_remaps, only stored values decide: a moved variable that no placed
-    // script has a value for, or a run() parameter no placed script sets, needs nothing moved.
-    std::map<std::pair<int, int>, InstUse> uses;
-    const bool all_known = collect_inst_uses(uses);
+    plan.clear();
 
-    std::string list;
-    int count = 0;
+    if(!g_st.active || !g_st.is30 || !r.is30 || r.code != 0)
+        return true;
 
     for(int t = 0; t < ZQS_COUNT; ++t)
     {
@@ -1517,9 +1419,10 @@ static bool check_var_remaps(const ZqCompileResult &r, const std::map<int, std::
         {
             const int slot = it->first + ti.offset;
 
-            if(slot < 0 || slot >= ti.table || it->second.empty())
+            if(slot < 0 || slot >= ti.table || it->second.empty() || (size_t)slot >= g_st.loaded[t].size())
                 continue;
 
+            // a slot given a different script keeps its values as they are
             const LoadedSlot &ls = g_st.loaded[t][slot];
             std::map<std::string, ZqVarRemap>::const_iterator rm = r.remaps.find(it->second);
             std::map<std::string, ZqCompiledScript>::const_iterator sc = r.scripts.find(it->second);
@@ -1527,67 +1430,62 @@ static bool check_var_remaps(const ZqCompileResult &r, const std::map<int, std::
             if(!ls.code || ls.script_name != it->second || rm == r.remaps.end() || sc == r.scripts.end())
                 continue;
 
-            const ZqVarRemap &m = rm->second;
-            bool moved = false;
-            std::map<std::pair<int, int>, InstUse>::const_iterator ui = uses.find(std::make_pair(t, slot));
-            const InstUse *use = ui == uses.end() ? NULL : &ui->second;
+            LoadedSlot now;
+            Rd rd(sc->second.record.empty() ? NULL : &sc->second.record[0], sc->second.record.size());
+            read_slot(rd, V_30, META_30, &now);
 
-            // an exported variable of the old script that is gone, elsewhere, or of another kind,
-            // and that some placed script has a value for
-            for(size_t i = 0; i < ls.exports.size() && !moved; ++i)
+            ZqSlotRemap sr;
+            sr.type = t;
+            sr.slot = slot;
+            sr.script_name = it->second;
+            sr.remap = rm->second;
+            sr.new_exports.insert(now.exports.begin(), now.exports.end());
+            sr.old_labels = ls.export_labels;
+            sr.new_labels = now.export_labels;
+
+            // only exported variables have values set per placed script, and a variable taking
+            // an old variable's values (of the same name) can't also take InitD's
+            std::vector<ZqInitDMove> moves;
+
+            for(size_t i = 0; i < sr.remap.initd_moves.size(); ++i)
             {
-                const word id = ls.exports[i];
+                const word id = sr.remap.initd_moves[i].new_id;
+                bool taken = !sr.new_exports.count(id);
 
-                if(all_known && (!use || !use->vars.count(id)))
-                    continue;
+                for(std::map<word, word>::const_iterator o = sr.remap.old_to_new.begin(); o != sr.remap.old_to_new.end() && !taken; ++o)
+                    taken = o->second == id;
 
-                std::map<word, word>::const_iterator to = m.old_to_new.find(id);
-                std::map<word, byte>::const_iterator ok = m.old_kind.find(id), nk = m.new_kind.find(id);
-                moved = to == m.old_to_new.end() || to->second != id ||
-                        (ok != m.old_kind.end() && nk != m.new_kind.end() && ok->second != nk->second);
+                if(!taken)
+                    moves.push_back(sr.remap.initd_moves[i]);
             }
 
-            // a run() parameter that became an exported variable no old variable maps to, and
-            // that some placed script sets
-            if(!moved && !m.initd_moves.empty() && (!all_known || use))
-            {
-                LoadedSlot now;
-                Rd rd(sc->second.record.empty() ? NULL : &sc->second.record[0], sc->second.record.size());
-                read_slot(rd, V_30, META_30, &now);
+            sr.remap.initd_moves.swap(moves);
 
-                for(size_t i = 0; i < m.initd_moves.size() && !moved; ++i)
-                {
-                    const word id = m.initd_moves[i].second;
-                    bool taken = false;
-
-                    if(all_known && !use->args.count(m.initd_moves[i].first))
-                        continue;
-
-                    for(std::map<word, word>::const_iterator o = m.old_to_new.begin(); o != m.old_to_new.end(); ++o)
-                        taken = taken || o->second == id;
-
-                    moved = !taken && std::find(now.exports.begin(), now.exports.end(), id) != now.exports.end();
-                }
-            }
-
-            if(moved && ++count <= 6)
-                list += std::string(list.empty() ? "" : ", ") + ti.name + " script \"" + it->second + "\"";
+            if(!remap_is_identity(sr.remap))
+                plan.push_back(sr);
         }
     }
 
-    if(!count)
+    if(plan.empty())
         return true;
 
-    if(count > 6)
-        list += " and " + std::to_string(count - 6) + " more";
+    if(!zq_remap_count(plan, why))
+        return false;
 
-    why = "the exported variables of " + list + " changed place (or were made from run() parameters) since the "
-          "quest's last compile, and placed scripts have values set for them. ZC 3.0's ZQuest then moves those "
-          "values; this ZQuest can't move them yet, and they would end up on the wrong variables";
-    return false;
+    if(getenv("ZQ_COMPILE_TRACE"))
+        for(size_t i = 0; i < plan.size(); ++i)
+            fprintf(stderr, "remap plan: %s slot %d '%s': %d old, %d new variables, %d parameters, %d unmatched with values, "
+                    "%d parameters with values, ask %d\n", g_types[plan[i].type].name, plan[i].slot, plan[i].script_name.c_str(),
+                    (int)plan[i].remap.old_vars.size(), (int)plan[i].remap.new_vars.size(), (int)plan[i].remap.old_params.size(),
+                    (int)plan[i].unmatched_value_counts.size(), (int)plan[i].initd_value_counts.size(), (int)plan[i].needs_user_mapping());
+
+    return true;
 }
 
-bool zq_compile_assign(const ZqCompileResult &r, std::map<int, std::string> names[ZQS_COUNT], std::string &why)
+static bool assign_slots(const ZqCompileResult &r, std::map<int, std::string> names[ZQS_COUNT], std::string &why);
+
+bool zq_compile_assign(const ZqCompileResult &r, std::map<int, std::string> names[ZQS_COUNT], std::string &why,
+                       const std::vector<ZqSlotRemap> *plan, std::string *log)
 {
     if(!g_st.active || r.code != 0 || r.is30 != g_st.is30)
     {
@@ -1595,11 +1493,55 @@ bool zq_compile_assign(const ZqCompileResult &r, std::map<int, std::string> name
         return false;
     }
 
+    // Before anything is assigned (the plan reads the slots' current scripts): every record as
+    // the remaps leave it. Without a plan from the dialog, what doesn't match by name is
+    // discarded, as upstream does when it has no window.
+    std::vector<ZqSlotRemap> own;
+    ZqRemapPending *pending = NULL;
+
+    if(g_st.is30)
+    {
+        fill_maps(names);
+
+        if(!plan)
+        {
+            if(!zq_compile_plan_remaps(r, names, own, why))
+                return false;
+
+            plan = &own;
+        }
+
+        if(!plan->empty() && !(pending = zq_remap_prepare(*plan, why)))
+            return false;
+    }
+
+    if(!assign_slots(r, names, why))
+    {
+        zq_remap_discard(pending);
+        return false;
+    }
+
+    if(pending)
+    {
+        std::string text, mwhy;
+
+        if(!zq_remap_commit(pending, *plan, text, mwhy))
+            text += "Some script variable values couldn't be moved: " + mwhy + "\n";
+
+        if(getenv("ZQ_COMPILE_TRACE"))
+            fprintf(stderr, "%s", text.c_str());
+
+        if(log)
+            *log = text;
+    }
+
+    return true;
+}
+
+static bool assign_slots(const ZqCompileResult &r, std::map<int, std::string> names[ZQS_COUNT], std::string &why)
+{
     Store st = g_st;
     fill_maps(names);
-
-    if(st.is30 && !check_var_remaps(r, names, why))
-        return false;
 
     for(int t = 0; t < ZQS_COUNT; ++t)
     {
@@ -1841,6 +1783,25 @@ int zq_compile_batch(const char *out, const char *mode, const char *report)
         fprintf(rep, "buffer loaded from %s (%d bytes)\n", file, (int)text.size());
     }
 
+    // testing the move of placed scripts' values (zq_compile_remap.cpp): ZQ_COMPILE_BUFFER_ONLY
+    // saves the quest with the loaded buffer, not compiled (the slots keep the last compile's
+    // scripts, as after the dialog's Load); ZQ_COMPILE_SET_INST sets values first
+    if(getenv("ZQ_COMPILE_BUFFER_ONLY"))
+    {
+        std::string w;
+        const int ret = zq_save_own_format(out, true, w);
+        fprintf(rep, "buffer only: save %d%s%s\n", ret, w.empty() ? "" : ": ", w.c_str());
+        fclose(rep);
+        return ret ? 5 : 0;
+    }
+
+    if(const char *spec = getenv("ZQ_COMPILE_SET_INST"))
+    {
+        std::string w;
+        const int n = zq_remap_test_set(spec, w);
+        fprintf(rep, "set %d values%s%s\n", n, w.empty() ? "" : ": ", w.c_str());
+    }
+
     ZqCompileResult r;
     zq_compile_run(zScript, r, NULL);
 
@@ -1861,14 +1822,16 @@ int zq_compile_batch(const char *out, const char *mode, const char *report)
         names[t] = g_st.names[t];
 
     zq_slots_auto(r, !strcmp(mode, "smart") ? 2 : 1, names);
-    std::string why;
+    std::string why, moved;
 
-    if(!zq_compile_assign(r, names, why))
+    if(!zq_compile_assign(r, names, why, NULL, &moved))
     {
         fprintf(rep, "assign refused: %s\n", why.c_str());
         fclose(rep);
         return 4;
     }
+
+    fprintf(rep, "%s", moved.c_str());
 
     for(int t = 0; t < ZQS_COUNT; ++t)
         for(std::map<int, std::string>::const_iterator it = g_st.names[t].begin(); it != g_st.names[t].end(); ++it)
