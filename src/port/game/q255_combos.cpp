@@ -272,9 +272,10 @@ static void read_trigger(Q255Section &s, word v, Q30Trigger &t)
             // six-bit values, as a scaled-up rgb
             for(int q = 0; q < 3; ++q)
             {
+                // upstream's _rgb_scale_6, masked for damaged files as it does (dd6bf2883)
                 int val = (signed char)s.getc();
-                int a = val < 0 ? -val : val;
-                int scaled = (a * 255) / 63;
+                int a = (val < 0 ? -val : val) & 63;
+                int scaled = (a << 2) | (a >> 4);
                 t.trigtint[q] = (short)(val < 0 ? -scaled : scaled);
             }
         }
@@ -1185,6 +1186,14 @@ int q255_read_comboaliases(Q255Section &s)
         byte mask = s.getc();
         int count = (width + 1) * (height + 1) * (comboa_lmasktotal(mask) + 1);
         size_t cells = (size_t)count * 3;   // a word and a byte each
+
+        // As upstream (2fa66ecd4): an alias holds at most 16 x 11 combos on 7 layers, and a
+        // larger one is a damaged file, which fails to load.
+        if(count > 16 * 11 * 7)
+        {
+            s.failed = true;
+            break;
+        }
 
         // Checked first so a bad entry can't leave an alias half built.
         if(!s.has(cells))

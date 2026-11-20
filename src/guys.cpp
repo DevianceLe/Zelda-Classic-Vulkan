@@ -826,13 +826,19 @@ void enemy::FireBreath(bool seeklink)
     int i=Ewpns.Count()-1;
     weapon *ew = (weapon*)(Ewpns.spr(i));
     
-    if(!seeklink && (rand()&4))
+    // addEwpn makes no weapon for an id that isn't an enemy weapon (a script can set one), and
+    // with no other eweapon out there is none to change (upstream 8c6b476a5, 2.55.18 / 3.0).
+    // 2.53 quests still take their random number.
+    if(!ew && q30_active())
+        return;
+    
+    if(!seeklink && (rand()&4) && ew)
     {
         ew->angular=true;
         ew->angle=fire_angle;
     }
     
-    if(wpn==ewFlame && wpnsbuf[ewFLAME].frames>1)
+    if(ew && wpn==ewFlame && wpnsbuf[ewFLAME].frames>1)
     {
         ew->aframe=rand()%wpnsbuf[ewFLAME].frames;
         ew->tile+=ew->aframe;
@@ -1288,7 +1294,9 @@ int enemy::takehit(weapon *w)
     // every case correctly, but it's better than having shields simply
     // not work against boomerangs.
     if(w->id==wBrang && w->misc==1 && w->clk2>=256 && w->clk2<264)
-        wpnDir = oppositeDir[w->dir];
+        // (2.55/3.0: a script can give a weapon any direction; one that isn't a direction has no
+        // opposite, as upstream 2.55.18, where this read past the table. 2.53 quests: as before.)
+        wpnDir = (q30_active() && (w->dir < 0 || w->dir > 7)) ? -1 : oppositeDir[w->dir];
     else
         wpnDir = w->dir;
         
@@ -13400,7 +13408,7 @@ void setupscreen()
         
         for(int i=0; i<3; i++)
         {
-            if(QMisc.info[tmpscr[t].catchall].str[i])
+            if(q30_room_info(tmpscr[t].catchall).str[i])
             {
                 ++count;
             }
@@ -13424,7 +13432,7 @@ void setupscreen()
             {
                 additem((i << step)+base, 89, iRupy, ipMONEY + ipDUMMY);
                 ((item*)items.spr(items.Count()-1))->PriceIndex = i;
-                prices[i] = -(QMisc.info[tmpscr[t].catchall].price[i]);
+                prices[i] = -(q30_room_info(tmpscr[t].catchall).price[i]);
                 if(prices[i]==0)
                     prices[i]=100000; // So putprices() knows there's an item here and positions the price correctly
                 int itemid = current_item_id(itype_wealthmedal);
@@ -13440,7 +13448,7 @@ void setupscreen()
                         prices[i]=100000;
                 }
                 
-                if((QMisc.info[tmpscr[t].catchall].price[i])>1 && prices[i]>-1 && prices[i]!=100000)
+                if((q30_room_info(tmpscr[t].catchall).price[i])>1 && prices[i]>-1 && prices[i]!=100000)
                     prices[i]=-1;
             }
         }
@@ -13507,7 +13515,7 @@ void setupscreen()
         //count and align the stuff
         for(int i=0; i<3; ++i)
         {
-            if(QMisc.shop[tmpscr[t].catchall].hasitem[count] != 0)
+            if(q30_room_shop(tmpscr[t].catchall).hasitem[count] != 0)
             {
                 ++count;
             }
@@ -13535,7 +13543,7 @@ void setupscreen()
             
             if(tmpscr[t].room != rTAKEONE)
             {
-                prices[i] = QMisc.shop[tmpscr[t].catchall].price[i];
+                prices[i] = q30_room_shop(tmpscr[t].catchall).price[i];
                 if(prices[i]==0)
                     prices[i]=100000; // So putprices() knows there's an item here and positions the price correctly
                 int itemid = current_item_id(itype_wealthmedal);
@@ -13551,7 +13559,7 @@ void setupscreen()
                         prices[i]=100000;
                 }
                 
-                if((QMisc.shop[tmpscr[t].catchall].price[i])>1 && prices[i]<1)
+                if((q30_room_shop(tmpscr[t].catchall).price[i])>1 && prices[i]<1)
                     prices[i]=1;
             }
         }

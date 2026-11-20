@@ -217,7 +217,7 @@ double wrap_float(double x,double low,double high);
 #define COMBOS_PER_PAGE            256
 #define COMBO_PAGES                255
 #define MAXCOMBOS                  (COMBO_PAGES*COMBOS_PER_PAGE)
-#define BOUND_COMBO(c)             vbound(c, 0, MAXCOMBOS)
+#define BOUND_COMBO(c)             vbound(c, 0, MAXCOMBOS-1)
 #define OLD_MAXSUBSCREENITEMS      256 // old subscreens
 #define NEW_MAXSUBSCREENITEMS      0x2000 // zscript only has this much space in the pointer- bitmask is 0x1FFF for widgets
 #define OLD_MAXCUSTOMSUBSCREENS    128 // old subscreens
@@ -489,7 +489,17 @@ enum
 enum direction { dir_invalid = -1, up, down, left, right, l_up, r_up, l_down, r_down };
 static const char* dirstr[] = {"up","down","left","right","up-left","up-right","down-left","down-right"};
 static const char* dirstr_proper[] = {"Up","Down","Left","Right","Up-Left","Up-Right","Down-Left","Down-Right"};
-inline constexpr direction oppositeDir[] = {down, up, right, left, r_down, l_down, r_up, l_up};
+// Indexed with sprite directions that scripts can set to anything, so an out of range direction
+// gives dir_invalid rather than reading past the table.
+struct opposite_dir_table
+{
+	constexpr direction operator[](int32_t dir) const
+	{
+		constexpr direction table[] = {down, up, right, left, r_down, l_down, r_up, l_up};
+		return dir >= 0 && dir < 8 ? table[dir] : dir_invalid;
+	}
+};
+inline constexpr opposite_dir_table oppositeDir{};
 inline constexpr direction normalDir[] = {up,down,left,right,l_up,r_up,l_down,r_down,up,r_up,right,r_down,down,l_down,left,l_up};
 inline constexpr direction xDir[] = { dir_invalid,dir_invalid,left,right,left,right,left,right };
 inline constexpr direction yDir[] = { up,down,dir_invalid,dir_invalid,up,up,down,down };

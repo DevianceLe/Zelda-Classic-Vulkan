@@ -319,8 +319,9 @@ struct Script
     std::vector<byte> meta;     // in 3.0's layout
     size_t at, end;             // the commands as the quest has them
     long count;                 // the commands 3.0 keeps, with the terminator; 0: none
+    bool add_end;               // the quest's commands lack the terminator, which 3.0 adds (counted)
 
-    Script() : at(0), end(0), count(0) {}
+    Script() : at(0), end(0), count(0), add_end(false) {}
 };
 
 struct Scripts
@@ -386,7 +387,7 @@ bool read_script(Zqn255In &r, int v, word zv, Script *sc)
 
     size_t at = r.pos;
     long count = 0, literals = 0;
-    word first = TERMINATOR;
+    word first = TERMINATOR, last = TERMINATOR;
     Targets jumps;
 
     for(long j = 0; j < num; ++j)
@@ -399,6 +400,7 @@ bool read_script(Zqn255In &r, int v, word zv, Script *sc)
         if(j == 0)
             first = command;
 
+        last = command;
         ++count;
 
         if(command == TERMINATOR)
@@ -475,6 +477,13 @@ bool read_script(Zqn255In &r, int v, word zv, Script *sc)
 
     if(!sc)
         return true;
+
+    // A script whose commands don't end with the terminator gets one (3.0's
+    // ensure_zasm_terminated, 432d9699e), before its first command and its jumps are checked.
+    sc->add_end = count > 0 && last != TERMINATOR;
+
+    if(sc->add_end)
+        ++count;
 
     sc->meta = meta_bytes(m);
     sc->at = at;
@@ -603,12 +612,17 @@ struct Body
         if(v >= 24)
         {
             o.put(&d[sc.at], sc.end - sc.at);
+
+            if(sc.add_end)
+                o.w(TERMINATOR);
+
             return;
         }
 
         size_t p = sc.at;
+        const long stored = sc.add_end ? sc.count - 1 : sc.count;
 
-        for(long j = 0; j < sc.count; ++j)
+        for(long j = 0; j < stored; ++j)
         {
             o.put(&d[p], 2);
             word command = (word)(d[p] | (d[p + 1] << 8));
@@ -633,6 +647,9 @@ struct Body
             else
                 o.zeros(8);         // no string, no array
         }
+
+        if(sc.add_end)
+            o.w(TERMINATOR);
     }
 
     void script(zqn::Out &o, const Script *sc)
@@ -915,8 +932,9 @@ struct Script255
     std::vector<byte> meta;
     size_t at, end;
     long count;
+    bool add_end;   // the quest's commands lack the terminator, which 2.55.18 adds (counted)
 
-    Script255() : at(0), end(0), count(0) {}
+    Script255() : at(0), end(0), count(0), add_end(false) {}
 };
 
 // The tables in writeffscript's order (the same as the section's).
@@ -934,7 +952,7 @@ struct Scripts255
 
 // read_one_ffscript: the count, the metadata, then the commands up to the count or the
 // terminator. A slot with no commands holds a terminator only; one with commands but no
-// terminator isn't something 2.55.17 can write back (recalc_size runs past it).
+// terminator gets one, as 2.55.18 gives it (ddddf7a01; 2.55.17's recalc_size ran past it).
 bool read_script_255(Zqn255In &r, int v, word zv, Script255 *sc)
 {
     long num = r.s32();
@@ -997,14 +1015,13 @@ bool read_script_255(Zqn255In &r, int v, word zv, Script255 *sc)
         return false;
     }
 
-    if(num > 0 && count == 0)
-    {
-        zqw_last_error = "a script has no end command";
-        return false;
-    }
-
     if(!sc)
         return true;
+
+    sc->add_end = num > 0 && count == 0;
+
+    if(sc->add_end)
+        count = num + 1;
 
     sc->meta = meta_bytes_255(m);
     sc->at = at;
@@ -1102,12 +1119,17 @@ struct Body255
         if(s.version >= 21)
         {
             o.put(&d[sc.at], sc.end - sc.at);
+
+            if(sc.add_end)
+                o.w(TERMINATOR);
+
             return;
         }
 
         size_t p = sc.at;
+        const long stored = sc.add_end ? sc.count - 1 : sc.count;
 
-        for(long j = 0; j < sc.count; ++j)
+        for(long j = 0; j < stored; ++j)
         {
             o.put(&d[p], 2);
             word command = (word)(d[p] | (d[p + 1] << 8));
@@ -1120,6 +1142,9 @@ struct Body255
             p += 8;
             o.zeros(8);             // no string, no array
         }
+
+        if(sc.add_end)
+            o.w(TERMINATOR);
     }
 
     void script(zqn::Out &o, const Script255 *sc)
@@ -1419,14 +1444,15 @@ struct Scripts31
 {
     int version;
     size_t zasm_at, zasm_end;   // the shared stream, its count included
-    long zasm_count;
+    long zasm_count;            // its commands, with the terminator 3.0 adds when the last isn't one
+    bool zasm_add_end;          // whether it adds one
     bool zasm_valid;
     std::vector<Slot31> tables[T_COUNT];
     std::string source;
     std::map<int, std::string> names[NAME_TABLES];
     std::vector<byte> debug;    // the debug data as p_putlvec writes it
 
-    Scripts31() : version(0), zasm_at(0), zasm_end(0), zasm_count(0), zasm_valid(false) {}
+    Scripts31() : version(0), zasm_at(0), zasm_end(0), zasm_count(0), zasm_add_end(false), zasm_valid(false) {}
 };
 
 // read_quest_zasm, with 3.0's checks: the command count, the literals, the jumps
@@ -1442,7 +1468,7 @@ bool read_zasm_31(Zqn255In &r, Scripts31 &s)
     }
 
     long literals = 0;
-    word first = TERMINATOR;
+    word first = TERMINATOR, last = TERMINATOR;
     Targets jumps;
 
     for(long j = 0; j < num && !r.bad; ++j)
@@ -1452,6 +1478,7 @@ bool read_zasm_31(Zqn255In &r, Scripts31 &s)
         if(j == 0)
             first = command;
 
+        last = command;
         const long arg1 = r.s32();
         r.skip(8);      // arg2, arg3
 
@@ -1501,13 +1528,8 @@ bool read_zasm_31(Zqn255In &r, Scripts31 &s)
         else
             r.skip((size_t)values * 4);
 
-        if(command == TERMINATOR)
-        {
-            // write_quest_zasm leaves terminators out but counts them: such a stream doesn't
-            // read back, so it isn't written
-            zqw_last_error = "its script commands hold an end command, which 3.0 can't write back";
-            return false;
-        }
+        // (write_quest_zasm used to leave terminators out but count them, so such a stream
+        // didn't read back; since ad2521919 it writes every command.)
     }
 
     if(r.bad)
@@ -1522,14 +1544,19 @@ bool read_zasm_31(Zqn255In &r, Scripts31 &s)
         return false;
     }
 
-    if(jumps.any && (jumps.lo < 0 || jumps.hi >= num))
+    // The loader ends the stream with a terminator when its last command isn't one
+    // (ensure_zasm_terminated, 432d9699e), before it checks the jumps, and writes it back.
+    s.zasm_add_end = num > 0 && last != TERMINATOR;
+    const long size = num + (s.zasm_add_end ? 1 : 0);
+
+    if(jumps.any && (jumps.lo < 0 || jumps.hi >= size))
     {
         zqw_last_error = "its scripts jump outside their commands, which 3.0 refuses";
         return false;
     }
 
     s.zasm_end = r.pos;
-    s.zasm_count = num;
+    s.zasm_count = size;
     s.zasm_valid = num > 0 && first != TERMINATOR;
     return true;
 }
@@ -1586,7 +1613,11 @@ bool read_slot_31(Zqn255In &r, const Scripts31 &s, word zv, Slot31 *slot)
     if(!slot)
         return true;
 
-    if(!end_pc || !s.zasm_valid)
+    // a script that starts or ends outside the commands is switched off on load (065bc478f)
+    const dword upc = (dword)pc, uend = (dword)end_pc, usize = (dword)s.zasm_count;
+    const bool outside = uend && (upc >= usize || upc > uend || uend > usize);
+
+    if(!end_pc || !s.zasm_valid || outside)
     {
         slot->out.assign(1, 0);     // not a valid script: written as an empty slot
         return true;
@@ -1697,7 +1728,17 @@ struct Body31
 
     bool operator()(zqn::Out &o)
     {
-        o.put(&d[s.zasm_at], s.zasm_end - s.zasm_at);
+        if(s.zasm_add_end)
+        {
+            // the count with the added terminator, the commands as read, then the terminator:
+            // its command, three arguments, no string and no array
+            o.l(s.zasm_count);
+            o.put(&d[s.zasm_at + 4], s.zasm_end - s.zasm_at - 4);
+            o.w(TERMINATOR);
+            o.zeros(5 * 4);
+        }
+        else
+            o.put(&d[s.zasm_at], s.zasm_end - s.zasm_at);
 
         for(int t = 0; t < T_COUNT; ++t)
         {

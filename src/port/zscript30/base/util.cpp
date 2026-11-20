@@ -17,6 +17,8 @@
 #ifdef _WIN32
 #include <direct.h>
 #include <io.h>
+#include <shellapi.h>
+#include "base/win_encoding.h"
 #endif
 
 #ifdef __EMSCRIPTEN__
@@ -95,13 +97,13 @@ namespace util
 	void upperstr(string& str)
 	{
 		for(int32_t q = str.size() - 1; q >= 0; --q)
-			str[q] = toupper(str[q]);
+			str[q] = toupper(static_cast<unsigned char>(str[q]));
 	}
 
 	void lowerstr(string& str)
 	{
 		for(int32_t q = str.size() - 1; q >= 0; --q)
-			str[q] = tolower(str[q]);
+			str[q] = tolower(static_cast<unsigned char>(str[q]));
 	}
 
 	void trimstr(string& str)
@@ -736,7 +738,7 @@ namespace util
 	bool zc_isalpha(int c)
 	{
 	    if(unsigned(c) > 255) return false;
-	    return isalpha((char)c);
+	    return isalpha(c);
 	}
 	
 	string escape_string(char const* str)
@@ -1076,13 +1078,45 @@ namespace util
 		return fs::is_directory(result, ec) ? result : fs::path();
 	}
 
+	bool is_web_url(std::string_view url)
+	{
+		std::string scheme(url.substr(0, 8));
+		lowerstr(scheme);
+		size_t prefix_len;
+		if (scheme.starts_with("https://"))
+			prefix_len = 8;
+		else if (scheme.starts_with("http://"))
+			prefix_len = 7;
+		else
+			return false;
+
+		// Needs a host.
+		if (url.size() == prefix_len || url[prefix_len] == '/')
+			return false;
+
+		// Only the characters RFC 3986 allows in a URL (non-ASCII must be percent-encoded).
+		// This rules out whitespace, control characters, quotes and backslashes, which could
+		// otherwise change how the URL is handed to the browser.
+		static constexpr std::string_view allowed_punct = "-._~:/?#[]@!$&'()*+,;=%";
+		for (char c : url)
+		{
+			if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
+				continue;
+			if (allowed_punct.find(c) == std::string_view::npos)
+				return false;
+		}
+		return true;
+	}
+
 	void open_web_link(std::string url)
 	{
+		if (!is_web_url(url))
+			return;
+
 #ifdef __EMSCRIPTEN__
 		em_open_link(url);
 #elif defined(_WIN32)
-		std::string cmd = "start " + url;
-		system(cmd.c_str());
+		ShellExecuteW(NULL, L"open", utf8_to_wide(url).c_str(), NULL, NULL, SW_SHOWNORMAL);
 #elif defined(__APPLE__)
 		launch_process("open", {url});
 #else

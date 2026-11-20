@@ -15,6 +15,8 @@
 
 extern const char *skip_text[];
 extern dmap *DMaps;
+extern DoorComboSet *DoorComboSets;
+extern word map_count;
 extern std::vector<mapscr> TheMaps;
 extern guydata *guysbuf;
 int q30_combo_type(int id);
@@ -166,6 +168,27 @@ int mem_ferror(void *) { return 0; }
 
 PACKFILE_VTABLE mem_vtable = { mem_fclose, mem_getc, mem_ungetc, mem_fread, mem_putc, mem_fwrite, mem_fseek, mem_feof, mem_ferror };
 
+// A section's bytes. The size comes from the file, so room is made as the bytes arrive: a
+// damaged quest that states a huge size fails when the file ends, instead of asking for all of
+// memory first (as upstream stopped doing for its lists and strings, c06bdcc29 and ec67b20ba).
+bool read_body(PACKFILE *f, size_t size, std::vector<byte> &body)
+{
+    const size_t step = 0x400000;
+    body.clear();
+
+    while(body.size() < size)
+    {
+        const size_t have = body.size();
+        const size_t n = size - have < step ? size - have : step;
+        body.resize(have + n);
+
+        if(!pfread(&body[have], (long)n, f, true))
+            return false;
+    }
+
+    return true;
+}
+
 // Runs one of this engine's own readers on a section whose format matches it.
 // They expect the section's version, cversion and size first.
 int with_own_reader(dword id, word version, word cversion, const std::vector<byte> &body, zquestheader *header, zctune *tunes, bool keep)
@@ -195,7 +218,16 @@ int with_own_reader(dword id, word version, word cversion, const std::vector<byt
     int ret = qe_invalid;
     switch(id)
     {
-    case ID_DOORS:        ret = readdoorcombosets(f, header, keep); break;
+    case ID_DOORS:
+        ret = readdoorcombosets(f, header, keep);
+
+        // As upstream (5e35363fd): the names are shown as text, so they end within their size.
+        // (2.53 quests keep theirs as stored, so they save back byte for byte.)
+        if(!ret && keep)
+            for(int i = 0; i < MAXDOORCOMBOSETS; ++i)
+                DoorComboSets[i].name[sizeof(DoorComboSets[i].name) - 1] = 0;
+
+        break;
     case ID_MIDIS:        ret = readtunes(f, header, tunes, keep); break;
     case ID_CHEATS:       ret = readcheatcodes(f, header, keep); break;
     case ID_ITEMDROPSETS: ret = readitemdropsets(f, (int)header->zelda_version, (word)header->build, keep); break;
@@ -299,8 +331,8 @@ int read_sections(PACKFILE *f, zquestheader *header, miscQdata *misc, zctune *tu
         if(!p_igetl(&size, f, true))
             return qe_invalid;
 
-        std::vector<byte> body(size);
-        if(size && !pfread(&body[0], size, f, true))
+        std::vector<byte> body;
+        if(!read_body(f, size, body))
             return qe_invalid;
 
         const SectionKind *kind = NULL;
@@ -390,6 +422,16 @@ int read_sections(PACKFILE *f, zquestheader *header, miscQdata *misc, zctune *tu
             note(id, version, (int)size, (int)s.pos, "ok");
     }
 
+    // As upstream (593031d79): a DMap's screens are looked up in its map without a check, and
+    // only a damaged quest has a DMap on a map past the last one. DMaps are read before maps,
+    // so this waits until both are.
+    if(keepall && !(skip_flags && (get_bit(skip_flags, skip_maps) || get_bit(skip_flags, skip_dmaps))))
+    {
+        for(int i = 0; i < MAXDMAPS; ++i)
+            if(DMaps[i].map >= map_count)
+                DMaps[i].map = 0;
+    }
+
     return result;
 }
 
@@ -405,6 +447,7 @@ void dump_loaded_data()
     const dmap &d = DMaps[dm];
     int index = d.map * MAPSCRS + scr + d.xoff;
     al_trace("dump: dmap %d map %d xoff %d flags %lx -> screen index %d\n", dm, d.map, d.xoff, (unsigned long)d.flags, index);
+    al_trace("dump: dmap %d level %d color %d\n", dm, (int)d.level, (int)d.color);
 
     if(index >= 0 && index < (int)TheMaps.size())
     {
@@ -414,6 +457,11 @@ void dump_loaded_data()
         for(int i = 0; i < 4; ++i)
             al_trace("dump: warp %d tile dmap %d scr %d type %d | side dmap %d scr %d type %d\n", i, m.tilewarpdmap[i], m.tilewarpscr[i], m.tilewarptype[i],
                      m.sidewarpdmap[i], m.sidewarpscr[i], m.sidewarptype[i]);
+        al_trace("dump: enemies %d %d %d %d %d %d %d %d %d %d\n", m.enemy[0], m.enemy[1], m.enemy[2], m.enemy[3], m.enemy[4], m.enemy[5], m.enemy[6],
+                 m.enemy[7], m.enemy[8], m.enemy[9]);
+        for(int i = 0; i < 6; ++i)
+            if(m.layermap[i])
+                al_trace("dump: layer %d map %d screen %d\n", i + 1, m.layermap[i], m.layerscreen[i]);
         al_trace("dump: sidewarpindex %d item %d hasitem %d at %d,%d catchall %d enemyflags %x\n", m.sidewarpindex, mapscr_item(&m), m.hasitem,
                  m.itemx, m.itemy, m.catchall, m.enemyflags);
         for(int i = 0; i < m.ffc_count(); ++i)
@@ -796,8 +844,8 @@ int header_hook(PACKFILE *f, zquestheader *header, word s_version, int size, byt
 {
     if(size < 0)
         return qe_invalid;
-    std::vector<byte> body((size_t)size);
-    if(size && !pfread(&body[0], size, f, true))
+    std::vector<byte> body;
+    if(!read_body(f, (size_t)size, body))
         return qe_invalid;
 
     Q255Section s;
@@ -845,6 +893,20 @@ struct RegisterHooks
 } register_hooks;
 
 } // namespace
+
+void q255_note_offset(const char *what, int index, size_t pos)
+{
+    static const char *path = getenv("ZC_Q255_OFFSETS");
+
+    if(!path || !path[0])
+        return;
+
+    if(FILE *f = fopen(path, "a"))
+    {
+        fprintf(f, "%s %d %u\n", what, index, (unsigned)pos);
+        fclose(f);
+    }
+}
 
 void q255_note_tile(const char *kind, unsigned long tile)
 {

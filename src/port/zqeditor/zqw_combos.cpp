@@ -1022,7 +1022,7 @@ void put_trigger(Out &o, word v, const Q30Trigger &t)
                 for(int val = -63; val <= 63; ++val)
                 {
                     const int a = val < 0 ? -val : val;
-                    const int scaled = (a * 255) / 63;
+                    const int scaled = (a << 2) | (a >> 4);    // as the reader (_rgb_scale_6)
 
                     if((val < 0 ? -scaled : scaled) == want)
                     {

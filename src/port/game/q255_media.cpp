@@ -475,6 +475,13 @@ int q255_read_csets(Q255Section &s)
                 for(int j = 0; j < CSET_BYTES; ++j)
                     cset[j] >>= 2;
             }
+            else
+            {
+                // Six-bit values: only a damaged file has one over 63, and upstream masks
+                // those (dd6bf2883) rather than refuse the quest over a wrong colour.
+                for(int j = 0; j < CSET_BYTES; ++j)
+                    cset[j] &= 63;
+            }
         }
         else
             s.skip(CSET_BYTES);

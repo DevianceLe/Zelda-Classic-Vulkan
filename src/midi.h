@@ -63,9 +63,10 @@ typedef struct mtrkevent
 } mtrkevent;
 
 dword getval(byte *buf,int nbytes);
-dword parse_var_len(byte **data);
+// (end: one past the track's last byte; past it everything reads as 0)
+dword parse_var_len(byte **data, byte *end);
 // returns length of the <MTrk event>
-dword parse_mtrk(byte **data, midi_info *mi);
+dword parse_mtrk(byte **data, byte *end, midi_info *mi);
 bool eot(midi_info *mi);
 int beats(dword dt,int divs);
 double tempo(byte *buf);

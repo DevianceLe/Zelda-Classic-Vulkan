@@ -195,7 +195,7 @@ void Spc_Dsp::run( int clock_count )
 #ifdef SPC_ISOLATED_ECHO_BUFFER
 	uint8_t* const echo_ram = m.echo_ram;
 #endif
-	uint8_t const* const dir = &ram [REG(dir) * 0x100];
+	int const dir = REG(dir) * 0x100;
 	int const slow_gaussian = (REG(pmon) >> 1) | REG(non);
 	int const noise_rate = REG(flg) & 0x1F;
 
@@ -248,7 +248,9 @@ void Spc_Dsp::run( int clock_count )
 		int vbit = 1;
 		do
 		{
-			#define SAMPLE_PTR(i) GET_LE16A( &dir [VREG(v_regs,srcn) * 4 + i * 2] )
+			// Wraps at 64K like the hardware: a high dir and srcn would otherwise read past ram.
+			#define SAMPLE_PTR(i) (ram [(dir + VREG(v_regs,srcn) * 4 + i * 2) & 0xFFFF] |\
+					ram [(dir + VREG(v_regs,srcn) * 4 + i * 2 + 1) & 0xFFFF] << 8)
 
 			int brr_header = ram [v->brr_addr];
 			int kon_delay = v->kon_delay;

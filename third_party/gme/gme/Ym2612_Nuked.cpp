@@ -1818,7 +1818,8 @@ void OPN2_SetMute(ym3438_t *chip, Bit32u mute)
 Ym2612_Nuked_Emu::Ym2612_Nuked_Emu()
 {
 	Ym2612_NukedImpl::OPN2_SetChipType( Ym2612_NukedImpl::ym3438_type_asic );
-	impl = new Ym2612_NukedImpl::ym3438_t;
+	// Zeroed: a file can write to a chip that its header never set up.
+	impl = new Ym2612_NukedImpl::ym3438_t();
 }
 
 Ym2612_Nuked_Emu::~Ym2612_Nuked_Emu()

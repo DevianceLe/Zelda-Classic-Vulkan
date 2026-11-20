@@ -214,7 +214,12 @@ blargg_err_t Nsf_Emu::init_sound()
 		noise_type | 0, mixed_type | 1,
 		wave_type  | 3, wave_type  | 4, wave_type | 5,
 		wave_type  | 6, wave_type  | 7, wave_type | 8, wave_type | 9,
-		wave_type  |10, wave_type  |11, wave_type |12, wave_type |13
+		wave_type  |10, wave_type  |11, wave_type |12, wave_type |13,
+		// One entry per voice with every expansion chip enabled (29)
+		wave_type  |14, wave_type  |15, wave_type |16, wave_type |17,
+		wave_type  |18, wave_type  |19, wave_type |20, wave_type |21,
+		wave_type  |22, wave_type  |23, wave_type |24, wave_type |25,
+		wave_type  |26
 	};
 	set_voice_types( types ); // common to all sound chip configurations
 

@@ -1,4 +1,4 @@
-// Generated from upstream ZQuestClassic (3.0 Nightly, commit ef321f8) by tools/zq_gen_combo_names.py:
+// Generated from upstream ZQuestClassic (3.0 Nightly, commit ad25219) by tools/zq_gen_combo_names.py:
 // combo type and map flag names, the combo types' help, and the combo editor's per-type labels
 // for attributes and flags (ComboEditorDialog::loadComboType). Upstream's numbers, which
 // 2.55 and 3.0 quests use; the open quest's own names (zq_zinfo.h) show in their place, as
@@ -354,7 +354,7 @@ const char *g_ctype_help[up30::cMAX] =
 	""
 };
 
-const char *g_trigflag_names[185] =
+const char *g_trigflag_names[186] =
 {
     "Sword",
     "Sword Beam",
@@ -540,7 +540,8 @@ const char *g_trigflag_names[185] =
     "->Set",
     "->Unset",
     "->Large Copycat",
-    "Large Copycat->"
+    "Large Copycat->",
+    "Once Per Weapon"
 };
 
 // fmt::format's "{}" placeholders, filled in order
@@ -1906,11 +1907,11 @@ void combo_labels(const Q30Combo &x, std::string *l_attribute, std::string *h_at
 } // namespace up30
 } // namespace
 
-int q30_trigflag_count() { return 185; }
+int q30_trigflag_count() { return 186; }
 
 const char *q30_trigflag_name(int f)
 {
-    return f >= 0 && f < 185 ? up30::g_trigflag_names[f] : "";
+    return f >= 0 && f < 186 ? up30::g_trigflag_names[f] : "";
 }
 
 int q30_ctype_count(bool is30) { return is30 ? (int)up30::cMAX : 183; }

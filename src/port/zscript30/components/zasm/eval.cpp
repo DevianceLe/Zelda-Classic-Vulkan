@@ -4,6 +4,7 @@
 
 #include "base/expected.h"
 #include "components/zasm/debug_data.h"
+#include "components/zasm/defines.h"
 #include <cctype>
 #include <optional>
 #include <stdexcept>
@@ -599,7 +600,7 @@ DebugValue ExpressionEvaluator::evaluate(std::shared_ptr<ExprNode> node)
 			{
 				// The engine's bitwise-not works on the integer part for fixed values
 				// (do_bitwisenot); longs operate on the raw value (do_bitwisenot32).
-				if (val.type->isFixed(debugData))
+				if (!val.type->isLongValued(debugData))
 					val.raw_value = ~(val.raw_value / FIXED_ONE) * FIXED_ONE;
 				else
 					val.raw_value = ~val.raw_value;
@@ -744,6 +745,13 @@ DebugValue ExpressionEvaluator::evaluate(std::shared_ptr<ExprNode> node)
 
 DebugValue ExpressionEvaluator::readSymbol(const DebugSymbol* sym)
 {
+	if (sym->storage == LOC_STACK)
+		read_stack_variable = true;
+	else if (sym->storage == LOC_SCRIPT_INSTANCE)
+		read_script_variable = true;
+	else if (sym->storage == LOC_CLASS || (sym->storage == LOC_REGISTER && sym->offset == CLASS_THISKEY))
+		read_this_object = true;
+
 	if (sym->storage == LOC_CLASS)
 	{
 		int32_t thisPtr = vm.getThisPointer();
@@ -870,7 +878,8 @@ DebugValue ExpressionEvaluator::evalBinaryOp(const std::string& op, DebugValue l
 	if (lType->isString(debugData) || rType->isString(debugData))
 		throw std::runtime_error("Binary operations on strings not supported.");
 
-	bool resultIsFixed = l.type->isFixed(debugData) || r.type->isFixed(debugData);
+	// Same as the compiler: the result is a long if either operand is, else an int.
+	bool is_long = l.type->isLongValued(debugData) || r.type->isLongValued(debugData);
 
 	if (lType->tag == TYPE_BITFLAGS)
 	{
@@ -881,8 +890,7 @@ DebugValue ExpressionEvaluator::evalBinaryOp(const std::string& op, DebugValue l
 		{
 			DebugValue res = l;
 
-			auto scope = &debugData.scopes[lType->extra];
-			bool fixed = scope->type_id == TYPE_INT;
+			bool fixed = !lType->isLongValued(debugData);
 			int l_val = fixed ? l.raw_value / FIXED_ONE : l.raw_value;
 			int r_val = fixed ? r.raw_value / FIXED_ONE : r.raw_value;
 
@@ -898,53 +906,38 @@ DebugValue ExpressionEvaluator::evalBinaryOp(const std::string& op, DebugValue l
 	}
 
 	DebugValue res{};
-	res.type = resultIsFixed ? &BasicTypes[TYPE_INT] : &BasicTypes[TYPE_LONG];
+	res.type = is_long ? &BasicTypes[TYPE_LONG] : &BasicTypes[TYPE_INT];
 
 	if (op == "|" || op == "&" || op == "^")
 	{
-		// The engine's bitwise ops work on the integer part for fixed values (do_and
-		// etc.); longs operate on the raw value (do_and32 etc.).
-		int32_t l_bits = resultIsFixed ? l_val / FIXED_ONE : l_val;
-		int32_t r_bits = resultIsFixed ? r_val / FIXED_ONE : r_val;
+		// The engine's bitwise ops work on the integer part of fixed values (do_and etc.), and on
+		// the raw values if either is a long (do_and32 etc.).
+		int32_t l_bits = is_long ? l_val : l_val / FIXED_ONE;
+		int32_t r_bits = is_long ? r_val : r_val / FIXED_ONE;
 
 		int32_t bits;
 		if (op == "|") bits = l_bits | r_bits;
 		else if (op == "&") bits = l_bits & r_bits;
 		else bits = l_bits ^ r_bits;
 
-		res.raw_value = resultIsFixed ? bits * FIXED_ONE : bits;
+		res.raw_value = is_long ? bits : bits * FIXED_ONE;
 		return res;
 	}
 
+	// The engine adds and subtracts raw values, but always multiplies and divides as fixed-point -
+	// even longs (do_mult, do_div), so 2L * 3L is 0L.
 	if (op == "+")
 		res.raw_value = l_val + r_val;
 	else if (op == "-")
 		res.raw_value = l_val - r_val;
 	else if (op == "*")
-	{
-		if (resultIsFixed)
-		{
-			int64_t bigRes = (int64_t)l_val * (int64_t)r_val;
-			res.raw_value = (int32_t)(bigRes / FIXED_ONE);
-		}
-		else
-			res.raw_value = l_val * r_val;
-	}
+		res.raw_value = (int32_t)(((int64_t)l_val * r_val) / FIXED_ONE);
 	else if (op == "/")
 	{
 		if (r_val == 0)
 			throw std::runtime_error("Divide by zero");
-		if (resultIsFixed)
-		{
-			int64_t bigL = (int64_t)l_val * FIXED_ONE;
-			res.raw_value = (int32_t)(bigL / r_val);
-		}
-		else
-		{
-			// Divide in 64 bits: INT_MIN / -1 overflows a 32-bit divide (SIGFPE on x86). The
-			// truncation wraps, like the fixed path.
-			res.raw_value = (int32_t)((int64_t)l_val / r_val);
-		}
+		// The 64-bit divide can't overflow, even for INT_MIN / -1. The truncation wraps.
+		res.raw_value = (int32_t)(((int64_t)l_val * FIXED_ONE) / r_val);
 	}
 	else if (op == "%")
 	{

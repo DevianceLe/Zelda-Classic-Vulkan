@@ -422,7 +422,9 @@ void setmapflag(int mi2, int flag)
         std::vector<int> done;
         bool looped = (nmap==cmap+1 && nscr==cscr);
         
-        while((nmap!=0) && !looped && !(nscr>=128))
+        // A carryover to a map a 2.55/3.0 quest doesn't have stops before it (upstream
+        // 53e0c56d2, 2.55.18 / 3.0); for 2.53 quests the break below stops after it.
+        while((nmap!=0) && !(q30_active() && nmap>map_count) && !looped && !(nscr>=128))
         {
             if((tmpscr->nocarry&flag)!=flag)
             {
@@ -484,7 +486,9 @@ void unsetmapflag(int mi2, int flag, bool anyflag)
         std::vector<int> done;
         bool looped = (nmap==cmap+1 && nscr==cscr);
         
-        while((nmap!=0) && !looped && !(nscr>=128))
+        // A carryover to a map a 2.55/3.0 quest doesn't have stops before it (upstream
+        // 53e0c56d2, 2.55.18 / 3.0); for 2.53 quests the break below stops after it.
+        while((nmap!=0) && !(q30_active() && nmap>map_count) && !looped && !(nscr>=128))
         {
             if((tmpscr->nocarry&flag)!=flag)
             {
@@ -527,6 +531,11 @@ int WARPCODE(int dmap,int scr,int dw)
         return -1;
         
     int ring=s->catchall;
+    
+    // 2.55/3.0, as upstream (aa30a0f29): a quest or script can set the catchall to anything.
+    if(q30_active() && unsigned(ring) >= 9)
+        return -2;
+        
     int size=QMisc.warp[ring].size;
     
     if(size==0)

@@ -2363,6 +2363,28 @@ void wpn_mark(weapon *w, int key)
     g_wpn_done[w->getUID()].push_back(key);
 }
 
+// 'Once Per Weapon' (2.55.18 / 3.0 ad25219): the triggers a weapon has fired, by weapon uid,
+// as (position key, combo, trigger index). Only that trigger stops, not the combo's others.
+typedef std::pair<int, std::pair<int, int> > WpnTrigKey;
+std::map<long, std::vector<WpnTrigKey> > g_wpn_once;
+
+bool wpn_fired_once(weapon *w, int key, int cid, size_t idx)
+{
+    std::map<long, std::vector<WpnTrigKey> >::iterator it = g_wpn_once.find(w->getUID());
+
+    if(it == g_wpn_once.end())
+        return false;
+
+    WpnTrigKey k(key, std::make_pair(cid, (int)idx));
+    return std::find(it->second.begin(), it->second.end(), k) != it->second.end();
+}
+
+void wpn_set_fired_once(weapon *w, int key, int cid, size_t idx)
+{
+    if(!wpn_fired_once(w, key, cid, idx))
+        g_wpn_once[w->getUID()].push_back(WpnTrigKey(key, std::make_pair(cid, (int)idx)));
+}
+
 std::map<long, int> g_wpn_burn;             // fire levels triggers gave a weapon, by uid
 bool g_respawn_forced = false;
 int g_stun_clk = 0;
@@ -3234,9 +3256,19 @@ bool run_trigger_core(const H &h, size_t idx, int special, weapon *w)
     int cid = h_data(h);
     int ocs = h_cset(h);
     bool hasitem = false;
+    int key = h.is_ffc() ? 2000 + h.ffc : h.layer * 176 + h.pos;
+    // A weapon that already fired a 'Once Per Weapon' trigger doesn't run any of it again: not
+    // its weapon effects, and it doesn't count as firing for 'Cancel Trigger'.
+    bool once_per_weapon = w && t.flags.get(Q30TF_ONCE_PER_WEAPON);
+
+    if(once_per_weapon && wpn_fired_once(w, key, cid, idx))
+        return false;
 
     if(w && t.flags.get(Q30TF_SEPARATEWEAPON))
     {
+        if(once_per_weapon)
+            wpn_set_fired_once(w, key, cid, idx);
+
         do_weapon_fx(w, t);
         return true;
     }
@@ -3290,7 +3322,6 @@ bool run_trigger_core(const H &h, size_t idx, int special, weapon *w)
     if(g_trig_trace)
         al_trace("q30 trig RUN cid %d idx %d type %d lyr %d pos %d ffc %d wpn %d special %d\n", cid, (int)idx, c->type, h.layer, h.pos, h.ffc, w ? w->id : -1, special);
 
-    int key = h.is_ffc() ? 2000 + h.ffc : h.layer * 176 + h.pos;
     bool check_bit = w ? wpn_done(w, key) : false;
     bool used_bit = false;
     PosInfo &timer = h_info(h);
@@ -3306,6 +3337,9 @@ bool run_trigger_core(const H &h, size_t idx, int special, weapon *w)
 
         if(w && used_bit)
             wpn_mark(w, key);
+
+        if(once_per_weapon)
+            wpn_set_fired_once(w, key, cid, idx);
     }
 
     if(w)
@@ -5442,6 +5476,7 @@ void q30_trig_screen_load()
         g_ffcpos[i].clear();
 
     g_wpn_done.clear();
+    g_wpn_once.clear();
     g_wpn_burn.clear();
     g_large_active.clear();
     g_pending_warp_type = -1;
@@ -5635,10 +5670,81 @@ bool q30_saved_button_slots(int w[4])
     return true;
 }
 
+// ZC_TEST_TRIG_ONCE=<case> (test runs only): the cases of upstream's combo_trigger_weapon_once
+// test (tests/scripts/playground/auto), whose script this engine can't run. A still Script 1
+// weapon sits for 10 frames on combo 3300 at (5,5), whose triggers each eat a rupee when they
+// fire, and the log gets how many were eaten; then a second weapon does the same.
+static void test_trig_once()
+{
+    static const char *env = getenv("ZC_TEST_TRIG_ONCE");
+    static int clk = -1;
+    static long wpn_uid = 0;
+
+    if(!env)
+        return;
+
+    const int test_case = atoi(env), cid = 3300;
+    const int start[2] = { 70, 82 };
+    ++clk;
+
+    for(int hold = 0; hold < 2; ++hold)
+    {
+        if(clk == start[hold])
+        {
+            if(!g_combos[cid])                      // (past the quest's last combo)
+                g_combos[cid] = new Q30Combo;
+
+            Q30Combo *c = g_combos[cid];
+            Q30Trigger eat;
+            eat.flags.set(Q30TF_SCRIPT01);
+            eat.flags.set(Q30TF_COUNTEREAT);
+            eat.trigctr = 1;            // rupees
+            eat.trigctramnt = 1;
+            c->type = cNONE;
+            c->triggers.assign(test_case >= 5 ? 2 : 1, eat);
+            Q30Trigger &first = c->triggers[0];
+
+            switch(test_case)
+            {
+            case 2: first.flags.set(Q30TF_ONCE_PER_WEAPON); break;
+            case 3: first.trigcopycat = 200; first.flags.set(Q30TF_NO_COPYCAT_CAUSE); break;
+            case 4: first.trigcopycat = 200; break;
+            case 5: first.flags.set(Q30TF_ONCE_PER_WEAPON); break;
+            case 6: first.flags.set(Q30TF_SEPARATEWEAPON); break;
+            case 7: first.flags.set(Q30TF_SEPARATEWEAPON); first.flags.set(Q30TF_ONCE_PER_WEAPON); break;
+            case 8: first.flags.set(Q30TF_ONCE_PER_WEAPON); first.flags.set(Q30TF_CANCEL_TRIGGER); break;
+            }
+
+            tmpscr[0].data[5 * 16 + 5] = cid;
+            tmpscr[0].data[5 * 16 + 10] = cid;      // a second copy the weapon never touches
+            game->set_counter(200, 1);
+            game->set_dcounter(0, 1);
+            addLwpn(80, 80, 0, wScript1, 0, 0, 0, Link.getUID());
+
+            if(weapon *w = (weapon *)Lwpns.spr(Lwpns.Count() - 1))
+            {
+                w->step = 0;
+                wpn_uid = w->getUID();
+            }
+        }
+        else if(clk == start[hold] + 10)
+        {
+            for(int i = Lwpns.Count() - 1; i >= 0; --i)
+                if(Lwpns.spr(i)->getUID() == wpn_uid)
+                    Lwpns.del(i);
+        }
+        else if(clk == start[hold] + 11)
+            al_trace("test: trig_once case %d weapon %d: fired %d\n", test_case, hold + 1,
+                     200 - (int)game->get_counter(1) - (int)game->get_dcounter(1));
+    }
+}
+
 void q30_trig_update()
 {
     if(!q30_active() || tmpscr[0].data.empty())
         return;
+
+    test_trig_once();
 
     // the button items, kept for the save (q30_restore_buttons)
     {
@@ -6003,6 +6109,31 @@ static bool match_weapon(weapon *w, const Q30Trigger &t)
     return f > -1 && t.flags.get(f);
 }
 
+// The triggers the weapon in q30_trig_weapon ran this frame, by (position key, combo, index),
+// and whether each fired. Each point of the hitbox finds a combo, so without this a weapon on
+// one combo ran its triggers once per hitbox corner each frame (fixed upstream in 2.55.18 /
+// 3.0 ad25219, no compat rule). One that ran but didn't fire is kept as false, so its Chance
+// isn't rolled again that frame.
+typedef std::map<std::pair<int, std::pair<int, int> >, bool> TrigFrameMap;
+static TrigFrameMap *g_trig_frame = NULL;
+
+static bool trig_once_this_frame(int key, int cid, size_t idx, const H &h, weapon *w)
+{
+    if(!g_trig_frame)
+        return do_trigger(h, idx, 0, w);
+
+    std::pair<int, std::pair<int, int> > k(key, std::make_pair(cid, (int)idx));
+    TrigFrameMap::iterator it = g_trig_frame->find(k);
+
+    if(it != g_trig_frame->end())
+        return it->second;
+
+    bool &fired = (*g_trig_frame)[k];
+    fired = false;
+    fired = do_trigger(h, idx, 0, w);
+    return fired;
+}
+
 static void match_weapon_at(weapon *w, int bx, int by, int layer)
 {
     if((unsigned)bx > 255 || (unsigned)by > 175)
@@ -6024,7 +6155,7 @@ static void match_weapon_at(weapon *w, int bx, int by, int layer)
                 if(!match_weapon(w, c->triggers[idx]))
                     continue;
 
-                if(do_trigger(h, idx, 0, w) && c->triggers[idx].flags.get(Q30TF_CANCEL_TRIGGER))
+                if(trig_once_this_frame(2000 + i, cid, idx, h, w) && c->triggers[idx].flags.get(Q30TF_CANCEL_TRIGGER))
                     break;
 
                 if(h_data(h) != cid)
@@ -6049,7 +6180,7 @@ static void match_weapon_at(weapon *w, int bx, int by, int layer)
         if(!match_weapon(w, c->triggers[idx]))
             continue;
 
-        if(do_trigger(h, idx, 0, w) && c->triggers[idx].flags.get(Q30TF_CANCEL_TRIGGER))
+        if(trig_once_this_frame(layer * 176 + h.pos, cid, idx, h, w) && c->triggers[idx].flags.get(Q30TF_CANCEL_TRIGGER))
             break;
 
         if(h_data(h) != cid)
@@ -6058,8 +6189,18 @@ static void match_weapon_at(weapon *w, int bx, int by, int layer)
 }
 
 static bool switch_weapon_check(weapon *w);
+static void trig_weapon_frame(weapon *w);
 
 void q30_trig_weapon(weapon *w)
+{
+    TrigFrameMap frame;
+    TrigFrameMap *outer = g_trig_frame;
+    g_trig_frame = &frame;
+    trig_weapon_frame(w);
+    g_trig_frame = outer;
+}
+
+static void trig_weapon_frame(weapon *w)
 {
     if(q30_active())
     {
@@ -9207,8 +9348,10 @@ bool q30_bottle_shop_here(int *shop)
     if(it == g_new_rooms.end() || it->second != ROOM_BOTTLESHOP)
         return false;
 
+    // (a catchall past the last bottle shop is an empty shop: q30_bottle_shop gives none for it,
+    // as upstream 81b95a243 / 2.55.18's get_bottle_shop)
     if(shop)
-        *shop = tmpscr[currscr >= 128 ? 1 : 0].catchall & 0xFF;
+        *shop = tmpscr[currscr >= 128 ? 1 : 0].catchall;
 
     return true;
 }
@@ -10819,6 +10962,20 @@ int q30_shop_item(int shop, int slot)
     return g_shop_hi_item[shop][slot] ? g_shop_hi_item[shop][slot] : QMisc.shop[shop].item[slot];
 }
 
+const shoptype &q30_room_shop(int id)
+{
+    static const shoptype none = shoptype();
+
+    return (q30_active() && (unsigned)id >= 256) ? none : QMisc.shop[id];
+}
+
+const infotype &q30_room_info(int id)
+{
+    static const infotype none = infotype();
+
+    return (q30_active() && (unsigned)id >= 256) ? none : QMisc.info[id];
+}
+
 void q30_item_pickup_secrets(int pickup)
 {
     if(!q30_active() || !(pickup & Q30_IP_SECRETS))
@@ -11741,7 +11898,8 @@ static void sw_swap()
         g_sw.ex = lx;
         g_sw.ey = ly;
 
-        if(e->dir >= 0 && e->dir < 8 && (e->dir == Link.dir || e->dir == oppositeDir[Link.dir]))
+        // (a script can leave the Hero facing any number: only a real direction has an opposite)
+        if(e->dir >= 0 && e->dir < 8 && (e->dir == Link.dir || (Link.dir >= 0 && Link.dir < 8 && e->dir == oppositeDir[Link.dir])))
             e->dir = oppositeDir[e->dir];
 
         sw_shift_hook(lx, ly);

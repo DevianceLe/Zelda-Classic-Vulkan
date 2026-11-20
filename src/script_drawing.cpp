@@ -16,6 +16,11 @@
 #include "port/game/q30_regions.h"
 #include <stdio.h>
 
+// 0 for a 2.53 quest. A 2.55 or 3.0 quest's scripts get two of upstream 2.55.18's checks below: a
+// negative tile (a combo) past the last combo is clamped to it, and a Quad or Triangle texture
+// of no size is refused; they read outside the combos and the texture.
+extern long zasm30_ffscript_version;
+
 #define DegtoFix(d)     ((d)*0.7111111111111)
 #define RadtoFix(d)     ((d)*40.743665431525)
 
@@ -1653,7 +1658,7 @@ void do_drawquadr(BITMAP *bmp, int *sdci, int xoffset, int yoffset)
     */
     polytype = vbound(polytype, 0, 14);
     
-    if(((w-1) & w) != 0 || ((h-1) & h) != 0)
+    if((zasm30_ffscript_version && (w < 1 || h < 1)) || ((w-1) & w) != 0 || ((h-1) & h) != 0)
     {
         Z_message("Quad() : Args h, w, must be in powers of two! Power of 2 error with %i, %i.", w, h);
         return; //non power of two error
@@ -1697,7 +1702,7 @@ void do_drawquadr(BITMAP *bmp, int *sdci, int xoffset, int yoffset)
     
     if ( tile < 0 )        // COMBO
     {
-        const newcombo & c = combobuf[ vbound(abs(tile), 0, 0xffff) ];
+        const newcombo & c = combobuf[ vbound(abs(tile), 0, zasm30_ffscript_version ? MAXCOMBOS-1 : 0xffff) ];
         const int tiletodraw = combo_tile(c, x1, y1);
         flip = flip ^ c.flip;
         
@@ -1748,7 +1753,7 @@ void do_drawtriangler(BITMAP *bmp, int *sdci, int xoffset, int yoffset)
     
     polytype = vbound(polytype, 0, 14);
     
-    if(((w-1) & w) != 0 || ((h-1) & h) != 0) return;   //non power of two error
+    if((zasm30_ffscript_version && (w < 1 || h < 1)) || ((w-1) & w) != 0 || ((h-1) & h) != 0) return;   //non power of two error
     
     int tex_width = w*16;
     int tex_height = h*16;
@@ -1782,7 +1787,7 @@ void do_drawtriangler(BITMAP *bmp, int *sdci, int xoffset, int yoffset)
     }
     else        // COMBO
     {
-        const newcombo & c = combobuf[ vbound(abs(tile), 0, 0xffff) ];
+        const newcombo & c = combobuf[ vbound(abs(tile), 0, zasm30_ffscript_version ? MAXCOMBOS-1 : 0xffff) ];
         const int tiletodraw = combo_tile(c, x1, y1);
         flip = flip ^ c.flip;
         
@@ -1991,7 +1996,7 @@ void do_drawquad3dr(BITMAP *bmp, int i, int *sdci, int xoffset, int yoffset)
     
     polytype = vbound(polytype, 0, 14);
     
-    if(((w-1) & w) != 0 || ((h-1) & h) != 0) return;   //non power of two error
+    if((zasm30_ffscript_version && (w < 1 || h < 1)) || ((w-1) & w) != 0 || ((h-1) & h) != 0) return;   //non power of two error
     
     int tex_width = w*16;
     int tex_height = h*16;
@@ -2012,7 +2017,7 @@ void do_drawquad3dr(BITMAP *bmp, int i, int *sdci, int xoffset, int yoffset)
     }
     else        // COMBO
     {
-        const newcombo & c = combobuf[ vbound(abs(tile), 0, 0xffff) ];
+        const newcombo & c = combobuf[ vbound(abs(tile), 0, zasm30_ffscript_version ? MAXCOMBOS-1 : 0xffff) ];
         const int tiletodraw = combo_tile(c, 0, 0);
         flip = flip ^ c.flip;
         
@@ -2070,7 +2075,7 @@ void do_drawtriangle3dr(BITMAP *bmp, int i, int *sdci, int xoffset, int yoffset)
     
     polytype = vbound(polytype, 0, 14);
     
-    if(((w-1) & w) != 0 || ((h-1) & h) != 0) return;   //non power of two error
+    if((zasm30_ffscript_version && (w < 1 || h < 1)) || ((w-1) & w) != 0 || ((h-1) & h) != 0) return;   //non power of two error
     
     int tex_width = w*16;
     int tex_height = h*16;
@@ -2091,7 +2096,7 @@ void do_drawtriangle3dr(BITMAP *bmp, int i, int *sdci, int xoffset, int yoffset)
     }
     else        // COMBO
     {
-        const newcombo & c = combobuf[ vbound(abs(tile), 0, 0xffff) ];
+        const newcombo & c = combobuf[ vbound(abs(tile), 0, zasm30_ffscript_version ? MAXCOMBOS-1 : 0xffff) ];
         const int tiletodraw = combo_tile(c, 0, 0);
         flip = flip ^ c.flip;
         

@@ -1075,6 +1075,7 @@ int q255_read_header(Q255Section &s, byte *map_count, byte *midi_flags)
     h.data_flags[ZQ_CHEATS2] = s.getc();
     s.skip(14);
     s.read(h.templatepath, sizeof(h.templatepath));
+    h.templatepath[sizeof(h.templatepath) - 1] = 0;     // used as text; cut off at its size, as upstream (960a22cc3)
     byte maps = s.getc();
 
     if(s.version >= 4)
@@ -1559,12 +1560,16 @@ int q255_read_misc(Q255Section &s)
     {
         const bool store = i < Q255_MAX_WARP_RINGS;
 
+        if(keep)
+            q255_note_offset("warpring", i, s.pos);
+
         for(int j = 0; j < 9; ++j)
         {
             word dmap = s.igetw();
 
+            // as upstream (aa30a0f29): only a damaged quest has a DMap past the last one
             if(store)
-                temp.warp[i].dmap[j] = dmap;
+                temp.warp[i].dmap[j] = dmap < MAXDMAPS ? dmap : (word)0;
         }
 
         for(int j = 0; j < 9; ++j)
@@ -1577,8 +1582,9 @@ int q255_read_misc(Q255Section &s)
 
         byte size = s.getc();
 
+        // a ring holds at most nine warps; only a damaged quest says otherwise (aa30a0f29)
         if(store)
-            temp.warp[i].size = size;
+            temp.warp[i].size = size < 9 ? size : (byte)9;
     }
 
     s.read(temp.triforce, sizeof(temp.triforce));
@@ -1608,6 +1614,10 @@ int q255_read_misc(Q255Section &s)
     for(int i = 0; i < 256; ++i)
     {
         int spr = s.version >= 21 ? (int)s.igetw() : s.version >= 12 ? (int)s.getc() : 0;
+
+        // as upstream (4accb7ebc): only a damaged quest has a sprite past its last one (8192)
+        if(spr >= 8192)
+            spr = 0;
 
         if(keep && !s.failed)
             q30_set_misc_sprite(i, spr);

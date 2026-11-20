@@ -1,5 +1,7 @@
 # zscript255: upstream ZQuest Classic 2.55.17's ZScript compiler as a command-line
 # program (Windows, Linux, macOS), so 2.55 quests can be recompiled as 2.55.17 would.
+# Up to date with 2.55.18: its parser is 2.55.17's unchanged, and of what the compiler uses
+# only std_constants.zh (TRIGFLAG_ONCE_PER_WEAPON) and base/general.h differ.
 #
 # Included from src/port/CMakeLists.txt. Its own source folder (this one) and its own
 # include root: upstream's "parser/...", "base/..." headers resolve here, never to the

@@ -681,8 +681,10 @@ static int z30_mapdata_mi(long ref)
     if(ref <= 0)
         return -1;
 
+    // (the screen being played has no saved state of its own in a cave or passageway, screens
+    // 0x80 and up: upstream reads and sets nothing there, where this indexed the next map's)
     if(ref & Z30_MAPDATA_TMP)
-        return (ref & 0xFFFF) == 0 ? currmap * MAPSCRSNORMAL + currscr : -1;
+        return ((ref & 0xFFFF) == 0 && currscr < MAPSCRSNORMAL) ? currmap * MAPSCRSNORMAL + currscr : -1;
 
     const long index = ref - 1, screen = index % MAPSCRS;
     return (index < (long)TheMaps.size() && screen < MAPSCRSNORMAL) ? (index / MAPSCRS) * MAPSCRSNORMAL + screen : -1;
@@ -1850,7 +1852,8 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_MAPDATALAYEROPACITY:
     {
         mapscr *m = z30_mapdata_now();
-        const long n = Z30_INDEX - 1;
+        // (scripts from before ZScript version 11 count this array from 0, as LayerMap[] above)
+        const long n = Z30_INDEX - (zasm30_ffscript_version < 11 ? 0 : 1);
         ret = (m && n >= 0 && n < 6) ? m->layeropacity[n] * 10000 : -10000;
         return true;
     }
@@ -2208,12 +2211,19 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     case Z30R_COMBODTILE: z30_cdata().tile = vbound(value / 10000, 0, NEWMAXTILES - 1); return true;
     case Z30R_COMBODFLIP: z30_cdata().flip = (byte)(value / 10000); return true;
     case Z30R_COMBODWALK: z30_cdata().walk = (z30_cdata().walk & ~0x0F) | ((value / 10000) & 0x0F); return true;
-    case Z30R_COMBODTYPE: z30_cdata().type = (byte)(value / 10000); return true;
+    case Z30R_COMBODTYPE:
+        // (as upstream: a negative type is no type; a 3.0 quest's type past the last is refused
+        // and a 2.55 quest's is kept within the byte. They wrapped round to some other type.)
+        if(value < 0)
+            z30_cdata().type = 0;
+        else if(!zasm30_bad_combo_type(value))
+            z30_cdata().type = (byte)zc_min(value / 10000, 255);
+        return true;
     case Z30R_COMBODCSET: z30_cdata().csets = (z30_cdata().csets & 0xF0) | ((value / 10000) & 0x0F); return true;
     case Z30R_COMBODFLAG: z30_cdata().flag = (byte)(value / 10000); return true;
     case Z30R_COMBODFRAMES: z30_cdata().frames = (byte)(value / 10000); return true;
     case Z30R_COMBODASPEED: z30_cdata().speed = (byte)(value / 10000); return true;
-    case Z30R_COMBODNEXTD: z30_cdata().nextcombo = (word)(value / 10000); return true;
+    case Z30R_COMBODNEXTD: if(!zasm30_bad_combo(value)) z30_cdata().nextcombo = (word)(value / 10000); return true;
     case Z30R_COMBODNEXTC: z30_cdata().nextcset = (byte)(value / 10000); return true;
     case Z30R_COMBODSKIPANIM: z30_cdata().skipanim = (byte)(value / 10000); return true;
     case Z30R_COMBODNEXTTIMER: z30_cdata().nexttimer = (word)(value / 10000); return true;
@@ -2248,7 +2258,9 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     case Z30R_SCREENDATAHASITEM: tmpscr->hasitem = (byte)(value / 10000); return true;
     case Z30R_SCREENDATASTRING: tmpscr->str = (word)(value / 10000); return true;
     case Z30R_SCREENDATAENEMY: if(Z30_INDEX >= 0 && Z30_INDEX < 10) tmpscr->enemy[Z30_INDEX] = vbound(value / 10000, 0, MAXGUYS - 1); return true;
-    case Z30R_SCREENDATASECRETCOMBO: if(Z30_INDEX >= 0 && Z30_INDEX < 128) tmpscr->secretcombo[Z30_INDEX] = (word)(value / 10000); return true;
+    // (a combo that doesn't exist is refused, as upstream: triggering the secret then drew from
+    // outside the combos)
+    case Z30R_SCREENDATASECRETCOMBO: if(Z30_INDEX >= 0 && Z30_INDEX < 128 && !zasm30_bad_combo(value)) tmpscr->secretcombo[Z30_INDEX] = (word)(value / 10000); return true;
     case Z30R_SCREENDATASECRETCSET: if(Z30_INDEX >= 0 && Z30_INDEX < 128) tmpscr->secretcset[Z30_INDEX] = (byte)(value / 10000); return true;
     case Z30R_SCREENDATASECRETFLAG: if(Z30_INDEX >= 0 && Z30_INDEX < 128) tmpscr->secretflag[Z30_INDEX] = (byte)(value / 10000); return true;
     case Z30R_SCREENDATAWARPRETX: if(Z30_INDEX >= 0 && Z30_INDEX < 4) tmpscr->warpreturnx[Z30_INDEX] = (byte)vbound(value / 10000, 0, 255); return true;
@@ -2375,7 +2387,13 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     case Z30R_DMAPDATALEVEL: if(unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS) DMaps[Z30_REF(DMAPDATA)].level = (word)(value / 10000); return true;
     case Z30R_DMAPDATACOMPASS: if(unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS) DMaps[Z30_REF(DMAPDATA)].compass = (byte)(value / 10000); return true;
     case Z30R_DMAPDATATYPE: if(unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS) DMaps[Z30_REF(DMAPDATA)].type = (DMaps[Z30_REF(DMAPDATA)].type & ~dmfTYPE) | ((value / 10000) & dmfTYPE); return true;
-    case Z30R_DMAPDATAPALETTE: if(unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS) DMaps[Z30_REF(DMAPDATA)].color = (word)(value / 10000); return true;
+    case Z30R_DMAPDATAPALETTE:
+        // (a level palette that doesn't exist is refused, as upstream: loading it read past the palettes)
+        if(value / 10000 < 0 || value / 10000 >= MAXLEVELS)
+            Z_scripterrlog("Invalid palette: %ld - must be >= 0 and <= %d\n", (long)(value / 10000), MAXLEVELS - 1);
+        else if(unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS)
+            DMaps[Z30_REF(DMAPDATA)].color = (word)(value / 10000);
+        return true;
     case Z30R_DMAPDATAFLAGARR:
     {
         const long id = Z30_REF(DMAPDATA);

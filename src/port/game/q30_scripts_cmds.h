@@ -171,13 +171,20 @@ static bool z30_name_ok(const std::string &name)
     if(name[name.size() - 1] == '.' || name[name.size() - 1] == ' ')
         return false;
 
-    return std::string(reserved).find(" " + z30_lower(name.substr(0, name.find('.'))) + " ") == std::string::npos;
+    // (the device name is what comes before the first dot, less any spaces before it: "aux .txt")
+    std::string device = z30_lower(name.substr(0, name.find('.')));
+
+    while(!device.empty() && device[device.size() - 1] == ' ')
+        device.erase(device.size() - 1);
+
+    return device.empty() || std::string(reserved).find(" " + device + " ") == std::string::npos;
 }
 
-// Scripts can't create programs. The list is upstream's, from fileinfo.com's executable types.
+// Scripts can't create programs. The list is upstream's, from fileinfo.com's executable types,
+// with the libraries, installers, shortcuts and shell and other scripts upstream 2.55.18 added.
 static bool z30_extension_ok(const std::string &name)
 {
-    static const char banned[] = " .xlm .caction .8ck .actc .a6p .m3g .run .workflow .otm .apk .fxp .73k .0xe .exe .cmd .jsx .scar .wcm .jar .ebs2 .ipa .xap .ba_ .ac .bin .vlx .icd .elf .xbap .89k .widget .a7r .ex_ .zl9 .cgi .scr .coffee .ahk .plsc .air .ear .app .scptd .xys .hms .cyw .ebm .pwc .xqt .msl .seed .vexe .ebs .mcr .gpu .celx .wsh .frs .vxp .action .com .out .gadget .command .script .rfu .tcp .ex4 .bat .cof .phar .rxe .scb .ms .isu .fas .mlx .gpe .mrp .u3p .js .acr .epk .exe1 .jsf .rbf .rgs .vpm .ecf .hta .dld .applescript .prg .pyc .spr .nexe .server .appimage .pyo .dek .mrc .fpi .rpj .iim .vbs .pif .mel .scpt .csh .paf .ws .mm .acc .ex5 .mac .plx .snap .ps1 .vdo .mxe .gs .osx .sct .wiz .x86 .e_e .fky .azw2 .actm .cel .tiapp .thm .kix .wsf .vbe .lo .ls .tms .ezs .ds .n .esh .vbscript .arscript .qit .pex .dxl .wpm .s2a .sca .prc .shb .rbx .jse .beam .udf .mem .kx .ksh .rox .upx .mam .btm .es .asb .ipf .mio .sbs .hpf .ita .eham .ezt .dmc .qpx .ore .ncl .exopc .smm .pvd .ham .wpk ";
+    static const char banned[] = " .xlm .caction .8ck .actc .a6p .m3g .run .workflow .otm .apk .fxp .73k .0xe .exe .cmd .jsx .scar .wcm .jar .ebs2 .ipa .xap .ba_ .ac .bin .vlx .icd .elf .xbap .89k .widget .a7r .ex_ .zl9 .cgi .scr .coffee .ahk .plsc .air .ear .app .scptd .xys .hms .cyw .ebm .pwc .xqt .msl .seed .vexe .ebs .mcr .gpu .celx .wsh .frs .vxp .action .com .out .gadget .command .script .rfu .tcp .ex4 .bat .cof .phar .rxe .scb .ms .isu .fas .mlx .gpe .mrp .u3p .js .acr .epk .exe1 .jsf .rbf .rgs .vpm .ecf .hta .dld .applescript .prg .pyc .spr .nexe .server .appimage .pyo .dek .mrc .fpi .rpj .iim .vbs .pif .mel .scpt .csh .paf .ws .mm .acc .ex5 .mac .plx .snap .ps1 .vdo .mxe .gs .osx .sct .wiz .x86 .e_e .fky .azw2 .actm .cel .tiapp .thm .kix .wsf .vbe .lo .ls .tms .ezs .ds .n .esh .vbscript .arscript .qit .pex .dxl .wpm .s2a .sca .prc .shb .rbx .jse .beam .udf .mem .kx .ksh .rox .upx .mam .btm .es .asb .ipf .mio .sbs .hpf .ita .eham .ezt .dmc .qpx .ore .ncl .exopc .smm .pvd .ham .wpk .application .appref-ms .bash .chm .cpl .desktop .drv .dylib .inetloc .library-ms .lnk .msc .msi .msp .ocx .php .pl .psd1 .psm1 .py .pyw .rb .reg .scf .settingcontent-ms .sh .so .sys .terminal .url .vb .webloc .website .wsc .zsh ";
     const size_t dot = name.rfind('.');
 
     return dot == std::string::npos
@@ -1404,8 +1411,15 @@ static std::string z30_format(const std::string &format, const std::vector<long>
             ++i;
         }
 
+        // (the width is capped at 10 below; a longer run of digits must not overflow the count
+        // first, which made the width negative and the number overrun its buffer)
         while(i < format.size() && format[i] >= '0' && format[i] <= '9')
-            min_digits = min_digits * 10 + (format[i++] - '0');
+        {
+            if(min_digits < 100)
+                min_digits = min_digits * 10 + (format[i] - '0');
+
+            ++i;
+        }
 
         if(i >= format.size())
             break;
@@ -2522,6 +2536,28 @@ static void zasm30_warp_ex(const int *a)
         return;
     }
 
+    // A screen off the edge of its map (a small DMap's negative offset, or past the last map)
+    // is refused here as in upstream's warp_player (the first check: 3.0 quests, 001bfee44; the
+    // second is older and in 2.55 too). dowarp cancels such a warp as well, but only after the
+    // sound has played, and the arrival position below would then move Link where he stands.
+    {
+        extern int q255_header_version[3];      // q255_basic.cpp: a 2.55/3.0 quest's header version
+        const int dest_screen = screen + DMaps[dmap].xoff;
+
+        if(q255_header_version[0] >= 3 && (unsigned)dest_screen >= MAPSCRS)
+        {
+            Z_scripterrlog("Screen %d of DMap %d passed to WarpEx() is outside its map (DMap offset %d). Aborting.\n",
+                           screen, dmap, (int)DMaps[dmap].xoff);
+            return;
+        }
+
+        if(DMaps[dmap].map * MAPSCRS + dest_screen >= (int)TheMaps.size())
+        {
+            Z_scripterrlog("Invalid destination passed to WarpEx(). Aborting.\n");
+            return;
+        }
+    }
+
     if(type == wtNOWARP)
         return;
 
@@ -2620,8 +2656,9 @@ static bool zasm30_command(word cmd)
 
         if(n >= 8 && n <= 10)
         {
+            // (SPR: a 2.55/3.0 script's stack pointer; ri->sp is only a 2.53 script's)
             for(int q = 0; q < n; ++q)
-                args[q] = SH::read_stack(ri->sp + (n - q - 1)) / 10000;
+                args[q] = SH::read_stack(SPR + (n - q - 1)) / 10000;
 
             zasm30_warp_ex(args);
         }
@@ -2913,22 +2950,22 @@ static bool zasm30_command(word cmd)
 
     case Z30C_ENHCROSSFADE:
     {
-        long ptr = SH::read_stack(ri->sp + 5) / 10000;
+        long ptr = SH::read_stack(SPR + 5) / 10000;
         string name;
 
         if(ptr)
             ArrayH::getString(ptr, name, 256);
 
-        bool done = q30_enh_crossfade(ptr ? name.c_str() : NULL, SH::read_stack(ri->sp + 4) / 10000,
-                                      zc_max(SH::read_stack(ri->sp + 3) / 10000, 0), zc_max(SH::read_stack(ri->sp + 2) / 10000, 0),
-                                      SH::read_stack(ri->sp + 1) / 10000, SH::read_stack(ri->sp));
+        bool done = q30_enh_crossfade(ptr ? name.c_str() : NULL, SH::read_stack(SPR + 4) / 10000,
+                                      zc_max(SH::read_stack(SPR + 3) / 10000, 0), zc_max(SH::read_stack(SPR + 2) / 10000, 0),
+                                      SH::read_stack(SPR + 1) / 10000, SH::read_stack(SPR));
         ri->d[2] = done ? 10000 : 0;
         return true;
     }
 
     case Z30C_PLAYSOUNDEX:
-        q30_sfx_ex(SH::read_stack(ri->sp + 4) / 10000, SH::read_stack(ri->sp + 3), SH::read_stack(ri->sp + 2),
-                   SH::read_stack(ri->sp + 1), SH::read_stack(ri->sp), true);
+        q30_sfx_ex(SH::read_stack(SPR + 4) / 10000, SH::read_stack(SPR + 3), SH::read_stack(SPR + 2),
+                   SH::read_stack(SPR + 1), SH::read_stack(SPR), true);
         return true;
 
     case Z30C_GETSFXCOMPLETION:

@@ -29,6 +29,8 @@ FFScript FFCore;
 #include "port/game/q30_scripts.h"
 #include "port/game/q30_regions.h"
 #include "port/game/q30_scripts_defs.h"
+
+std::string z30_printf_text(const std::string &format, const std::vector<long> &args);   // below (ZC_SCRIPT_PRINTF)
 #include "port/game/q30_triggers.h"   // generic script events (ffscript_engine)
 
 extern word quest_header_zelda_version; //2.53 ONLY. In 2.55, we have an array for this in FFCore! -Z
@@ -1884,6 +1886,10 @@ long(*stack)[ZSCRIPT_STACK_ALLOC] = NULL;
 #define ZASM30_STACK_SIZE 5120
 static long *zasm30_wide_sp = NULL;
 static long zasm30_stack_limit = ZSCRIPT_STACK_ALLOC;
+// A newer quest's script wrote below its stack, or made more nested calls than upstream allows
+// (a function that calls itself for ever): run_script ends it after the command, as upstream ends
+// a script on a stack overflow. Such a script used to run on, logging an error for every push.
+static bool zasm30_stack_fault = false;
 
 class ZasmStackPointer
 {
@@ -1992,6 +1998,11 @@ struct Zasm30Instance
 // Filled by the 3.0 script reader (src/port/game/q255_scripts.cpp).
 ffscript *zasm30_stream = NULL;
 std::map<const ffscript *, Zasm30Literal> zasm30_literals;
+// How many commands a newer quest's scripts hold, end marker included: the stream's, and each
+// separately stored script's (0: not one the reader made). run_script ends a script whose position
+// leaves its commands. The reader (q255_scripts.cpp) keeps both.
+extern long zasm30_stream_len;
+long q30_script_length(const ffscript *code);
 std::vector<std::map<int, long> > zasm30_inst_inits;
 
 static long zasm30_cmp_op1 = 0, zasm30_cmp_op2 = 0;
@@ -2466,6 +2477,10 @@ public:
         if(stackoffset <= 0 || stackoffset >= zasm30_stack_limit)
         {
             Z_scripterrlog("Stack over or underflow, stack pointer = %ld\n", stackoffset);
+
+            if(stackoffset < 0 && zasm30_wide_sp)   // (2.55/3.0 scripts only: see zasm30_stack_fault)
+                zasm30_stack_fault = true;
+
             return;
         }
 
@@ -4974,6 +4989,11 @@ long get_register(const long arg)
             ret=(q30_high_item_owned((ri->d[0])/10000) ? 10000 : 0);
         else if(q30_items_end() > MAXITEMS)  // a 2.55/3.0 quest with items past 255
             ret=(game->get_item(vbound((ri->d[0])/10000, 0, q30_items_end()-1)) ? 10000 : 0);
+        else if(zasm30_ffscript_version && (ri->d[0])/10000 < 0)    // (upstream 2.55.18: outside the item list)
+        {
+            Z_scripterrlog("Invalid item ID (%ld) passed to Game->Item[]\n", (long)((ri->d[0])/10000));
+            ret=0;
+        }
         else
             ret=(game->item[(ri->d[0])/10000] ? 10000 : 0);
         break;
@@ -5499,6 +5519,20 @@ static bool zasm30_bad_combo(const long value)
     return true;
 }
 
+// A 3.0 quest's script (script format past 2.55's 22) writing a combo type no combo can have:
+// the write is refused, as upstream 3.0, whose types run to 183; it wrapped round to some other
+// type. 2.55 quests keep what upstream 2.55 does with one, and 2.53 quests what they always did.
+static bool zasm30_bad_combo_type(const long value)
+{
+    const long type = value / 10000;
+
+    if(zasm30_ffscript_version <= 22 || (type >= 0 && type <= 183))
+        return false;
+
+    Z_scripterrlog("Invalid combo type: %ld\n", type);
+    return true;
+}
+
 void set_register(const long arg, const long value)
 {
     // 3.0 scrolling regions (as in get_register)
@@ -5660,6 +5694,14 @@ void set_register(const long arg, const long value)
         
     case LINKDIR:
     {
+        // 2.55/3.0 quests: the Hero's tiles only have the four cardinal directions and are indexed
+        // by it, so any other direction is refused (upstream 2.55.18). 2.53 quests set what they set.
+        if(zasm30_ffscript_version && (value/10000 < 0 || value/10000 > 3))
+        {
+            Z_scripterrlog("Invalid Hero->Dir: %ld - must be >= 0 and <= 3\n", (long)(value/10000));
+            break;
+        }
+
         //Link.setDir() calls reset_hookshot(), which removes the sword sprite.. O_o
         if(Link.getAction() == attacking) Link.dir = (value/10000);
         else Link.setDir(value/10000);
@@ -6040,6 +6082,14 @@ void set_register(const long arg, const long value)
     case ITEMID:
         if(0!=(s=checkItem(ri->itemref)))
         {
+            // (2.55/3.0: an ID outside the item list is refused, as upstream; the item's data
+            // was then read from outside the items)
+            if(zasm30_ffscript_version && (value/10000 < 0 || value/10000 >= Q30_MAXITEMS))
+            {
+                Z_scripterrlog("Invalid item ID: %ld\n", (long)(value/10000));
+                break;
+            }
+
             (((item *)s)->id)=value/10000;
             flushItemCache();
         }
@@ -7130,6 +7180,14 @@ if(GuyH::loadNPC(ri->guyref, str) == SH::_NoError) \
         break;
         
     case GAMEITEMSD:
+        // A 2.55/3.0 quest's script naming an item outside the item list: refused, as upstream
+        // 2.55.18 (a negative one wrote before the Hero's items).
+        if(zasm30_ffscript_version && ((ri->d[0])/10000 < 0 || (ri->d[0])/10000 >= Q30_MAXITEMS))
+        {
+            Z_scripterrlog("Invalid item ID (%ld) passed to Game->Item[]\n", (long)((ri->d[0])/10000));
+            break;
+        }
+
         game->set_item((ri->d[0])/10000,(value!=0));
         break;
         
@@ -7299,6 +7357,9 @@ if(GuyH::loadNPC(ri->guyref, str) == SH::_NoError) \
             // either way, as upstream's screen_combo_modify_pre/post(cid). cs is tmpscr for 2.53)
             const word cid = cs->data[pos];
 
+            if(zasm30_bad_combo_type(value))    // (3.0: not a type a combo can have)
+                break;
+
             // Preprocess each instance of the combo on the screen
             for(int i = 0; i < 176; i++)
             {
@@ -7435,6 +7496,9 @@ case COMBODDM:
             
         int cdata = TheMaps[scr].data[pos];
         
+        if(zasm30_bad_combo_type(value))    // (3.0: not a type a combo can have)
+            break;
+
         // Preprocess the screen's combos in case the combo changed is present on the screen. -L
         for(int i = 0; i < 176; i++)
         {
@@ -7553,6 +7617,9 @@ case COMBODDM:
         break;
         
     case UNDERCOMBO:
+        if(zasm30_bad_combo(value))     // (2.55/3.0: a combo that doesn't exist is refused)
+            break;
+
         tmpscr->undercombo=value/10000;
         break;
         
@@ -8251,7 +8318,7 @@ void do_setsidewarp()
     long dmap   = SH::read_stack(SPR + 1) / 10000;
     long type   = SH::read_stack(SPR + 0) / 10000;
     
-    if(BC::checkBounds(warp, -1, 3, "Screen->SetSideWarp") != SH::_NoError ||
+    if(BC::checkBounds(warp, zasm30_ffscript_version ? 0 : -1, 3, "Screen->SetSideWarp") != SH::_NoError ||
             BC::checkBounds(scrn, -1, 0x87, "Screen->SetSideWarp") != SH::_NoError ||
             BC::checkBounds(dmap, -1, MAXDMAPS - 1, "Screen->SetSideWarp") != SH::_NoError ||
             BC::checkBounds(type, -1, wtMAX - 1, "Screen->SetSideWarp") != SH::_NoError)
@@ -8274,7 +8341,7 @@ void do_settilewarp()
     long dmap   = SH::read_stack(SPR + 1) / 10000;
     long type   = SH::read_stack(SPR + 0) / 10000;
     
-    if(BC::checkBounds(warp, -1, 3, "Screen->SetTileWarp") != SH::_NoError ||
+    if(BC::checkBounds(warp, zasm30_ffscript_version ? 0 : -1, 3, "Screen->SetTileWarp") != SH::_NoError ||
             BC::checkBounds(scrn, -1, 0x87, "Screen->SetTileWarp") != SH::_NoError ||
             BC::checkBounds(dmap, -1, MAXDMAPS - 1, "Screen->SetTileWarp") != SH::_NoError ||
             BC::checkBounds(type, -1, wtMAX - 1, "Screen->SetTileWarp") != SH::_NoError)
@@ -8294,7 +8361,7 @@ void do_getsidewarpdmap(const bool v)
 {
     long warp = SH::get_arg(sarg1, v) / 10000;
     
-    if(BC::checkBounds(warp, -1, 3, "Screen->GetSideWarpDMap") != SH::_NoError)
+    if(BC::checkBounds(warp, zasm30_ffscript_version ? 0 : -1, 3, "Screen->GetSideWarpDMap") != SH::_NoError)
     {
         set_register(sarg1, -10000);
         return;
@@ -8307,7 +8374,7 @@ void do_getsidewarpscr(const bool v)
 {
     long warp = SH::get_arg(sarg1, v) / 10000;
     
-    if(BC::checkBounds(warp, -1, 3, "Screen->GetSideWarpScreen") != SH::_NoError)
+    if(BC::checkBounds(warp, zasm30_ffscript_version ? 0 : -1, 3, "Screen->GetSideWarpScreen") != SH::_NoError)
     {
         set_register(sarg1, -10000);
         return;
@@ -8320,7 +8387,7 @@ void do_getsidewarptype(const bool v)
 {
     long warp = SH::get_arg(sarg1, v) / 10000;
     
-    if(BC::checkBounds(warp, -1, 3, "Screen->GetSideWarpType") != SH::_NoError)
+    if(BC::checkBounds(warp, zasm30_ffscript_version ? 0 : -1, 3, "Screen->GetSideWarpType") != SH::_NoError)
     {
         set_register(sarg1, -10000);
         return;
@@ -8333,7 +8400,7 @@ void do_gettilewarpdmap(const bool v)
 {
     long warp = SH::get_arg(sarg1, v) / 10000;
     
-    if(BC::checkBounds(warp, -1, 3, "Screen->GetTileWarpDMap") != SH::_NoError)
+    if(BC::checkBounds(warp, zasm30_ffscript_version ? 0 : -1, 3, "Screen->GetTileWarpDMap") != SH::_NoError)
     {
         set_register(sarg1, -10000);
         return;
@@ -8346,7 +8413,7 @@ void do_gettilewarpscr(const bool v)
 {
     long warp = SH::get_arg(sarg1, v) / 10000;
     
-    if(BC::checkBounds(warp, -1, 3, "Screen->GetTileWarpScreen") != SH::_NoError)
+    if(BC::checkBounds(warp, zasm30_ffscript_version ? 0 : -1, 3, "Screen->GetTileWarpScreen") != SH::_NoError)
     {
         set_register(sarg1, -10000);
         return;
@@ -8359,7 +8426,7 @@ void do_gettilewarptype(const bool v)
 {
     long warp = SH::get_arg(sarg1, v) / 10000;
     
-    if(BC::checkBounds(warp, -1, 3, "Screen->GetTileWarpType") != SH::_NoError)
+    if(BC::checkBounds(warp, zasm30_ffscript_version ? 0 : -1, 3, "Screen->GetTileWarpType") != SH::_NoError)
     {
         set_register(sarg1, -10000);
         return;
@@ -9165,6 +9232,18 @@ void do_getsavename()
 {
     long arrayptr = get_register(sarg1) / 10000;
     
+    // ZC_TEST_NAME (test runs only): the name a 2.55/3.0 quest's scripts get, as upstream's test
+    // replays name their save after the test its TestRunner script should run.
+    static const char *test_name = getenv("ZC_TEST_NAME");
+
+    if(test_name && q30_active())
+    {
+        if(ArrayH::setArray(arrayptr, string(test_name)) == SH::_Overflow)
+            Z_scripterrlog("Array supplied to 'Game->GetSaveName' not large enough\n");
+
+        return;
+    }
+
     if(ArrayH::setArray(arrayptr, string(game->get_name())) == SH::_Overflow)
         Z_scripterrlog("Array supplied to 'Game->GetSaveName' not large enough\n");
 }
@@ -9605,7 +9684,8 @@ static void zasm30_mark_script(const refInfo &r, const long *stack_base, const Z
 
     if(!frame.wstack.empty())
     {
-        for(int n = frame.sp; n < ZASM30_STACK_SIZE; ++n)
+        // (a script can leave its stack pointer anywhere: below the stack there is nothing to mark)
+        for(long n = frame.sp < 0 ? 0 : frame.sp; n < ZASM30_STACK_SIZE && n < (long)frame.wstack.size(); ++n)
             zasm30_mark(frame.wstack[n], work);
     }
     else
@@ -9898,9 +9978,71 @@ int run_script(const byte type, const word script, const byte i)
 {
     Zasm30RunDepth run_depth;
 
+    // A script can run inside another script's command (a generic script an event wakes, a frozen
+    // generic script, whatever else the command sets off). The outer script goes on afterwards,
+    // so what it was running with is put back: left alone, it went on with this script's
+    // registers, stack and stack pointer. A top-level run leaves its state behind as before, and
+    // 2.53 quests are left alone.
+    struct Zasm30NestedRun
+    {
+        bool on;
+        refInfo *s_ri;
+        ffscript *s_script;
+        long (*s_stack)[ZSCRIPT_STACK_ALLOC];
+        Zasm30Frame *s_frame;
+        Zasm30Instance *s_inst;
+        long *s_sp;
+        long s_limit, s_arg1, s_arg2, s_cmp1, s_cmp2;
+        bool s_fault;
+        byte s_type;
+        word s_num;
+
+        Zasm30NestedRun() : on(zasm30_run_depth > 1 && zasm30_ffscript_version != 0)
+        {
+            if(!on)
+                return;
+
+            s_ri = ri;
+            s_script = curscript;
+            s_stack = stack;
+            s_frame = zasm30_cur_frame;
+            s_inst = zasm30_cur_inst;
+            s_sp = zasm30_wide_sp;
+            s_limit = zasm30_stack_limit;
+            s_arg1 = sarg1;
+            s_arg2 = sarg2;
+            s_cmp1 = zasm30_cmp_op1;
+            s_cmp2 = zasm30_cmp_op2;
+            s_fault = zasm30_stack_fault;
+            s_type = curScriptType;
+            s_num = curScriptNum;
+        }
+
+        ~Zasm30NestedRun()
+        {
+            if(!on)
+                return;
+
+            ri = s_ri;
+            curscript = s_script;
+            stack = s_stack;
+            zasm30_cur_frame = s_frame;
+            zasm30_cur_inst = s_inst;
+            zasm30_wide_sp = s_sp;
+            zasm30_stack_limit = s_limit;
+            sarg1 = s_arg1;
+            sarg2 = s_arg2;
+            zasm30_cmp_op1 = s_cmp1;
+            zasm30_cmp_op2 = s_cmp2;
+            zasm30_stack_fault = s_fault;
+            curScriptType = s_type;
+            curScriptNum = s_num;
+        }
+    } nested_run;
+
     if(Quit==qRESET || Quit==qEXIT) // In case an earlier script hung
         return 1;
-    
+
     curScriptType=type;
     curScriptNum=script;
     numInstructions=0;
@@ -9925,6 +10067,11 @@ int run_script(const byte type, const word script, const byte i)
     {
     case SCRIPT_FFC:
     {
+        // A newer quest's screens can name any script number, which isn't checked as the quest
+        // loads: nothing runs for one outside the script list (upstream 2.55.18).
+        if(zasm30_ffscript_version && script >= NUMSCRIPTFFC)
+            return 0;
+
         ri = &(ffcScriptData[i]);
         zasm30_cur_frame = &zasm30_ffc_frame(i);
 
@@ -10003,6 +10150,9 @@ int run_script(const byte type, const word script, const byte i)
 
     case SCRIPT_SCREEN:
     {
+        if(script >= NUMSCRIPTSCREEN)   // (as for FFC scripts)
+            return 0;
+
         ri = &zasm30_screen_ri;
         zasm30_cur_frame = &zasm30_frames[34];
         curscript = screenscripts[script];
@@ -10128,6 +10278,20 @@ int run_script(const byte type, const word script, const byte i)
     }
 
     dword pc = ri->pc; //this is (marginally) quicker than dereferencing ri each time
+
+    // Newer quests: the number of commands in this script (0: not known, as for every 2.53 quest).
+    // A jump, a return or a start position from the quest file that leaves them ends the script
+    // with an error; it used to run whatever memory was there as commands.
+    const dword zasm30_pc_limit = !zasm30_ffscript_version ? 0
+                                  : (dword)(curscript == zasm30_stream ? zasm30_stream_len : q30_script_length(curscript));
+
+    if(zasm30_pc_limit && pc >= zasm30_pc_limit)
+    {
+        Z_scripterrlog("A script's position (%ld) is outside the script, which has %ld commands; stopping it.\n",
+                       (long)(int32_t)pc, (long)zasm30_pc_limit);
+        pc = zasm30_pc_limit - 1;   // the end marker
+    }
+
     word scommand = curscript[pc].command;
     sarg1 = curscript[pc].arg1;
     sarg2 = curscript[pc].arg2;
@@ -10161,6 +10325,7 @@ int run_script(const byte type, const word script, const byte i)
     
     bool increment = true;
     int tour_slices = 0;
+    zasm30_stack_fault = false;
 
     while(scommand != 0xFFFF && scommand != WAITFRAME && scommand != WAITDRAW)
     {
@@ -11513,6 +11678,20 @@ int run_script(const byte type, const word script, const byte i)
         case ZASM30_PUSHARGSR:
         case ZASM30_PUSHARGSV:
         {
+            // A count below 1 pushes nothing. The pushes fill the slots from sp - count to sp - 1,
+            // so a count above sp can't fit (nor can anything with sp past the empty stack):
+            // that is one stack error and the end of the script, as upstream, where each push
+            // used to log its own error, a count in the millions of them.
+            if(sarg2 < 1)
+                break;
+
+            if(sarg2 > SPR || SPR > zasm30_stack_limit)
+            {
+                Z_scripterrlog("Stack over or underflow, stack pointer = %ld\n", (long)SPR - sarg2);
+                scommand = 0xFFFF;
+                break;
+            }
+
             long value = scommand == ZASM30_PUSHARGSV ? sarg1 : get_register(sarg1);
 
             for(long n = 0; n < sarg2; ++n)
@@ -11536,6 +11715,14 @@ int run_script(const byte type, const word script, const byte i)
             break;
 
         case ZASM30_CALLFUNC:
+            // (upstream's MAX_CALL_FRAMES: a function calling itself for ever ends the script)
+            if(zasm30_frame().ret.size() >= 1024)
+            {
+                Z_scripterrlog("Function call limit reached! Too much recursion. Max nested function calls is %d\n", 1024);
+                scommand = 0xFFFF;
+                break;
+            }
+
             zasm30_frame().ret.push_back(pc + 1);
             pc = sarg1;
             increment = false;
@@ -11698,8 +11885,21 @@ int run_script(const byte type, const word script, const byte i)
         }
 
         case ZASM30_PRINTFVARG:
-            zasm30_frame().vargs.clear(); // scripts' debug log lines
+        {
+            // scripts' debug log lines: for the console only. ZC_SCRIPT_PRINTF (test runs only)
+            // puts them in the log, to read what a quest's test scripts report.
+            static const bool printf_to_log = getenv("ZC_SCRIPT_PRINTF") != NULL;
+
+            if(printf_to_log)
+            {
+                std::string format;
+                ArrayH::getString(SH::read_stack(SPR) / 10000, format, 65535);
+                al_trace("printf: %s", z30_printf_text(format, zasm30_frame().vargs).c_str());
+            }
+
+            zasm30_frame().vargs.clear();
             break;   // (SPRINTFVARG: zasm30_command, q30_scripts_cmds.h)
+        }
 
         case ZASM30_WRAPRADIANS:
             ri->d[2] = zasm30_wrap(get_register(sarg1), 31416);
@@ -11776,6 +11976,22 @@ int run_script(const byte type, const word script, const byte i)
 
             if(it == zasm30_literals.end() || it->second.vec.empty())
                 break;
+
+            // The number of variables, then the size of each member array: a compiler never gives
+            // a negative one or one past a script number (upstream stops the script on those; a
+            // size in the billions was allocated here).
+            bool bad_layout = false;
+
+            for(size_t k = 0; k < it->second.vec.size(); ++k)
+                if(it->second.vec[k] < 0 || it->second.vec[k] > 214748)
+                    bad_layout = true;
+
+            if(bad_layout)
+            {
+                Z_scripterrlog("Invalid ZASM: a class object with an impossible number of variables or array size; stopping the script.\n");
+                scommand = 0xFFFF;
+                break;
+            }
 
             long id = zasm30_construct(it->second.vec);
             set_register(sarg1, id);
@@ -11878,8 +12094,22 @@ int run_script(const byte type, const word script, const byte i)
             goto zasm30_wait;
         }
 
+        if(zasm30_stack_fault)      // it wrote below its stack: the script ends here
+        {
+            zasm30_stack_fault = false;
+            Z_scripterrlog("Stack overflow! The script is stopped.\n");
+            scommand = 0xFFFF;
+        }
+
         if(scommand != 0xFFFF)
         {
+            if(zasm30_pc_limit && pc >= zasm30_pc_limit)
+            {
+                Z_scripterrlog("A script jumped or returned to command %ld, outside the script (%ld commands); stopping it.\n",
+                               (long)(int32_t)pc, (long)zasm30_pc_limit);
+                pc = zasm30_pc_limit - 1;   // the end marker
+            }
+
             scommand = curscript[pc].command;
             sarg1 = curscript[pc].arg1;
             sarg2 = curscript[pc].arg2;
@@ -12126,3 +12356,8 @@ void FFScript::ZScriptConsolePrint(int attributes,const char *format,...)
 #include "port/game/q30_scripts_regs.h"
 #include "port/game/q30_scripts_cmds.h"
 #include "port/game/q30_scripts_region.h"
+
+std::string z30_printf_text(const std::string &format, const std::vector<long> &args)
+{
+    return z30_format(format, args);
+}

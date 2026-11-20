@@ -1332,8 +1332,14 @@ int get_qst_buffers()
     memrequested+=(sizeof(comboclass)*cMAX);
     Z_message("Allocating combo class buffer (%s)... ", byte_conversion2(sizeof(comboclass)*cMAX,memrequested,-1,-1));
     
-    if((combo_class_buf=(comboclass*)zc_malloc(sizeof(comboclass)*cMAX))==NULL)
+    // One entry for every value a combo's type can hold, not just the valid ones, the ones past
+    // cMAX blank: a damaged quest can hold any type (as upstream, 591622104), and a 2.55 or 3.0
+    // quest's script can give a combo one of the newer types; both index this directly, and
+    // looking such a type up read past the table. Types below cMAX are filled in as always.
+    if((combo_class_buf=(comboclass*)zc_malloc(sizeof(comboclass)*256))==NULL)
         return 0;
+        
+    memset(combo_class_buf, 0, sizeof(comboclass)*256);
         
     Z_message("OK\n");										// Allocating combo class buffer...
     
@@ -3164,6 +3170,12 @@ int readdoorcombosets(PACKFILE *f, zquestheader *Header, bool keepdata)
     
     //finally...  section data
     if(!p_igetw(&temp_door_combo_set_count,f,true))
+    {
+        return qe_invalid;
+    }
+    
+    // There is room for this many, and only a damaged quest holds more (upstream refuses it too).
+    if(temp_door_combo_set_count > MAXDOORCOMBOSETS)
     {
         return qe_invalid;
     }

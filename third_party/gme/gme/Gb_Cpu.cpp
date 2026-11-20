@@ -124,6 +124,10 @@ bool Gb_Cpu::run( int32_t cycle_count )
 
 loop:
 
+	// A jump can land past $FFFF (ex: RST with a high load address, or running off the end of
+	// memory). Wrap it like the hardware does, rather than read past code_map.
+	pc &= 0xFFFF;
+
 	check( (unsigned long) pc < 0x10000 );
 	check( (unsigned long) sp < 0x10000 );
 	check( (flags & ~0xF0) == 0 );

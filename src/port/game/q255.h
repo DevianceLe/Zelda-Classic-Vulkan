@@ -152,6 +152,9 @@ int q255_read_ffscript(Q255Section &s);
 
 // Records a tile number the quest refers to, for the report at the end of the load.
 void q255_note_tile(const char *kind, unsigned long tile);
+// ZC_Q255_OFFSETS=file: where in its section a field was read (index: the screen or ring), for
+// making damaged test quests. Diagnostics only.
+void q255_note_offset(const char *what, int index, size_t pos);
 
 // True only in the port's ZQuest, which saves these quests back in their own format: readers
 // may then keep what they would otherwise drop, for ZQuest's section writers

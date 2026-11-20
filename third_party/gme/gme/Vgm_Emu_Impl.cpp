@@ -131,8 +131,39 @@ blip_time_t Vgm_Emu_Impl::run_commands( vgm_time_t end_time )
 
 	while ( vgm_time < end_time && pos < data_end )
 	{
-		// TODO: be sure there are enough bytes left in stream for particular command
-		// so we don't read past end
+		// A file can end in the middle of a command: don't read its bytes past the end.
+		int len;
+		switch ( *pos )
+		{
+			case cmd_end:
+			case cmd_delay_735:
+			case cmd_delay_882:
+				len = 1;
+				break;
+
+			case cmd_psg:
+			case cmd_byte_delay:
+				len = 2;
+				break;
+
+			case cmd_delay:
+				len = 3;
+				break;
+
+			case cmd_data_block:
+				len = 7;
+				break;
+
+			default:
+				len = (*pos & 0xF0) == cmd_pcm_delay || (*pos & 0xF0) == cmd_short_delay ?
+						1 : command_len( *pos );
+		}
+		if ( len > data_end - pos )
+		{
+			pos = data_end;
+			break;
+		}
+
 		switch ( *pos++ )
 		{
 		case cmd_end:
@@ -233,26 +264,34 @@ blip_time_t Vgm_Emu_Impl::run_commands( vgm_time_t end_time )
 		case cmd_data_block: {
 			check( *pos == cmd_end );
 			int type = pos [1];
-			long size = get_le32( pos + 2 );
+			// The size comes from the file, so keep it within the data. (Unsigned: a long is
+			// only 32 bits on some platforms.)
+			unsigned long size = get_le32( pos + 2 );
 			pos += 6;
 			if ( type == pcm_block_type )
 				pcm_data = pos;
-			pos += size;
+			pos += size < (unsigned long) (data_end - pos) ? size : (unsigned long) (data_end - pos);
 			break;
 		}
 
-		case cmd_pcm_seek:
-			pcm_pos = pcm_data + pos [3] * 0x1000000L + pos [2] * 0x10000L +
-					pos [1] * 0x100L + pos [0];
+		case cmd_pcm_seek: {
+			// The offset comes from the file, so keep it within the data. (Unsigned: a long is
+			// only 32 bits on some platforms.)
+			unsigned long offset = pos [3] * 0x1000000UL + pos [2] * 0x10000UL +
+					pos [1] * 0x100UL + pos [0];
+			pcm_pos = pcm_data < data_end && offset < (unsigned long) (data_end - pcm_data) ?
+					pcm_data + offset : data_end;
 			pos += 4;
 			break;
+		}
 
 		default:
 			int cmd = pos [-1];
 			switch ( cmd & 0xF0 )
 			{
 				case cmd_pcm_delay:
-					write_pcm( vgm_time, *pcm_pos++ );
+					if ( pcm_pos < data_end )
+						write_pcm( vgm_time, *pcm_pos++ );
 					vgm_time += cmd & 0x0F;
 					break;
 
@@ -346,9 +385,16 @@ void Vgm_Emu_Impl::update_fm_rates( long* ym2413_rate, long* ym2612_rate ) const
 			p += 3;
 			break;
 
-		case cmd_data_block:
-			p += 7 + get_le32( p + 3 );
+		case cmd_data_block: {
+			// The file can end in the middle of the block, and its size comes from the file,
+			// so keep both within the data. (Unsigned: a long is only 32 bits on some platforms.)
+			if ( 7 > data_end - p )
+				return;
+			unsigned long size = get_le32( p + 3 );
+			p += 7;
+			p += size < (unsigned long) (data_end - p) ? size : (unsigned long) (data_end - p);
 			break;
+		}
 
 		case cmd_ym2413:
 			*ym2612_rate = 0;

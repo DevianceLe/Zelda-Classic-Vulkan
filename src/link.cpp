@@ -4029,7 +4029,7 @@ void LinkClass::addsparkle(int wpn)
             // If the boomerang just bounced, flip the sparkle direction so it doesn't hit
             // whatever it just bounced off of if it's shielded from that direction.
             if(w->misc==1 && w->clk2>256 && w->clk2<272)
-                direction=oppositeDir[direction];
+                direction=(q30_active() && (direction < 0 || direction > 7)) ? -1 : oppositeDir[direction];    // (2.55/3.0: as upstream 2.55.18)
         }
         
         Lwpns.add(new weapon((fix)(w->x+(itemtype==itype_cbyrna ? 2 : rand()%4)+(h*4)),
@@ -11464,6 +11464,26 @@ void LinkClass::checktouchblk()
     }
 }
 
+extern int q255_header_version[3];      // q255_basic.cpp: a 2.55/3.0 quest's header version
+
+// A position on the screen next to Link's, toward cdir, whose coordinate along cdir is already
+// on that screen: a 3.0 quest keeps the other coordinate on the screen too (upstream ad25219,
+// 350e7cdfc and 6fc5c5906's next_screen_xy). Link straddling two screens of a scrolling region
+// (or put off the screen by a script) read the wrong side of the next screen, or outside it.
+// Link's coordinates here are already those of the screen under his centre (the region
+// hand-off goes by it). 2.55 quests only stop at a position before the first combo (2.55.18
+// d3d3c07b9); 2.53 quests are as they always were.
+static void next_screen_xy(int &cx, int &cy, int cdir)
+{
+    if(!q30_active() || q255_header_version[0] < 3)
+        return;
+
+    if(cdir == up || cdir == down)
+        cx = zc_max(0, zc_min(cx, 255));
+    else
+        cy = zc_max(0, zc_min(cy, 175));
+}
+
 int LinkClass::nextcombo(int cx, int cy, int cdir)
 {
     switch(cdir)
@@ -11514,10 +11534,12 @@ int LinkClass::nextcombo(int cx, int cy, int cdir)
             break;
         }
         
+        next_screen_xy(cx, cy, cdir);
+
         // from MAPCOMBO()
         int cmb = (cy&0xF0)+(cx>>4);
         
-        if(cmb>175)
+        if(cmb>175 || (cmb<0 && q30_active()))
             return 0;
             
         return TheMaps[ns].data[cmb];                           // entire combo code
@@ -11576,10 +11598,12 @@ int LinkClass::nextflag(int cx, int cy, int cdir, bool comboflag)
             break;
         }
         
+        next_screen_xy(cx, cy, cdir);
+
         // from MAPCOMBO()
         int cmb = (cy&0xF0)+(cx>>4);
         
-        if(cmb>175)
+        if(cmb>175 || (cmb<0 && q30_active()))
             return 0;
             
         if(!comboflag)
@@ -12707,6 +12731,12 @@ bool LinkClass::dowarp(int type, int index)
     {
         wtype = wtWHISTLE;
         int wind = whistleitem>-1 ? itemsbuf[whistleitem].misc2 : 8;
+        
+        // 2.55/3.0, as upstream (aa30a0f29): the whistle's warp ring is an item attribute, which
+        // a quest or script can set to anything.
+        if(q30_active() && unsigned(wind) >= 9)
+            wind = 8;
+            
         int level=0;
         
         if(blowcnt==0)
@@ -12752,6 +12782,33 @@ bool LinkClass::dowarp(int type, int index)
         didpit=false;
         update_subscreens();
         return false;
+    }
+
+    // A 3.0 quest's warp to a screen off either edge of its map is cancelled, on any map (upstream
+    // 001bfee44); a 2.55 quest's only when it would read past the last map. Cancel Warps never
+    // use the screen (unless they are 1.92-style insta-warps).
+    if(q30_active() && wtype != wtCAVE && (wtype != wtNOWARP || zc_192b163_compatibility) && wdmap < MAXDMAPS)
+    {
+        const int dest_screen = wscr + DMaps[wdmap].xoff;
+
+        if((q255_header_version[0] >= 3 && (unsigned)dest_screen >= MAPSCRS)
+           || DMaps[wdmap].map * MAPSCRS + dest_screen >= (int)TheMaps.size())
+        {
+            // (an auto warp combo tries again every frame, so only a new destination is logged)
+            static int last_logged_dest = -1;
+            const int dest = wdmap * 0x100 + wscr;
+
+            if(dest != last_logged_dest)
+            {
+                last_logged_dest = dest;
+                al_trace("Warp to screen 0x%02X of DMap %d is outside its map (DMap offset %d). Cancelling the warp.\n",
+                         (int)wscr, (int)wdmap, (int)DMaps[wdmap].xoff);
+            }
+
+            didpit=false;
+            update_subscreens();
+            return false;
+        }
     }
 
     bool intradmap = (wdmap == currdmap);
@@ -14303,10 +14360,12 @@ bool LinkClass::nextcombo_wf(int d2)
     // check lower half of combo
     cy += 8;
     
+    next_screen_xy(cx, cy, d2);
+
     // from MAPCOMBO()
     int cmb = (cy&0xF0)+(cx>>4);
     
-    if(cmb>175)
+    if(cmb>175 || (cmb<0 && q30_active()))
         return true;
         
     newcombo c = combobuf[TheMaps[ns].data[cmb]];
@@ -14328,6 +14387,10 @@ bool LinkClass::nextcombo_wf(int d2)
     }
     else
     {
+        // there is no combo after the last one (2.55.18 / 3.0 ad25219)
+        if(cmb == 175 && q30_active())
+            return false;
+
         c = combobuf[TheMaps[ns].data[++cmb]];
         dried = iswater_type(c.type) && DRIEDLAKE;
         swim = iswater_type(c.type) && (current_item(itype_flippers)) && !dried;
@@ -17178,7 +17241,7 @@ void dospecialmoney(int index)
 	    }
         }
         rectfill(msgdisplaybuf, 0, 0, msgdisplaybuf->w, 80, 0);
-        donewmsg(QMisc.info[tmpscr[tmp].catchall].str[priceindex]);
+        donewmsg(q30_room_info(tmpscr[tmp].catchall).str[priceindex]);
         clear_bitmap(pricesdisplaybuf);
         set_clip_state(pricesdisplaybuf, 1);
         items.del(0);
@@ -17882,7 +17945,7 @@ void LinkClass::checkitems(int index)
             
             for(int i=0; i<3; i++)
             {
-                if(QMisc.shop[tmpscr[tmp].catchall].hasitem[i] != 0)
+                if(q30_room_shop(tmpscr[tmp].catchall).hasitem[i] != 0)
                 {
                     ++count;
                 }

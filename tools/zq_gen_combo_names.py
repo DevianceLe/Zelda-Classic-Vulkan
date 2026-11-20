@@ -99,6 +99,12 @@ cte = read(eng + '/zq/dialog/combo_trigger_editor.cpp')
 trig_text = {}
 for m in re.finditer(r'TRIGFLAG\((TRIGFLAG_[A-Z0-9_]+),\s*"((?:[^"\\]|\\.)*)"', cte):
     trig_text.setdefault(m.group(1), m.group(2))
+# upstream ac4c01a20 moved the weapon checkboxes' names into core/combo.cpp's two lists
+cmbc = read(eng + '/core/combo.cpp')
+for lst in ('lweapon_trigger_causes', 'eweapon_trigger_causes'):
+    if lst + ' = {' in cmbc:
+        for m in re.finditer(r'\{\s*(TRIGFLAG_[A-Z0-9_]+),\s*"((?:[^"\\]|\\.)*)"\s*\}', block_after(cmbc, lst + ' = {')):
+            trig_text.setdefault(m.group(1), m.group(2))
 def trig_default(n):
     return n[len('TRIGFLAG_'):].replace('_', ' ').title()
 trig_rows = ',\n'.join('    "%s"' % trig_text.get(n, trig_default(n)) for n in trig_enum[:-1])
@@ -119,7 +125,7 @@ def enum_text(names):
         lines.append('    ' + ', '.join(cur) + ',')
     return '\n'.join(lines)
 
-src = '''// Generated from upstream ZQuestClassic (3.0 Nightly, commit ef321f8) by tools/zq_gen_combo_names.py:
+src = '''// Generated from upstream ZQuestClassic (3.0 Nightly, commit ad25219) by tools/zq_gen_combo_names.py:
 // combo type and map flag names, the combo types' help, and the combo editor's per-type labels
 // for attributes and flags (ComboEditorDialog::loadComboType). Upstream's numbers, which
 // 2.55 and 3.0 quests use; the open quest's own names (zq_zinfo.h) show in their place, as

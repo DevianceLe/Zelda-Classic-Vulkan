@@ -409,10 +409,11 @@ bool parse_ascii_command(const std::string &str, size_t &cur, Command &cmd)
     if(!has_code)
         skip_to_slash(str, cur);
 
-    // upstream's StringCommand keeps the code in a byte, and looks that up
-    const int code_byte = (int)(byte)code;
-    const SccDefn *defn = find_scc(code_byte);
-    cmd.code = code_byte;
+    // The whole number is looked up before it is kept (upstream's StringCommand keeps the code
+    // in a byte), so one too big or small to be a command can't wrap around to a valid one
+    // (upstream 4dd4ee0f7, 3.0 ad25219).
+    const SccDefn *defn = (code >= 0 && code <= 255) ? find_scc((int)code) : NULL;
+    cmd.code = defn ? defn->code : 0;
     const int min_args = defn ? defn->min_args : 0, max_args = defn ? defn->max_args : 0;
 
     int found = 0, arg_errors = 0;
@@ -540,18 +541,22 @@ Parsed parse_ascii(const std::string &str)
             literal_start = cur;
             ++cur;
 
+            // Escaped characters are skipped, so neither \} nor the second slash of \\ can end
+            // (or fail to end) the segment, and the character after the } is kept (upstream
+            // 0d5240eb1, 3.0 ad25219).
             while(cur < last)
             {
-                if(str[cur] == '}' && str[cur - 1] != '\\')
+                if(str[cur] == '\\' && cur + 1 < last)
                 {
-                    ++cur;
-                    break;
+                    cur += 2;
+                    continue;
                 }
 
-                ++cur;
+                if(str[cur++] == '}')
+                    break;
             }
 
-            push_literal(out, str, literal_start, cur++);
+            push_literal(out, str, literal_start, cur);
             continue;
         }
 

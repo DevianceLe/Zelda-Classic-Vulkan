@@ -2,7 +2,7 @@
 # program without Allegro, for ZQuest to compile the scripts of 3.0 quests the way
 # upstream's editor does (src/zq/dialog/compilezscript.cpp runs "zscript -linked ...").
 #
-# Sources (ZQuest Classic 3.0 at ef321f8, GPL), copied unchanged except where marked
+# Sources (ZQuest Classic 3.0 at ad25219, GPL), copied unchanged except where marked
 # "zscript30:":
 #   parser/            src/parser (the compiler, its flex and bison grammars, its tests)
 #   base/              src/base (no http or emscripten parts)

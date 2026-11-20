@@ -153,10 +153,27 @@ void q255_resolve_high_screen_sfx()
     g_high_screen_sfx.clear();
 }
 
+// Where in TheMaps the screen being read goes, -1 when it isn't kept.
+static int g_screen_index = -1;
+
 static void read_words(Q255Section &s, word *dst, int n)
 {
     for(int i = 0; i < n; ++i)
         dst[i] = s.igetw();
+}
+
+// A screen's four warp DMaps. As upstream (080cce278): only a damaged quest has a DMap past
+// the last one.
+static void read_warp_dmaps(Q255Section &s, word *dst, const char *what)
+{
+    if(s.keep && g_screen_index >= 0)
+        q255_note_offset(what, g_screen_index, s.pos);
+
+    read_words(s, dst, 4);
+
+    for(int i = 0; i < 4; ++i)
+        if(dst[i] >= MAXDMAPS)
+            dst[i] = 0;
 }
 
 static void read_combos(Q255Section &s, word *dst, int n)
@@ -197,6 +214,9 @@ static void read_placed_flags(Q255Section &s, mapscr *t)
 
 static void read_enemies(Q255Section &s, mapscr *t)
 {
+    if(s.keep && g_screen_index >= 0)
+        q255_note_offset("enemy", g_screen_index, s.pos);
+
     for(int k = 0; k < 10; ++k)
     {
         word e = s.igetw();
@@ -220,9 +240,6 @@ static void store_pattern(mapscr *t, byte pattern)
 
 void zasm30_clear_screen_scripts();
 void zasm30_set_screen_script(int index, word script, const long *initd);
-
-// Where in TheMaps the screen being read goes, -1 when it isn't kept.
-static int g_screen_index = -1;
 
 static byte screen_sfx(Q255Section &s, byte mapscr::*field)
 {
@@ -330,7 +347,7 @@ static void read_screen(Q255Section &s, mapscr *t)
     for(int k = 0; k < 4; ++k)
         t->door[k] = map_door(t->door[k]);
 
-    read_words(s, t->tilewarpdmap, 4);
+    read_warp_dmaps(s, t->tilewarpdmap, "tilewarpdmap");
     s.read(t->tilewarpscr, 4);
     t->tilewarpoverlayflags = s.getc();
     t->exitdir = s.getc();
@@ -342,7 +359,7 @@ static void read_screen(Q255Section &s, mapscr *t)
     t->warparrivaly = s.getc();
     s.read(t->path, 4);
     s.read(t->sidewarpscr, 4);
-    read_words(s, t->sidewarpdmap, 4);
+    read_warp_dmaps(s, t->sidewarpdmap, "sidewarpdmap");
     t->sidewarpindex = s.getc();
     t->undercombo = clamp_combo(s.igetw());
     t->undercset = s.getc();
@@ -642,7 +659,7 @@ static void read_screen_new(Q255Section &s, mapscr *t, int screen, const word *a
     if(has & HAS_TWARP)
     {
         s.read(t->tilewarptype, 4);
-        read_words(s, t->tilewarpdmap, 4);
+        read_warp_dmaps(s, t->tilewarpdmap, "tilewarpdmap");
         s.read(t->tilewarpscr, 4);
         t->tilewarpoverlayflags = s.getc();
     }
@@ -650,7 +667,7 @@ static void read_screen_new(Q255Section &s, mapscr *t, int screen, const word *a
     if(has & HAS_SWARP)
     {
         s.read(t->sidewarptype, 4);
-        read_words(s, t->sidewarpdmap, 4);
+        read_warp_dmaps(s, t->sidewarpdmap, "sidewarpdmap");
         s.read(t->sidewarpscr, 4);
         t->sidewarpoverlayflags = s.getc();
         t->sidewarpindex = s.getc();
@@ -666,6 +683,9 @@ static void read_screen_new(Q255Section &s, mapscr *t, int screen, const word *a
 
     if(has & HAS_LAYERS)
     {
+        if(s.keep && g_screen_index >= 0)
+            q255_note_offset("layermap", g_screen_index, s.pos);
+
         s.read(t->layermap, 6);
         s.read(t->layerscreen, 6);
         s.read(t->layeropacity, 6);
@@ -846,6 +866,9 @@ static void read_screen_new(Q255Section &s, mapscr *t, int screen, const word *a
 
     if(s.version > 29)
     {
+        if(s.keep && g_screen_index >= 0)
+            q255_note_offset("notes", g_screen_index, s.pos);
+
         const dword notes = s.igetl();
 
         if(notes > s.left())
@@ -1083,7 +1106,23 @@ int q255_read_maps(Q255Section &s)
     }
 
     if(s.keep)
+    {
+        // As upstream (ec2a1d611): a layer on a map past the last one would read past the maps
+        // when the screen loads. A damaged quest can have one, and so can the editor's (lowering
+        // the map count only fixes the layers of the screens viewed afterwards).
+        const int screens = (int)TheMaps.size();
+
+        for(int i = 0; i < screens; ++i)
+        {
+            mapscr &m = TheMaps[i];
+
+            for(int k = 0; k < 6; ++k)
+                if(m.layermap[k] && (m.layermap[k] - 1) * MAPSCRS + m.layerscreen[k] >= screens)
+                    m.layermap[k] = 0;
+        }
+
         q255_resolve_high_screen_sfx();
+    }
 
     return 0;
 }
@@ -1186,10 +1225,23 @@ static void read_dmap(Q255Section &s, dmap &d, int index)
 {
     const bool keep = s.keep && index >= 0;
     d.map = s.getc();
+
+    // As upstream (593031d79, 423c50136, 900da5ec1): only a damaged quest has a map past the
+    // last one there can be, or a level or level palette past the last one, and the screens,
+    // the level state and the palettes are looked up by them without a check.
+    if(d.map >= MAXMAPS2)
+        d.map = 0;
+
     d.level = s.igetw();
     d.xoff = (char)s.getc();
     d.compass = s.getc();
     d.color = s.igetw();
+
+    if(d.level >= MAXLEVELS)
+        d.level = 0;
+
+    if(d.color >= MAXLEVELS)
+        d.color = 0;
 
     if(s.version < 25)
         d.midi = s.getc();

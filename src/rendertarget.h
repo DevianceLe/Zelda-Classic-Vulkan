@@ -64,7 +64,17 @@ public:
             return 0;
             
         if(!_bitmap[target])
+        {
             _bitmap[target] = create_bitmap_ex(8, BitmapWidth, BitmapHeight);
+
+            // 2.55/3.0 quests: a new render target starts cleared, as upstream 2.55.18 (it held
+            // whatever was in memory, which a script that drew only part of it then copied to
+            // the screen). 2.53 quests get it as before.
+            extern long zasm30_ffscript_version;
+
+            if(_bitmap[target] && zasm30_ffscript_version)
+                clear_bitmap(_bitmap[target]);
+        }
             
         return _bitmap[target];
     }

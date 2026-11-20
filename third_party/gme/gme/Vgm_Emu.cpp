@@ -354,7 +354,12 @@ blargg_err_t Vgm_Emu::load_mem_( byte const* new_data, long new_size )
 	// get loop
 	loop_begin = data_end;
 	if ( get_le32( h.loop_offset ) )
-		loop_begin = &data [get_le32( h.loop_offset ) + offsetof (header_t,loop_offset)];
+	{
+		// Keep it within the file.
+		uint64_t offset = (uint64_t) get_le32( h.loop_offset ) + offsetof (header_t,loop_offset);
+		if ( offset < (uint64_t) new_size )
+			loop_begin = &data [offset];
+	}
 
 	set_voice_count( psg[0].osc_count );
 
@@ -460,10 +465,14 @@ blargg_err_t Vgm_Emu::start_track_( int track )
 	vgm_time     = 0;
 	if ( get_le32( header().version ) >= 0x150 )
 	{
-		long data_offset = get_le32( header().data_offset );
+		// Wide enough for any offset (long is 32 bits on some platforms), and kept within the file.
+		int64_t data_offset = get_le32( header().data_offset );
 		check( data_offset );
 		if ( data_offset )
-			pos += data_offset + offsetof (header_t,data_offset) - 0x40;
+		{
+			data_offset += (int64_t) offsetof (header_t,data_offset) - 0x40;
+			pos = data_offset < data_end - pos ? pos + data_offset : data_end;
+		}
 	}
 
 	if ( uses_fm )

@@ -549,11 +549,60 @@ void tab_flags()
 
 // ---- triggers -------------------------------------------------------------------------
 
+// upstream's TRIGFLAG_ONCE_PER_WEAPON (3.0's ComboTriggerFlag; 2.55.18's triggerflags[5] 0x02000000)
+const int TF_ONCE_PER_WEAPON = 185;
+
+// How many trigger flags the combo section version holds: 32 per word, 3.0's bitstring any number.
+int trigger_flag_bits() { return 32 * (flat() ? 3 : (g_ed.v < 36 ? 3 : (g_ed.v < 57 ? 6 : 1000))); }
+
+// A trigger flag's help, and why it's greyed out when the quest's combo format can't hold it.
+void trigger_flag_tip(int q, bool held)
+{
+    if(!ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
+        return;
+
+    std::string text;
+
+    if(q == TF_ONCE_PER_WEAPON)
+        text = g_ed.is30
+            ? "Once a weapon has fired this trigger, that weapon won't fire it again. The combo's other triggers aren't"
+              " affected.\nWithout this, a weapon fires the trigger every frame it touches the combo, unless one of the"
+              " combo's triggers triggers secrets, changes the combo or its CSet, changes a LevelState or GlobalState,"
+              " has a copycat or '->Large Copycat', or uses '->ComboType Effects' on a Generic combo or a combo type"
+              " with an effect of its own (a chest, bush, lock block, switch, step, warp, sign, ...)."
+            : "Once a weapon has triggered this, that weapon won't trigger this combo again.\nWithout this, a weapon"
+              " triggers the combo again every frame it touches it, unless the trigger triggers secrets, changes the"
+              " combo or its CSet, changes a LevelState or GlobalState, or uses '->ComboType Effects' on a Generic"
+              " combo or a combo type with an effect of its own (a chest, bush, lock block, switch, step, warp,"
+              " sign, ...).";
+
+    // upstream stores the flag with no format change (and marks it "added in 2.55.18" for scripts)
+    if(q == TF_ONCE_PER_WEAPON && held)
+        text += "\n\nNew in 2.55.18 and the 3.0 Nightlies since: older players ignore it.";
+
+    if(!held)
+    {
+        char why[200];
+        snprintf(why, sizeof(why), "This quest's combo format (version %d) holds trigger flags 0-%d only%s.", g_ed.v,
+                 trigger_flag_bits() - 1, g_ed.is30 ? "" : "; 2.55's combo format 36 and newer holds 192");
+        text = text.empty() ? why : text + "\n\n" + why;
+    }
+
+    if(text.empty())
+        return;
+
+    ImGui::BeginTooltip();
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30.0f);
+    ImGui::TextUnformatted(text.c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+}
+
 void trigger_flags(Q30Trigger &t)
 {
     ImGui::SetNextItemWidth(field_w() * 2);
     ImGui::InputTextWithHint("##filter", "Filter flags", g_ed.filter, sizeof(g_ed.filter));
-    const int words = flat() ? 3 : (g_ed.v < 36 ? 3 : (g_ed.v < 57 ? 6 : 1000));   // bits the version holds: 32 per word
+    const int bits = trigger_flag_bits();
     std::string f = g_ed.filter;
 
     for(size_t k = 0; k < f.size(); ++k)
@@ -575,7 +624,7 @@ void trigger_flags(Q30Trigger &t)
                     continue;
 
                 ImGui::TableNextColumn();
-                Gate g(q < words * 32);
+                Gate g(q < bits);
                 bool b = t.flags.get(q);
                 ImGui::PushID(q);
 
@@ -587,6 +636,7 @@ void trigger_flags(Q30Trigger &t)
                         t.flags.v[q / 8] &= (byte)~(1 << (q % 8));
                 }
 
+                trigger_flag_tip(q, q < bits);
                 ImGui::PopID();
             }
 
@@ -756,7 +806,14 @@ void tab_triggers()
 
         if(ImGui::Button("Add"))
         {
-            x.triggers.push_back(Q30Trigger());
+            Q30Trigger nt;
+
+            // As upstream 3.0's combo editor (not 2.55's): weapons usually should trigger a combo
+            // once, not every frame they touch it. Duplicated triggers keep their own flags.
+            if(g_ed.is30 && TF_ONCE_PER_WEAPON < trigger_flag_bits())
+                nt.flags.set(TF_ONCE_PER_WEAPON);
+
+            x.triggers.push_back(nt);
             g_ed.trig = (int)x.triggers.size() - 1;
         }
     }

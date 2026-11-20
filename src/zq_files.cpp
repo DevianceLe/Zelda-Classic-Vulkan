@@ -1085,13 +1085,27 @@ static int zq_save_own(const char *path)
 // The versions Save As offers: the quest's own, or newer ones (never an older one).
 enum { ZQV_CANCEL, ZQV_OWN, ZQV_253, ZQV_255, ZQV_30 };
 
+// Whether a quest was made in the 2.55 release "As 2.55.17" writes for, or a later one. 2.55.18
+// writes its quest files exactly as 2.55.17 does (only the header says which one saved it), so
+// saving such a quest "as 2.55.17" would only mark it as older.
+static bool zq_made_in_255_release(const std::string &made, long patch)
+{
+    if(made.compare(0, 5, "2.55.") != 0)
+        return false;
+
+    const char *p = made.c_str() + 5;
+    char *end = NULL;
+    long n = strtol(p, &end, 10);
+    return end != p && *end == 0 && n >= patch;
+}
+
 static int zq_choose_version()
 {
     std::string made = zc_quest_built_with(header.zelda_version, header.build);
     bool is253 = header.zelda_version == ZELDA_VERSION && header.build == VERSION_BUILD;
     bool newer = zq255_quest_is_newer();
     bool is30 = newer && made.compare(0, 2, "3.") == 0;
-    bool is25517 = newer && made == "2.55.17";
+    bool is25517 = newer && zq_made_in_255_release(made, 17);
     std::vector<int> up;    // the newer versions on offer, oldest first
 
     if(!newer && !is253)

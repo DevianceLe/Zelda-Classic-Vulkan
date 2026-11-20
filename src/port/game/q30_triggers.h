@@ -85,6 +85,7 @@ enum Q30TrigFlag
     Q30TF_COUNTER_PARTIAL_CONSUME, Q30TF_MAPVIEW_ONLY, Q30TF_MAPVIEW_NEVER, Q30TF_COMBOPOSSTATE_CAUSE,
     Q30TF_COMBOPOSSTATE_REQ, Q30TF_COMBOPOSSTATE_UNREQ, Q30TF_COMBOPOSSTATE_SET, Q30TF_COMBOPOSSTATE_UNSET,
     Q30TF_TRIGGER_LARGE_COMBO_COPYCAT, Q30TF_TRIGGERED_BY_LARGE_COMBO_COPYCAT,
+    Q30TF_ONCE_PER_WEAPON,  // 2.55.18 / 3.0: bit 185, triggerflags[5] 0x02000000 in 2.55
     Q30TF_MAX
 };
 
@@ -435,6 +436,11 @@ int q30_shop_string(int shop, int slot);    // 0 for 2.53 quests
 // A shop's item (QMisc.shop's byte, or a 2.55/3.0 quest's item of 256 and up the reader kept).
 void q30_set_shop_item(int shop, int slot, int id);       // readers (player only); shop -1 clears
 int q30_shop_item(int shop, int slot);
+// The shop or info a room uses, picked by the screen's catchall, which can be past the last one
+// (a damaged quest, or a script setting Screen->Catchall): a 2.55/3.0 quest then gets an empty
+// one (upstream 81b95a243, 2.55.18 / 3.0); 2.53 quests read it as the game always did.
+const shoptype &q30_room_shop(int id);
+const infotype &q30_room_info(int id);
 void q30_item_pickup_secrets(int pickup);   // checkitems: ipSECRETS triggers the screen's secrets
 int q30_item_secret_flag();                 // Q30_IP_SECRETS for a screen item when the screen says so
 bool q30_item_returns();                    // the screen's item comes back though taken (fITEMRETURN)

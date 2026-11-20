@@ -60,6 +60,18 @@ static void free_table(ffscript **t, int n)
     }
 }
 
+// How many commands each script read here holds, its end marker included: the engine ends a
+// script whose position leaves them (a jump or return a compiler never makes, or a damaged quest),
+// where it used to run the memory past the script. zasm30_stream_len is the v27+ stream's.
+long zasm30_stream_len = 0;
+static std::map<const ffscript *, long> g_script_lengths;
+
+long q30_script_length(const ffscript *code)
+{
+    std::map<const ffscript *, long>::const_iterator it = g_script_lengths.find(code);
+    return it == g_script_lengths.end() ? 0 : it->second;
+}
+
 void q30_script_tables_reset()
 {
     free_table(q30_global_scripts, Q30_GLOBAL_SLOTS);
@@ -313,10 +325,16 @@ static void skip_or_keep_literal(Q255Section &s, const ffscript *where, bool kee
     }
 }
 
+// How many commands the shared stream holds, with the end command 3.0 adds when the last one
+// isn't one (432d9699e): where a script may start and end.
+static dword g_stream_size = 0;
+
 // v27+: every command of every script, in one list.
 static int read_stream(Q255Section &s)
 {
     long count = s.igetl_s();
+    word last_command = 0xFFFF;
+    g_stream_size = 0;
 
     if(s.failed || count < 0 || count > MAX_STREAM_COMMANDS)
         return qe_invalid;
@@ -325,6 +343,7 @@ static int read_stream(Q255Section &s)
 
     if(s.keep)
     {
+        zasm30_stream_len = 0;
         zasm30_reset();
         code = new (std::nothrow) ffscript[count + 1];
         if(!code)
@@ -341,6 +360,7 @@ static int read_stream(Q255Section &s)
         if(s.failed)
             return qe_invalid;
 
+        last_command = command;
         ++g_instructions;
 
         if(command >= NUMCOMMANDS)
@@ -373,8 +393,49 @@ static int read_stream(Q255Section &s)
         code[count].command = 0xFFFF;
         code[count].arg1 = code[count].arg2 = 0;
         code[count].ptr = NULL;
+        zasm30_stream_len = count + 1;
+
+        // ZC_Q30_ZASM_POKE="pc:command:arg1:arg2[:v,v,...];..." replaces commands of the stream as
+        // it is read, with a table of values if given (diagnostics only: hand-written ZASM that no
+        // compiler makes, to see what the engine does with it).
+        if(const char *poke = getenv("ZC_Q30_ZASM_POKE"))
+        {
+            for(const char *c = poke; *c; )
+            {
+                long pc = -1, cmd = 0, a1 = 0, a2 = 0;
+                int used = 0;
+
+                if(sscanf(c, "%ld:%ld:%ld:%ld%n", &pc, &cmd, &a1, &a2, &used) == 4 && pc >= 0 && pc < count)
+                {
+                    code[pc].command = (word)cmd;
+                    code[pc].arg1 = a1;
+                    code[pc].arg2 = a2;
+                    zasm30_literals.erase(&code[pc]);
+                    c += used;
+
+                    if(*c == ':')
+                    {
+                        std::vector<long> &vec = zasm30_literals[&code[pc]].vec;
+
+                        do
+                        {
+                            ++c;
+                            vec.push_back(atol(c));
+                            while(*c && *c != ',' && *c != ';') ++c;
+                        }
+                        while(*c == ',');
+                    }
+
+                    al_trace("ZC_Q30_ZASM_POKE: command %ld is now %ld %ld %ld\n", pc, cmd, a1, a2);
+                }
+
+                while(*c && *c != ';') ++c;
+                if(*c) ++c;
+            }
+        }
     }
 
+    g_stream_size = (dword)count + ((count > 0 && last_command != 0xFFFF) ? 1 : 0);
     return s.failed ? qe_invalid : 0;
 }
 
@@ -448,8 +509,24 @@ static int read_stream_script(Q255Section &s, word meta, ffscript **slot, int ki
         if(ret)
             return ret;
 
+        if(s.keep && slot)
+            q255_note_offset("scriptpc", kind, s.pos);
+
         start = s.igetl_s();
         long end = s.igetl_s(); // end position
+
+        // As upstream (065bc478f): where a script starts and ends comes from the file, and
+        // running it reads from there. One outside the quest's commands is switched off, with
+        // its warning; one with no end isn't a script to upstream at all (script_data::valid).
+        const dword pc = (dword)start, end_pc = (dword)end;
+
+        if(!end_pc || pc >= g_stream_size || pc > end_pc || end_pc > g_stream_size)
+        {
+            if(s.keep && !s.failed && end_pc)
+                al_trace("Warning: found script outside of the quest's ZASM (pc %u to %u), disabling script: kind %d\n", (unsigned)pc, (unsigned)end_pc, kind);
+
+            start = -1;
+        }
 
         if(g_zasm_dump && s.keep)
             fprintf(g_zasm_dump, "script %d %ld %ld\n", kind, start, end);
@@ -598,8 +675,12 @@ static int read_one_script(Q255Section &s, word meta, ffscript **slot, int kind,
         script[used].ptr = NULL;
 
         if(*slot != NULL)
+        {
+            g_script_lengths.erase(*slot);
             delete [] *slot;
+        }
         *slot = script;
+        g_script_lengths[script] = used + 1;
 
         fix_script_jumps(script, used, index);
     }
@@ -714,6 +795,12 @@ static int read_section(Q255Section &s, word meta)
 {
     const word v = s.version;
     int ret;
+
+    if(s.keep)      // the scripts read last time are about to be replaced
+    {
+        g_script_lengths.clear();
+        zasm30_stream_len = 0;
+    }
 
     if(v >= 27 && (ret = read_stream(s)) != 0)
         return ret;

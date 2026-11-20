@@ -1,8 +1,8 @@
 // Compiling a 2.55 or 3.0 Nightly quest's ZScript in ZQuest (zq_compile.cpp, the dialog in
 // zq_compile_dialog.cpp). 2.53 and older quests keep 2.53's own compiler and dialogs.
 //
-// The quest's own generation's compiler does the work: zscript255 (2.55.17's) for a quest made
-// in 2.55, zscript30 (3.0's, upstream main at ef321f8) for one made in a 3.0 Nightly, never the
+// The quest's own generation's compiler does the work: zscript255 (2.55.18's) for a quest made
+// in 2.55, zscript30 (3.0's, upstream main at ad25219) for one made in a 3.0 Nightly, never the
 // other way round. Each runs as a separate program, as upstream's ZQuest runs its "zscript",
 // over upstream's pipe protocol, and hands back every compiled script exactly as that
 // generation's ZQuest stores it in a quest (its -assembled file). Slots are then assigned as

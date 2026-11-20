@@ -1896,7 +1896,7 @@ struct zquestheader
     byte  quest_number;
     byte  old_rules[2];
     byte  old_map_count;
-    char  old_str_count;
+    byte  old_str_count;     // unsigned, as upstream (818ecda4b): a 1.92 quest with 128 or more strings read a negative count
     //41
     byte  data_flags[ZQ_MAXDATA];
     byte  old_rules2[2];
