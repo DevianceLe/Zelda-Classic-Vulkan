@@ -146,8 +146,43 @@ int q30_region_sprite_screen(long uid);
 void q30_region_save_screen_state();
 bool q30_region_restore_screen_state();     // false: a screen not visited yet in this region
 
-// Each frame: the other screens of the region the camera shows load their enemies (once a stay).
-void q30_region_load_enemies_in_view();
+// Each frame: the screens of the region the camera shows load their enemies (once a stay).
+// False: not in a region with live screens (the caller loads the current screen's as before).
+bool q30_region_load_enemies_in_view();
+
+// ---- every screen's guys, items and enemies (q30_regions.cpp, q30_region_spawn.cpp) ---------
+//
+// Upstream's loadguys runs once for every screen of a region, on the frame after it loads: each
+// screen's guy, fires, item and room sprites come out where they are, whatever screen Link is on.
+// Its loadenemies runs every frame for every screen whose enemies aren't out yet: they come out
+// once the viewport touches the screen (a side-loading pattern walks them in from then on). And
+// the special room (a shop, a secret money room...) set up when a guy has faded in is always the
+// region's top-left screen's.
+// False: not in a region with live screens (the caller loads the current screen as before).
+bool q30_region_loadguys();
+bool q30_region_setupscreen();
+// Each frame: the other screens whose enemies are all gone get what follows (their item, their
+// secrets), once.
+void q30_region_enemies_gone();
+
+// Falling rocks (upstream's eRock / eBoulder): the left edge of the screen the sprite came from
+// and the viewport's top and bottom, in the current screen's coordinates (0, 0, 176 outside regions).
+int q30_region_rock_x(long uid);
+int q30_region_rock_top();
+int q30_region_rock_bottom();
+
+// Sprites away from the camera (upstream's viewport suspend and despawn ranges): what the quest
+// file gives an enemy or an item, and whether the last animate left a sprite of that list
+// suspended (its script doesn't run either).
+class sprite_list;
+void q30_vp_ranges_reset();
+void q30_vp_guy_ranges(int id, long suspend, long despawn);
+void q30_vp_item_ranges(int id, long suspend, long despawn);
+bool q30_vp_frozen(sprite_list *list, long uid);
+
+// test switches: ZC_TEST_KEYS (the controls by game frame), ZC_REGION_SPRLOG (a sprite trace)
+void q30_test_keys(bool *control_state);
+void q30_region_sprlog();
 
 // ---- every screen of a region live: FFCs and scripts (q30_regions.cpp) ----------------
 //

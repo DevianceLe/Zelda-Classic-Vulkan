@@ -62,6 +62,8 @@ item::~item()
         killfairy(misc);
 }
 
+extern int q30_item_field[4];   // sprite.cpp: the playing field items live in (left, top, right, bottom)
+
 bool item::animate(int)
 {
     if(!screenIsScrolling()) // Because subscreen items are items, too. :p
@@ -112,7 +114,8 @@ bool item::animate(int)
     }
     
     // Maybe it fell off the bottom in sideview, or was moved by a script.
-    if(y>352 || y<-176 || x<-256 || x > 512)
+    // (a 3.0 scrolling region: outside the region, as upstream's is_beyond_region_despawn_range)
+    if(y>q30_item_field[3]+176 || y<q30_item_field[1]-176 || x<q30_item_field[0]-256 || x > q30_item_field[2]+256)
     {
         return true;
     }

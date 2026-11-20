@@ -101,6 +101,10 @@ struct ScreenState
 {
     bool guys, enemies, did_secret;
     int hasitem;
+    int sle_x, sle_y, sle_cnt, sle_clk;     // its side-loading enemies' progress (guys.cpp)
+    bool gone;                              // its enemies are gone and what follows that is done
+
+    ScreenState() : guys(false), enemies(false), did_secret(false), hasitem(0), sle_x(0), sle_y(0), sle_cnt(0), sle_clk(0), gone(false) {}
 };
 
 std::map<int, ScreenState> g_screen_state;  // screens of the region visited in this stay
@@ -145,6 +149,7 @@ bool g_fs_reset = true;     // put the focus on Link when next looked at (a warp
 bool g_handoff = false;     // the screen loading is a hand-off inside the region
 int g_cam_vx = 0, g_cam_vy = 0;
 int g_vp_frame = -1;        // the frame the viewport was last placed in
+int g_tick_vx = 0, g_tick_vy = 0, g_tick_frame = -1;    // as the follow logic last left it
 
 // upstream's zfix::getInt (rounds half away from 0)
 int z_int(int64_t v)
@@ -675,6 +680,21 @@ static void list_region_ffcs(int map, int ox, int oy, int w, int h)
 
             const mapscr &m = TheMaps[index];
 
+            // (3: its enemies, guy, room and item too)
+            if(atoi(list) >= 3)
+            {
+                int n = 0;
+
+                for(int i = 0; i < 10; ++i)
+                    n += m.enemy[i] != 0;
+
+                if(n || m.guy || m.room || m.hasitem)
+                    al_trace("q30 regions:     screen 0x%02X: enemies %d %d %d %d %d %d %d %d %d %d pattern %d, guy %d room %d, item %d (has %d) at %d,%d\n",
+                             x + y * 16, (int)m.enemy[0], (int)m.enemy[1], (int)m.enemy[2], (int)m.enemy[3], (int)m.enemy[4], (int)m.enemy[5],
+                             (int)m.enemy[6], (int)m.enemy[7], (int)m.enemy[8], (int)m.enemy[9], (int)m.pattern, (int)m.guy, (int)m.room,
+                             (int)m.item, (int)m.hasitem, (int)m.itemx, (int)m.itemy);
+            }
+
             for(int i = 0; i < m.ffc_count(); ++i)
             {
                 if(!m.ffscript[i] && !m.ffdata[i])
@@ -985,6 +1005,9 @@ void q30_region_tick_camera()
 
     place_viewport();
     g_vp_frame = frame;
+    g_tick_vx = g_cam_vx;
+    g_tick_vy = g_cam_vy;
+    g_tick_frame = frame;
 }
 
 static bool g_scroll_view_on = false;      // a scroll is running: Viewport->X / Y follow its view
@@ -1442,6 +1465,39 @@ void q30_region_view_bounds(int *l, int *t, int *r, int *b)
 }
 
 extern sprite_list guys, items, Ewpns;
+extern int sle_x, sle_y, sle_cnt, sle_clk;
+
+namespace
+{
+
+// the current screen's enemy state (the globals) as a ScreenState, and back
+ScreenState state_now()
+{
+    ScreenState s;
+    s.guys = loaded_guys;
+    s.enemies = loaded_enemies;
+    s.did_secret = did_secret;
+    s.hasitem = hasitem;
+    s.sle_x = sle_x;
+    s.sle_y = sle_y;
+    s.sle_cnt = sle_cnt;
+    s.sle_clk = sle_clk;
+    return s;
+}
+
+void state_set(const ScreenState &s)
+{
+    loaded_guys = s.guys;
+    loaded_enemies = s.enemies;
+    did_secret = s.did_secret;
+    hasitem = s.hasitem;
+    sle_x = s.sle_x;
+    sle_y = s.sle_y;
+    sle_cnt = s.sle_cnt;
+    sle_clk = s.sle_clk;
+}
+
+} // namespace
 
 void q30_region_tag_sprites()
 {
@@ -1474,12 +1530,7 @@ void q30_region_save_screen_state()
     if(!g_reg.on)
         return;
 
-    ScreenState s;
-    s.guys = loaded_guys;
-    s.enemies = loaded_enemies;
-    s.did_secret = did_secret;
-    s.hasitem = hasitem;
-    g_screen_state[currscr] = s;
+    g_screen_state[currscr] = state_now();
 }
 
 bool q30_region_restore_screen_state()
@@ -1489,89 +1540,8 @@ bool q30_region_restore_screen_state()
     if(it == g_screen_state.end())
         return false;
 
-    loaded_guys = it->second.guys;
-    loaded_enemies = it->second.enemies;
-    did_secret = it->second.did_secret;
-    hasitem = it->second.hasitem;
+    state_set(it->second);
     return true;
-}
-
-void loadenemies();
-
-// Upstream loads a region screen's enemies once the camera shows any of it. This engine's enemy
-// loader works on the current screen, so the neighbour stands in as the current screen while it
-// runs (its screen and layers swapped into tmpscr / tmpscr2, currscr and homescr pointing at
-// it), and its new enemies are moved into the current screen's coordinates and tagged as its.
-// Side-loading patterns (enemies walking in over several frames) still load when Link enters.
-void q30_region_load_enemies_in_view()
-{
-    if(!g_reg.on)
-        return;
-
-    int cx, cy;
-    q30_region_camera(int(Link.getX()), int(Link.getY()), &cx, &cy);
-
-    for(int sdy = -1; sdy <= 1; ++sdy)
-        for(int sdx = -1; sdx <= 1; ++sdx)
-        {
-            int scr;
-
-            if((!sdx && !sdy) || !overlaps(sdx * 256, sdx * 256 + 256, cx, cx + 256) || !overlaps(sdy * 176, sdy * 176 + 176, cy, cy + 176)
-               || !in_region(sdx, sdy, &scr))
-                continue;
-
-            std::map<int, ScreenState>::iterator st = g_screen_state.find(scr);
-
-            if(st != g_screen_state.end() && st->second.enemies)
-                continue;
-
-            RegionScreen *rs = region_screen(scr);
-
-            if(!rs || rs->base.pattern == pSIDES || rs->base.pattern == pSIDESR)
-                continue;
-
-            // stand-in
-            std::swap(tmpscr[0], rs->base);
-
-            for(int i = 0; i < 6; ++i)
-                std::swap(tmpscr2[i], rs->layers[i]);
-
-            const int keep_scr = currscr, keep_home = homescr;
-            const bool keep_loaded = loaded_enemies;
-            currscr = homescr = scr;
-            loaded_enemies = false;
-            const int before = guys.Count();
-
-            loadenemies();
-
-            currscr = keep_scr;
-            homescr = keep_home;
-            loaded_enemies = keep_loaded;
-
-            for(int i = 0; i < 6; ++i)
-                std::swap(tmpscr2[i], rs->layers[i]);
-
-            std::swap(tmpscr[0], rs->base);
-
-            for(int i = before; i < guys.Count(); ++i)
-            {
-                sprite *s = guys.spr(i);
-                s->x += sdx * 256;
-                s->y += sdy * 176;
-                g_sprite_screen[s->getUID()] = scr;
-            }
-
-            // its enemies are out; its room guy and item come when Link enters it
-            ScreenState s;
-            s.guys = false;
-            s.enemies = true;
-            s.did_secret = false;
-            s.hasitem = 0;
-            g_screen_state[scr] = s;
-
-            if(getenv("ZC_EVENTLOG"))
-                al_trace("q30 region: screen 0x%02X came into view: %d enemies\n", scr, guys.Count() - before);
-        }
 }
 
 // ---- every screen of a region live: FFCs and scripts (q30_regions.h) --------------------------
@@ -1585,6 +1555,7 @@ void q30_region_load_enemies_in_view()
 // the 2.53 code see it as the current screen. Then it all goes back.
 
 #include "q30.h"
+#include "guys.h"
 
 void zasm30_screen_state_swap(void *state);             // ffscript.cpp (q30_scripts_region.h)
 bool zasm30_screen_state_busy(void *state, int what);
@@ -1993,6 +1964,254 @@ bool q30_region_go_live(int scr)
         al_trace("q30 region: screen 0x%02X goes on live\n", currscr);
 
     return true;
+}
+
+// ---- every screen's guys, items and enemies (q30_regions.h) -----------------------------------
+// Upstream's loadguys and loadenemies go over every screen of the region. This engine's work on
+// the current screen, so each other screen stands in for it while its own are loaded (as its
+// FFCs and scripts run, above), with its own enemy state in the globals; what comes out is its
+// own (q30_region_sprite_screen) and ends up where it is in the current screen's coordinates.
+
+void loadguys();
+void loadenemies();
+void setupscreen();
+extern byte guygrid[176];
+
+namespace
+{
+
+// Region screen scr stands in for the current screen while fn runs. False: it has no live slot.
+bool stand_in(int scr, void (*fn)())
+{
+    if(scr == currscr)
+    {
+        fn();
+        return true;
+    }
+
+    const int here = currscr, home = homescr, keep_hero_slot = g_hero_slot;
+    const int sdx = scr % 16 - here % 16, sdy = scr / 16 - here / 16;
+    q30_region_tag_sprites();       // the sprites out now are the current screen's
+    const ScreenState mine = state_now();
+    const ScreenState its = g_screen_state[scr];
+
+    if(!swap_current(scr, true))
+        return false;
+
+    g_hero_slot = here;
+    state_set(its);
+
+    // (the places enemies were put lately are the current screen's)
+    byte grid[176];
+    memcpy(grid, guygrid, sizeof(grid));
+    memset(guygrid, 0, sizeof(grid));
+    const int before = guys.Count();
+
+    fn();
+
+    ScreenState after = state_now();
+    after.gone = its.gone;
+    g_screen_state[scr] = after;
+    q30_region_tag_sprites();       // what came out is its own
+    memcpy(guygrid, grid, sizeof(grid));
+    g_hero_slot = keep_hero_slot;
+    swap_current(here, true);
+    homescr = home;
+    state_set(mine);
+
+    // (the other places a new enemy keeps: its floor, a trap's home)
+    for(int i = before; i < guys.Count(); ++i)
+        ((enemy *)guys.spr(i))->q30_region_shift(sdx * 256, sdy * 176);
+
+    return true;
+}
+
+void check_enemies_gone()
+{
+    Link.q30_enemies_gone();
+}
+
+} // namespace
+
+bool q30_region_loadguys()
+{
+    static bool busy = false;   // (loadguys asks this first: not for the screens loading from here)
+
+    if(busy || !g_live || !g_reg.on || g_hero_slot >= 0)
+        return false;
+
+    const Region reg = g_reg;
+    const int here = currscr;
+    busy = true;
+
+    // row by row from the region's top-left, as upstream's for_every_base_screen_in_region
+    for(int y = 0; y < reg.h; ++y)
+        for(int x = 0; x < reg.w; ++x)
+        {
+            const int scr = reg.ox + x + (reg.oy + y) * 16;
+
+            if(!g_live || currscr != here)
+            {
+                busy = false;
+                return true;
+            }
+
+            if(scr == here)
+            {
+                loadguys();
+                continue;
+            }
+
+            if(g_screen_state[scr].guys)
+                continue;
+
+            std::map<int, RegionScreen *>::iterator it = g_screens.find(scr);
+
+            if(it == g_screens.end() || !it->second->live)
+                continue;
+
+            // (nothing to come out: no stand-in)
+            const mapscr &m = it->second->base;
+
+            if(!m.guy && !m.hasitem && m.room != r10RUPIES)
+                g_screen_state[scr].guys = true;
+            else
+            {
+                stand_in(scr, loadguys);
+
+                if(getenv("ZC_EVENTLOG"))
+                    al_trace("q30 region: screen 0x%02X: guy %d, room %d, item %d out; %d guys, %d items in all\n", scr, (int)m.guy,
+                             (int)m.room, (int)m.hasitem, guys.Count(), items.Count());
+            }
+        }
+
+    busy = false;
+    return true;
+}
+
+bool q30_region_setupscreen()
+{
+    if(!g_live || !g_reg.on || g_hero_slot >= 0 || g_reg.origin == currscr)
+        return false;
+
+    if(getenv("ZC_EVENTLOG"))
+        al_trace("q30 region: frame %d: a guy on screen 0x%02X sets up the room of 0x%02X\n", frame, currscr, g_reg.origin);
+
+    return stand_in(g_reg.origin, setupscreen);
+}
+
+// Upstream's loadenemies: each screen of the region whose enemies aren't out yet loads them once
+// the viewport (as the last frame left it) touches it; viewport_t::intersects_with counts a
+// screen whose right or bottom edge the viewport's left or top edge is on.
+bool q30_region_load_enemies_in_view()
+{
+    if(!g_live || !g_reg.on || g_hero_slot >= 0)
+        return false;
+
+    if(g_tick_frame != frame - 1)
+        camera_look();
+
+    const int vx = g_tick_frame == frame - 1 ? g_tick_vx : g_cam_vx, vy = g_tick_frame == frame - 1 ? g_tick_vy : g_cam_vy;
+    const Region reg = g_reg;
+    const int here = currscr;
+
+    for(int y = 0; y < reg.h; ++y)
+        for(int x = 0; x < reg.w; ++x)
+        {
+            const int scr = reg.ox + x + (reg.oy + y) * 16;
+
+            if(!g_live || currscr != here)
+                return true;
+
+            if(!(vx <= x * 256 + 256 && vx + 256 > x * 256 && vy <= y * 176 + 176 && vy + 176 > y * 176))
+                continue;
+
+            if(scr == here)
+            {
+                if(!loaded_enemies)
+                    loadenemies();
+
+                continue;
+            }
+
+            if(g_screen_state[scr].enemies)
+                continue;
+
+            // (a screen with no slot, past the end of the quest's maps, has nothing to load)
+            std::map<int, RegionScreen *>::iterator slot = g_screens.find(scr);
+
+            if(slot == g_screens.end() || !slot->second->live)
+                continue;
+
+            const int before = guys.Count();
+
+            if(stand_in(scr, loadenemies) && getenv("ZC_EVENTLOG") && (guys.Count() != before || g_screen_state[scr].enemies))
+                al_trace("q30 region: frame %d: screen 0x%02X in view (viewport %d,%d): %d enemies out%s (first: id %d, family %d)\n", frame, scr,
+                         vx, vy, guys.Count() - before, g_screen_state[scr].enemies ? "" : ", more to come",
+                         guys.Count() > before ? guys.spr(before)->id : -1,
+                         guys.Count() > before ? (int)guysbuf[guys.spr(before)->id & 0xFFF].family : -1);
+        }
+
+    return true;
+}
+
+int q30_region_rock_x(long uid)
+{
+    const int scr = q30_region_sprite_screen(uid);
+    return (scr >= 0 && g_reg.on) ? (scr % 16 - currscr % 16) * 256 : 0;
+}
+
+int q30_region_rock_top()
+{
+    int l, t, r, b;
+    q30_region_view_bounds(&l, &t, &r, &b);
+    return t;
+}
+
+int q30_region_rock_bottom()
+{
+    int l, t, r, b;
+    q30_region_view_bounds(&l, &t, &r, &b);
+    return b;
+}
+
+void q30_region_enemies_gone()
+{
+    if(!g_live || !g_reg.on || g_hero_slot >= 0)
+        return;
+
+    const Region reg = g_reg;
+    const int here = currscr;
+
+    for(int y = 0; y < reg.h; ++y)
+        for(int x = 0; x < reg.w; ++x)
+        {
+            const int scr = reg.ox + x + (reg.oy + y) * 16;
+
+            if(!g_live || currscr != here)
+                return;
+
+            std::map<int, ScreenState>::iterator st = g_screen_state.find(scr);
+
+            if(scr == here || st == g_screen_state.end() || !st->second.enemies || st->second.gone)
+                continue;
+
+            bool main_guy = false;
+
+            for(int i = 0; i < guys.Count() && !main_guy; ++i)
+                main_guy = ((enemy *)guys.spr(i))->mainguy && q30_region_sprite_screen(guys.spr(i)->getUID()) == scr;
+
+            if(main_guy)
+                continue;
+
+            if(stand_in(scr, check_enemies_gone))
+            {
+                g_screen_state[scr].gone = true;
+
+                if(getenv("ZC_EVENTLOG"))
+                    al_trace("q30 region: frame %d: screen 0x%02X's enemies are gone\n", frame, scr);
+            }
+        }
 }
 
 int q30_region_screen_index(int scr)

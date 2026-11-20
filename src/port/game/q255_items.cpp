@@ -51,6 +51,7 @@
 #include "q255.h"
 #include "sfx.h"
 #include "q30_triggers.h"
+#include "q30_regions.h"
 
 extern itemdata *itemsbuf;
 extern char *item_string[ITEMCNT];
@@ -328,6 +329,8 @@ static void update_old_item_flags(int v, long family, int level, dword &f)
 }
 #endif
 
+static long g_item_vp_suspend, g_item_vp_despawn;     // viewport ranges (q30_regions.h)
+
 static void read_item(Q255Section &s, itemdata &it)
 {
     long tile = s.version > 35 ? s.igetl_s() : (long)s.igetw();
@@ -585,7 +588,10 @@ it.family = (byte)family;
         s.skip(4);              // cooldown
 
     if(s.version >= 70)
-        s.skip(4 + 4);          // viewport suspend / despawn range
+    {
+        g_item_vp_suspend = s.igetl_s();    // viewport suspend / despawn range
+        g_item_vp_despawn = s.igetl_s();
+    }
 }
 
 int q255_read_items(Q255Section &s)
@@ -684,10 +690,20 @@ int q255_read_items(Q255Section &s)
         g_item_display_name.clear();
         memset(g_item_sprite_initd, 0, sizeof(g_item_sprite_initd));
         memset(g_item_weapon_initd, 0, sizeof(g_item_weapon_initd));
+        g_item_vp_suspend = g_item_vp_despawn = 0;
         read_item(s, tempitem);
 
         if(s.failed)
             return qe_invalid;
+
+#ifdef ZC_PLAYER_BUILD
+        // (the items come before the enemies in a quest file: the last quest's ranges go here)
+        if(i == 0)
+            q30_vp_ranges_reset();
+
+        if(g_item_vp_suspend || g_item_vp_despawn)
+            q30_vp_item_ranges(i, g_item_vp_suspend, g_item_vp_despawn);
+#endif
 
 #ifdef ZC_PLAYER_BUILD
         if(getenv("ZC_LIGHTSCAN") && i < MAXITEMS && (tempitem.family == itype_candle || tempitem.family == itype_book))

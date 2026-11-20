@@ -995,7 +995,7 @@ void q30_run_npc_scripts(bool waitdraw)
         long uid = spr->getUID();
         Zasm30SpriteState *st = zasm30_npc_state(spr);
 
-        if(st->script)
+        if(st->script && !q30_vp_frozen(&guys, uid))     // (a 3.0 region: not while it is suspended)
             zasm30_run_sprite(SCRIPT_NPC, st->script, uid, waitdraw);
 
         if(guys.getByUID(uid) == NULL && i < guys.Count() && guys.spr(i) != spr)
@@ -1039,7 +1039,7 @@ void q30_run_eweapon_scripts(bool waitdraw)
         if(!waitdraw && (st->move_flags & 1) && !(st->move_flags & (1 << 8)))
             zasm30_fake_gravity(*st);
 
-        if(st->script)
+        if(st->script && !q30_vp_frozen(&Ewpns, uid))
             zasm30_run_sprite(SCRIPT_EWPN, st->script, uid, waitdraw);
 
         if(Ewpns.getByUID(uid) == NULL && i < Ewpns.Count() && Ewpns.spr(i) != spr)
@@ -1058,7 +1058,7 @@ void q30_run_itemsprite_scripts(bool waitdraw)
         long uid = spr->getUID();
         Zasm30SpriteState *st = zasm30_item_state((item *)spr);
 
-        if(st->script)
+        if(st->script && !q30_vp_frozen(&items, uid))
             zasm30_run_sprite(SCRIPT_ITEMSPRITE, st->script, uid, waitdraw);
 
         if(items.getByUID(uid) == NULL && i < items.Count() && items.spr(i) != spr)

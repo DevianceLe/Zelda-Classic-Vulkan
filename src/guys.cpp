@@ -435,6 +435,18 @@ enemy::enemy(fix X,fix Y,int Id,int Clk) : sprite()
 
 enemy::~enemy() {}
 
+// Falling rocks and boulders in a 3.0 scrolling region (upstream's eRock / eBoulder): they rain in
+// the column of the screen they came from, from the top of the viewport to its bottom. Anywhere
+// else: 0, 0 and 176, as ever.
+// A position snapped to the 16 (8) pixel grid: 2.53 masks it into the screen (& 0xF0); in a 3.0
+// scrolling region positions run past 255 and below 0 on the other screens, and it is rounded down
+// where it is (upstream's TRUNCATE_TILE).
+static inline int q30_tile16(int v) { return q30_region_on() ? (v & ~15) : (v & 0xF0); }
+static inline int q30_tile8(int v) { return q30_region_on() ? (v & ~7) : (v & 0xF8); }
+#define q30_rock_x() q30_region_rock_x(getUID())
+#define q30_rock_top() q30_region_rock_top()
+#define q30_rock_bottom() q30_region_rock_bottom()
+
 // A 3.0 scrolling region's hand-off (LinkClass::q30_region_handoff) moved this enemy by dx, dy
 // into the next screen's coordinates: the floor a jumping enemy lands on (Vires, Pols Voices,
 // Tektites with the Z axis rule put y back on it each frame) and last frame's place (the walking
@@ -1892,12 +1904,12 @@ void enemy::fix_coords(bool bound)
     
     if(!OUTOFBOUNDS)
     {
-        x=(fix)((int(x)&0xF0)+((int(x)&8)?16:0));
+        x=(fix)(q30_tile16(int(x))+((int(x)&8)?16:0));
         
         if(tmpscr->flags7&fSIDEVIEW)
-            y=(fix)((int(y)&0xF8)+((int(y)&4)?8:0));
+            y=(fix)(q30_tile8(int(y))+((int(y)&4)?8:0));
         else
-            y=(fix)((int(y)&0xF0)+((int(y)&8)?16:0));
+            y=(fix)(q30_tile16(int(y))+((int(y)&8)?16:0));
     }
 }
 
@@ -2212,18 +2224,18 @@ bool enemy::slide()
         case up:
         case down:
             if((int(y)&15) > 7)
-                y=(int(y)&0xF0)+16;
+                y=q30_tile16(int(y))+16;
             else
-                y=(int(y)&0xF0);
+                y=q30_tile16(int(y));
                 
             break;
             
         case left:
         case right:
             if((int(x)&15) > 7)
-                x=(int(x)&0xF0)+16;
+                x=q30_tile16(int(x))+16;
             else
-                x=(int(x)&0xF0);
+                x=q30_tile16(int(x));
                 
             break;
         }
@@ -2329,18 +2341,18 @@ bool enemy::fslide()
         case up:
         case down:
             if((int(y)&15) > 7)
-                y=(int(y)&0xF0)+16;
+                y=q30_tile16(int(y))+16;
             else
-                y=(int(y)&0xF0);
+                y=q30_tile16(int(y));
                 
             break;
             
         case left:
         case right:
             if((int(x)&15) > 7)
-                x=(int(x)&0xF0)+16;
+                x=q30_tile16(int(x))+16;
             else
-                x=(int(x)&0xF0);
+                x=q30_tile16(int(x));
                 
             break;
         }
@@ -4237,7 +4249,9 @@ bool guy::animate(int index)
 {
     if(mainguy && clk==0 && misc==0)
     {
-        setupscreen();
+        if(!q30_region_setupscreen())   // (a 3.0 scrolling region: its top-left screen's room, as upstream)
+            setupscreen();
+
         misc = 1;
     }
     
@@ -5850,8 +5864,8 @@ bool eRock::animate(int index)
     
     if(++clk2==0)                                             // start it
     {
-        x=rand()&0xF0;
-        y=0;
+        x=(rand()&0xF0)+q30_rock_x();    // (a 3.0 scrolling region: its own screen's column, from the top of the view)
+        y=q30_rock_top();
         clk3=0;
         clk2=rand()&15;
     }
@@ -5862,9 +5876,9 @@ bool eRock::animate(int index)
         {
             dir=rand()&1;
             
-            if(x<32)  dir=1;
+            if(x<q30_rock_x()+32)  dir=1;
             
-            if(x>208) dir=0;
+            if(x>q30_rock_x()+208) dir=0;
         }
         
         if(clk3<13+16)
@@ -5899,7 +5913,7 @@ bool eRock::animate(int index)
             
             ++clk3;
         }
-        else if(y<176)
+        else if(y<q30_rock_bottom())
             clk3=0;                                               // next bounce
         else
             clk2 = -(rand()&63);                                  // back to top
@@ -5970,8 +5984,8 @@ bool eBoulder::animate(int index)
     
     if(++clk2==0)                                             // start it
     {
-        x=rand()&0xF0;
-        y=-32;
+        x=(rand()&0xF0)+q30_rock_x();
+        y=q30_rock_top()-32;
         clk3=0;
         clk2=rand()&15;
     }
@@ -5982,9 +5996,9 @@ bool eBoulder::animate(int index)
         {
             dir=rand()&1;
             
-            if(x<32)  dir=1;
+            if(x<q30_rock_x()+32)  dir=1;
             
-            if(x>208) dir=0;
+            if(x>q30_rock_x()+208) dir=0;
         }
         
         if(clk3<13+16)
@@ -6019,7 +6033,7 @@ bool eBoulder::animate(int index)
             
             ++clk3;
         }
-        else if(y<176)
+        else if(y<q30_rock_bottom())
             clk3=0;                                               // next bounce
         else
             clk2 = -(rand()&63);                                  // back to top
@@ -7162,7 +7176,7 @@ void eStalfos::drawshadow(BITMAP *dest, bool translucent)
         int f2=get_bit(quest_rules,qr_NEWENEMYTILES)?
           (clk/(frate/4)):((clk>=(frate>>1))?1:0);
         shadowtile = wpnsbuf[iwShadow].tile+f2;
-        yofs+=(((int)y+17)&0xF0)-y;
+        yofs+=q30_tile16((int)y+17)-y;
         yofs+=8;
       }
     */
@@ -12268,6 +12282,10 @@ static void q30_guy_look(bool use, long tile, int cs)
 void loadguys()
 {
     if(loaded_guys)
+        return;
+
+    // a 3.0 scrolling region: every screen's, as upstream (it calls back here for each)
+    if(q30_region_loadguys())
         return;
         
     loaded_guys=true;

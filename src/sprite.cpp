@@ -1029,15 +1029,22 @@ void sprite_list::drawcloaked2(BITMAP* dest,bool lowfirst)
     }
 }
 
+// A 3.0 scrolling region (the player's q30_region_spawn.cpp sets these; NULL in ZQuest): a sprite
+// too far from the camera is suspended, or removed, as upstream's viewport ranges have it.
+bool (*q30_sprite_frozen_hook)(sprite_list *list, int index) = NULL;
+bool (*q30_sprite_despawn_hook)(sprite_list *list, int index) = NULL;
+// The playing field an item must stay near (item::animate): the screen, or the player's region.
+int q30_item_field[4] = { 0, 0, 256, 176 };
+
 void sprite_list::animate()
 {
     int i=0;
     
     while(i<count)
     {
-        if(!(freeze_guys && sprites[i]->canfreeze))
+        if(!(freeze_guys && sprites[i]->canfreeze) && !(q30_sprite_frozen_hook && q30_sprite_frozen_hook(this, i)))
         {
-            if(sprites[i]->animate(i))
+            if(sprites[i]->animate(i) || (q30_sprite_despawn_hook && q30_sprite_despawn_hook(this, i)))
             {
                 del(i);
                 --i;

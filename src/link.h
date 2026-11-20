@@ -287,7 +287,7 @@ class LinkClass : public sprite
     bool checkdamagecombos(int dx1, int dx2, int dy1, int dy2, int layer = -1, bool solid = false);
     void checkscroll();
     void q30_region_handoff(int ndx, int ndy);  // 3.0 scrolling region: on to the next screen, no scroll
-    void checkspecial();
+    void checkspecial(bool q30_other = false);  // (q30_other: another screen of a 3.0 region, its enemies gone)
     void checkspecial2(int *ls);
     void checkspecial3();
     void checkpushblock();
@@ -347,6 +347,7 @@ private:
     void PhantomsCleanup();
     
 public:
+    void q30_enemies_gone() { checkspecial(true); }    // (q30_regions.cpp: another screen of a 3.0 region)
 
     void checkitems(int index = -1);
     int DrunkClock();

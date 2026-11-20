@@ -64,6 +64,7 @@
 
 #include "q255.h"
 #include "q30_triggers.h"
+#include "q30_regions.h"
 
 extern guydata *guysbuf;
 extern char *guy_string[eMAXGUYS];
@@ -215,6 +216,7 @@ static void skip_script_config(Q255Section &s)
 static word g_npc_script, g_npc_weapon_script;
 static dword g_npc_moveflags;
 static long g_npc_wpnsprite;     // kept for scripts (npcdata->WeaponSprite)
+static long g_npc_vp_suspend, g_npc_vp_despawn;     // viewport ranges (q30_regions.h)
 static long g_npc_initd[8], g_npc_weapon_initd[8];
 static byte g_npc_raw_defense[FILE_DEFENSES_ALL];    // as stored: the switch hook's and edSWITCH need them
 
@@ -458,7 +460,10 @@ static void read_guy(Q255Section &s, guydata &g)
         skip_weapon_data(s);
 
     if(v >= 58)
-        s.skip(2 * 4);     // viewport suspend, despawn ranges
+    {
+        g_npc_vp_suspend = s.igetl_s();     // viewport suspend, despawn ranges
+        g_npc_vp_despawn = s.igetl_s();
+    }
 
     if(v >= 60)
         s.skip(2);         // firesfx_secondary
@@ -503,6 +508,8 @@ int q255_read_guys(Q255Section &s)
     {
         guydata g;
         g_npc_script = g_npc_weapon_script = 0; g_npc_moveflags = 0; g_npc_wpnsprite = 0;
+        g_npc_vp_suspend = 48;      // (upstream's guydata default)
+        g_npc_vp_despawn = 0;
         memset(g_npc_initd, 0, sizeof(g_npc_initd));
         memset(g_npc_weapon_initd, 0, sizeof(g_npc_weapon_initd));
         read_guy(s, g);
@@ -518,6 +525,12 @@ int q255_read_guys(Q255Section &s)
             q30_set_guy_weapon_script(i, g_npc_weapon_script, g_npc_weapon_initd);
             q30_set_guy_wpnsprite(i, (int)g_npc_wpnsprite);
             q30_set_guy_defenses(i, g_npc_raw_defense);
+#ifdef ZC_PLAYER_BUILD
+
+            if(g_npc_vp_suspend != 48 || g_npc_vp_despawn != 0)
+                q30_vp_guy_ranges(i, g_npc_vp_suspend, g_npc_vp_despawn);
+
+#endif
         }
     }
 

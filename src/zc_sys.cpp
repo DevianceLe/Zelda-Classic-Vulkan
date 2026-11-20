@@ -4703,6 +4703,7 @@ void advanceframe(bool allowwavy, bool sfxcleanup)
     }
 
     q30_audio_frame();
+    q30_region_sprlog();    // (tests: ZC_REGION_SPRLOG)
 
     while(Paused && !Advance && !Quit)
     {
@@ -10072,6 +10073,7 @@ void load_control_state()
     control_state[11]=key[Exkey2]||joybtn(Exbtn2);
     control_state[12]=key[Exkey3]||joybtn(Exbtn3);
     control_state[13]=key[Exkey4]||joybtn(Exbtn4);
+    q30_test_keys(control_state);   // (tests: ZC_TEST_KEYS)
     
     if(num_joysticks != 0)
     {

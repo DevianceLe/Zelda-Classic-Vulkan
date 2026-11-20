@@ -2672,10 +2672,18 @@ void LinkClass::checkstab()
                             pickup = (pickup & (ipCHECK|ipDUMMY)) | (ev[1] / 10000);
                         }
 
+                        // (a 3.0 scrolling region: the state is its own screen's, as upstream's screen_spawned)
+                        const int q30_home = homescr;
+
+                        if(q30_region_sprite_screen(items.spr(j)->getUID()) >= 0)
+                            homescr = q30_region_sprite_screen(items.spr(j)->getUID());
+
                         if(pickup&ipONETIME) // set mITEM for one-time-only items
                             setmapflag(mITEM);
                         else if(pickup&ipONETIME2) // set mBELOW flag for other one-time-only items
                             setmapflag();
+
+                        homescr = q30_home;
                             
                         if(itemsbuf[items.spr(j)->id].collect_script)
                         {
@@ -5135,14 +5143,11 @@ bool LinkClass::animate(int)
         }
     }
     
-    if((!loaded_enemies) && (frame - newscr_clk >= 2))
+    // (a 3.0 scrolling region: every screen in view loads its own)
+    if((frame - newscr_clk >= 2) && !q30_region_load_enemies_in_view() && (!loaded_enemies))
     {
         loadenemies();
     }
-
-    // a 3.0 scrolling region: the other screens in view load theirs too
-    if(frame - newscr_clk >= 2)
-        q30_region_load_enemies_in_view();
     
     // check lots of other things
     checkscroll();
@@ -5150,6 +5155,7 @@ bool LinkClass::animate(int)
     if(action!=inwind && action!=drowning)
     {
         checkspecial();
+        q30_region_enemies_gone();  // (a 3.0 scrolling region: the other screens' enemies)
         checkitems();
         checklocked(); //This has issues if Link's action is WALKING, in 8-way moveent. 
         checklockblock();
@@ -12636,9 +12642,11 @@ int LinkClass::nextflag(int cx, int cy, int cdir, bool comboflag)
 
 bool did_secret;
 
-void LinkClass::checkspecial()
+void LinkClass::checkspecial(bool q30_other)
 {
-    checktouchblk();
+    if(!q30_other)
+        checktouchblk();
+
     q30_region_tag_sprites();   // a 3.0 scrolling region: new sprites belong to this screen
     
     bool hasmainguy = hasMainGuy();                           // calculate it once
@@ -12695,6 +12703,9 @@ void LinkClass::checkspecial()
             did_secret=true;
         }
     }
+
+    if(q30_other)
+        return;
     
     // doors
     for(int i=0; i<4; i++)
@@ -19091,6 +19102,12 @@ void LinkClass::checkitems(int index)
         pickup = (pickup & (ipCHECK|ipDUMMY)) | (ev[1] / 10000);
     }
 
+    // (a 3.0 scrolling region: the state is its own screen's, as upstream's screen_spawned)
+    const int q30_home = homescr;
+
+    if(index >= 0 && index < items.Count() && q30_region_sprite_screen(items.spr(index)->getUID()) >= 0)
+        homescr = q30_region_sprite_screen(items.spr(index)->getUID());
+
     if(pickup&ipONETIME)    // set mITEM for one-time-only items
     {
 		setmapflag(mITEM);
@@ -19112,6 +19129,7 @@ void LinkClass::checkitems(int index)
     else if(pickup&ipONETIME2)                                // set mBELOW flag for other one-time-only items
         setmapflag();
 
+    homescr = q30_home;
     q30_item_pickup_secrets(pickup);    // 2.55/3.0: an item that triggers secrets when picked up
 
     if(itemsbuf[id2].collect_script)
@@ -20606,7 +20624,10 @@ void LinkClass::q30_region_handoff(int ndx, int ndy)
     markBmap(-1);
     map_bkgsfx(true);
     playLevelMusic();
-    newscr_clk = frame;
+
+    if(!live)
+        newscr_clk = frame;     // (live screens: nothing was loaded, as walking on in upstream's region)
+
     activated_timed_warp = false;
     loadside = sdir ^ 1;
 
