@@ -73,7 +73,8 @@ public:
 class dTallGrass : public decoration
 {
 public:
-    dTallGrass(fix X,fix Y,int Id,int Clk);
+    int deco_sprite;   // 2.55/3.0: the grass combo's own sprite, 0 = iwTallGrass
+    dTallGrass(fix X,fix Y,int Id,int Clk,int wpnSpr=0);
     virtual bool animate(int index);
     virtual void draw(BITMAP *dest);
 };
@@ -81,7 +82,8 @@ public:
 class dRipples : public decoration
 {
 public:
-    dRipples(fix X,fix Y,int Id,int Clk);
+    int deco_sprite;   // 2.55/3.0: the water combo's own sprite, 0 = iwRipples
+    dRipples(fix X,fix Y,int Id,int Clk,int wpnSpr=0);
     virtual bool animate(int index);
     virtual void draw(BITMAP *dest);
 };

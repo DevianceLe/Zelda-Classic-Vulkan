@@ -8797,8 +8797,15 @@ INLINE void set_drawing_command_args(const int j, const word numargs)
         script_drawing_commands[j][k] = SH::read_stack(SPR + (numargs - k));
 }
 
+// 2.55/3.0 (upstream's FFCore.skipscriptdraws): while a message freezes the game and
+// qr_SCRIPTDRAWSFROZENMSG is off, scripts that still run queue no drawing. Never set for 2.53.
+bool q30_skip_script_draws = false;
+
 void do_drawing_command(const int script_command)
 {
+    if(q30_skip_script_draws)
+        return;
+
     int j = script_drawing_commands.GetNext();
     
     if(j == -1)  //out of drawing command space
@@ -11386,6 +11393,9 @@ int run_script(const byte type, const word script, const byte i)
         // As DrawString, with two more arguments (the text shadow, not drawn here).
         case ZASM255_DRAWSTRINGR2:
         {
+            if(q30_skip_script_draws)
+                break;
+
             const int j = script_drawing_commands.GetNext();
 
             if(j == -1)

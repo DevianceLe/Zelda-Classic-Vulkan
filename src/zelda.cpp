@@ -1590,6 +1590,7 @@ void init_dmap()
 
 // Newer quests: the active global script's first frame isn't held back by a message (game_loop).
 static bool q30_global_first_frame = false;
+extern bool q30_skip_script_draws;   // ffscript.cpp: no new script drawing under a freezing message
 
 int init_game()
 {
@@ -2015,6 +2016,7 @@ int init_game()
     
     //Script-related nonsense
     script_drawing_commands.Clear();
+    q30_skip_script_draws = false;
     
     {
         // 2.55/3.0: counters past 32 live in an array at the end of globalRAM (q30_triggers.cpp);
@@ -2482,6 +2484,7 @@ int cont_game()
     putscr(scrollbuf,0,0,&tmpscr[0]);
     putscrdoors(scrollbuf,0,0,&tmpscr[0]);
     script_drawing_commands.Clear();
+    q30_skip_script_draws = false;
     
     //preloaded freeform combos
     ffscript_engine(true);
@@ -3296,7 +3299,14 @@ void game_loop()
 
     q30_gen_frame_end();    // (the end of the last frame: before the clear, as upstream)
 
-    if(q30_early_clear && !freezemsg)
+    // Under a freezing message (upstream game_loop): with qr_SCRIPTDRAWSFROZENMSG the last
+    // frame's drawing is cleared all the same, so the scripts that still run draw anew each
+    // frame; without it the drawing stays and nothing new is queued.
+    const bool q30_draws_frozen_msg = q30_early_clear && q30_quest_rule(562);
+
+    q30_skip_script_draws = q30_early_clear && !q30_draws_frozen_msg && freezemsg;
+
+    if(q30_early_clear && (!freezemsg || q30_draws_frozen_msg))
     {
         script_drawing_commands.Clear();
     }

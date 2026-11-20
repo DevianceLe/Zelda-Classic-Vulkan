@@ -1238,6 +1238,23 @@ void draw_alert(HostDialog &hd, bool top, bool input, bool frozen)
                 ImGui::EndDisabled();
             ImGui::PopID();
         }
+
+        // Enter while no button is highlighted (the alert came up after a click, say): ImGui
+        // presses nothing then. The original's dialog manager gives Enter to the object that
+        // has the focus, which in an alert is the button do_dialog() started on.
+        if(input && !first && !ImGui::GetIO().NavVisible &&
+           (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false)))
+        {
+            for(size_t i = 0; i < v.widgets.size(); ++i)
+            {
+                const WidgetView &w = v.widgets[i];
+                if(w.kind == K_BUTTON && w.obj == v.focus_obj && !(w.flags & D_DISABLED))
+                {
+                    click(hd, w.obj);
+                    break;
+                }
+            }
+        }
         end_inactive(!top, top && frozen);
     }
     ImGui::End();

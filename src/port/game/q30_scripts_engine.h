@@ -1105,6 +1105,8 @@ static void zasm30_menu_script(byte type, word script, long key)
     Zasm30Instance *in = zasm30_instance(type, key);
 
     extern void doScriptMenuDraws();
+    const bool saved_skip = q30_skip_script_draws;  // (it draws its own frames, as upstream)
+    q30_skip_script_draws = false;
 
     while(in->doscript && !Quit)
     {
@@ -1125,6 +1127,7 @@ static void zasm30_menu_script(byte type, word script, long key)
     }
 
     script_drawing_commands.Clear();
+    q30_skip_script_draws = saved_skip;
     zasm30_drop_instance(type, key);
 }
 

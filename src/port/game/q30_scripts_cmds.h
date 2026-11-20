@@ -1659,7 +1659,7 @@ static void z30_screen_polygon()
     std::vector<int> pos;
     z30_array_ints(ptr, pos);
 
-    if(pos.empty())
+    if(pos.empty() || q30_skip_script_draws)
         return;
 
     const int j = script_drawing_commands.GetNext();
@@ -1768,6 +1768,9 @@ static void z30_queue_screen_blit(BITMAP *src, int layer, int sx, int sy, int sw
 
     if(rotated || (mode & ~1))
         zasm30_log_once("blit to the screen with rotation, pivot or flip (drawn plain)", 657);
+
+    if(q30_skip_script_draws)
+        return;
 
     const int j = script_drawing_commands.GetNext();
 
@@ -1997,6 +2000,8 @@ static bool z30_run_generic_frozen(word script)
 
     zasm30_drop_instance(SCRIPT_GENERICFROZEN, depth);
     Zasm30Instance *in = zasm30_instance(SCRIPT_GENERICFROZEN, depth);
+    const bool saved_skip = q30_skip_script_draws;  // (it draws its own frames, as upstream)
+    q30_skip_script_draws = false;
 
     while(in->doscript && !Quit)
     {
@@ -2010,6 +2015,7 @@ static bool z30_run_generic_frozen(word script)
     }
 
     script_drawing_commands.Clear();
+    q30_skip_script_draws = saved_skip;
     zasm30_drop_instance(SCRIPT_GENERICFROZEN, depth);
     --zasm30_generic_frozen_depth;
 

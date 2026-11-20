@@ -491,10 +491,11 @@ void dHammerSmack::draw(BITMAP *dest)
     }
 }
 
-dTallGrass::dTallGrass(fix X,fix Y,int Id,int Clk) : decoration(X,Y,Id,Clk)
+dTallGrass::dTallGrass(fix X,fix Y,int Id,int Clk,int wpnSpr) : decoration(X,Y,Id,Clk)
 {
     id=Id;
     clk=Clk;
+    deco_sprite=(wpnSpr>0 && wpnSpr<MAXWPNS) ? wpnSpr : 0;
 }
 
 bool dTallGrass::animate(int index)
@@ -508,8 +509,9 @@ void dTallGrass::draw(BITMAP *dest)
     if(LinkGetDontDraw())
         return;
         
-    int t=wpnsbuf[iwTallGrass].tile*4;
-    cs=wpnsbuf[iwTallGrass].csets&15;
+    const wpndata &wspr=wpnsbuf[deco_sprite ? deco_sprite : iwTallGrass];
+    int t=wspr.tile*4;
+    cs=wspr.csets&15;
     flip=0;
     x=LinkX();
     y=LinkY()+10;
@@ -530,10 +532,11 @@ void dTallGrass::draw(BITMAP *dest)
     decoration::draw8(dest);
 }
 
-dRipples::dRipples(fix X,fix Y,int Id,int Clk) : decoration(X,Y,Id,Clk)
+dRipples::dRipples(fix X,fix Y,int Id,int Clk,int wpnSpr) : decoration(X,Y,Id,Clk)
 {
     id=Id;
     clk=Clk;
+    deco_sprite=(wpnSpr>0 && wpnSpr<MAXWPNS) ? wpnSpr : 0;
 }
 
 bool dRipples::animate(int index)
@@ -558,8 +561,9 @@ void dRipples::draw(BITMAP *dest)
     if(LinkGetDontDraw())
         return;
         
-    int t=wpnsbuf[iwRipples].tile*4;
-    cs=wpnsbuf[iwRipples].csets&15;
+    const wpndata &wspr=wpnsbuf[deco_sprite ? deco_sprite : iwRipples];
+    int t=wspr.tile*4;
+    cs=wspr.csets&15;
     flip=0;
     x=LinkX();
     y=LinkY()+10;

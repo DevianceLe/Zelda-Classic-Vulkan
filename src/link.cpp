@@ -101,6 +101,24 @@ static inline bool isSideview()
     return (tmpscr->flags7&fSIDEVIEW)!=0 && !ignoreSideview;
 }
 
+// 2.55/3.0: a tall grass or shallow water combo names the sprite drawn over Link's feet
+// (upstream's attribytes[6]). 0 keeps iwTallGrass / iwRipples; 2.53 quests always get 0.
+static int q30_deco_sprite(int cx, int cy, bool grass)
+{
+    int cid = MAPCOMBO(cx, cy);
+    const Q30Combo *qc = q30_combo(cid);
+
+    if(!qc || cid <= 0)
+        return 0;
+
+    int t = combobuf[cid].type;
+
+    if(grass ? !isGrassType(t) : t != cSHALLOWWATER)
+        return 0;
+
+    return int(qc->attributes[8 + 6] / 10000);
+}
+
 // 2.55+ movement rules: no snap to the half-tile grid while walking.
 static inline bool q30_no_gridlock()
 {
@@ -4432,7 +4450,7 @@ bool LinkClass::animate(int)
     {
         if(decorations.idCount(dTALLGRASS)==0)
         {
-            decorations.add(new dTallGrass(x, y, dTALLGRASS, 0));
+            decorations.add(new dTallGrass(x, y, dTALLGRASS, 0, q30_deco_sprite(x+8, y+15, true)));
         }
     }
     
@@ -4449,7 +4467,7 @@ bool LinkClass::animate(int)
     {
         if(decorations.idCount(dRIPPLES)==0)
         {
-            decorations.add(new dRipples(x, y, dRIPPLES, 0));
+            decorations.add(new dRipples(x, y, dRIPPLES, 0, q30_deco_sprite(x+7, y+15, false)));
         }
     }
     
