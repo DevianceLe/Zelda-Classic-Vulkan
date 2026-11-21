@@ -140,6 +140,10 @@ void q30_region_view_bounds(int *l, int *t, int *r, int *b);
 // screen. -1: not in a region, or not tagged.
 void q30_region_tag_sprites();
 int q30_region_sprite_screen(long uid);
+// For an enemy that places itself by "the screen" (a Zora's water): the screen it came from and
+// that screen's top-left in the current screen's pixels. tmpscr and 0, 0 for the current screen's
+// own, outside regions and in every 2.53 quest.
+mapscr *q30_region_sprite_home(long uid, int *ox, int *oy);
 
 // A screen's own enemy state across hand-offs (2.53 keeps it for the current screen only):
 // whether its guys and enemies were loaded, its item state (hasitem) and did_secret.

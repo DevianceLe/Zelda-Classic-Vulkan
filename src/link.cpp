@@ -20648,7 +20648,7 @@ void LinkClass::q30_region_handoff(int ndx, int ndy)
     if(!live)
         ffscript_engine(true);  // (a live screen's FFC scripts are running already)
 
-    opendoors = 0;
+    // (opendoors: this screen's own shutter count, from q30_region_restore_screen_state)
     markBmap(-1);
     map_bkgsfx(true);
     playLevelMusic();

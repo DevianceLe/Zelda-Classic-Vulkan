@@ -101,10 +101,11 @@ struct ScreenState
 {
     bool guys, enemies, did_secret;
     int hasitem;
+    int opendoors;                          // its shutters' countdown (2.53's opendoors)
     int sle_x, sle_y, sle_cnt, sle_clk;     // its side-loading enemies' progress (guys.cpp)
     bool gone;                              // its enemies are gone and what follows that is done
 
-    ScreenState() : guys(false), enemies(false), did_secret(false), hasitem(0), sle_x(0), sle_y(0), sle_cnt(0), sle_clk(0), gone(false) {}
+    ScreenState() : guys(false), enemies(false), did_secret(false), hasitem(0), opendoors(0), sle_x(0), sle_y(0), sle_cnt(0), sle_clk(0), gone(false) {}
 };
 
 std::map<int, ScreenState> g_screen_state;  // screens of the region visited in this stay
@@ -1478,6 +1479,7 @@ ScreenState state_now()
     s.enemies = loaded_enemies;
     s.did_secret = did_secret;
     s.hasitem = hasitem;
+    s.opendoors = opendoors;
     s.sle_x = sle_x;
     s.sle_y = sle_y;
     s.sle_cnt = sle_cnt;
@@ -1491,6 +1493,7 @@ void state_set(const ScreenState &s)
     loaded_enemies = s.enemies;
     did_secret = s.did_secret;
     hasitem = s.hasitem;
+    opendoors = s.opendoors;
     sle_x = s.sle_x;
     sle_y = s.sle_y;
     sle_cnt = s.sle_cnt;
@@ -1525,6 +1528,24 @@ int q30_region_sprite_screen(long uid)
     return it == g_sprite_screen.end() ? -1 : it->second;
 }
 
+mapscr *q30_region_sprite_home(long uid, int *ox, int *oy)
+{
+    *ox = *oy = 0;
+    const int scr = q30_region_sprite_screen(uid);
+
+    if(scr < 0 || scr == currscr)
+        return tmpscr;
+
+    mapscr *m = q30_region_ffc_table(scr);
+
+    if(!m)
+        return tmpscr;
+
+    *ox = (scr % 16 - currscr % 16) * 256;
+    *oy = (scr / 16 - currscr / 16) * 176;
+    return m;
+}
+
 void q30_region_save_screen_state()
 {
     if(!g_reg.on)
@@ -1538,7 +1559,12 @@ bool q30_region_restore_screen_state()
     std::map<int, ScreenState>::iterator it = g_reg.on ? g_screen_state.find(currscr) : g_screen_state.end();
 
     if(it == g_screen_state.end())
+    {
+        if(g_reg.on)
+            opendoors = 0;      // (each screen's shutters count for themselves)
+
         return false;
+    }
 
     state_set(it->second);
     return true;
@@ -1767,8 +1793,10 @@ void region_make_live(int destdmap)
             screenscrolling = false;
             g_hero_slot = here;
             g_loading_other = true;
+            opendoors = 0;
             loadscr(0, dmap, scr, -1, false);
             g_loading_other = false;
+            g_screen_state[scr].opendoors = opendoors;      // (-4 with a shutter on it, as any screen loads)
             g_hero_slot = keep_hero_slot;
             screenscrolling = keep_scrolling;
             opendoors = keep_opendoors;
@@ -1975,6 +2003,7 @@ bool q30_region_go_live(int scr)
 void loadguys();
 void loadenemies();
 void setupscreen();
+void openshutters();    // maps.cpp
 extern byte guygrid[176];
 
 namespace
@@ -2029,6 +2058,11 @@ bool stand_in(int scr, void (*fn)())
 void check_enemies_gone()
 {
     Link.q30_enemies_gone();
+}
+
+void open_shutters_here()
+{
+    openshutters();
 }
 
 } // namespace
@@ -2193,23 +2227,54 @@ void q30_region_enemies_gone()
 
             std::map<int, ScreenState>::iterator st = g_screen_state.find(scr);
 
-            if(scr == here || st == g_screen_state.end() || !st->second.enemies || st->second.gone)
+            if(scr == here || st == g_screen_state.end())
                 continue;
 
+            const bool loaded = st->second.enemies;
             bool main_guy = false;
 
             for(int i = 0; i < guys.Count() && !main_guy; ++i)
                 main_guy = ((enemy *)guys.spr(i))->mainguy && q30_region_sprite_screen(guys.spr(i)->getUID()) == scr;
 
-            if(main_guy)
-                continue;
-
-            if(stand_in(scr, check_enemies_gone))
+            if(loaded && !main_guy && !st->second.gone && stand_in(scr, check_enemies_gone))
             {
                 g_screen_state[scr].gone = true;
 
                 if(getenv("ZC_EVENTLOG"))
                     al_trace("q30 region: frame %d: screen 0x%02X's enemies are gone\n", frame, scr);
+            }
+
+            // Its shutters, as checkspecial counts the current screen's down every frame
+            // (upstream's checkspecial goes over every screen of the region).
+            std::map<int, RegionScreen *>::iterator slot = g_screens.find(scr);
+
+            if(slot == g_screens.end() || !slot->second->live)
+                continue;
+
+            const mapscr &m = slot->second->base;
+            bool has_shutter = false;
+
+            for(int i = 0; i < 4 && !has_shutter; ++i)
+                has_shutter = m.door[i] == dSHUTTER;
+
+            if(has_shutter)
+            {
+                int &doors = g_screen_state[scr].opendoors;
+
+                if(doors == 0 && loaded)
+                {
+                    if(!(m.flags & fSHUTTERS) && !main_guy)
+                        doors = 12;
+                }
+                else if(doors < 0)
+                    ++doors;
+                else if(--doors == 0)
+                {
+                    stand_in(scr, open_shutters_here);
+
+                    if(getenv("ZC_EVENTLOG"))
+                        al_trace("q30 region: frame %d: screen 0x%02X's shutters open\n", frame, scr);
+                }
             }
         }
 }

@@ -4192,6 +4192,9 @@ void openshutters()
 
     q30_trig_shutters();
     sfx(WAV_DOOR,128);
+
+    if(getenv("ZC_EVENTLOG"))
+        al_trace("shutters: frame %d: screen 0x%02X's open\n", frame, currscr);
 }
 
 void loadscr(int tmp,int destdmap, int scr,int ldir,bool overlay=false)

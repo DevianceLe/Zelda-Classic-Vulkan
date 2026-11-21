@@ -6586,13 +6586,16 @@ bool eZora::animate(int index)
         int t=0;
         int pos2=rand()%160 + 16;
         bool placed=false;
-        
+        // (a 3.0 scrolling region: the screen it came from, upstream's screen_spawned)
+        int hox, hoy;
+        const mapscr *home = q30_region_sprite_home(getUID(), &hox, &hoy);
+
         while(!placed && t<160)
         {
-            if(iswater(tmpscr->data[pos2]) && (pos2&15)>0 && (pos2&15)<15)
+            if(iswater(home->data[pos2]) && (pos2&15)>0 && (pos2&15)<15)
             {
-                x=(pos2&15)<<4;
-                y=pos2&0xF0;
+                x=((pos2&15)<<4)+hox;
+                y=(pos2&0xF0)+hoy;
                 hp=guysbuf[id&0xFFF].hp;                             // refill life each time
                 hxofs=1000;                                       // avoid hit detection
                 stunclk=0;
