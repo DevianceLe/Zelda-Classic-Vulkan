@@ -1595,6 +1595,10 @@ extern bool q30_skip_script_draws;   // ffscript.cpp: no new script drawing unde
 int init_game()
 {
     q30_clear_engine();
+    {
+        void q30_install_enemy_fall_hook();     // guys.cpp: 2.55/3.0 enemies falling into pits
+        q30_install_enemy_fall_hook();
+    }
     q30_region_forget();        // 3.0 scrolling regions: none until a screen is loaded
 
     srand(replay_seed(time(0)));

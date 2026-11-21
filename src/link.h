@@ -275,6 +275,7 @@ class LinkClass : public sprite
     bool q30_slope_under(int yofs, bool fallthrough);
     bool q30_fallthrough_input();
     bool q30_sideview_solid(int yofs, bool ignore_fallthrough, int misc);
+    void q30_handle_termv();
     int  q30_push_move(int dx, int dy);
     void q30_slope_fall_through();
     void q30_slopes_snap_down();
@@ -436,6 +437,10 @@ void reset_swordcharge();
     void setClock(bool state);
     int  getAction();
     void setAction(actiontype new_action);
+    int  q30_script_action();           // Hero->Action for 2.55/3.0 scripts: upstream's numbers
+    void q30_set_script_action(int a);
+    bool q30_is_standing();             // Hero->Standing for 2.55/3.0 scripts (upstream's isStanding)
+    void q30_keep_diving();             // a "dive under" combo above him (q30_triggers.cpp)
     int getHeldItem();
     void setHeldItem(int newitem);
     bool isDiving();

@@ -928,6 +928,12 @@ static void apply_load_fixes(word v, Q30Combo &x, bool post_v14_patch)
     if(v < 49 && (x.type == cWATER || x.type == cSHALLOWWATER))
         x.sfx_landing = WAV_ZN1SPLASH;
 
+    // (upstream: water combos of a section before 16 drown for 4 HP, written to attribute 0
+    // when the quest loads, so a combo a script makes water later has its own attribute; the
+    // player only, so ZQuest saves the quest as it was)
+    if(v < 16 && x.type == cWATER && !q255_keep_for_editor)
+        x.attributes[0] = 4L * 10000;
+
     if(v < 67 && !post_v14_patch && is_cuttable_type(x.type) && !x.triggers.empty())
         x.triggers.front().flags.set(Q30TF_CMBTYPEFX);
 }

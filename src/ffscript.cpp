@@ -2068,6 +2068,8 @@ static long zasm30_load_ffc_at(long screen, long index);
 static void zasm30_ffc_this(int i);
 static int zasm30_script_screen();
 long zasm30_ffscript_version = 0; // the quest's script format version (0 for a 2.53 quest)
+static bool zasm30_generic_get(long index, long &ret);    // Game->Generic[] (q30_scripts_light.h)
+static bool zasm30_generic_set(long index, long value);
 static refInfo zasm30_screen_ri;
 static bool zasm30_screen_done = true;
 static long zasm30_screen_stack[ZSCRIPT_STACK_ALLOC];
@@ -3675,8 +3677,8 @@ long get_register(const long arg)
         ret=(int)(game->get_maxmagic())*10000;
         break;
         
-    case LINKACTION:
-        ret=(int)(Link.getAction())*10000;
+    case LINKACTION:    // (a 2.55/3.0 quest: upstream's numbers, its sideview swim actions too)
+        ret=(int)(zasm30_ffscript_version ? Link.q30_script_action() : Link.getAction())*10000;
         break;
         
     case LINKHELD:
@@ -4980,8 +4982,9 @@ long get_register(const long arg)
         ret=game->get_dcounter((ri->d[0])/10000)*10000;
         break;
         
-    case GAMEGENERICD:
-        ret=game->get_generic((ri->d[0])/10000)*10000;
+    case GAMEGENERICD:  // (2.55/3.0: the values 2.53's byte array has no room for, from the player's own)
+        if(!zasm30_ffscript_version || !zasm30_generic_get((ri->d[0])/10000, ret))
+            ret=game->get_generic((ri->d[0])/10000)*10000;
         break;
         
     case GAMEITEMSD:
@@ -5733,7 +5736,10 @@ void set_register(const long arg, const long value)
         break;
         
     case LINKACTION:
-        Link.setAction((actiontype)(value/10000));
+        if(zasm30_ffscript_version)
+            Link.q30_set_script_action(value/10000);
+        else
+            Link.setAction((actiontype)(value/10000));
         break;
         
     case LINKHELD:
@@ -7179,7 +7185,8 @@ if(GuyH::loadNPC(ri->guyref, str) == SH::_NoError) \
         break;
         
     case GAMEGENERICD:
-        game->set_generic(value/10000, (ri->d[0])/10000);
+        if(!zasm30_ffscript_version || !zasm30_generic_set((ri->d[0])/10000, value/10000))
+            game->set_generic(value/10000, (ri->d[0])/10000);
         break;
         
     case GAMEITEMSD:

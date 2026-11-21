@@ -1033,6 +1033,9 @@ void sprite_list::drawcloaked2(BITMAP* dest,bool lowfirst)
 // too far from the camera is suspended, or removed, as upstream's viewport ranges have it.
 bool (*q30_sprite_frozen_hook)(sprite_list *list, int index) = NULL;
 bool (*q30_sprite_despawn_hook)(sprite_list *list, int index) = NULL;
+// 2.55/3.0 enemies falling into pits (guys.cpp): phase 0 before a sprite's animation (1: it falls
+// instead, 2: it is gone), phase 1 after it. NULL in ZQuest.
+int (*q30_sprite_fall_hook)(sprite_list *list, int index, int phase) = NULL;
 // The playing field an item must stay near (item::animate): the screen, or the player's region.
 int q30_item_field[4] = { 0, 0, 256, 176 };
 
@@ -1044,11 +1047,15 @@ void sprite_list::animate()
     {
         if(!(freeze_guys && sprites[i]->canfreeze) && !(q30_sprite_frozen_hook && q30_sprite_frozen_hook(this, i)))
         {
-            if(sprites[i]->animate(i) || (q30_sprite_despawn_hook && q30_sprite_despawn_hook(this, i)))
+            const int fall = q30_sprite_fall_hook ? q30_sprite_fall_hook(this, i, 0) : 0;
+
+            if(fall == 2 || (fall == 0 && (sprites[i]->animate(i) || (q30_sprite_despawn_hook && q30_sprite_despawn_hook(this, i)))))
             {
                 del(i);
                 --i;
             }
+            else if(fall == 0 && q30_sprite_fall_hook)
+                q30_sprite_fall_hook(this, i, 1);
         }
         
         ++i;

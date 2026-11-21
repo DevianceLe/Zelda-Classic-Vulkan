@@ -114,6 +114,9 @@ public:
     // (LinkClass::q30_region_handoff moves x and y): the other positions it keeps go too.
     virtual void q30_region_shift(int dx, int dy);
 
+    // 2.55/3.0 enemies falling into pits (guys.cpp, q30_enemy_fall_hook)
+    void q30_stop_knockback() { sclk = 0; }
+    void q30_leave_item() { leave_item(); }
 protected:
     int  clk2,sclk;
     int  starting_hp;

@@ -181,8 +181,23 @@ static bool q30_ss_drown = false;       // the drowning under way is upstream's 
 static bool q30_ss_draw = false;        // LinkClass::draw: Link is drawn from the sideswim sets
 static int q30_ss_dir = right;          // upstream's sideswimdir
 // The init data's steps (1/100 pixel a frame), jump out of the water and swim gravity (1/10000).
-static int q30_ss_up = 150, q30_ss_side = 100, q30_ss_down = 75;
+static long q30_ss_up = 150, q30_ss_side = 100, q30_ss_down = 75;
 static long q30_ss_jump = 0, q30_ss_grav = 5;
+
+// Game->Generic[] for a 2.55/3.0 script, the sideview swimming part (upstream's genWATER_GRAV,
+// genSIDESWIM_UP/SIDE/DOWN, genSIDESWIM_JUMP at 17-21): the value in the init data's units.
+long *q30_sideswim_generic(int index)
+{
+    switch(index)
+    {
+    case 17: return &q30_ss_grav;
+    case 18: return &q30_ss_up;
+    case 19: return &q30_ss_side;
+    case 20: return &q30_ss_down;
+    case 21: return &q30_ss_jump;
+    default: return NULL;
+    }
+}
 
 void q30_set_init_sideswim(int up_step, int side_step, int down_step, long jump, long gravity)
 {
@@ -1012,6 +1027,110 @@ void LinkClass::setAction(actiontype new_action) // Used by ZScript
     }
     
     action=new_action;
+}
+
+// ---- Hero->Action for a 2.55/3.0 quest's scripts (upstream's numbering) ------------------
+//
+// Upstream has actions 2.53 lacks: falling 29, lavadrowning 30, the sideview swim set 31-40
+// (sideswimming, sideswimhit, sideswimattacking, sidewaterhold1/2, sideswimcasting,
+// sideswimfreeze, sidedrowning, sideswimisspinning, sideswimischarging) and lifting 41. Here those
+// are the 2.53 actions with q30_ss / q30_ss_drown, a pit drowning, a lava drowning or a lift.
+// hookshotout, stunned and ispushing (26-28) are numbers only scripts write (upstream's
+// FF_hero_action): read back until the engine's action changes.
+static int q30_action_note = -1, q30_action_note_of = 0;
+
+int LinkClass::q30_script_action()
+{
+    const int a = getAction();      // spinning, charging, diving first, as upstream's getAction2
+
+    if(a == isspinning || a == ischarging || a == isdiving)
+        return a;
+
+    if(q30_action_note >= 0)
+    {
+        if(action == q30_action_note_of)
+            return q30_action_note;
+
+        q30_action_note = -1;
+    }
+
+    if(action == drowning)
+    {
+        if(q30_pit_falling())
+            return 29;          // falling
+
+        return q30_lava_drowning() ? 30 : q30_ss_drown ? 38 : (int)drowning;
+    }
+
+    if(q30_ss)
+    {
+        switch(action)
+        {
+        case swimming: return 31;
+        case swimhit: return 32;
+        case attacking: return 33;
+        case waterhold1: return 34;
+        case waterhold2: return 35;
+        case casting: return 36;
+        case freeze: return 37;
+        default: break;
+        }
+    }
+
+    if(q30_lift_busy() && q30_lifting() && (action == none || action == walking))
+        return 41;              // lifting
+
+    return action;
+}
+
+// upstream's setAction with its numbers; the sideview ones only in a sideview screen
+void LinkClass::q30_set_script_action(int a)
+{
+    const bool side = a >= 31 && a <= 40;
+
+    if(side && !isSideview())
+        return;
+
+    q30_action_note = -1;
+
+    switch(a)
+    {
+    case 26: case 27: case 28:  // hookshotout, stunned, ispushing
+        q30_action_note = a;
+        q30_action_note_of = action;
+        return;
+
+    case 25: case 29: case 40: case 41:     // gameover, falling, sideswimischarging, lifting
+        return;
+
+    case 30: a = drowning; break;           // lavadrowning: the combo says which drowning it is
+    case 31: a = swimming; break;
+    case 32: a = swimhit; break;
+    case 33: a = attacking; break;
+    case 34: a = waterhold1; break;
+    case 35: a = waterhold2; break;
+    case 36: a = casting; break;
+    case 37: a = freeze; break;
+    case 38: a = drowning; break;
+    case 39: a = isspinning; break;
+
+    default:
+        if(a < 0 || a > isdiving)
+            return;
+
+        break;
+    }
+
+    const bool sidedrown = (a == drowning && side);
+    setAction((actiontype)a);
+
+    if(action == a)
+    {
+        q30_ss = side;          // a plain action is upstream's plain one, even in sideview water
+
+        if(a == drowning)
+            q30_ss_drown = sidedrown;
+    }
 }
 
 void LinkClass::setHeldItem(int newitem)
@@ -4474,6 +4593,8 @@ bool LinkClass::animate(int)
     if(stomping)
         stomping = false;
         
+    q30_handle_termv();
+
     if(isSideview())  // Sideview gravity
     {
         q30_slope_fall_through();
@@ -4660,6 +4781,8 @@ bool LinkClass::animate(int)
         }
     }
     
+    q30_handle_termv();
+
     if(drunkclk)
     {
         --drunkclk;
@@ -10115,6 +10238,55 @@ bool LinkClass::q30_sideview_solid(int yofs, bool ignore_fallthrough, int misc)
         return false;
 
     return misc != 1 && q30_check_new_slope(bx, by, bw, bh, q30_slope_ox, q30_slope_oy, false, true, q30_slopeid) < 0;
+}
+
+// upstream's isStanding(true) (Hero->Standing): on the ground, in sideview on something solid
+// or a ladder (so not swimming in sideview water), not hovering, and not in an action that
+// holds Link still (upstream's nomove_action; a pit's fall is a drowning here).
+bool LinkClass::q30_is_standing()
+{
+    if(z != 0)
+        return false;
+
+    if(isSideview() && !q30_sideview_solid(0, false, 0) && !ladderx && !laddery)
+        return false;
+
+    if(hoverclk)
+        return false;
+
+    switch(action)
+    {
+    case gothit: case drowning: case freeze: case scrolling: case casting: case landhold1: case landhold2:
+    case waterhold1: case waterhold2: case hopping: case inwind:
+        return false;
+
+    default:
+        return true;
+    }
+}
+
+// upstream's set_dive(max(diveclk, 2)) under a "dive under" combo (q30_standing_update): the
+// dive goes on while he is under it (here a dive is under water while diveclk is over 30).
+void LinkClass::q30_keep_diving()
+{
+    if(diveclk < 32)
+        diveclk = 32;
+}
+
+// upstream's sprite::handle_termv, before and after the gravity step: a 2.55/3.0 quest without
+// qr_OLD_TERMINAL_VELOCITY (463; compat rules before 87 turn it on) never falls faster than the
+// terminal velocity, where the old way let one more step of gravity past it.
+void LinkClass::q30_handle_termv()
+{
+    extern dword q255_compat_rule_version;
+
+    if(!q30_active() || q30_quest_rule(463) || q255_compat_rule_version < 87)
+        return;
+
+    const int termv = q30_link_terminalv();
+
+    if(fall > termv)
+        fall = termv;
 }
 
 // upstream's push_move: a pixel at a time, stopping at solid combos. Bit 1: x was blocked, 2: y.

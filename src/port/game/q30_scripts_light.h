@@ -243,6 +243,69 @@ void q30_set_light_wave(int rate, int size)
     zasm30_light_wave_size = size;
 }
 
+// Game->Generic[] for a 2.55/3.0 script where upstream's generic_ind names a value the player
+// keeps outside 2.53's byte array: HP per heart 7, magic per block 8, the lighting defaults 11-16,
+// the sideview swimming values 17-21, bunny tile modifier 22, switch style 23, the light wave
+// 27-28. False for the rest (2.53's array, as before).
+static int *zasm30_light_generic(long index)
+{
+    extern int q255_gauge_hp_per_heart, q255_gauge_magic_per_block;
+
+    switch(index)
+    {
+    case 7: return &q255_gauge_hp_per_heart;
+    case 8: return &q255_gauge_magic_per_block;
+    case 11: return &zasm30_light_init.dith_type;
+    case 12: return &zasm30_light_init.dith_arg;
+    case 13: return &zasm30_light_init.dith_perc;
+    case 14: return &zasm30_light_init.light_rad;
+    case 15: return &zasm30_light_init.trans_perc;
+    case 16: return &zasm30_light_init.dark_color;
+    case 27: return &zasm30_light_wave_rate;
+    case 28: return &zasm30_light_wave_size;
+    default: return NULL;
+    }
+}
+
+static bool zasm30_generic_get(long index, long &ret)
+{
+    long *l = q30_sideswim_generic(index);
+
+    if(!l)
+        l = q30_triggers_generic(index);
+
+    if(l)
+    {
+        ret = (long)((uint32_t)*l * 10000u);   // (wrapping as upstream's int32 product)
+        return true;
+    }
+
+    if(int *i = zasm30_light_generic(index))
+    {
+        ret = (long)((uint32_t)*i * 10000u);
+        return true;
+    }
+
+    return false;
+}
+
+static bool zasm30_generic_set(long index, long value)
+{
+    long *l = q30_sideswim_generic(index);
+
+    if(!l)
+        l = q30_triggers_generic(index);
+
+    if(l)
+        *l = value;
+    else if(int *i = zasm30_light_generic(index))
+        *i = (int)value;
+    else
+        return false;
+
+    return true;
+}
+
 // Upstream's calc_wave_rad: the radius swung by the sine of the clock over 2 * rate frames.
 static int z30_wave_rad(int rad)
 {

@@ -5220,6 +5220,15 @@ void q30_trig_copycat(byte copyid)
     trig_copycat(copyid);
 }
 
+// ffc->Trigger(idx) (upstream FFCTRIGGER: do_trigger_combo on the ffc's handle)
+bool q30_trigger_ffc(int ffc, int idx)
+{
+    if(ffc < 0 || ffc >= tmpscr->ffc_count() || idx < 0)
+        return false;
+
+    return do_trigger(H(ffc), (size_t)idx);
+}
+
 bool q30_trigger_combo_at(int layer, int pos, int idx)
 {
     if(layer < 0 || layer > 6 || pos < 0 || pos >= 176 || idx < 0)
@@ -5324,11 +5333,15 @@ static bool stand_combo(const Q30Combo *c, double *z, double *step, bool *offs)
     return true;
 }
 
-// From that height the combo's solid parts are walked over.
+// From that height the combo's solid parts are walked over. Diving deep enough (the state is
+// below zero then) goes under a combo with a "dive under" level.
 static bool stand_over(const Q30Combo *c, double state)
 {
     double z, step;
     bool offs;
+
+    if(c && c->dive_under_level && state <= -double(c->dive_under_level) * 10000.0)
+        return true;
 
     if(!stand_combo(c, &z, &step, &offs))
         return false;
@@ -5342,9 +5355,13 @@ static bool stand_over(const Q30Combo *c, double state)
     return z - step <= state;
 }
 
-// upstream's get_standing_z_state(): what Link stands on plus his own Z
+// upstream's get_standing_z_state(): what Link stands on plus his own Z; below the water while
+// he dives
 static double stand_state()
 {
+    if(g_stand_z < 0)
+        return g_stand_z;
+
     double ret = g_stand_z + double(Link.getZ()) * 10000.0;
     return ret > STAND_MAX ? STAND_MAX : ret;
 }
@@ -5385,8 +5402,24 @@ void q30_standing_update(double x, double y, bool ground, bool sideview, fix *yo
             *yofs += 8;
         }
 
-        g_stand_z = 0;
+        if(g_stand_z > 0)
+            g_stand_z = 0;
     }
+
+    // Diving (upstream's set_dive, each frame of the dive): as deep as the flippers' level, 1
+    // with none; back up when the dive ends.
+    const bool diving = Link.isDiving();
+
+    if(diving)
+    {
+        const int flippers = current_item_id(itype_flippers);
+        const double deep = -(flippers >= 0 ? double(itemsbuf[flippers].fam_type) : 1.0) * 10000.0;
+
+        if(g_stand_z > deep)
+            g_stand_z = deep;
+    }
+    else if(g_stand_z < 0)
+        g_stand_z = 0;
 
     if(sideview)
         return;
@@ -5419,8 +5452,21 @@ void q30_standing_update(double x, double y, bool ground, bool sideview, fix *yo
 
         double z, step;
         bool offs;
+        const Q30Combo *hc = h_combo(h);
 
-        if((walk_byte(h_data(h)) & b) == b && stand_combo(h_combo(h), &z, &step, &offs))
+        // a solid combo with a "dive under" level over a diving Link keeps him under, and as
+        // deep as it asks
+        if((walk_byte(h_data(h)) & b) == b && hc && hc->dive_under_level && diving)
+        {
+            Link.q30_keep_diving();
+
+            if(g_stand_z >= -double(hc->dive_under_level) * 10000.0)
+                g_stand_z = -double(hc->dive_under_level) * 10000.0;
+
+            break;
+        }
+
+        if((walk_byte(h_data(h)) & b) == b && stand_combo(hc, &z, &step, &offs))
         {
             if(!z)
                 z = STAND_MAX;
@@ -7406,13 +7452,13 @@ bool q30_player_drown_end(int *damage, int *inv_timer, bool *warped)
     *damage = 4;
     *inv_timer = 48;
 
-    extern int q255_combo_section_version;
     const Q30Combo *c = (water > 0 && water < MAXCOMBOS) ? q30_combo(water) : NULL;
 
-    if(c && c->type == cWATER)
+    // (a combo with no entry of its own, made water by a script, has every attribute 0)
+    if(water > 0 && water < MAXCOMBOS && (c ? c->type : combobuf[water].type) == cWATER)
     {
-        *damage = q255_combo_section_version < 16 ? 4 : a_int(c->attributes[0]);
-        *inv_timer = a_int(c->attributes[3]);
+        *damage = c ? a_int(c->attributes[0]) : 0;     // (4 for an old section's water: q255_combos.cpp)
+        *inv_timer = c ? a_int(c->attributes[3]) : 0;
 
         if(!*inv_timer)
             *inv_timer = 48;
@@ -10731,7 +10777,7 @@ enum { FILE_DEF_SLOTS = 41, FILE_DEF_SWITCHHOOK = 36 };
 
 static int g_misc_sprites[256];
 static std::map<int, int> g_item_usesound2;
-static int g_init_switch_style = 0;
+static long g_init_switch_style = 0;
 static std::map<int, std::vector<byte> > g_guy_defenses;
 static bool g_any_switch_defense = false;      // some enemy has "Switch w/ Player" for a weapon
 
@@ -11902,6 +11948,11 @@ static void set_bunny_clock(int v)
 }
 
 void q30_set_bunny_ltm(long ltm) { g_bunny_ltm = ltm; }
+
+long *q30_triggers_generic(int index)   // upstream's genBUNNY_LTM 22, genSWITCHSTYLE 23
+{
+    return index == 22 ? &g_bunny_ltm : index == 23 ? &g_init_switch_style : NULL;
+}
 
 void q30_set_item_bunny(int item, bool usable)
 {

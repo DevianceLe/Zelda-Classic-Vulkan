@@ -30,6 +30,9 @@ extern ffscript *zasm30_stream;
 
 static std::map<long, BITMAP *> zasm30_bitmaps;
 static long zasm30_next_bitmap = 1000;
+// Bitmaps a failed bitmap->Read() left blank: upstream gives them a 256x176 picture but keeps the
+// width and height it cleared, so Width and Height read 0 until the bitmap is made again.
+static std::set<long> zasm30_bitmap_unsized;
 
 static BITMAP *z30_bitmap(long ref)
 {
@@ -61,6 +64,8 @@ static long z30_new_bitmap(int w, int h)
 
 static void z30_free_bitmap(long ref)
 {
+    zasm30_bitmap_unsized.erase(ref);
+
     std::map<long, BITMAP *>::iterator it = zasm30_bitmaps.find(ref);
 
     if(it != zasm30_bitmaps.end())
@@ -914,13 +919,13 @@ static bool zasm30_family_get(const long arg, long &ret)
     case Z30R_BITMAPWIDTH:
     {
         BITMAP *b = z30_bitmap(Z30_REF(BITMAP));
-        ret = b ? b->w * 10000 : -10000;
+        ret = b ? (zasm30_bitmap_unsized.count(Z30_REF(BITMAP)) ? 0 : b->w * 10000) : -10000;
         return true;
     }
     case Z30R_BITMAPHEIGHT:
     {
         BITMAP *b = z30_bitmap(Z30_REF(BITMAP));
-        ret = b ? b->h * 10000 : -10000;
+        ret = b ? (zasm30_bitmap_unsized.count(Z30_REF(BITMAP)) ? 0 : b->h * 10000) : -10000;
         return true;
     }
     case Z30R_CREATEBITMAP:
@@ -1569,6 +1574,97 @@ static void z30_user_bitmap_draw(int command, int base_command, int numargs)
         ArrayH::getString(sdci[8] / 10000, text);
 
     zasm30_draw_now(bmp, (int *)sdci, &text);
+}
+
+BITMAP *q30_load_image(const char *path);  // q30_image.cpp
+
+// bitmap->Read() and ->Write() (upstream bmp_do_readr / bmp_do_writer, done at once as this
+// engine draws to script bitmaps at once). The path is the quest's Files folder's with rule 678
+// (qr_BITMAP_AND_FILESYSTEM_PATHS_ALWAYS_RELATIVE), the program folder's without it, and can't
+// leave it. Read replaces the bitmap with the image, or with a blank 256x176 one when the file
+// can't be read; on a pointer with no bitmap it makes one. Both leave the pointer in rEXP2
+// (Read's binding reassigns it from there).
+static void z30_bitmap_file(bool write)
+{
+    const int nargs = write ? 3 : 2;
+    long ref = SH::read_stack(SPR + nargs);
+    string user, path;
+    ArrayH::getString(SH::read_stack(SPR + nargs - 2) / 10000, user, 256);
+    const bool overwrite = write && SH::read_stack(SPR) != 0;
+    const bool target = ref >= 10 && ref < 17;     // a render target
+
+    if(!write && !target && !z30_bitmap(ref))
+    {
+        ref = z30_new_bitmap(256, 176);
+        SH::write_stack(SPR + nargs, ref);
+    }
+
+    ri->d[3] = ref;     // rEXP2
+
+    if(!(q30_quest_rule(678) ? z30_resolve_path(user, true, path) : z30_legacy_path(user, path)) || path.empty())
+    {
+        Z_scripterrlog("Error: the path '%s' is not allowed for bitmap->%s().\n", user.c_str(), write ? "Write" : "Read");
+        return;
+    }
+
+    if(!write)
+    {
+        if(target)
+        {
+            Z_scripterrlog("bitmap->Read() wanted to use to an invalid bitmap id: %ld. Aborting.\n", ref);
+            return;
+        }
+
+        BITMAP *img = z30_path_is(path, false) ? q30_load_image(path.c_str()) : NULL;
+        zasm30_bitmap_unsized.erase(ref);
+
+        if(!img)
+        {
+            zasm30_bitmap_unsized.insert(ref);
+            Z_scripterrlog("Failed to load image file %s.\nMaking a blank bitmap on the pointer.\n", path.c_str());
+            img = create_bitmap_ex(8, 256, 176);
+
+            if(img)
+                clear_bitmap(img);
+        }
+
+        BITMAP *&b = zasm30_bitmaps[ref];
+
+        if(b)
+            destroy_bitmap(b);
+
+        b = img;
+        return;
+    }
+
+    BITMAP *bmp = z30_bitmap(ref);
+
+    if(!bmp)
+    {
+        Z_scripterrlog("bitmap->Write() wanted to use to an invalid bitmap id: %ld. Aborting.\n", ref);
+        return;
+    }
+
+    const size_t dot = path.rfind('.');
+    const std::string ext = dot == std::string::npos ? "" : z30_lower(path.substr(dot));
+
+    if(ext != ".png" && ext != ".bmp" && ext != ".pcx" && ext != ".tga" && ext != ".gif")
+    {
+        Z_scripterrlog("No extension, or invalid extension provided for writing bitmap file %s. Could not write the file.\nValid types are .png, .gif, .pcx, .tgx, and .bmp. Aborting.\n", path.c_str());
+        return;
+    }
+
+    if(!overwrite && z30_path_is(path, false))
+    {
+        Z_scripterrlog("Cannot write file '%s' because the file already exists in the specified path.\n", path.c_str());
+        return;
+    }
+
+    z30_make_dirs_for(path);
+    save_bitmap(path.c_str(), bmp, RAMpal);
+
+    if(!z30_path_is(path, false))
+        Z_scripterrlog("Failed to create file '%s'\n", path.c_str());
 }
 
 static void z30_arrayptr_to_string(long ptr, string &out)
@@ -3451,12 +3547,14 @@ static bool zasm30_command(word cmd)
         return true;
 
     // -- bitmaps --------------------------------------------------------------------------------
-    case Z30C_READBITMAP:
-    case Z30C_WRITEBITMAP:
+    case Z30C_READBITMAP:       // bitmap->Read(layer, filename)
+    case Z30C_WRITEBITMAP:      // bitmap->Write(layer, filename, allow_overwrite)
+        z30_bitmap_file(cmd == Z30C_WRITEBITMAP);
         return true;
     case Z30C_REGENERATEBITMAP:
     {
         long ref = Z30_REF(BITMAP);
+        zasm30_bitmap_unsized.erase(ref);
         int w = ri->d[1] / 10000, h = ri->d[0] / 10000;
         BITMAP *&b = zasm30_bitmaps[ref];
 
@@ -3566,11 +3664,19 @@ static bool zasm30_command(word cmd)
         if(!b)
             b = scrollbuf;
 
-        set_register(sarg1, getpixel(b, xpos, ypos) * 10000);
+        // (qr_BROKEN_GETPIXEL_VALUE, 350, on for compat rules before 32: the index itself)
+        const bool raw = q30_quest_rule(350) || q255_compat_rule_version < 32;
+        set_register(sarg1, getpixel(b, xpos, ypos) * (raw ? 1 : 10000));
         return true;
     }
     case Z30C_FFCTRIGGER:
+    {
+        // (an ffc on another screen of a scrolling region has no triggers running here)
+        const int idx = get_register(sarg1) / 10000;
+        const bool here = zasm30_frame().ffc_screen < 0;
+        set_register(sarg1, here && ri->ffcref != Z30_NO_FFC && q30_trigger_ffc(ri->ffcref, idx) ? 10000 : 0);
         return true;
+    }
 
     // -- rng objects ----------------------------------------------------------------------------
     case Z30C_LOADRNG:

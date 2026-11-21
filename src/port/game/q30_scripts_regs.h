@@ -551,6 +551,18 @@ void zasm30_no_set_xdoor(int, int, int, bool) {}
 
 // The combo a script has selected. A reference to no combo reads as a blank one, and writes to it
 // go nowhere.
+// itemdata->Flags[n]: bits 4, 5, 10-22 and 23 (upstream's item_flags), the low 16 in the item
+// itself and the rest beside it (q30_set_item_flags32)
+static dword z30_idata_flag_bit(long n)
+{
+    return n == 0 ? 0x10u : n == 1 ? 0x20u : (dword)1 << (n + 8);
+}
+
+static dword z30_idata_flags(long id)
+{
+    return (q30_item_flags((int)id) & ~0xFFFFu) | Q30_IDATA(id).flags;
+}
+
 static newcombo &z30_cdata()
 {
     static newcombo blank;
@@ -1118,7 +1130,7 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_HEROSTEPRATE: ret = q30_hero_step_rate() * 10000; return true;
     case Z30R_HERO_TMP_STEPBOOST: ret = q30_hero_step_boost() * 10000; return true;
     case Z30R_HEROLIFTEDWPN: ret = 0; return true;
-    case Z30R_HEROSTANDING: ret = Link.getZ() == 0 ? 10000 : 0; return true;
+    case Z30R_HEROSTANDING: ret = Link.q30_is_standing() ? 10000 : 0; return true;
     case Z30R_HERO_SCREEN: ret = currscr * 10000; return true;
     // Game->CurScreen / CurDMapScreen: upstream's cur_screen, which in a scrolling region is the
     // region's top-left screen (Hero->Screen above is Link's own); currscr outside regions
@@ -2053,6 +2065,13 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
         ret = (st && Z30_INDEX >= 0 && Z30_INDEX < 8) ? st->initd[Z30_INDEX] : -10000;
         return true;
     }
+    case Z30R_IDATAFLAGS:   // itemdata->Flags[]: upstream's item_flag1-15 and item_passive_script
+    {
+        ret = 0;
+        if(unsigned(ri->idata) < unsigned(q30_items_end()) && Z30_INDEX >= 0 && Z30_INDEX < 16)
+            ret = (z30_idata_flags(ri->idata) & z30_idata_flag_bit(Z30_INDEX)) ? 10000 : 0;
+        return true;
+    }
     case Z30R_IDATAATTRIB:
     {
         ret = -10000;
@@ -2292,8 +2311,25 @@ static bool zasm30_set_register_inner(const long arg, const long value)
         }
         return true;
     }
-    case Z30R_COMBODATASCRIPT:
+    case Z30R_COMBODATASCRIPT:      // (upstream: the combo's script and its InitD, written)
     case Z30R_COMBODATAINITD:
+    {
+        const long cid = Z30_REF(COMBODATA);
+
+        if(cid < 0 || cid >= MAXCOMBOS)
+            return true;
+
+        const Q30ScriptRef *r = q30_combo_script((int)cid);
+        Q30ScriptRef ref = r ? *r : Q30ScriptRef();
+
+        if(arg == Z30R_COMBODATASCRIPT)
+            ref.script = (word)vbound(value / 10000, 0, 65535);
+        else if(Z30_INDEX >= 0 && Z30_INDEX < 8)
+            ref.initd[Z30_INDEX] = value;   // (kept while the combo has a script)
+
+        q30_set_combo_script((int)cid, ref.script, ref.initd);
+        return true;
+    }
     case Z30R_COMBODTRIGGERGSTATE:
     case Z30R_COMBODTRIGGERCHANGECMB:
         return true;
@@ -2455,7 +2491,18 @@ static bool zasm30_set_register_inner(const long arg, const long value)
         }
         return true;
     }
-    case Z30R_DMAPINITD: return true;
+    case Z30R_DMAPINITD:            // (upstream: the dmap's active script's InitD)
+    {
+        const Q30ScriptRef *r = q30_dmap_script(Z30_REF(DMAPDATA), q30_dmap_active);
+
+        if(r && Z30_INDEX >= 0 && Z30_INDEX < 8)
+        {
+            Q30ScriptRef ref = *r;
+            ref.initd[Z30_INDEX] = value;
+            q30_set_dmap_script(Z30_REF(DMAPDATA), q30_dmap_active, ref.script, ref.initd);
+        }
+        return true;
+    }
 
     // itemdata->
     case Z30R_IDATATILE: Q30_IDATA(ri->idata).tile = vbound(value / 10000, 0, NEWMAXTILES - 1); return true;
@@ -3104,6 +3151,17 @@ static bool zasm30_set_register_inner(const long arg, const long value)
         Zasm30SpriteState *st = z30_state_of(z30_item_ref());
         if(st && Z30_INDEX >= 0 && Z30_INDEX < 8)
             st->initd[Z30_INDEX] = value;
+        return true;
+    }
+    case Z30R_IDATAFLAGS:
+    {
+        if(unsigned(ri->idata) < unsigned(q30_items_end()) && Z30_INDEX >= 0 && Z30_INDEX < 16)
+        {
+            const dword bit = z30_idata_flag_bit(Z30_INDEX);
+            const dword f = value ? (z30_idata_flags(ri->idata) | bit) : (z30_idata_flags(ri->idata) & ~bit);
+            Q30_IDATA(ri->idata).flags = (word)(f & 0xFFFF);
+            q30_set_item_flags32(ri->idata, f);
+        }
         return true;
     }
     case Z30R_IDATAATTRIB:

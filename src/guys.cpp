@@ -318,8 +318,16 @@ bool m_walkflag(int dx,int dy,int special, int x=-1000, int y=-1000)
 
 // 2.55+ quests (upstream's enemy::m_walkflag, groundblocked and flyerblocked): an enemy keeps off
 // pitfalls unless its move flags let it walk on pits (move_can_pitwalk 0x04, move_only_pitwalk
-// 0x80). Upstream lets a knocked-back enemy that can fall (0x02) onto a pit, where it falls;
-// enemies don't fall here, so a pit stops those too.
+// 0x80). A knocked-back enemy that can fall (0x02) goes onto a pit (g_q30_kb: enemy::slide's
+// moves), where it falls (q30_enemy_fall_hook).
+static bool g_q30_kb = false;
+
+struct Q30KnockbackMove
+{
+    Q30KnockbackMove() { g_q30_kb = true; }
+    ~Q30KnockbackMove() { g_q30_kb = false; }
+};
+
 static bool q30_pit4(int dx, int dy)
 {
     return q30_pitfall_at(dx,dy) || q30_pitfall_at(dx+8,dy) || q30_pitfall_at(dx,dy+8) || q30_pitfall_at(dx+8,dy+8);
@@ -334,6 +342,9 @@ bool enemy::m_walkflag(int dx,int dy,int special, int x, int y)
         return false;
 
     const dword mf = q30_npc_moveflags(this);
+
+    if(g_q30_kb && (mf & 0x02))     // (upstream: unless being knocked back)
+        return false;
 
     if(!(mf & 0x04) && q30_pit4(dx,dy))
         return true;
@@ -580,6 +591,179 @@ static void q30_pit_trace(enemy *e)
 
     if(on && q30_active() && e->z <= 0 && e->clk >= 0 && q30_pitfall_at(int(e->x)+8, int(e->y)+8))
         al_trace("q30: frame %d enemy %d (family %d) on a pit at %d,%d\n", frame, e->id & 0xFFF, (int)guysbuf[e->id & 0xFFF].family, int(e->x), int(e->y));
+}
+
+// ---- 2.55/3.0: enemies falling into pits (upstream's sprite::check_pits and enemy::do_falling) ----
+//
+// An enemy on the ground (or a stunned flier) whose move flags let it fall (move_can_pitfall
+// 0x02), over a pit after it moved, falls for 70 frames (PITFALL_FALL_FRAMES): drawn with the
+// quest's fall sprite, not moving or touching anything, then it dies there, leaving its item. A
+// sprite list hook (sprite_list::animate) runs that instead of the enemy's own animation.
+struct Q30EnemyFall
+{
+    int clk, combo;
+};
+
+static std::map<long, Q30EnemyFall> g_q30_falls;   // by enemy uid
+
+// upstream's check_pits under qr_OLD_SPRITE_FALL_DROWN (462; quests before 2.55.11): an enemy
+// partly over a pit is drawn in a pixel at a time towards it, falling once all of it is over the
+// pit (or after 15 pulls); returns the pit combo, 0 for none
+static int q30_enemy_pit_old(enemy *e)
+{
+    bool fallen = false;
+    int ul = 0, bl = 0, ur = 0, br = 0, ul5 = 0, bl5 = 0, ur5 = 0, br5 = 0;
+
+    for(int safe = 1; safe < 16; ++safe)
+    {
+        const int x = int(e->x), y = int(e->y);
+        ul = q30_pitfall_at(x, y); bl = q30_pitfall_at(x, y+15); ur = q30_pitfall_at(x+15, y); br = q30_pitfall_at(x+15, y+15);
+        ul5 = q30_pitfall_at(x+7, y+7); bl5 = q30_pitfall_at(x+7, y+8); ur5 = q30_pitfall_at(x+8, y+7); br5 = q30_pitfall_at(x+8, y+8);
+        int d = -1;
+
+        switch((ul?1:0) + (ur?1:0) + (bl?1:0) + (br?1:0))
+        {
+        case 4:
+            return ul5 ? ul5 : ul;
+
+        case 3:
+            if(ul && ur && bl) { if(ul5) d = l_up; }
+            else if(ul && ur && br) { if(ur5) d = r_up; }
+            else if(ul && bl && br) { if(bl5) d = l_down; }
+            else if(bl && ur && br) { if(br5) d = r_down; }
+            break;
+
+        case 2:
+            if(ul && ur && (ul5 || ur5)) d = (ul5 && ur5) ? up : ul5 ? l_up : r_up;
+            else if(bl && br && (bl5 || br5)) d = (bl5 && br5) ? down : bl5 ? l_down : r_down;
+            else if(ul && bl && (ul5 || bl5)) d = (ul5 && bl5) ? left : ul5 ? l_up : l_down;
+            else if(ur && br && (ur5 || br5)) d = (ur5 && br5) ? right : ur5 ? r_up : r_down;
+            break;
+
+        case 1:
+            if(ul && ul5) d = l_up;
+            else if(ur && ur5) d = r_up;
+            else if(bl && bl5) d = l_down;
+            else if(br && br5) d = r_down;
+            break;
+        }
+
+        if(d == -1)
+            return 0;
+
+        fallen = true;
+
+        if(d == l_up || d == l_down || d == left) e->x -= 1;
+        else if(d == r_up || d == r_down || d == right) e->x += 1;
+
+        if(d == l_up || d == r_up || d == up) e->y -= 1;
+        else if(d == l_down || d == r_down || d == down) e->y += 1;
+    }
+
+    if(!fallen)
+        return 0;
+
+    return ul5 ? ul5 : ur5 ? ur5 : bl5 ? bl5 : br5 ? br5 : ul ? ul : ur ? ur : bl ? bl : br;
+}
+
+// the newer check_pits: every point of the hit box, 2 pixels in from its edges, over a pit
+static int q30_enemy_pit_new(enemy *e)
+{
+    const int endx = zc_max(e->hxsz - 2, 1), endy = zc_max(e->hysz - 2, 1);
+    const int startx = zc_min(2, endx - 1), starty = zc_min(2, endy - 1);
+    int ret = 0;
+
+    for(int dx = startx; dx < endx; ++dx)
+        for(int dy = starty; dy < endy; ++dy)
+            if(!(ret = q30_pitfall_at(int(e->x) + dx + e->hxofs, int(e->y) + dy + e->hyofs)))
+                return 0;
+
+    return ret;
+}
+
+static int q30_enemy_fall_hook(sprite_list *list, int index, int phase)
+{
+    if(list != &guys || !q30_active())
+        return 0;
+
+    enemy *e = (enemy *)guys.spr(index);
+    std::map<long, Q30EnemyFall>::iterator it = g_q30_falls.find(e->getUID());
+
+    if(phase == 1)  // after its move: over a pit?
+    {
+        if(it != g_q30_falls.end() || e->dying || e->hp <= 0 || e->clk < 0 || e->superman || (tmpscr->flags7 & fSIDEVIEW)
+           || !(q30_npc_moveflags(e) & 0x02) || !((e->z <= 0 && !isflier(e->id)) || (isflier(e->id) && e->stunclk)))
+            return 0;
+
+        extern int q255_header_version[3];
+        const bool old = q30_quest_rule(462) || (q255_header_version[0] == 2 && q255_header_version[1] < 55)
+                         || (q255_header_version[0] == 2 && q255_header_version[1] == 55 && q255_header_version[2] < 11);
+        const int pit = old ? q30_enemy_pit_old(e) : q30_enemy_pit_new(e);
+
+        if(pit)
+        {
+            Q30EnemyFall f = { 70, pit };
+            g_q30_falls[e->getUID()] = f;
+            e->q30_stop_knockback();
+
+            if(getenv("ZC_Q30_PITTRACE"))
+                al_trace("q30: frame %d enemy %d falls into pit %d at %d,%d\n", frame, e->id & 0xFFF, pit, int(e->x), int(e->y));
+        }
+
+        return 0;
+    }
+
+    if(it == g_q30_falls.end())
+        return 0;
+
+    Q30EnemyFall &f = it->second;
+
+    if(f.clk == 70 && f.combo)
+    {
+        const Q30Combo *c = q30_combo(f.combo);
+        const int s = c ? int(c->attributes[8] / 10000) : 0;
+
+        if(s > 0)
+            sfx(s, pan(int(e->x)));
+    }
+
+    if(--f.clk <= 0)    // (upstream try_death: it dies where it fell, with its item)
+    {
+        g_q30_falls.erase(it);
+
+        if(e->flags & guy_neverret)
+            never_return(index);
+
+        if(e->leader)
+            kill_em_all();
+
+        e->q30_leave_item();
+        e->stop_bgsfx(index);
+        return 2;
+    }
+
+    if(e->hclk > 0) --e->hclk;
+    if(e->stunclk > 0) --e->stunclk;
+
+    const int spr = q30_misc_sprite(0);     // sprFALL
+
+    if(spr >= 0 && spr <= 255)
+    {
+        const int fr = wpnsbuf[spr].frames ? wpnsbuf[spr].frames : 1, spd = wpnsbuf[spr].speed ? wpnsbuf[spr].speed : 1;
+        e->tile = wpnsbuf[spr].tile + zc_min((70 - f.clk) / spd, fr - 1);
+        e->cs = wpnsbuf[spr].csets & 0xF;
+    }
+
+    e->hxofs = 1000;    // (touches nothing while it falls)
+    return 1;
+}
+
+// zelda.cpp, once the quest is loaded: the hook for the guys list (it does nothing for a 2.53 quest)
+void q30_install_enemy_fall_hook()
+{
+    extern int (*q30_sprite_fall_hook)(sprite_list *list, int index, int phase);
+    q30_sprite_fall_hook = q30_enemy_fall_hook;
+    g_q30_falls.clear();
 }
 
 bool enemy::animate(int index)
@@ -2233,7 +2417,9 @@ bool enemy::slide()
 {
     if(sclk==0 || hp<=0)
         return false;
-        
+
+    Q30KnockbackMove q30_kb;    // (2.55/3.0: onto a pit, if it can fall)
+
     if((sclk&255)==16 && !canmove(sclk>>8,(fix) (dmisc2==e2tSPLITHIT ? 1 : 12),0))
     {
         sclk=0;

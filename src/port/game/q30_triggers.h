@@ -255,6 +255,7 @@ void q30_combos_clear();
 void q30_trigger_stats();   // logs what the quest uses when ZC_Q30_TRIGSTATS is set
 void q30_slope_audit();     // logs where slopes are placed (ZC_Q255_DUMP_USE)
 bool q30_trigger_combo_at(int layer, int pos, int idx);     // Screen->TriggerCombo
+bool q30_trigger_ffc(int ffc, int idx);                     // ffc->Trigger (the current screen's)
 
 // Item scripts that keep running across frames (quest rule 162). See q30_scripts_engine.h.
 bool q30_items_keep_running();
@@ -533,6 +534,11 @@ long q255_hero_hammer_swim_offset(int dir);  // the hammer's y shift while sidev
 // The init data's sideview swimming: steps in 1/100 pixel, the jump out of the water and the
 // swim gravity in 1/10000 (upstream's zinit.heroSideswim*Step, exitWaterJump, swimgravity).
 void q30_set_init_sideswim(int up_step, int side_step, int down_step, long jump, long gravity);
+// Game->Generic[] values a 2.55/3.0 script reads and writes (upstream's generic_ind) that live in
+// the player: the sideview swimming ones (link.cpp), the bunny tile modifier and switch style
+// (q30_triggers.cpp). NULL for any other index.
+long *q30_sideswim_generic(int index);
+long *q30_triggers_generic(int index);
 int q255_hero_lift_frames(int dir);          // liftingspr's frame count, 1-255
 void q30_draw_darkness(BITMAP *dest);
 // The same through a scroll (LinkClass::scrollscr, its view at sx, sy): the old and new screens.
