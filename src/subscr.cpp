@@ -40,6 +40,7 @@ extern word quest_header_zelda_version;
 // every 2.53 quest draw as before.
 #include "port/game/q30_triggers.h"
 bool zq_subscr_view_on();               // a layout editor page is being drawn
+bool zq_subscr_view_infinite(bool infinite, bool can);  // its View menu's say on a counter showing as infinite
 FONT *zq_subscr_view_font(int id);      // upstream's font with that id
 #endif
 
@@ -4656,6 +4657,21 @@ void counter(BITMAP *dest, int x, int y, FONT *tempfont, int color, int shadowco
             else if(q > 0)
                 value += q30_ssc_value(ty);     // (the first was added above)
         }
+    }
+#endif
+
+#ifdef ZC_ZQEDITOR
+    // the layout editor's View > "Don't show 'infinite's" and "Show everything 'infinite'"
+    if(zq_subscr_view_on())
+    {
+        const int types[3] = { itemtype1, itemtype2, itemtype3 };
+        bool can = infiniteitem > -1;
+
+        for(int q = 0; q < 3; ++q)
+            can = can || types[q] == sscRUPEES || types[q] == sscBOMBS || types[q] == sscSBOMBS || types[q] == sscARROWS ||
+                  types[q] == sscGENKEYMAGIC || types[q] == sscLEVKEYMAGIC || types[q] == sscANYKEYMAGIC;
+
+        infinite = zq_subscr_view_infinite(infinite, can);
     }
 #endif
 

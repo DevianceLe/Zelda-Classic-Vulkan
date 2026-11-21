@@ -24449,6 +24449,25 @@ int main(int argc,char **argv)
             exit(ret == 0 ? 0 : 3);
         }
 
+        // -qst-subscreen-list in.qst report.txt: a 2.55/3.0 quest's subscreens (lists, settings,
+        // pages) and its DMaps' subscreen numbers as text (zq_subscr_layout.cpp)
+        int sublist_arg = used_switch(argc,argv,"-qst-subscreen-list");
+
+        if(sublist_arg && argc>sublist_arg+2)
+        {
+            extern bool skip_quest_password;
+            extern bool zq_batch_load;
+            extern int zq_subscreen_list(const char *report);
+            skip_quest_password = true;
+            zq_batch_load = true;
+            int ret = load_quest(argv[sublist_arg+1],true,true);
+
+            if(ret == qe_OK)
+                ret = zq_subscreen_list(argv[sublist_arg+2]);
+
+            exit(ret == 0 ? 0 : 3);
+        }
+
         // -qst-subscreen-check in.qst report.txt: the subscreen layout editor's checks on a quest
         // (zq_subscr_layout.cpp)
         int subcheck_arg = used_switch(argc,argv,"-qst-subscreen-check");

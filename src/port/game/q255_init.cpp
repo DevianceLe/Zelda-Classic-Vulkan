@@ -1886,7 +1886,11 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
                 shown[n++] = ssc;
         }
 
-        convert = n > 0;
+        // A counter of no counter that shows zeros draws its "0" in upstream (SW_Counter::draw:
+        // the value is 0, and only one without "Show Zero" draws nothing); 2.53's counter draws
+        // the same for a type it doesn't know. As the player draws it (ZQuest's own view keeps
+        // the widget as it is).
+        convert = n > 0 || (player_widgets() && f1);
         t.d7 = shown[0];
         t.d8 = shown[1];
         t.d9 = shown[2];

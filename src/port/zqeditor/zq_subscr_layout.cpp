@@ -23,6 +23,10 @@
 // (zq_tape_subscreen_widget) with upstream's defaults for its type, in the section's own version;
 // a 2.55 section (version 12 and older) only offers 2.55.17's widget types.
 //
+// Whole subscreens (added, deleted, renamed, duplicated, with the DMaps' subscreen numbers
+// following), the Subscreen Settings and Page Settings dialogs, the wizards, Paste Properties
+// and the View options are in zq_subscr_layout_more.h.
+//
 // Threads: the window is a UI layer (platform thread, UI lock held) during a modal session the
 // game thread holds open; the game thread draws the page (Allegro-style bitmaps), runs the
 // property list and puts the section in. Both touch the model under the UI lock.
@@ -84,6 +88,10 @@ FONT *q30_font_classic(int id);
 bool zq255_subs_section(std::vector<byte> &body, int *version, std::string &why);      // zqw_init.cpp
 bool zq255_subs_put_section(const std::vector<byte> &body, std::string &why);
 bool zq_edit_subscreen_widget(std::vector<byte> &bytes, int v, const char *title);      // zq_record_editor.cpp
+bool zq255_dmap_records_all(std::vector<std::vector<byte> > &recs, int *version);      // zqw_maps.cpp
+bool zq255_dmap_commit(int i, const std::vector<byte> &rec, std::string &why);
+int select_tile(int &tile, int &flip, int type, int &cs, bool edit_cs, int exnow, bool always_use_flip);   // zq_tiles.cpp
+extern char *sfx_string[WAV_COUNT];
 
 // ---- what subscr.cpp asks while this editor draws ----------------------------------------------
 
@@ -377,6 +385,7 @@ struct Sub
     std::string name;
     Bytes head;                 // the name through the script: everything before the page count
     size_t def_at;              // active and map subscreens: where the default buttons are in head (0: none)
+    int orig;                   // its number in its list when the editor opened (-1: made since), for the DMaps' numbers
     std::vector<Page> pages;
 
     // Upstream keeps pages for active and map subscreens only: it writes one page of any other
@@ -419,6 +428,7 @@ bool parse(const Bytes &d, int v, Model &out)
             s.list = list;
             s.kind = 0;
             s.def_at = 0;
+            s.orig = q;
             const size_t start = r.pos;
             const size_t head = r.has(1) ? q255_subscreen_head_extent(d.data() + r.pos, d.size() - r.pos, v, &s.kind) : 0;
 
@@ -552,8 +562,9 @@ std::string widget_label(const Bytes &w, int v)
 }
 
 // A new widget of type ty at x, y, in the section's version: the schema lays it out, with
-// upstream's defaults for the type (new_subscr.h) and zero for the rest.
-bool new_widget(int v, int ty, int x, int y, Bytes &out)
+// upstream's defaults for the type (new_subscr.h) and zero for the rest. more: fields to set on
+// top of the defaults (the wizards').
+bool new_widget(int v, int ty, int x, int y, Bytes &out, const Tape *more = NULL)
 {
     if(ty < 1 || ty >= type_limit(v))
         return false;
@@ -660,6 +671,14 @@ bool new_widget(int v, int ty, int x, int y, Bytes &out)
         set("item", -1);
         set("button", 255);
         break;
+    }
+
+    for(size_t i = 0; more && i < more->f.size(); ++i)
+    {
+        if(TapeField *f = src.find(more->f[i].key.c_str()))
+            *f = more->f[i];
+        else
+            src.f.push_back(more->f[i]);
     }
 
     Tape t;
@@ -1578,12 +1597,22 @@ void paste_page()
     show_page(e.sub, at);
 }
 
+// whole subscreens, the settings dialogs, the wizards and the smaller options
+#include "zq_subscr_layout_more.h"
+
 // Whether the subscreens differ from how the editor started.
 bool edited()
 {
     Bytes now;
     encode(g_ed.m, g_ed.v, now);
-    return now != g_ed.original;
+
+    if(now != g_ed.original)
+        return true;
+
+    // the same bytes can still be other subscreens to the DMaps (one deleted, its copy kept)
+    RefMap r;
+    ref_map(g_ed.m, g_more.orig_count, r);
+    return !r.same;
 }
 
 void do_undo()
@@ -1672,6 +1701,7 @@ void canvas()
     ImGui::Image(e.tex->GetTexRef(), size, ImVec2(0, 0), ImVec2(1, e.canvas_h / (float)TEX_H));
     ImGui::SetCursorScreenPos(o);
     ImGui::InvisibleButton("##page", size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+    ui_mark("page");
     const ImVec2 mouse = ImGui::GetIO().MousePos;
     const float mx = (mouse.x - o.x) / z, my = (mouse.y - o.y) / z;
     const bool boxes_now = e.boxes_for == e.changes && p && e.boxes.size() == p->widgets.size();
@@ -1836,6 +1866,8 @@ void canvas()
             e.sel = hit;
         }
 
+        g_more.menu_x = (int)floor(mx);     // a wizard started from the menu starts here
+        g_more.menu_y = (int)floor(my);
         ImGui::OpenPopup("##pagemenu");
     }
 
@@ -1849,6 +1881,8 @@ void canvas()
             copy_picked();
         if(ImGui::MenuItem("Paste", "Ctrl+V", false, !e.clip.empty() && e.clip_v == e.v))
             paste();
+        if(ImGui::MenuItem("Paste properties", NULL, false, any && !e.clip.empty() && e.clip_v == e.v))
+            paste_properties();
         if(ImGui::MenuItem("Duplicate", "Ctrl+D", false, any))
             duplicate_picked();
         if(ImGui::MenuItem("Delete", "Del", false, any))
@@ -1867,6 +1901,12 @@ void canvas()
         if(ImGui::BeginMenu("New widget"))
         {
             new_widget_menu();
+            ImGui::EndMenu();
+        }
+
+        if(ImGui::BeginMenu("Wizards"))
+        {
+            wizard_menu(true);
             ImGui::EndMenu();
         }
 
@@ -1891,6 +1931,7 @@ void canvas()
     if(boxes_now)
     {
         const int hover = ImGui::IsItemHovered() ? widget_at(mx, my) : -1;
+        hint_draws(dl, o, z);
 
         for(int i = 0; i < (int)e.boxes.size(); ++i)
         {
@@ -1987,10 +2028,13 @@ void inspector()
     ImGui::TextUnformatted("Shown:");
     ImGui::SameLine();
     pe |= ImGui::CheckboxFlags("up", &pf, sspUP);
+    ui_mark("shown.up", (pf & sspUP) != 0);
     ImGui::SameLine();
     pe |= ImGui::CheckboxFlags("down", &pf, sspDOWN);
+    ui_mark("shown.down", (pf & sspDOWN) != 0);
     ImGui::SameLine();
     pe |= ImGui::CheckboxFlags("scrolling", &pf, sspSCROLLING);
+    ui_mark("shown.scrolling", (pf & sspSCROLLING) != 0);
 
     if(pe)
     {
@@ -2115,10 +2159,14 @@ void top_bar()
                 show_page((int)i, 0);
                 e.fit = true;   // another kind of subscreen can be another height
             }
+
+            ui_mark("sub." + std::to_string((int)i));
         }
 
         ImGui::EndCombo();
     }
+    else
+        ui_mark("subs");
 
     if(!s)
         return;
@@ -2170,7 +2218,7 @@ void menu_bar()
 
     if(ImGui::BeginMenu("Edit"))
     {
-        if(ImGui::MenuItem("Undo", "Ctrl+Z", false, !e.undo.empty()))
+        if(m_item("Undo", "Ctrl+Z", false, !e.undo.empty()))
             do_undo();
         ImGui::Separator();
 
@@ -2180,36 +2228,49 @@ void menu_bar()
             ImGui::EndMenu();
         }
 
-        if(ImGui::MenuItem("Properties...", "Enter", false, any))
+        if(m_item("Properties...", "Enter", false, any))
             e.want_props = e.sel;
-        if(ImGui::MenuItem("Copy", "Ctrl+C", false, any))
+        if(m_item("Copy", "Ctrl+C", false, any))
             copy_picked();
-        if(ImGui::MenuItem("Paste", "Ctrl+V", false, p && !e.clip.empty() && e.clip_v == e.v))
+        if(m_item("Paste", "Ctrl+V", false, p && !e.clip.empty() && e.clip_v == e.v))
             paste();
-        if(ImGui::MenuItem("Duplicate", "Ctrl+D", false, any))
+        if(m_item("Paste properties", NULL, false, any && !e.clip.empty() && e.clip_v == e.v))
+            paste_properties();
+        if(m_item("Duplicate", "Ctrl+D", false, any))
             duplicate_picked();
-        if(ImGui::MenuItem("Delete", "Del", false, any))
+        if(m_item("Delete", "Del", false, any))
             delete_picked();
         ImGui::Separator();
-        if(ImGui::MenuItem("Select all", "Ctrl+A", false, p && !p->widgets.empty()))
+        if(m_item("Select all", "Ctrl+A", false, p && !p->widgets.empty()))
             select_all();
-        if(ImGui::MenuItem("Select none", NULL, false, any))
+        if(m_item("Select none", NULL, false, any))
             clear_picks();
+        ImGui::Separator();
+
+        if(m_begin("Wizards", p != NULL))
+        {
+            wizard_menu(false);
+            ImGui::EndMenu();
+        }
+
         ImGui::EndMenu();
     }
 
+    ui_mark("Edit");
+    subscreen_menu();
+
     if(ImGui::BeginMenu("Arrange"))
     {
-        if(ImGui::MenuItem("Bring to front", NULL, false, any))
+        if(m_item("Bring to front", NULL, false, any))
             reorder(2);
-        if(ImGui::MenuItem("Bring forward", NULL, false, any))
+        if(m_item("Bring forward", NULL, false, any))
             reorder(1);
-        if(ImGui::MenuItem("Send backward", NULL, false, any))
+        if(m_item("Send backward", NULL, false, any))
             reorder(-1);
-        if(ImGui::MenuItem("Send to back", NULL, false, any))
+        if(m_item("Send to back", NULL, false, any))
             reorder(-2);
         ImGui::Separator();
-        if(ImGui::MenuItem("Reverse", NULL, false, several))
+        if(m_item("Reverse", NULL, false, several))
             reverse_picked();
         ImGui::EndMenu();
     }
@@ -2217,18 +2278,18 @@ void menu_bar()
     if(ImGui::BeginMenu("Align"))
     {
         ImGui::TextDisabled("To the current widget's:");
-        if(ImGui::MenuItem("Left edges", NULL, false, several))
+        if(m_item("Left edges", NULL, false, several))
             align_picked(AL_LEFT);
-        if(ImGui::MenuItem("Horizontal centres", NULL, false, several))
+        if(m_item("Horizontal centres", NULL, false, several))
             align_picked(AL_CENTER);
-        if(ImGui::MenuItem("Right edges", NULL, false, several))
+        if(m_item("Right edges", NULL, false, several))
             align_picked(AL_RIGHT);
         ImGui::Separator();
-        if(ImGui::MenuItem("Top edges", NULL, false, several))
+        if(m_item("Top edges", NULL, false, several))
             align_picked(AL_TOP);
-        if(ImGui::MenuItem("Vertical centres", NULL, false, several))
+        if(m_item("Vertical centres", NULL, false, several))
             align_picked(AL_MIDDLE);
-        if(ImGui::MenuItem("Bottom edges", NULL, false, several))
+        if(m_item("Bottom edges", NULL, false, several))
             align_picked(AL_BOTTOM);
         ImGui::Separator();
 
@@ -2238,7 +2299,7 @@ void menu_bar()
                                                  "Vertical centres", "Bottom edges" };
 
             for(int q = 0; q < 6; ++q)
-                if(ImGui::MenuItem(what[q]))
+                if(m_item(what[q]))
                     grid_snap_picked(q);
 
             ImGui::EndMenu();
@@ -2251,18 +2312,18 @@ void menu_bar()
     {
         const bool three = any && e.more.size() >= 2;
         ImGui::TextDisabled("Three or more picked widgets, evenly by their:");
-        if(ImGui::MenuItem("Left edges##d", NULL, false, three))
+        if(m_item("Left edges##d", NULL, false, three))
             distribute_picked(AL_LEFT);
-        if(ImGui::MenuItem("Horizontal centres##d", NULL, false, three))
+        if(m_item("Horizontal centres##d", NULL, false, three))
             distribute_picked(AL_CENTER);
-        if(ImGui::MenuItem("Right edges##d", NULL, false, three))
+        if(m_item("Right edges##d", NULL, false, three))
             distribute_picked(AL_RIGHT);
         ImGui::Separator();
-        if(ImGui::MenuItem("Top edges##d", NULL, false, three))
+        if(m_item("Top edges##d", NULL, false, three))
             distribute_picked(AL_TOP);
-        if(ImGui::MenuItem("Vertical centres##d", NULL, false, three))
+        if(m_item("Vertical centres##d", NULL, false, three))
             distribute_picked(AL_MIDDLE);
-        if(ImGui::MenuItem("Bottom edges##d", NULL, false, three))
+        if(m_item("Bottom edges##d", NULL, false, three))
             distribute_picked(AL_BOTTOM);
         ImGui::EndMenu();
     }
@@ -2274,32 +2335,38 @@ void menu_bar()
 
         if(!paged)
             ImGui::TextDisabled("Only active and map subscreens have pages.");
-        if(ImGui::MenuItem("Previous", "PgUp", false, e.page > 0))
+        if(m_item("Previous", "PgUp", false, e.page > 0))
             show_page(e.sub, e.page - 1);
-        if(ImGui::MenuItem("Next", "PgDn", false, e.page + 1 < n))
+        if(m_item("Next", "PgDn", false, e.page + 1 < n))
             show_page(e.sub, e.page + 1);
         ImGui::Separator();
-        if(ImGui::MenuItem("Add page", NULL, false, paged && n < MAX_PAGES))
+        if(m_item("Add page", NULL, false, paged && n < MAX_PAGES))
             add_page();
-        if(ImGui::MenuItem("Delete page", NULL, false, s && (paged || n > 1)))
+        if(m_item("Delete page", NULL, false, s && (paged || n > 1)))
             delete_page_asked();
-        if(ImGui::MenuItem("Move page left", NULL, false, paged && e.page > 0))
+        if(m_item("Move page left", NULL, false, paged && e.page > 0))
             move_page(-1);
-        if(ImGui::MenuItem("Move page right", NULL, false, paged && e.page + 1 < n))
+        if(m_item("Move page right", NULL, false, paged && e.page + 1 < n))
             move_page(1);
         ImGui::Separator();
-        if(ImGui::MenuItem("Copy page", NULL, false, paged && p != NULL))
+        if(m_item("Copy page", NULL, false, paged && p != NULL))
             copy_page();
-        if(ImGui::MenuItem("Paste as new page", NULL, false, paged && e.has_page_clip && e.page_clip_v == e.v && n < MAX_PAGES))
+        if(m_item("Paste as new page", NULL, false, paged && e.has_page_clip && e.page_clip_v == e.v && n < MAX_PAGES))
             paste_page();
+        ImGui::Separator();
+        if(m_item("Page settings...", NULL, false, p != NULL))
+            open_page_settings();
         ImGui::EndMenu();
     }
 
+    ui_mark("Page");
+
     if(ImGui::BeginMenu("View"))
     {
-        ImGui::MenuItem("Show grid", NULL, &e.grid);
-        ImGui::MenuItem("Snap to grid", NULL, &e.snap);
-        ImGui::MenuItem("Show unowned items", NULL, &e.all_items);
+        m_toggle("Show grid", &e.grid);
+        m_toggle("Snap to grid", &e.snap);
+        m_toggle("Show unowned items", &e.all_items);
+        view_menu_more();
         ImGui::Separator();
 
         for(int z = 1; z <= 4; ++z)
@@ -2307,16 +2374,17 @@ void menu_bar()
             char t[16];
             snprintf(t, sizeof(t), "Zoom %dx", z);
 
-            if(ImGui::MenuItem(t, NULL, e.zoom == z))
+            if(m_item(t, NULL, e.zoom == z))
                 e.zoom = z;
         }
 
-        if(ImGui::MenuItem("Zoom to fit"))
+        if(m_item("Zoom to fit"))
             e.fit = true;
 
         ImGui::EndMenu();
     }
 
+    ui_mark("View");
     ImGui::EndMenuBar();
 }
 
@@ -2533,10 +2601,13 @@ void editor_layer(void *)
         if(ImGui::Button("OK", ImVec2(90 * sc, 0)))
             e.want_ok = true;
 
+        ui_mark("OK##editor");
         ImGui::SameLine();
 
         if(ImGui::Button("Cancel", ImVec2(90 * sc, 0)))
             e.ask_close = true;
+
+        ui_mark("Cancel##editor");
 
         ImGui::SameLine();
         ImGui::BeginDisabled(e.undo.empty());
@@ -2550,9 +2621,11 @@ void editor_layer(void *)
         keys();
         ask_delete_page();
         ask_close();
+        more_popups();
     }
 
     ImGui::End();
+    ui_map_flush();
 
     if(!open)
         e.ask_close = true;
@@ -2590,6 +2663,31 @@ void preview_items(bool all)
     load_Sitems(&misc);
 }
 
+// The preview's counters for View > "Max out counters" (every counter at its maximum) and "Max
+// out max counters" (the maximums at 65535 too, as upstream's get_ssc_ctrmax gives; life and
+// magic keep theirs, so the meters stay the quest's size).
+bool g_view_full_ctr = false, g_view_max_ctr = false;
+
+void preview_state(bool all, bool full_ctr, bool max_ctr)
+{
+    preview_items(false);       // the init data's items and counters again
+
+    if(all)
+        preview_items(true);
+
+    for(int c = 0; c < 32; ++c)
+    {
+        if(max_ctr && c != 0 && c != 4)
+            game->set_maxcounter(65535, (byte)c);
+
+        if(full_ctr)
+            game->set_counter(game->get_maxcounter((byte)c), (byte)c);
+    }
+
+    g_view_full_ctr = full_ctr;
+    g_view_max_ctr = max_ctr;
+}
+
 // The quest's state the page is drawn with, as 2.53's subscreen editor makes it (zq_subscr.cpp
 // edit_subscreen): the init data's items and counters.
 struct Preview
@@ -2601,7 +2699,7 @@ struct Preview
         game = new gamedata;
         game->Clear();
         game->set_time(0);
-        preview_items(false);
+        preview_state(false, false, false);
     }
 
     ~Preview()
@@ -2720,8 +2818,18 @@ BITMAP *draw_page(const Page &p, int v, int height, int pos2, std::vector<Box> &
         css = &g;
         Bpos = (int)get32(p.cursor, 0);
         Bwpn = Bweapon(Bpos);
+        // View: invisible items shown (2.53's own switch, read by subscr.cpp); the preview DMap
+        const byte keep_ss = zinit.ss_flags;
+        const word keep_dmap = zinit.start_dmap;
+        zinit.ss_flags = (byte)(g_more.show_invis ? (keep_ss | ssflagSHOWINVIS) : (keep_ss & ~ssflagSHOWINVIS));
+
+        if(g_more.preview_dmap >= 0 && g_more.preview_dmap < MAXDMAPS)
+            zinit.start_dmap = (word)g_more.preview_dmap;
+
         update_subscr_items();
         show_custom_subscreen(bmp, &misc, &g, 0, 0, true, pos2);
+        zinit.ss_flags = keep_ss;
+        zinit.start_dmap = keep_dmap;
         css = keep_css;
         Bpos = keep_bpos;
         Bwpn = keep_bwpn;
@@ -2791,9 +2899,9 @@ void redraw(bool reset)
         height = e.canvas_h;
         bool items_changed = false;
 
-        if(e.all_items != g_view_all_items)
+        if(e.all_items != g_view_all_items || g_more.full_ctr != g_view_full_ctr || g_more.max_ctr != g_view_max_ctr)
         {
-            preview_items(e.all_items);
+            preview_state(e.all_items, g_more.full_ctr, g_more.max_ctr);
             items_changed = true;
         }
 
@@ -2898,17 +3006,29 @@ bool commit()
 {
     Editor &e = g_ed;
     Bytes body;
+    RefMap refs;
     {
         zcui::Lock lock;
         encode(e.m, e.v, body);
+        ref_map(e.m, g_more.orig_count, refs);
     }
 
-    if(body == e.original)
+    if(body == e.original && refs.same)
         return true;
 
+    // subscreens were deleted: the DMaps' subscreen numbers that move with them, worked out
+    // before anything goes in
     std::string why;
+    std::vector<std::pair<int, Bytes> > dmaps;
 
-    if(!zq255_subs_put_section(body, why))
+    if(!dmap_refs_plan(refs, dmaps, why))
+    {
+        zcui::Lock lock;
+        e.error = "Can't keep this: " + why + ".";
+        return false;
+    }
+
+    if(body != e.original && !zq255_subs_put_section(body, why))
     {
         zcui::Lock lock;
         e.error = "Can't keep this: " + why + ".";
@@ -2916,6 +3036,22 @@ bool commit()
     }
 
     saved = false;
+    std::string failed;
+
+    for(size_t i = 0; i < dmaps.size(); ++i)
+        if(!zq255_dmap_commit(dmaps[i].first, dmaps[i].second, why) && failed.empty())
+            failed = "The subscreens are in, but DMap " + std::to_string(dmaps[i].first) + " kept its old subscreen numbers: " + why + ".";
+
+    if(!failed.empty())
+    {
+        // the lists are in: what the editor holds now is what the DMaps count in
+        zcui::Lock lock;
+        e.original = body;
+        refs_rebase();
+        e.error = failed;
+        return false;
+    }
+
     return true;
 }
 
@@ -3019,6 +3155,7 @@ bool start(std::string &why)
     e.fit = true;
     e.placed = false;
     e.ask_close = false;
+    more_start();
     show_page(0, 0);
     return true;
 }
@@ -3084,6 +3221,9 @@ bool zq_edit_subscreen_layout(std::string &why)
             properties(props);
             continue;
         }
+
+        if(more_requests())
+            continue;
 
         redraw(first);
         first = false;
@@ -3153,6 +3293,43 @@ int zq_subscreen_render(int sub, int page, const char *out)
     }
 
     return ret;
+}
+
+// For subscr.cpp's counter while this editor draws a page: whether it shows as infinite, by View >
+// "Don't show 'infinite's" and "Show everything 'infinite'" (upstream's zq_view_noinf and
+// zq_view_allinf). can: its counter or infinite item could make it so (upstream's can_inf).
+bool zq_subscr_view_infinite(bool infinite, bool can)
+{
+    if(g_more.all_inf && can)
+        return true;
+
+    return g_more.no_inf ? false : infinite;
+}
+
+// -qst-subscreen-list in.qst report.txt (zquest.cpp): the open quest's subscreens by list (names,
+// settings, pages, widget types and places) and every DMap's subscreen numbers, as text, for
+// checking what the layout editor saved. 0 when written.
+int zq_subscreen_list(const char *report)
+{
+    std::string why;
+    Bytes body;
+    int v = 0;
+    Model m;
+    FILE *f = fopen(report, "w");
+
+    if(!f)
+        return 3;
+
+    if(!zq255_subs_section(body, &v, why) || !parse(body, v, m))
+    {
+        fprintf(f, "no new-format subscreens: %s\n", why.c_str());
+        fclose(f);
+        return 2;
+    }
+
+    list_report(f, m, v);
+    fclose(f);
+    return 0;
 }
 
 // Quest > Misc Data > Subscreens (zq_subscr.cpp onEditSubscreens): 1 when this editor was shown,
