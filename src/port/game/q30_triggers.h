@@ -293,6 +293,10 @@ void q30_set_high_item_owned(int id, bool owned);
 // ones with no more items), up to Q30_MAX_ITEMS for a 2.55/3.0 quest with more. Loops over
 // every item (an item class's best, the item to upgrade to) go this far.
 int q30_items_end();
+// q30_walkflag's test of one cell (pos, the quarter bits b) on a screen that isn't the current one:
+// another screen of a 3.0 scrolling region, with its 6 layers (q30_regions.cpp).
+bool q30_walk_cell_solid(const mapscr *base, const mapscr *layers, int pos, int b);
+bool q30_combo_standable(int combo);    // a combo with a height Link can stand on (tests: ZC_REGION_LIST=4)
 void q30_set_items_end(int count);  // the item reader: how many items the quest has
 // The name of any item (item_string below 256, the quest's own for 256 and up).
 const char *q30_item_name(int id);

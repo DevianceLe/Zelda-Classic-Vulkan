@@ -19145,6 +19145,15 @@ void LinkClass::checkitems(int index)
     int pickup = ((item*)items.spr(index))->pickup;
     int PriceIndex = ((item*)items.spr(index))->PriceIndex;
     int id2 = ((item*)items.spr(index))->id;
+    // The room the item is in. In a 3.0 scrolling region that is the item's own screen (upstream's
+    // item_scr): a shop's wares belong to the region's top-left screen, wherever Link stands.
+    mapscr *q30_item_scr = &tmpscr[tmp];
+    
+    if(tmp==0)
+    {
+        int ox, oy;
+        q30_item_scr = q30_region_sprite_home(items.spr(index)->getUID(), &ox, &oy);
+    }
 
     if(getenv("ZC_EVENTLOG"))   // which item Link touched, where, and its hit box
     {
@@ -19201,7 +19210,7 @@ void LinkClass::checkitems(int index)
     }
     
     if(pickup&ipCHECK)                                        // check restrictions
-        switch(tmpscr[tmp].room)
+        switch(q30_item_scr->room)
         {
         case rSP_ITEM:                                        // special item
             if(!canget(id2)) // These ones always need the Hearts Required check
@@ -19235,7 +19244,7 @@ void LinkClass::checkitems(int index)
             
             for(int i=0; i<3; i++)
             {
-                if(q30_room_shop(tmpscr[tmp].catchall).hasitem[i] != 0)
+                if(q30_room_shop(q30_item_scr->catchall).hasitem[i] != 0)
                 {
                     ++count;
                 }
@@ -19355,7 +19364,7 @@ void LinkClass::checkitems(int index)
         
         clear_bitmap(pricesdisplaybuf);
         
-        if(get_bit(quest_rules, qr_OLDPICKUP) || ((tmpscr[tmp].room==rSP_ITEM || tmpscr[tmp].room==rRP_HC || tmpscr[tmp].room==rTAKEONE) && (pickup&ipONETIME2)))
+        if(get_bit(quest_rules, qr_OLDPICKUP) || ((q30_item_scr->room==rSP_ITEM || q30_item_scr->room==rRP_HC || q30_item_scr->room==rTAKEONE) && (pickup&ipONETIME2)))
         {
             fadeclk=66;
         }
@@ -19398,8 +19407,8 @@ void LinkClass::checkitems(int index)
 
             if(PriceIndex > -1 && PriceIndex < 3)
             {
-                if(tmpscr[tmp].room == rSHOP)
-                    q30_shop_str = q30_shop_string(tmpscr[tmp].catchall, PriceIndex);
+                if(q30_item_scr->room == rSHOP)
+                    q30_shop_str = q30_shop_string(q30_item_scr->catchall, PriceIndex);
                 else if(q30_bottle_buy && q30_bottle_shop(q30_shop))
                     q30_shop_str = q30_bottle_shop(q30_shop)->str[PriceIndex];
             }

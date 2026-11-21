@@ -1882,7 +1882,11 @@ static void update_ffc_movement(int)
         // Frozen because Link's holding up an item?
         if(Link.getHoldClk()>0 && (tmpscr->ffflags[i]&ffIGNOREHOLDUP)==0)
             continue;
-            
+
+        // a 3.0 FFC past its viewport suspend range waits where it is
+        if(q30_vp_ffc_beyond(i, false))
+            continue;
+
         // Check for changers
         if(tmpscr->fflink[i]==0)
         {
@@ -1983,8 +1987,13 @@ static void update_ffc_movement(int)
             {
                 ffprvx[i] = tmpscr->ffx[i];
                 ffprvy[i] = tmpscr->ffy[i];
-                tmpscr->ffx[i]+=tmpscr->ffxdelta[tmpscr->fflink[i]-1];
-                tmpscr->ffy[i]+=tmpscr->ffydelta[tmpscr->fflink[i]-1];
+
+                // (the FFC it is linked to waits past its suspend range: so does this one)
+                if(!q30_vp_ffc_beyond(tmpscr->fflink[i]-1, false))
+                {
+                    tmpscr->ffx[i]+=tmpscr->ffxdelta[tmpscr->fflink[i]-1];
+                    tmpscr->ffy[i]+=tmpscr->ffydelta[tmpscr->fflink[i]-1];
+                }
             }
             else
             {
@@ -2078,6 +2087,13 @@ static void update_ffc_movement(int)
                 tmpscr->ffdata[i]=0;
                 tmpscr->ffflags[i]&=~ffCARRYOVER;
             }
+        }
+
+        // a 3.0 FFC past its viewport despawn range is gone
+        if(tmpscr->ffdata[i] && q30_vp_ffc_beyond(i, true))
+        {
+            tmpscr->ffdata[i]=0;
+            tmpscr->ffflags[i]&=~ffCARRYOVER;
         }
     }
 }
@@ -4316,6 +4332,8 @@ void loadscr(int tmp,int destdmap, int scr,int ldir,bool overlay=false)
                 tmpscr[tmp].ffflags[i] = ffscr.ffflags[i];
                 tmpscr[tmp].ffscript[i] = ffscr.ffscript[i];
                 tmpscr[tmp].fflayer[i] = ffscr.fflayer[i];
+                tmpscr[tmp].ffvpsuspend[i] = ffscr.ffvpsuspend[i];
+                tmpscr[tmp].ffvpdespawn[i] = ffscr.ffvpdespawn[i];
                 
                 for(int j=0; j<2; ++j)
                 {

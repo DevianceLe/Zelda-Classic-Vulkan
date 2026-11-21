@@ -150,8 +150,18 @@ void identifyCFEnemies()
     }
 }
 
+// (a 3.0 scrolling region: the screen of the enemy that summons, when it isn't the current one)
+static mapscr *q30_layer_scr = NULL;
+
+struct Q30LayerScr
+{
+    Q30LayerScr(long uid) { int ox, oy; q30_layer_scr = q30_region_sprite_home(uid, &ox, &oy); }
+    ~Q30LayerScr() { q30_layer_scr = NULL; }
+};
+
 int random_layer_enemy()
 {
+    mapscr *tmpscr = q30_layer_scr ? q30_layer_scr : ::tmpscr;
     int cnt=count_layer_enemies();
     
     if(cnt==0)
@@ -188,6 +198,7 @@ int random_layer_enemy()
 
 int count_layer_enemies()
 {
+    mapscr *tmpscr = q30_layer_scr ? q30_layer_scr : ::tmpscr;
     int cnt=0;
     
     for(int i=0; i<6; ++i)
@@ -213,19 +224,22 @@ int link_on_wall()
 {
     int lx = Link.getX();
     int ly = Link.getY();
+    // the playing field: the screen, or a 3.0 scrolling region (upstream's world_w, world_h)
+    int rl, rt, rr, rb;
+    q30_region_bounds(&rl, &rt, &rr, &rb);
     
-    if(lx>=48 && lx<=192)
+    if(lx>=rl+48 && lx<=rr-64)
     {
-        if(ly==32)  return up+1;
+        if(ly==rt+32)  return up+1;
         
-        if(ly==128) return down+1;
+        if(ly==rb-48) return down+1;
     }
     
-    if(ly>=48 && ly<=112)
+    if(ly>=rt+48 && ly<=rb-64)
     {
-        if(lx==32)  return left+1;
+        if(lx==rl+32)  return left+1;
         
-        if(lx==208) return right+1;
+        if(lx==rr-48) return right+1;
     }
     
     return 0;
@@ -507,6 +521,17 @@ enemy::~enemy() {}
 static inline int q30_tile16(int v) { return q30_region_on() ? (v & ~15) : (v & 0xF0); }
 static inline int q30_tile8(int v) { return q30_region_on() ? (v & ~7) : (v & 0xF8); }
 #define q30_rock_x() q30_region_rock_x(getUID())
+
+// A 3.0 scrolling region: a place an enemy picked on "the screen" (0-255, 0-175) is on its own
+// screen (upstream's translate_screen_coordinates_to_world(screen_spawned, x, y)).
+static bool q30_home_place(enemy *e)
+{
+    int hox, hoy;
+    q30_region_sprite_home(e->getUID(), &hox, &hoy);
+    e->x += hox;
+    e->y += hoy;
+    return true;
+}
 #define q30_rock_top() q30_region_rock_top()
 #define q30_rock_bottom() q30_region_rock_bottom()
 
@@ -560,7 +585,10 @@ bool enemy::Dead(int index)
         if(clk2==12 && hp>-1000)                                // not killed by ringleader
             death_sfx();
             
-        if(clk2==0)
+        // (an enemy a 3.0 scrolling region despawned, too far from the viewport, goes quietly:
+        // it stays able to come back, takes nobody with it and leaves nothing; upstream's
+        // dying_despawn)
+        if(clk2==0 && !q30_vp_despawned(getUID()))
         {
             if(flags&guy_neverret)
                 never_return(index);
@@ -1206,6 +1234,8 @@ void enemy::FireWeapon()
     
     case e1tSUMMONLAYER: // Summoner
     {
+        Q30LayerScr own_screen(getUID());     // (its own screen's layers, in a 3.0 scrolling region)
+        
         if(count_layer_enemies()==0)
         {
             break;
@@ -1226,8 +1256,9 @@ void enemy::FireWeapon()
                 
                 for(int k=0; k<20; ++k)
                 {
-                    x2=16*((rand()%12)+2);
-                    y2=16*((rand()%7)+2);
+                    // (a 3.0 scrolling region: upstream places them on its top-left screen)
+                    x2=16*((rand()%12)+2)-q30_region_offset_x();
+                    y2=16*((rand()%7)+2)-q30_region_offset_y();
                     
                     if((!m_walkflag(x2,y2,0))&&((abs(x2-Link.getX())>=32)||(abs(y2-Link.getY())>=32)))
                     {
@@ -3142,7 +3173,11 @@ void enemy::place_on_axis(bool floater, bool solid_ok)
     int pos2=rand()%23;
     int tried=0;
     bool last_resort,placed=false;
-    
+    // A 3.0 scrolling region (upstream's place_on_axis): the place is on the enemy's own screen
+    // (hox, hoy: its top-left from the current screen's), in line with where Link is on his.
+    int hox, hoy;
+    q30_region_sprite_home(getUID(), &hox, &hoy);
+    const int x1 = q30_region_width()-32, y1 = q30_region_height()-32;   // (224, 144 on a screen of its own)
     
     do
     {
@@ -3158,15 +3193,15 @@ void enemy::place_on_axis(bool floater, bool solid_ok)
         }
         
         // Don't commit to a last resort if position is out of bounds.
-        last_resort= !(x<32 || y<32 || x>=224 || y>=144);
+        last_resort= !(x<32 || y<32 || x>=x1 || y>=y1);
         
         if(abs(lx-int(x))>16 || abs(ly-int(y))>16)
         {
             // Red Wizzrobes should be able to appear on water, but not other
             // solid combos; however, they could appear on solid combos in 2.10,
             // and some quests depend on that.
-            if((solid_ok || !m_walkflag(x,y,floater ? spw_water : spw_door))
-                    && !flyerblocked(x,y,floater ? spw_floater : spw_door))
+            if((solid_ok || !m_walkflag(x+hox,y+hoy,floater ? spw_water : spw_door))
+                    && !flyerblocked(x+hox,y+hoy,floater ? spw_floater : spw_door))
                 placed=true;
         }
         
@@ -3186,6 +3221,8 @@ void enemy::place_on_axis(bool floater, bool solid_ok)
         dir=(y<ly)?down:up;
         
     clk2=tried;
+    x+=hox;
+    y+=hoy;
 }
 
 void enemy::n_frame_n_dir(int frames, int ndir, int f4)
@@ -5410,8 +5447,8 @@ bool eLeever::canplace(int d2)
     int nx=LinkX();
     int ny=LinkY();
     
-    if(d2<left) ny&=0xF0;
-    else       nx&=0xF0;
+    if(d2<left) ny=q30_tile16(ny);
+    else       nx=q30_tile16(nx);
     
     switch(d2)
     {
@@ -5530,22 +5567,26 @@ bool eWallM::animate(int index)
                         dir=up;
                 }
                 
+                // (the walls of the playing field: a 3.0 scrolling region's outer ones)
+                int rl, rt, rr, rb;
+                q30_region_bounds(&rl, &rt, &rr, &rb);
+                
                 switch(wall)
                 {
                 case up:
-                    y=0;
+                    y=rt;
                     break;
                     
                 case down:
-                    y=160;
+                    y=rb-16;
                     break;
                     
                 case left:
-                    x=0;
+                    x=rl;
                     break;
                     
                 case right:
-                    x=240;
+                    x=rr-16;
                     break;
                 }
                 
@@ -7908,7 +7949,7 @@ bool eWizzrobe::animate(int index)
 					y=((rand()%9)+1)*16;
 				}
                         
-				if(wizzrobe_spot_ok(x,y))
+				if(q30_home_place(this) && wizzrobe_spot_ok(x,y))
 				{
 					placed=true;
 				}
@@ -7966,7 +8007,7 @@ bool eWizzrobe::animate(int index)
                             y=((rand()%9)+1)*16;
                         }
                         
-                        if(wizzrobe_spot_ok(x,y))
+                        if(q30_home_place(this) && wizzrobe_spot_ok(x,y))
                         {
                             placed=true;
                         }
@@ -8123,6 +8164,8 @@ void eWizzrobe::wizzrobe_attack_for_real()
     }
     else if(dmisc2==3)  //summon from layer
     {
+        Q30LayerScr own_screen(getUID());     // (its own screen's layers, in a 3.0 scrolling region)
+        
         if(count_layer_enemies()==0)
         {
             return;
@@ -8143,8 +8186,9 @@ void eWizzrobe::wizzrobe_attack_for_real()
                 
                 for(int k=0; k<20; ++k)
                 {
-                    x2=16*((rand()%12)+2);
-                    y2=16*((rand()%7)+2);
+                    // (a 3.0 scrolling region: upstream places them on its top-left screen)
+                    x2=16*((rand()%12)+2)-q30_region_offset_x();
+                    y2=16*((rand()%7)+2)-q30_region_offset_y();
                     
                     if(!m_walkflag(x2,y2,0) && (abs(x2-Link.getX())>=32 || abs(y2-Link.getY())>=32))
                     {

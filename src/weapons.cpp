@@ -1342,6 +1342,24 @@ bool weapon::clip()
     // goes only once its picture and its hitbox are both wholly outside the view, with no dungeon
     // border. Without it, Mystical Harps' Red Koopa lost the script eweapon that follows it (kept
     // 16 pixels below an FFC near the top wall) as soon as it was moved there.
+    // a 3.0 weapon with a viewport despawn range (its weapon data's) goes when it is past that,
+    // or, without the rule below, outside the region; nowhere else
+    bool vp_gone = false;
+
+    if(q30_vp_weapon_despawn(this, &vp_gone))
+    {
+        if(!q30_quest_rule(Q30_QR_WEAPON_BETTER_SCREEN_EDGE_HITBOX))
+        {
+            int l, t, r, b;
+            q30_region_bounds(&l, &t, &r, &b);
+
+            if(x < l || y < t || x > r - 16 || y > b)
+                return true;
+        }
+
+        return vp_gone;
+    }
+
     if(q30_quest_rule(Q30_QR_WEAPON_BETTER_SCREEN_EDGE_HITBOX))
     {
         int l = 0, t = 0, r = 256, b = 176;

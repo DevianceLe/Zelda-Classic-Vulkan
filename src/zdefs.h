@@ -1457,6 +1457,9 @@ struct mapscr
     ffc_field<bool> initialized;
     // a 2.55/3.0 FFC's draw layer (-7..7) minus 1: 0 is layer 1, where 2.53 draws them all
     ffc_field<signed char> fflayer;
+    // a 3.0 FFC's viewport suspend and despawn ranges in a scrolling region (0: never)
+    ffc_field<long> ffvpsuspend;
+    ffc_field<long> ffvpdespawn;
 #else
     word ffdata[32];
     byte ffcset[32];
@@ -1648,6 +1651,8 @@ struct mapscr
             ffscript[i]=0;
 #ifdef ZC_PLAYER_BUILD
             fflayer[i]=0;
+            ffvpsuspend[i]=0;
+            ffvpdespawn[i]=0;
 #endif
         }
 #ifdef ZC_PLAYER_BUILD
@@ -1720,6 +1725,7 @@ struct mapscr
         ffxdelta.extend(); ffydelta.extend(); ffxdelta2.extend(); ffydelta2.extend();
         ffflags.extend(); ffwidth.extend(); ffheight.extend(); fflink.extend();
         ffscript.extend(); initd.extend(); inita.extend(); initialized.extend(); fflayer.extend();
+        ffvpsuspend.extend(); ffvpdespawn.extend();
     }
 
     void q30_drop_ffcs()
@@ -1728,6 +1734,7 @@ struct mapscr
         ffxdelta.drop(); ffydelta.drop(); ffxdelta2.drop(); ffydelta2.drop();
         ffflags.drop(); ffwidth.drop(); ffheight.drop(); fflink.drop();
         ffscript.drop(); initd.drop(); inita.drop(); initialized.drop(); fflayer.drop();
+        ffvpsuspend.drop(); ffvpdespawn.drop();
     }
 #endif
 

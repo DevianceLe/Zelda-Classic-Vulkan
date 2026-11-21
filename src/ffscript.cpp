@@ -12318,7 +12318,11 @@ static void zasm30_run_ffc_scripts(int preload)
             
         if((tmpscr->ffflags[i]&ffIGNOREHOLDUP)==0 && Link.getHoldClk()>0)
             continue;
-            
+
+        // (a 3.0 FFC past its viewport suspend range: its script waits too)
+        if(q30_vp_ffc_beyond(i, false))
+            continue;
+
         ZScriptVersion::RunScript(SCRIPT_FFC, tmpscr->ffscript[i], i);
         tmpscr->initialized[i] = true;
     }

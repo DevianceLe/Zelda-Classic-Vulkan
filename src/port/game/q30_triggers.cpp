@@ -4247,6 +4247,9 @@ weapon *fire_shooter_wpn(const Q30Combo *c, int wx, int wy, double radians, bool
             wpn->type |= 1;
     }
 
+    // "custom weapon data": the combo's own viewport ranges (upstream's load_weap_data)
+    if(c->usrflags & 0x200)
+        q30_vp_weapon_ranges(wpn->getUID(), c->misc_weap.viewport_suspend_range, c->misc_weap.viewport_despawn_range);
 
     return wpn;
 }
@@ -4337,6 +4340,72 @@ bool trigger_shooter(const Q30Combo *c, int wx, int wy)
 
         if(dir < -1) dir = -1;
         else if(dir > 15) dir = 15;
+    }
+
+    // In a scrolling region a weapon that its weapon data would suspend or remove at once (too far
+    // from the viewport) isn't fired. The data: the combo's own ("custom weapon data"), or the
+    // parent item's for one of Link's weapons.
+    if(q30_region_on())
+    {
+        const long weapid = a_int(c->attributes[9]);
+        bool lw = weapid < wEnemyWeapons;
+
+        if(weapid >= wScript1 && weapid <= wScript10)
+            lw = (c->usrflags & 0x10) != 0;
+
+        int pitem = lw ? a_int(c->attributes[14]) : -1;
+
+        if(lw && (pitem <= 0 || pitem >= q30_items_end()))
+            pitem = -1;
+
+        long suspend = 0, despawn = 0;
+        int tx = wx, ty = wy, tw = 16, th = 16, hx = wx, hy = wy, hw = 16, hh = 16;
+
+        if(c->usrflags & 0x200)
+        {
+            const Q30WeaponData &d = c->misc_weap;
+            suspend = d.viewport_suspend_range;
+            despawn = d.viewport_despawn_range;
+            bool sized = d.override_flags != 0;     // upstream's compute_do_size
+
+            if(sized)
+                switch(weapid)
+                {
+                case wBeam: case wRefBeam: case wSSparkle: case wFSparkle:
+                case wHookshot: case wHSHandle: case wHSChain: case wPhantom:
+                    sized = false;
+                    break;
+
+                case wSword: case wWand: case wHammer: case wCByrna: case wWhistle:
+                case wWind: case wArrow: case wFire:
+                case wLitBomb: case wBomb: case wLitSBomb: case wSBomb:
+                case wBait: case wMagic: case wBrang:
+                case wScript1: case wScript2: case wScript3: case wScript4: case wScript5:
+                case wScript6: case wScript7: case wScript8: case wScript9: case wScript10:
+                case 41: case 44: case 53: case 54: case 55:    // upstream's wIce, wThrown, wRefArrow, wRefFire, wRefFire2
+                    break;
+
+                default:
+                    sized = !lw;
+                }
+
+            if(sized)
+            {
+                if(d.override_flags & 0x80) tx += d.xofs;
+                if(d.override_flags & 0x100) ty += d.yofs + 56;
+                if(d.override_flags & 0x1) tw = d.tilew * 16;
+                if(d.override_flags & 0x2) th = d.tileh * 16;
+                if(d.override_flags & 0x20) hx += d.hxofs;
+                if(d.override_flags & 0x40) hy += d.hyofs;
+                if(d.override_flags & 0x4) hw = d.hxsz;
+                if(d.override_flags & 0x8) hh = d.hysz;
+            }
+        }
+        else if(pitem > -1)
+            q30_vp_item_weapon_get(pitem, &suspend, &despawn);
+
+        if(q30_vp_shot_held(suspend, despawn, tx, ty, tw, th, hx, hy, hw, hh))
+            return false;
     }
 
     int shotsfx = a_int(c->attributes[8]);
@@ -5504,18 +5573,19 @@ void q30_standing_update(double x, double y, bool ground, bool sideview, fix *yo
     }
 }
 
-static bool cell_solid(int pos, int b)
+// One cell of a screen (s0, with its 6 layers lay): the current one, or another screen of a 3.0
+// scrolling region (q30_walk_cell_solid), which tests the same way.
+static bool cell_solid_on(const mapscr *s0, const mapscr *lay, int pos, int b)
 {
-    const mapscr *s0 = &tmpscr[0];
-    const mapscr *s1 = (s0->layermap[0] > 0 && !tmpscr2[0].data.empty()) ? &tmpscr2[0] : s0;
-    const mapscr *s2 = (s0->layermap[1] > 0 && !tmpscr2[1].data.empty()) ? &tmpscr2[1] : s0;
+    const mapscr *s1 = (s0->layermap[0] > 0 && !lay[0].data.empty()) ? &lay[0] : s0;
+    const mapscr *s2 = (s0->layermap[1] > 0 && !lay[1].data.empty()) ? &lay[1] : s0;
     int c0 = s0->data[pos], c1 = s1->data[pos], c2 = s2->data[pos];
     int t0 = q30_combo_type(c0), t1 = q30_combo_type(c1), t2 = q30_combo_type(c2);
     int w0 = walk_byte(c0), w1 = walk_byte(c1), w2 = walk_byte(c2);
     const Q30Combo *x0 = q30_combo(c0), *x1 = q30_combo(c1), *x2 = q30_combo(c2);
     dword u0 = x0 ? x0->usrflags : 0, u1 = x1 ? x1->usrflags : 0, u2 = x2 ? x2->usrflags : 0;
     bool water0 = t0 < cMAX && iswater_type(t0), water1 = t1 < cMAX && iswater_type(t1), water2 = t2 < cMAX && iswater_type(t2);
-    bool dried = (water0 || water1 || water2) && DRIEDLAKE;
+    bool dried = (water0 || water1 || water2) && (s0->flags7 & fWHISTLEWATER) && whistleclk >= 88;   // (DRIEDLAKE)
     bool old_bridge = rule(qr30_OLD_BRIDGE_COMBOS);
     int cwalk = w0;
 
@@ -5560,7 +5630,7 @@ static bool cell_solid(int pos, int b)
     {
         for(int l = 3; l <= 6; ++l)
         {
-            const mapscr *sl = &tmpscr2[l - 1];
+            const mapscr *sl = &lay[l - 1];
 
             if(!sl->valid || sl->data.empty())
                 continue;
@@ -5579,6 +5649,23 @@ static bool cell_solid(int pos, int b)
     }
 
     return (cwalk & b) && !dried;
+}
+
+static bool cell_solid(int pos, int b)
+{
+    return cell_solid_on(&tmpscr[0], tmpscr2, pos, b);
+}
+
+bool q30_walk_cell_solid(const mapscr *base, const mapscr *layers, int pos, int b)
+{
+    return cell_solid_on(base, layers, pos, b);
+}
+
+bool q30_combo_standable(int combo)
+{
+    double z, step;
+    bool offs;
+    return stand_combo(q30_combo(combo), &z, &step, &offs);
 }
 
 // _walkflag's two-cell test, with bridges and solid water.

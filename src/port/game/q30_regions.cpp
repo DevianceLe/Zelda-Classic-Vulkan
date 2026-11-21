@@ -694,6 +694,72 @@ static void list_region_ffcs(int map, int ox, int oy, int w, int h)
                              x + y * 16, (int)m.enemy[0], (int)m.enemy[1], (int)m.enemy[2], (int)m.enemy[3], (int)m.enemy[4], (int)m.enemy[5],
                              (int)m.enemy[6], (int)m.enemy[7], (int)m.enemy[8], (int)m.enemy[9], (int)m.pattern, (int)m.guy, (int)m.room,
                              (int)m.item, (int)m.hasitem, (int)m.itemx, (int)m.itemy);
+
+                // (its doors when one is a shutter, and its boss flag)
+                bool shutter = false;
+
+                for(int i = 0; i < 4; ++i)
+                    shutter |= m.door[i] == dSHUTTER;
+
+                if(shutter || (m.enemyflags & efBOSS))
+                    al_trace("q30 regions:     screen 0x%02X: doors %d %d %d %d (up down left right; %d is a shutter), boss flag %d, shutters wait flag %d, enemies %d\n",
+                             x + y * 16, (int)m.door[0], (int)m.door[1], (int)m.door[2], (int)m.door[3], (int)dSHUTTER, (m.enemyflags & efBOSS) ? 1 : 0,
+                             (m.flags & fSHUTTERS) ? 1 : 0, n);
+            }
+
+            // (4: test scenes: enemies that place themselves or summon, and the cells of the
+            // screen and its layers 1 and 2 that rafts, water, bridges, heights and shooters use)
+            if(atoi(list) >= 4)
+            {
+                for(int i = 0; i < 10; ++i)
+                {
+                    const guydata &g = guysbuf[m.enemy[i] & 0xFFF];
+
+                    if(m.enemy[i] && (g.family == eeLEV || g.family == eeWALLM || g.family == eeWIZZ || g.misc1 == e1tSUMMONLAYER
+                                      || g.misc1 == e1tSUMMON))
+                        al_trace("q30 regions:     screen 0x%02X: enemy %d family %d misc1 %ld misc2 %ld\n", x + y * 16, (int)m.enemy[i],
+                                 (int)g.family, g.misc1, g.misc2);
+                }
+
+                int raft = 0, water = 0, bridge = 0, height = 0, shooter = 0, edge_water = 0;
+
+                for(int l = 0; l < 3; ++l)
+                {
+                    const mapscr *s = &m;
+
+                    if(l > 0)
+                    {
+                        const size_t li = (size_t)(m.layermap[l - 1] - 1) * MAPSCRS + m.layerscreen[l - 1];
+
+                        if(m.layermap[l - 1] <= 0 || li >= TheMaps.size())
+                            continue;
+
+                        s = &TheMaps[li];
+                    }
+
+                    for(int pos = 0; pos < 176 && pos < (int)s->data.size(); ++pos)
+                    {
+                        const int c = s->data[pos], t = q30_combo_type(c);
+                        const bool wet = t < cMAX && iswater_type(t);
+                        const bool r = isRaftFlag(s->sflag[pos]) || isRaftFlag(combobuf[c].flag);
+                        raft += r;
+
+                        if((r || q30_combo_standable(c) || t == Q30C_SHOOTER) && atoi(list) >= 5)    // (5: where)
+                            al_trace("q30 regions:     screen 0x%02X: %s cell %d,%d (layer %d) combo %d\n", x + y * 16,
+                                     r ? "raft" : t == Q30C_SHOOTER ? "shooter" : "height", (pos & 15) * 16, (pos >> 4) * 16, l, c);
+                        water += wet;
+                        bridge += t == Q30C_BRIDGE;
+                        height += q30_combo_standable(c);
+                        shooter += t == Q30C_SHOOTER;
+                        // (on an edge toward another screen of the region)
+                        edge_water += wet && (((pos & 15) == 0 && x > ox) || ((pos & 15) == 15 && x < ox + w - 1)
+                                            || (pos < 16 && y > oy) || (pos >= 160 && y < oy + h - 1));
+                    }
+                }
+
+                if(raft || water || bridge || height || shooter)
+                    al_trace("q30 regions:     screen 0x%02X: cells: raft %d water %d (on inner edges %d) bridge %d height %d shooter %d, room %d\n",
+                             x + y * 16, raft, water, edge_water, bridge, height, shooter, (int)m.room);
             }
 
             for(int i = 0; i < m.ffc_count(); ++i)
@@ -1323,8 +1389,8 @@ int floordiv(int a, int b)
     return a >= 0 ? a / b : -((-a + b - 1) / b);
 }
 
-// one point outside the current screen: the neighbour's combos (the screen and its layers 1
-// and 2, by their walkability bits, as 2.53's _walkflag reads them)
+// one point outside the current screen: the neighbour's combos, tested as the current screen's
+// are (q30_walk_cell_solid)
 bool point_solid(int px, int py)
 {
     const int sdx = floordiv(px, 256), sdy = floordiv(py, 176);
@@ -1348,14 +1414,12 @@ bool point_solid(int px, int py)
     if(lx & 8) b <<= 2;
     if(ly & 8) b <<= 1;
 
-    if(pos < (int)rs->base.data.size() && (combobuf[rs->base.data[pos]].walk & b))
-        return true;
+    if(pos >= (int)rs->base.data.size())
+        return false;
 
-    for(int i = 0; i < 2; ++i)
-        if(rs->base.layermap[i] > 0 && pos < (int)rs->layers[i].data.size() && (combobuf[rs->layers[i].data[pos]].walk & b))
-            return true;
-
-    return false;
+    // the test the current screen gets (q30_walkflag's cells): combos that may be walked on at
+    // Link's height, bridges, water rules
+    return q30_walk_cell_solid(&rs->base, rs->layers, pos, b);
 }
 
 } // namespace
@@ -1507,6 +1571,8 @@ void q30_region_tag_sprites()
     if(!g_reg.on)
         return;
 
+    q30_region_tag_children();      // (what the enemies of other screens added is theirs)
+
     sprite_list *lists[] = { &guys, &items, &Ewpns };
 
     for(int k = 0; k < 3; ++k)
@@ -1526,6 +1592,12 @@ int q30_region_sprite_screen(long uid)
 
     std::map<long, int>::iterator it = g_sprite_screen.find(uid);
     return it == g_sprite_screen.end() ? -1 : it->second;
+}
+
+void q30_region_sprite_set_screen(long uid, int scr)
+{
+    if(g_reg.on && scr >= 0)
+        g_sprite_screen[uid] = scr;
 }
 
 mapscr *q30_region_sprite_home(long uid, int *ox, int *oy)
@@ -2244,8 +2316,8 @@ void q30_region_enemies_gone()
                     al_trace("q30 region: frame %d: screen 0x%02X's enemies are gone\n", frame, scr);
             }
 
-            // Its shutters, as checkspecial counts the current screen's down every frame
-            // (upstream's checkspecial goes over every screen of the region).
+            // Its shutters and its boss flag, as checkspecial does the current screen's every
+            // frame (upstream's checkspecial goes over every screen of the region).
             std::map<int, RegionScreen *>::iterator slot = g_screens.find(scr);
 
             if(slot == g_screens.end() || !slot->second->live)
@@ -2275,6 +2347,15 @@ void q30_region_enemies_gone()
                     if(getenv("ZC_EVENTLOG"))
                         al_trace("q30 region: frame %d: screen 0x%02X's shutters open\n", frame, scr);
                 }
+            }
+
+            if(loaded && (m.enemyflags & efBOSS) && !main_guy)
+            {
+                if(getenv("ZC_EVENTLOG") && !(game->lvlitems[dlevel] & liBOSS))
+                    al_trace("q30 region: frame %d: screen 0x%02X's boss is gone\n", frame, scr);
+
+                game->lvlitems[dlevel] |= liBOSS;
+                stop_sfx(m.bosssfx);
             }
         }
 }

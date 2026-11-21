@@ -140,9 +140,15 @@ void q30_region_view_bounds(int *l, int *t, int *r, int *b);
 // screen. -1: not in a region, or not tagged.
 void q30_region_tag_sprites();
 int q30_region_sprite_screen(long uid);
-// For an enemy that places itself by "the screen" (a Zora's water): the screen it came from and
-// that screen's top-left in the current screen's pixels. tmpscr and 0, 0 for the current screen's
-// own, outside regions and in every 2.53 quest.
+// What an enemy adds while it animates (the enemies it splits into or summons) belongs to its own
+// screen, as upstream's addenemy(screen_spawned, ...): q30_region_tag_children tags what the last
+// enemy animated added (q30_region_spawn.cpp), q30_region_sprite_set_screen tags one sprite.
+void q30_region_tag_children();
+void q30_region_sprite_set_screen(long uid, int scr);
+// For an enemy that places itself by "the screen" (a Zora's water, a Wizzrobe's teleport, the
+// layers a summoner draws from): the screen it came from and that screen's top-left in the
+// current screen's pixels. tmpscr and 0, 0 for the current screen's own, outside regions and in
+// every 2.53 quest.
 mapscr *q30_region_sprite_home(long uid, int *ox, int *oy);
 
 // A screen's own enemy state across hand-offs (2.53 keeps it for the current screen only):
@@ -183,6 +189,22 @@ void q30_vp_ranges_reset();
 void q30_vp_guy_ranges(int id, long suspend, long despawn);
 void q30_vp_item_ranges(int id, long suspend, long despawn);
 bool q30_vp_frozen(sprite_list *list, long uid);
+// enemy::Dead, at the end of the death sequence: a despawn range removed this enemy (asked once)
+bool q30_vp_despawned(long uid);
+// Weapons: what an enemy's or an item's weapon data gives the weapons it fires, a weapon fired with
+// other weapon data (a combo's), and weapon::clip's test (false: the weapon has no despawn range).
+class sprite;
+void q30_vp_note(const char *what, int id, long suspend, long despawn);    // ZC_VP_RANGELOG
+void q30_vp_guy_weapon_ranges(int id, long suspend, long despawn);
+void q30_vp_item_weapon_ranges(int id, long suspend, long despawn);
+void q30_vp_item_weapon_get(int id, long *suspend, long *despawn);
+void q30_vp_weapon_ranges(long uid, long suspend, long despawn);
+bool q30_vp_weapon_despawn(sprite *w, bool *gone);
+// A weapon with these ranges, tile area and hit box (current-screen pixels) would be suspended or
+// removed as soon as it is out (upstream's shooter combos don't fire it then).
+bool q30_vp_shot_held(long suspend, long despawn, int tx, int ty, int tw, int th, int hx, int hy, int hw, int hh);
+// FFC i of the current screen is past its viewport suspend (or despawn) range.
+bool q30_vp_ffc_beyond(int i, bool despawn);
 
 // test switches: ZC_TEST_KEYS (the controls by game frame), ZC_REGION_SPRLOG (a sprite trace)
 void q30_test_keys(bool *control_state);

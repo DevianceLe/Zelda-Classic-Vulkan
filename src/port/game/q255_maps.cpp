@@ -50,6 +50,10 @@
 #include "q30_audio.h"
 #include "q30_triggers.h"
 
+#ifdef ZC_PLAYER_BUILD
+void q30_vp_note(const char *what, int id, long suspend, long despawn);     // q30_region_spawn.cpp (ZC_VP_RANGELOG)
+#endif
+
 extern std::vector<mapscr> TheMaps;
 extern zcmap               *ZCMaps;
 extern dmap                *DMaps;
@@ -500,8 +504,13 @@ static void read_ffc_new(Q255Section &s, mapscr *t, int m, bool masked)
     else
         layer = (signed char)s.getc();
 
+    long vp_suspend = 0, vp_despawn = 0;    // (0: never)
+
     if(s.version >= 40)
-        s.skip(8);      // viewport_suspend_range, viewport_despawn_range
+    {
+        vp_suspend = s.igetl_s();
+        vp_despawn = s.igetl_s();
+    }
 
     if(m >= FFCS_IN_FILE)
     {
@@ -541,8 +550,15 @@ static void read_ffc_new(Q255Section &s, mapscr *t, int m, bool masked)
     t->initialized[m] = false;
 #ifdef ZC_PLAYER_BUILD
     t->fflayer[m] = (signed char)(layer - 1);
+    t->ffvpsuspend[m] = vp_suspend;
+    t->ffvpdespawn[m] = vp_despawn;
+
+    if(vp_suspend || vp_despawn)
+        q30_vp_note("FFC", m, vp_suspend, vp_despawn);
 #else
     (void)layer;
+    (void)vp_suspend;
+    (void)vp_despawn;
 #endif
 }
 

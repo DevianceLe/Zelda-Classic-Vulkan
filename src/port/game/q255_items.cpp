@@ -68,6 +68,7 @@ static byte item_id_byte(word v)
 }
 
 static word g_item_sprite_script, g_item_weapon_script;
+static long g_item_wvp_suspend, g_item_wvp_despawn;   // its weapons' viewport ranges (the weapon data block)
 static dword g_item_override_flags;     // kept for scripts (itemdata->SizeFlags)
 // the item's own sizes the override flags pick from: hxofs, hyofs, hxsz, hysz, hzsz, xofs, yofs,
 // tile width, tile height (q30_set_item_size; the player's item sprites use them)
@@ -165,7 +166,10 @@ static void skip_weapon_data(Q255Section &s)
         s.skip(4 + 4);          // bounce
 
     if(v >= 4)
-        s.skip(4 + 4);          // viewport ranges
+    {
+        g_item_wvp_suspend = s.igetl_s();   // viewport suspend, despawn ranges
+        g_item_wvp_despawn = s.igetl_s();
+    }
 }
 
 static dword g_item_raw_flags = 0;   // all 32 bits; itemdata keeps only the low 16
@@ -691,6 +695,7 @@ int q255_read_items(Q255Section &s)
         memset(g_item_sprite_initd, 0, sizeof(g_item_sprite_initd));
         memset(g_item_weapon_initd, 0, sizeof(g_item_weapon_initd));
         g_item_vp_suspend = g_item_vp_despawn = 0;
+        g_item_wvp_suspend = g_item_wvp_despawn = 0;
         read_item(s, tempitem);
 
         if(s.failed)
@@ -703,6 +708,9 @@ int q255_read_items(Q255Section &s)
 
         if(g_item_vp_suspend || g_item_vp_despawn)
             q30_vp_item_ranges(i, g_item_vp_suspend, g_item_vp_despawn);
+
+        if(g_item_wvp_suspend || g_item_wvp_despawn)
+            q30_vp_item_weapon_ranges(i, g_item_wvp_suspend, g_item_wvp_despawn);
 #endif
 
 #ifdef ZC_PLAYER_BUILD

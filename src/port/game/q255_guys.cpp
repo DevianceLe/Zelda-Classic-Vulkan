@@ -217,6 +217,7 @@ static word g_npc_script, g_npc_weapon_script;
 static dword g_npc_moveflags;
 static long g_npc_wpnsprite;     // kept for scripts (npcdata->WeaponSprite)
 static long g_npc_vp_suspend, g_npc_vp_despawn;     // viewport ranges (q30_regions.h)
+static long g_npc_wvp_suspend, g_npc_wvp_despawn;   // its weapons' (the weapon data block)
 static long g_npc_initd[8], g_npc_weapon_initd[8];
 static byte g_npc_raw_defense[FILE_DEFENSES_ALL];    // as stored: the switch hook's and edSWITCH need them
 
@@ -266,7 +267,10 @@ static void skip_weapon_data(Q255Section &s)
         s.skip(2 * 4);         // bounce mult, bounce add
 
     if(v >= 4)
-        s.skip(2 * 4);         // viewport suspend, despawn ranges
+    {
+        g_npc_wvp_suspend = s.igetl_s();     // viewport suspend, despawn ranges
+        g_npc_wvp_despawn = s.igetl_s();
+    }
 }
 
 static void read_names(Q255Section &s)
@@ -562,6 +566,8 @@ int q255_read_guys(Q255Section &s)
         g_npc_script = g_npc_weapon_script = 0; g_npc_moveflags = 0; g_npc_wpnsprite = 0;
         g_npc_vp_suspend = 48;      // (upstream's guydata default)
         g_npc_vp_despawn = 0;
+        g_npc_wvp_suspend = 48;     // (upstream's guydata::clear)
+        g_npc_wvp_despawn = 0;
         memset(g_npc_initd, 0, sizeof(g_npc_initd));
         memset(g_npc_weapon_initd, 0, sizeof(g_npc_weapon_initd));
         read_guy(s, g);
@@ -581,6 +587,9 @@ int q255_read_guys(Q255Section &s)
 
             if(g_npc_vp_suspend != 48 || g_npc_vp_despawn != 0)
                 q30_vp_guy_ranges(i, g_npc_vp_suspend, g_npc_vp_despawn);
+
+            if(g_npc_wvp_suspend != 48 || g_npc_wvp_despawn != 0)
+                q30_vp_guy_weapon_ranges(i, g_npc_wvp_suspend, g_npc_wvp_despawn);
 
 #endif
         }
