@@ -1,15 +1,15 @@
-ZC Vulkan 2.53.444.9-PRE
+ZC Vulkan 2.53.444.9
 Linux, 64-bit
 
 The Zelda Classic player and the ZQuest quest editor, ported to SDL3 and
 Vulkan, with no Allegro. The player plays 2.53 quests and quests made in 2.55
 and the 3.0 Nightly builds. ZQuest opens quests of every version, saves each in
-the version it was made in, and can save older quests as 2.55.17 or 3.0
+the version it was made in, and can save older quests as 2.55.18 or 3.0
 Nightly. ZQuest on Linux is new: keep backups of your quests.
 
   zplayer            the game
   zqeditor           ZQuest, the quest editor
-  zscript255         the 2.55.17 ZScript compiler (headers in zscript255_files)
+  zscript255         the 2.55.18 ZScript compiler (headers in zscript255_files)
   zscript30/         the 3.0 Nightly ZScript compiler and its headers
 
 What you need
@@ -60,7 +60,7 @@ Linux.
 Credits and licenses
 Zelda Classic is by Armageddon Games and its contributors, and is licensed under
 GPLv3 (licenses/ZeldaClassic-GPL3.txt). This port is by Deviance. The complete
-source code is in the matching ZC-2.53.444.9-PRE-Vulkan-Source.zip.
+source code is in the matching ZC-2.53.444.9-Vulkan-Source.zip.
 
 The ZC 3.0 Nightly intro uses the ZQuest Classic logo by Eduardc and the music
 "ZC Forever" by Beatscribe. Their terms are in assets/zc/LICENSE.txt and are

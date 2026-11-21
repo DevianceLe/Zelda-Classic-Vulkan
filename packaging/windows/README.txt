@@ -1,4 +1,4 @@
-ZC Vulkan 2.53.444.9-PRE
+ZC Vulkan 2.53.444.9
 Windows, 32-bit
 
 The Zelda Classic 2.53 player and the ZQuest 2.53 quest editor, ported to SDL3
@@ -8,7 +8,7 @@ so keep backups of any quest you care about.
 
   zplayer.exe        the game
   zqeditor.exe       ZQuest, the quest editor
-  zscript255.exe     the 2.55.17 ZScript compiler (headers in zscript255_files)
+  zscript255.exe     the 2.55.18 ZScript compiler (headers in zscript255_files)
   zscript30\         the 3.0 Nightly ZScript compiler and its headers
 
 What's new
@@ -36,9 +36,9 @@ press A on its slot, and choose Custom Quest.
 
 Newer quests
 Quests made in 2.55 and the 3.0 Nightly builds play in zplayer.exe. This support
-is new, and most testing so far has covered each quest's opening areas. Slopes
-and z-heights are not supported yet. Lifting, the switch hook, the new dark rooms
-and some new combo types have not been confirmed in play.
+is new, and most testing so far has covered each quest's opening areas. Z-heights,
+sideview swimming, slopes, lifting, the switch hook and the new dark rooms work,
+but each has been tried in only a few quests.
 
 Keep a quest's music beside its .qst file or in a Music folder next to it. Quest
 scripts can only read and write files inside Files\<quest name> in this folder.
@@ -72,7 +72,7 @@ Credits and licenses
 Zelda Classic and ZQuest are by Armageddon Games and its contributors, and are
 licensed under GPLv3 (licenses/ZeldaClassic-GPL3.txt). This port is by
 Deviance. The complete source code is in the matching
-ZC-2.53.444.9-PRE-Vulkan-Source.zip.
+ZC-2.53.444.9-Vulkan-Source.zip.
 
 The ZC 3.0 Nightly intro uses the ZQuest Classic logo by Eduardc and the music
 "ZC Forever" by Beatscribe. Their terms are in assets\zc\LICENSE.txt and are

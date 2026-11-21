@@ -1,3 +1,47 @@
+## What's new in 2.53.444.9
+
+**Upstream 2.55.18 and the latest 3.0**
+
+- Brings in ZQuest Classic 2.55.18 and the 3.0 changes up to the end of November that apply to this port. Most of them make damaged quests and save files load safely and stop bad script values from crashing the game; a 3.0 quest whose scripts point outside its code no longer crashes the player
+- **Once Per Weapon** combo triggers, and a weapon now triggers a combo once per frame instead of once per corner of its hitbox
+- The bundled compilers are 2.55.18's and the latest 3.0's
+
+**Title Screen**
+
+- Settings > Title Screen has two new choices: **ZQuest Classic**, 3.0's title with the logo, the sword and its music, and **Random**, a different title each time (never the same one twice in a row). The other three titles are unchanged
+
+**2.55 and 3.0 quests in the player**
+
+- **Z-heights**: Link stands on raised combos, steps up onto low ones, walks off the top and is blocked from the side, as in 3.0. Crystal switch blocks you can walk on use the same code
+- **Sideview swimming**: no gravity in water, sinking slowly, the jump out at the surface, using the sword and items underwater, and drowning in sideview water, with the swimming sprites
+- **Scrolling regions**: every screen of a region loads its guys, items and enemies as 3.0 does; enemies appear when the camera brings their screen into view, and a shop's text comes from the region's first screen
+- **Falling into pits** takes 3.0's 70 frames, with the pit's pull and its damage and warp at the end of the fall; a carried pot is drawn at 3.0's height; drowning or falling returns Link to the last safe ground in quests that ask for it
+- Tried in play against 3.0 and now matching: the lantern, ice, light beams, screen tints, bridges, mirrors and the shadows under falling items and thrown objects (beams were up to 47 pixels off, tints could leave the screen white)
+- Sprites are drawn on the nearest pixel, as in 3.0
+- **Push blocks** move on 3.0's frames; **enemies** no longer walk onto pits and draw no shadow over them, and keese draw a shadow only when they fly
+- Carrying, a thrown pot breaking against a wall, and walking under the newer movement rules with diagonal movement (7 quests in the collection walked too fast) match 3.0
+- In scrolling regions, Zoras surface on their own screen's water and every screen keeps its own shutters
+- Scripts: `file->WriteString` works, directory listings and `FileExists` follow 3.0, files and stacks live as long as a script uses them, and `combodata` heights and 3.0's combo types read and write correctly
+- Fixed: tall grass over Link was 2 pixels too high, and script drawings under a freezing message stayed on screen (Darkside and Link's Rise now match 3.0's opening exactly)
+
+**ZQuest**
+
+- **Every quest version, start to finish**: every menu entry was tried on quests from 1.90 to 3.0. An editor the quest's version can't hold now says why and offers Save As to a version that can. Fixed on the way: opening Misc Data > Subscreens stopped 1.90 to 2.10 quests saving in their own version, exporting a template changed an older quest's version, and Import Map could reject ZQuest's own export
+- **Save As 2.55.18** (was 2.55.17), checked against the real 2.55.18 on 743 older quests and all 85 quests made in 2.55
+- **Imports** convert up: a 2.53 quest's own enemy, item and DMap exports import into a 2.55 or 3.0 quest and come out as 3.0's own conversion would have them, and older strings and graphics-pack items work too
+- **Subscreens**: add, rename, duplicate and delete whole subscreens (the DMaps follow), the Subscreen and Page Settings dialogs, and the Item Grid, Counter Block and Map Tile Grid wizards
+- **Compile ZScript** moves the values a quest stores for its scripts when their variables or slots change, as 3.0 does
+- **Single item and enemy files** (`.zitem`, `.znpc`) from the item and enemy lists' right-click menu
+- The autocombo brush shows what it will place
+- **Enter** answers Yes in an alert with no button highlighted, as in the original
+
+**Tested:** 2.53 quests are unchanged: the 1st, 2nd and 5th quest and Dreams re-save byte for byte, and the recorded 1st Quest run plays the same (all 2,478 frames). All 93 2.55 and 3.0 Nightly quests in the PureZC collection save back unchanged, and their openings match or are closer to 3.0 than before. Each change was compared with the real 2.55.18 or 3.0 on the same input.
+
+**Not done yet:**
+
+- In the player: a few scrolling-region details (FFC pause ranges; Leevers, Wall Masters and summoners still place themselves by Link's screen), and an enemy knocked onto a pit stops at its edge
+- In ZQuest: `.sub` subscreen files, and deleting a quest's only active or passive subscreen
+
 ## What's new in 2.53.444.8
 
 **2.55 and 3.0 quests in the player**

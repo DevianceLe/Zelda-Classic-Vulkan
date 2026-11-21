@@ -1,16 +1,16 @@
-# ZC Vulkan 2.53.444.8
+# ZC Vulkan 2.53.444.9
 
 [![Build](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml/badge.svg)](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml)
 
 > [!WARNING]
-> **Highly experimental.** This fork is a work in progress. Expect bugs and crashes, and back up your quests and save files before you use it. A quest saved as 2.55.17 or 3.0 Nightly can't be opened by older versions of Zelda Classic.
+> **Highly experimental.** This fork is a work in progress. Expect bugs and crashes, and back up your quests and save files before you use it. A quest saved as 2.55.18 or 3.0 Nightly can't be opened by older versions of Zelda Classic.
 
 Zelda Classic is a game engine and quest editor for making and playing custom adventures in the style of the original *The Legend of Zelda*. This repository is a community fork of Zelda Classic 2.53, rebuilt to run on SDL3 and Vulkan.
 
 | Program | What it is | Runs on |
 |---|---|---|
 | `zplayer` | The game. Plays 2.53, 2.55 and 3.0 Nightly quests. | Windows 10/11 (32-bit, 64-bit, ARM64), Linux (64-bit x86_64, ARM64), macOS 11+ (Apple Silicon and Intel), Nintendo Switch (homebrew), Android 8.0+ (in progress) |
-| `zqeditor` | ZQuest, the quest editor. Opens quests of every version, saves each in its own version, and saves older quests as 2.55.17 or 3.0 Nightly. Compiles 2.55 and 3.0 Nightly quests' ZScript with those versions' own compilers (`zscript255`, `zscript30`). | Windows 10/11 (32-bit, 64-bit, ARM64), Linux (64-bit x86_64, ARM64), macOS 11+ (Apple Silicon and Intel) |
+| `zqeditor` | ZQuest, the quest editor. Opens quests of every version, saves each in its own version, and saves older quests as 2.55.18 or 3.0 Nightly. Compiles 2.55 and 3.0 Nightly quests' ZScript with those versions' own compilers (`zscript255`, `zscript30`). | Windows 10/11 (32-bit, 64-bit, ARM64), Linux (64-bit x86_64, ARM64), macOS 11+ (Apple Silicon and Intel) |
 
 ## Downloads
 
@@ -40,25 +40,25 @@ What that means in practice:
 - New Dear ImGui menus, dialogs and file browser in the player and the editor
 - ZQuest on SDL3 and Vulkan, with Large and Small layouts you can switch while it runs
 - ZQuest edits 2.55 and 3.0 Nightly quests with their own features: combos, items, enemies, DMaps, screens, strings, init data, quest rules, scrolling regions, combo pools, autocombos, music, hero data, ZInfo names and subscreen layouts (drag widgets on a live preview). Exports, imports and timed autosave work for them too
-- ZScript in ZQuest: the 2.55.17 and 3.0 Nightly compilers ship with it, and Compile ZScript builds a quest's scripts and assigns their slots. On a test quest the compiled scripts match upstream's byte for byte
+- ZScript in ZQuest: the 2.55.18 and 3.0 Nightly compilers ship with it, and Compile ZScript builds a quest's scripts and assigns their slots. On a test quest the compiled scripts match upstream's byte for byte
 - 2.55 and 3.0 Nightly quest files, scripts of every type, music objects, and combo triggers in the player
 - On 2.55 and 3.0 Nightly quests: FFCs on their own layers, the hero's falling, carrying and lava-drowning animations, item costs for bombs, and newer subscreen life and magic gauges
 - On 2.55 and 3.0 Nightly quests: slopes, bottles and bottle shops, the switch hook, sprite rotation and scaling, script lighting and dark rooms, subscreen widgets and overlay subscreens, subscreens with more than one page, the Moon Pearl and bunny form, the magic mirror, the bug net, lifting and throwing, torches, item pickup messages and secret items. Each has been tried in one to four quests so far
+- On 2.55 and 3.0 Nightly quests, compared with 3.0 on the same input: Z-heights, sideview swimming, scrolling regions loading every screen's guys, items and enemies, 3.0's pit falls and respawn points, Once Per Weapon combo triggers, the lantern, ice, light beams, screen tints, bridges, mirrors and the shadows under falling items and thrown objects
+- Title screen choices: Original, Zelda Classic, Zelda Classic 2.50, ZQuest Classic (3.0's title) and Random
+- ZQuest on every quest version from 1.90 to 3.0: each editor works or says why the quest's version can't hold it and offers Save As; subscreen management and wizards, script values that follow slot changes, and `.zitem` / `.znpc` files for 2.55 and 3.0 quests
 - Older quests (1.90 to 2.50.1) keep more of how their own version played, from a survey of the original source branches
 - The player and ZQuest on real hardware on every platform: Windows (32-bit, 64-bit and ARM64), Linux (x86_64 and ARM64), macOS (Apple Silicon and Intel), and the player as Nintendo Switch homebrew
 
 **Written, but not yet confirmed in play on 2.55 and 3.0 Nightly quests**
 
-- The lantern
-- Ice, push blocks, new mirrors, screen tints, light beams, bridges and pitfalls
-- Shadows under flying weapons and items
-- Script file, directory and stack commands
+- Script file, directory and stack commands (no quest in the collection reaches them)
+- The hero's timed lifting and the bug net's backswing
 
 **Still to do**
 
-- Z-heights
-- Sideview swimming, and the hero's water-drowning, timed lifting and bug-net animations confirmed in a quest
-- In ZQuest: the subscreen wizards, adding or deleting whole subscreens, music loop preview, the autocombo cursor preview, moving script variables when slots change, and single item or enemy files (`.zitem`, `.znpc`)
+- Scrolling regions: FFC pause ranges, and Leevers, Wall Masters and summoners placing themselves by their own screen
+- In ZQuest: `.sub` subscreen files, and deleting a quest's only active or passive subscreen
 
 The [compatibility page](COMPATIBILITY.md#what-still-doesnt-work) has the full list of what still doesn't work, including known bugs.
 
@@ -163,7 +163,7 @@ Every change has to pass the 2.53 checks. Re-saved reference quests must match b
 | `src/port/` | The SDL3 and Vulkan port, including our Allegro replacement |
 | `src/port/game/` | Readers and engine code for 2.55 and 3.0 Nightly quests |
 | `src/port/zqeditor/` | ZQuest's port code: the newer quests' writers and editors |
-| `src/port/zscript30/`, `src/port/zscript255/` | The 3.0 Nightly and 2.55.17 ZScript compilers, ported from ZQuestClassic |
+| `src/port/zscript30/`, `src/port/zscript255/` | The 3.0 Nightly and 2.55.18 ZScript compilers, ported from ZQuestClassic |
 | `android/` | Android project |
 | `third_party/` | Bundled libraries ([details](third_party/README.md)) |
 | `tests/replay/` | Recorded play-throughs and their expected frame hashes |

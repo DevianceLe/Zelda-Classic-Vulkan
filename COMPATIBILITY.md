@@ -41,14 +41,18 @@ The final run was stopped before its last 11 quests. Their results are from the 
 
 **Not built yet**
 
-- Z-heights. No quest in this collection uses them yet.
 - `Game->IncrementQuest`, which a 2.53.1 script uses to go straight on to the next numbered quest.
 - A script-moved viewport, and saving global script variables past 255. No quest in this collection needs the second one.
 - Quests made in ZC 1.00 and 1.50 can't be opened. None are in this collection.
-- In ZQuest, for 2.55 and 3.0 Nightly quests: the subscreen wizards and adding new subscreens, previewing a music track's loop, the autocombo preview under the cursor, remapping script variables, and single item and enemy files (`.zitem`, `.znpc`).
-- Swimming sprites in sideview areas. FFCs on the overlay layer can be drawn in a different order than in 3.0.
+- In ZQuest, for 2.55 and 3.0 Nightly quests: `.sub` subscreen files, and deleting a quest's only active or passive subscreen.
+- Scrolling regions: FFC pause and removal ranges, and Leevers, Wall Masters and summoners placing themselves by their own screen inside a region. An enemy knocked onto a pit stops at its edge.
 
 **Built, but tried in only a few quests**
+
+- Z-heights (standing on raised combos): no quest in this collection uses them; tried with walk-on-top switch blocks in Colossal Tower and Cambria and in three small test quests, against 3.0 on the same input.
+- Sideview swimming: tried in Cambria, Remembrance of Shadows, Link's Journey North and Destiny of the Oracles, against 3.0 on the same input.
+- Scrolling regions loading every screen's guys, items and enemies: nine scenes in Mystical Harps, Tranquil Expression and Cambria spawn on the same frames as 3.0.
+- The lantern, ice, light beams, screen tints, bridges, mirrors and shadows under falling items and thrown objects: one or two quests each (Tales of Murdoch, Soldier's Test, Novel Ruins Gaiden, Spell of Mudora, Enigma of Basilischi Island, Link's Grand Adventure 3, The Power Walrus, Mystical Harps), against 3.0.
 
 - Slopes: tried in Link's Grand Adventure 3 Remastered and Novel Ruins Gaiden. Enemies on slopes and moving slopes haven't been seen working.
 - Bottles and bottle shops: tried in Link's Journey North, The Deep and Mystical Harps. Saving and reloading bottle contents hasn't been tried.
@@ -93,14 +97,14 @@ The final run was stopped before its last 11 quests. Their results are from the 
 
 ## ZQuest
 
-ZQuest (on Windows, Linux and macOS) opens quests made in every version from 1.90 to 3.0 Nightly and saves each one in the version it was made in. File > Save As can also save it as a newer version: 2.53.1, 2.55.17 or 3.0 Nightly. It never saves a quest as an older version. A change the chosen version can't hold stops the save with the reason, and the file is left as it was.
+ZQuest (on Windows, Linux and macOS) opens quests made in every version from 1.90 to 3.0 Nightly and saves each one in the version it was made in. File > Save As can also save it as a newer version: 2.53.1, 2.55.18 or 3.0 Nightly. It never saves a quest as an older version. A change the chosen version can't hold stops the save with the reason, and the file is left as it was.
 
 | Check, on ZC Vulkan 2.53.444.4 | Quests | Result |
 |---|---|---|
 | Opened and saved in their own version, every part rewritten, then reloaded | 836 | Every part reloads with the same data |
-| 2.53.1 and older, saved as 2.55.17, compared with the real ZC 2.55.17's conversion | 743 | Identical apart from the header's build details, and one weapon-sprite field 2.55.17 fills with leftover memory (ZQuest writes 0, as 3.0 does) |
+| 2.53.1 and older, saved as 2.55.18, compared with the real ZC 2.55.18's conversion | 743 | Identical apart from the header's build details, and one weapon-sprite field 2.55.17 fills with leftover memory (ZQuest writes 0, as 3.0 does) |
 | 2.53.1 and older, saved as 3.0 Nightly, compared with the real ZC 3.0's conversion | 743 | Identical apart from the header's build details |
-| Those saved files opened in the real 2.55.17 or 3.0 player, and in this one | 1,486 | All open |
+| Those saved files opened in the real 2.55.18 or 3.0 player, and in this one | 1,486 | All open |
 | Those saved files opened and saved again in the real 2.55.17 or 3.0 ZQuest | 213 (sample) | All saved |
 | A combo placed through ZQuest's window, saved through Save As as 2.55.17 and as 3.0 (one quest each from 1.90, 1.92, 2.10, 2.11, 2.50, 2.53.0, 2.53.1) | 7 | Only that screen differs from the real ZC's conversion; each reopens unchanged, opens in the real ZC's ZQuest and player, and every screen plays here |
 
