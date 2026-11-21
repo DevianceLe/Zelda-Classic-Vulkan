@@ -358,7 +358,7 @@ int command(const char *line)
     {
         std::string path(line + 12);
 
-        while(!path.empty() && (path[path.size() - 1] == '' || path[path.size() - 1] == ' '))
+        while(!path.empty() && (path[path.size() - 1] == '\r' || path[path.size() - 1] == ' '))
             path.erase(path.size() - 1);
 
         std::lock_guard<std::mutex> hold(g_lock);

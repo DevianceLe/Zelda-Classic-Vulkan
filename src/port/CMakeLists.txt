@@ -293,6 +293,14 @@ if(NOT WIN32 AND NOT MSVC AND CMAKE_SIZEOF_VOID_P EQUAL 8)
 endif()
 if(NOT MSVC)
     target_compile_options(zplayer_compile_check PRIVATE -fsigned-char)
+    # The game's sources are C++14 everywhere, as MSVC builds them by default and as zqeditor
+    # already builds most of the same files with GCC/Clang (they were C++98 here, so C++11 code
+    # in them built only on Windows). The old code's narrowing initialisers stay warnings.
+    set_target_properties(zplayer_compile_check PROPERTIES CXX_STANDARD 14 CXX_STANDARD_REQUIRED ON)
+    target_compile_options(zplayer_compile_check PRIVATE -Wno-narrowing)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        target_compile_options(zplayer_compile_check PRIVATE -Wno-c++11-narrowing)
+    endif()
 endif()
 if((UNIX AND NOT ANDROID) OR NINTENDO_SWITCH)
     # The game's C++98 tables were written before narrowing became an error.
