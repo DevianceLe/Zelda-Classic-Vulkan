@@ -985,6 +985,6 @@ int write_init_255(PACKFILE *f, const ZqNewerContext &ctx)
     return zqn255_emit(f, ID_INITDATA, 38, 15, none, o.b);
 }
 
-ZqNewerRegistration g_reg_init_255(ID_INITDATA, write_init_255, "2.55 init data as 2.55.17");
+ZqNewerRegistration g_reg_init_255(ID_INITDATA, write_init_255, "2.55 init data as 2.55.18");
 
 } // namespace

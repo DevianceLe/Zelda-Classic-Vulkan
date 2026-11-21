@@ -1597,7 +1597,7 @@ static bool assign_slots(const ZqCompileResult &r, std::map<int, std::string> na
                         if(g_st.version != V_255)
                         {
                             why = std::string("the imported ZASM script in ") + ti.name + " slot " + std::to_string(it->first + 1) +
-                                  " is in an older layout of the scripts section, which this ZQuest can't carry into 2.55.17's";
+                                  " is in an older layout of the scripts section, which this ZQuest can't carry into 2.55.18's";
                             return false;
                         }
 

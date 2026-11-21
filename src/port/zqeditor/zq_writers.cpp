@@ -1345,7 +1345,7 @@ ZqNewerRegistration::ZqNewerRegistration(dword id, ZqNewerWriter writer, const c
 
 const char *zq_newer_target_name(int target)
 {
-    return target == ZQ_NEWER_255 ? "2.55.17" : "3.0 Nightly";
+    return target == ZQ_NEWER_255 ? "2.55.18" : "3.0 Nightly";
 }
 
 bool zq_newer_upgrades(int target)
@@ -1416,6 +1416,40 @@ bool zq_newer_section_bytes(dword id, int target, std::vector<byte> &out, std::s
 bool zq_newer_converting_file()
 {
     return g_stand_in != NULL;
+}
+
+static word g_convert_to = 0, g_convert_to_cv = 0;
+static bool g_convert_to_seen = false;
+
+int zq_newer_convert_to(word *cversion)
+{
+    if(cversion)
+        *cversion = g_convert_to_cv;
+
+    g_convert_to_seen = true;
+    return g_stand_in ? g_convert_to : 0;
+}
+
+bool zq_newer_convert_section_to(dword id, int target, const std::vector<byte> &section, word to_version, word to_cversion,
+                                 std::vector<byte> &out, std::string &why)
+{
+    g_convert_to = to_version;
+    g_convert_to_cv = to_cversion;
+    g_convert_to_seen = false;
+    bool ok = zq_newer_convert_section(id, target, section, out, why);
+    g_convert_to = g_convert_to_cv = 0;
+
+    // a converter that never asked wrote the target's newest format, not the one wanted
+    if(ok && (!g_convert_to_seen || out.size() < 6 || (out[4] | (out[5] << 8)) != to_version))
+    {
+        char b[160];
+        snprintf(b, sizeof(b), "%s of that format can't be converted to format %d", id_name(id).c_str(), (int)to_version);
+        why = b;
+        out.clear();
+        ok = false;
+    }
+
+    return ok;
 }
 
 bool zq_newer_convert_section(dword id, int target, const std::vector<byte> &section, std::vector<byte> &out, std::string &why)

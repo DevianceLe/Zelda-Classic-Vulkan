@@ -3368,7 +3368,7 @@ bool zq_subscr_section_types_ok(const std::vector<byte> &body, int v, std::strin
                 if(ty < 1 || ty >= type_limit(v))
                 {
                     why = std::string("subscreen \"") + m[i].name + "\" page " + std::to_string((int)pg + 1) + " has a " + type_name(ty) +
-                          " widget, which subscreen format " + std::to_string(v) + " can't hold (2.55.17 doesn't know that type)";
+                          " widget, which subscreen format " + std::to_string(v) + " can't hold (2.55.18 doesn't know that type)";
                     return false;
                 }
             }

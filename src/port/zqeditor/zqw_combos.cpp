@@ -2388,7 +2388,7 @@ int zqn255_17_combos(PACKFILE *f, const ZqNewerContext &ctx)
         if(!encode_grouped(e, 45, c, x, tile, 0, -1))
         {
             char why[96];
-            snprintf(why, sizeof(why), "combo %d can't be written as 2.55.17's version 45", i);
+            snprintf(why, sizeof(why), "combo %d can't be written as 2.55.18's version 45", i);
             zqw_last_error = why;
             return 2;
         }
@@ -2415,7 +2415,7 @@ int zqn255_17_combos(PACKFILE *f, const ZqNewerContext &ctx)
     return zqn255_emit(f, ID_COMBOS, 45, 1, none, o.b);
 }
 
-ZqNewerRegistration g_reg_combos_255_17(ID_COMBOS, zqn255_17_combos, "2.55 combos as 2.55.17");
+ZqNewerRegistration g_reg_combos_255_17(ID_COMBOS, zqn255_17_combos, "2.55 combos as 2.55.18");
 
 // ---- CMBA: combo aliases, every version -------------------------------------------------
 //

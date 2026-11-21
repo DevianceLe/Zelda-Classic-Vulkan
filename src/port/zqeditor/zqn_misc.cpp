@@ -330,6 +330,20 @@ void body(Buf &o, int target)
 
     warpring rings[NUM_RINGS];
     upstream_rings(rings);
+
+    // 2.55.18's loader, for damaged quests (2.55.17 and 3.0 Nightly keep these as read): a ring
+    // entry on a DMap past the last one (512) goes to DMap 0, and a ring holds nine warps at most
+    if(target == ZQ_NEWER_255)
+        for(int i = 0; i < NUM_RINGS; ++i)
+        {
+            for(int j = 0; j < 9; ++j)
+                if(rings[i].dmap[j] >= 512)
+                    rings[i].dmap[j] = 0;
+
+            if(rings[i].size > 9)
+                rings[i].size = 9;
+        }
+
     std::vector<byte> mem;
     ring_memory(rings, mem);
     int count = count_rings(mem);
@@ -408,6 +422,6 @@ int zqn_misc(PACKFILE *f, const ZqNewerContext &ctx)
     return ZQW_OK;
 }
 
-ZqNewerRegistration g_reg(ID_MISC, zqn_misc, "misc data for 2.55.17 and 3.0");
+ZqNewerRegistration g_reg(ID_MISC, zqn_misc, "misc data for 2.55.18 and 3.0");
 
 } // namespace

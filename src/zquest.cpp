@@ -597,26 +597,36 @@ int onSaveAs();
 extern int combo_pool_pos, combo_auto_pos;
 
 // What the quest's own format can't hold is offered as Save As a newer version (which keeps it).
-static int newer_feature_refused(const char *title, const char *what)
-{
-    if(!zq255_quest_is_newer())
-    {
-        jwin_alert(title,"This is for quests made in 2.55 or 3.0 Nightly.",NULL,NULL,"O&K",NULL,'k',0,lfont);
-        return D_O_K;
-    }
+std::string zc_quest_built_with(int zelda_version, int build);     // port/game/quest_version.cpp
+bool zq_zinfo_external();                                          // port/zqeditor/zq_zinfo.h
 
-    if(jwin_alert(title,"This quest's format has no",what,"Save it as 3.0 Nightly to add them?","&Save As...","&Cancel",'s','c',lfont)==1)
+// A feature the open quest's file format has no place for (whatever version it was made in): says
+// which version that is and what holds the feature, and offers Save As, which asks for the version
+// (the quest's own or a newer one, never an older one). what: the feature, as "has no ..." reads;
+// the lines are kept short, as a box doesn't wrap them and the window can be small;
+// needs: the versions whose format holds it.
+static int newer_feature_refused(const char *title, const char *what, const char *needs)
+{
+    std::string made = zc_quest_built_with(header.zelda_version, header.build);
+    std::string l1 = "This quest was made in " + (made.empty() ? std::string("an older version of ZC") : "ZC " + made) + ".";
+    std::string l2 = std::string("Its file format has no ") + what + ".";
+    std::string l3 = std::string("Save it as ") + needs + " to use them?";
+
+    if(jwin_alert(title,l1.c_str(),l2.c_str(),l3.c_str(),"&Save As...","&Cancel",'s','c',lfont)==1)
         onSaveAs();
 
     return D_O_K;
 }
+
+static const char *const needs_255_or_30 = "2.55.18 or 3.0 Nightly";
+static const char *const needs_30 = "3.0 Nightly";
 
 // Edit > Maps > Scrolling Regions: the current map's region ids (3.0 quests whose map section
 // holds them; upstream's Map Settings > Regions).
 int onMapRegions()
 {
     if(!zq_region_quest_holds_regions())
-        return newer_feature_refused("Scrolling Regions","scrolling regions (3.0 Nightly's map format).");
+        return newer_feature_refused("Scrolling Regions","scrolling regions",needs_30);
 
     zq_edit_regions(Map.getCurrMap());
     refresh(rALL);
@@ -628,7 +638,7 @@ int onMapRegions()
 int onComboPools()
 {
     if(!zq_cpool_quest_holds_pools())
-        return newer_feature_refused("Combo Pools","combo pools (combo alias section version 4).");
+        return newer_feature_refused("Combo Pools","combo pools",needs_255_or_30);
 
     int picked = combo_pool_pos;
 
@@ -642,7 +652,7 @@ int onComboPools()
 int onAutocombos()
 {
     if(!zq_cpool_quest_holds_autos())
-        return newer_feature_refused("Autocombos","autocombos (combo alias section version 5).");
+        return newer_feature_refused("Autocombos","autocombos",needs_255_or_30);
 
     int picked = combo_auto_pos;
 
@@ -678,7 +688,7 @@ int onMiscDataNewer()
         zq_edit_misc_newer(NULL, &shown);
 
     if(!shown)
-        jwin_alert("2.55/3.0 Misc Data","This is for quests made in 2.55 or 3.0 Nightly.",NULL,NULL,"O&K",NULL,'k',0,lfont);
+        return newer_feature_refused("2.55/3.0 Misc Data","bottle types, bottle shops or the newer misc sounds",needs_255_or_30);
 
     return D_O_K;
 }
@@ -695,7 +705,7 @@ int onStringsNewer()
         zq_edit_strings_newer(1, &shown);
 
     if(!shown)
-        jwin_alert("2.55/3.0 String Data","This is for quests made in 2.55 or 3.0 Nightly.",NULL,NULL,"O&K",NULL,'k',0,lfont);
+        return newer_feature_refused("2.55/3.0 String Data","string margins, portraits, shadows or layers",needs_255_or_30);
 
     return D_O_K;
 }
@@ -712,8 +722,7 @@ int onSubsNewer()
         zq_edit_subs_newer(&shown);
 
     if(!shown)
-        jwin_alert("2.55/3.0 Subscreen Data","This is for quests made in 2.55 or 3.0 Nightly",
-                   "with subscreens in their own format.",NULL,"O&K",NULL,'k',0,lfont);
+        return newer_feature_refused("2.55/3.0 Subscreen Data","subscreen pages, widget conditions or cursor links",needs_255_or_30);
 
     return D_O_K;
 }
@@ -730,8 +739,7 @@ int onMusicNewer()
         zq_edit_music_newer(0, &shown, NULL);
 
     if(!shown)
-        jwin_alert("3.0 Music","This is for quests made in 3.0 Nightly with music objects;",
-                   "older quests keep each DMap's own music in the DMap editor.",NULL,"O&K",NULL,'k',0,lfont);
+        return newer_feature_refused("3.0 Music","music objects (each DMap has its own music)",needs_30);
 
     return D_O_K;
 }
@@ -748,8 +756,14 @@ int onZInfoNewer()
         zq_edit_zinfo_newer(&shown);
 
     if(!shown)
-        jwin_alert("2.55/3.0 ZInfo","This is for quests made in 2.55 or 3.0 Nightly whose file has a ZInfo",
-                   "section (older 2.55 builds kept none, and some quests keep it in a .zinfo file beside them).",NULL,"O&K",NULL,'k',0,lfont);
+    {
+        // names kept in a file beside the quest: that is where they are edited from, in any version
+        if(zq255_quest_is_newer() && zq_zinfo_external())
+            jwin_alert("2.55/3.0 ZInfo","This quest keeps its ZInfo (its own names for item classes, combo types",
+                       "and so on) in a .zinfo file beside it, which this editor doesn't change.",NULL,"O&K",NULL,'k',0,lfont);
+        else
+            return newer_feature_refused("2.55/3.0 ZInfo","ZInfo (the quest's own names for item classes and so on)",needs_255_or_30);
+    }
 
     return D_O_K;
 }
@@ -985,10 +999,7 @@ bool zq_edit_screen_newer(int index, bool *shown);
 int onScrDataNewer()
 {
     if(!zq255_quest_is_newer())
-    {
-        jwin_alert("2.55/3.0 Screen Data","This is for quests made in 2.55 or 3.0 Nightly.",NULL,NULL,"O&K",NULL,'k',0,lfont);
-        return D_O_K;
-    }
+        return newer_feature_refused("2.55/3.0 Screen Data","screen scripts, screen music or lens layers",needs_255_or_30);
 
     bool shown = false;
     zq_edit_screen_newer(Map.getCurrMap()*MAPSCRS+Map.getCurrScr(), &shown);
@@ -1084,6 +1095,63 @@ static MENU the_menu[] =
     { (char *)"Et&c",                       NULL, (MENU *) etc_menu,        0,            NULL   },
     {  NULL,                                NULL,                      NULL,                     0,            NULL   }
 };
+
+#ifdef ZC_ZQEDITOR
+// The menu audit (a test driver, port/zqeditor/zq_audit.cpp): a menu entry's procedure by its
+// path ("Quest/Misc Data/Shop Types": the menus' texts without '&' and the shortcut), or every
+// entry's path when 'all' is given.
+static std::string audit_menu_text(const char *text)
+{
+    std::string out;
+
+    for(const char *c = text; c && *c && *c != '\t'; ++c)
+        if(*c != '&')
+            out += *c;
+
+    while(!out.empty() && out[out.size() - 1] == ' ')
+        out.erase(out.size() - 1);
+
+    return out;
+}
+
+static MENU *audit_menu_walk(MENU *m, const std::string &prefix, const char *want, std::vector<std::string> *all)
+{
+    for(; m && m->text; ++m)
+    {
+        // the catch-all entry is renamed after the screen's room type
+        std::string here = prefix + (m->proc == onCatchall ? std::string("Catch All") : audit_menu_text(m->text));
+
+        if(m->child)
+        {
+            MENU *found = audit_menu_walk(m->child, here + "/", want, all);
+
+            if(found)
+                return found;
+        }
+        else if(m->proc)
+        {
+            if(all)
+                all->push_back(here);
+            else if(want && here == want)
+                return m;
+        }
+    }
+
+    return NULL;
+}
+
+int (*zq_audit_menu(const char *path, bool *disabled, std::vector<std::string> *all))()
+{
+    MENU *m = audit_menu_walk(the_menu, "", path, all);
+
+    if(disabled)
+        *disabled = m && (m->flags & D_DISABLED);
+
+    return m ? m->proc : NULL;
+}
+
+void zq_audit_poll();
+#endif
 
 void rebuild_trans_table();
 int launchPicViewer(BITMAP **pictoview, PALETTE pal,
@@ -24712,6 +24780,9 @@ int main(int argc,char **argv)
 #endif
         
         check_autosave();
+#ifdef ZC_ZQEDITOR
+        zq_audit_poll();        // a test driver's menu entry, if one was asked for
+#endif
         
         
         ++alignment_arrow_timer;

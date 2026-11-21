@@ -412,7 +412,7 @@ int main(int argc, char **argv)
 		}
 		else
 		{
-			fprintf(stderr, "zscript255: upstream ZQuest Classic 2.55.17's ZScript compiler.\n"
+			fprintf(stderr, "zscript255: upstream ZQuest Classic 2.55.18's ZScript compiler.\n"
 				"Needs -linked or -unlinked, and -input <file>; see zscript255_main.cpp.\n");
 			return 1;
 		}

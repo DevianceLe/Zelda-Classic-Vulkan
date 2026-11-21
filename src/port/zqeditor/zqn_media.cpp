@@ -672,7 +672,7 @@ int zqn_midis(PACKFILE *f, const ZqNewerContext &ctx)
     return write_section(f, ID_MIDIS, 5, 5, body);
 }
 
-ZqNewerRegistration g_reg_sfx(ID_SFX, zqn_sfx, "sound effects for 2.55.17 and 3.0");
-ZqNewerRegistration g_reg_midis(ID_MIDIS, zqn_midis, "tunes for 2.55.17 and 3.0");
+ZqNewerRegistration g_reg_sfx(ID_SFX, zqn_sfx, "sound effects for 2.55.18 and 3.0");
+ZqNewerRegistration g_reg_midis(ID_MIDIS, zqn_midis, "tunes for 2.55.18 and 3.0");
 
 } // namespace

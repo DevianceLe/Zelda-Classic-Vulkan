@@ -2080,7 +2080,7 @@ int zqn_guys(PACKFILE *f, const ZqNewerContext &ctx)
     return zqw_ig::write_part(f, ID_GUYS, out);
 }
 
-ZqNewerRegistration g_register(ID_GUYS, zqn_guys, "enemies for 2.55.17 and 3.0");
+ZqNewerRegistration g_register(ID_GUYS, zqn_guys, "enemies for 2.55.18 and 3.0");
 
 // ---- a quest made in 2.55 (zqn_255.h) ------------------------------------------------------
 //
@@ -2489,13 +2489,18 @@ ZqNewerRegistration g_register_255(ID_GUYS, zqn255_guys, "2.55 enemies as 3.0");
 // gets 2.55.17's readguys conversions for its version (3.0's for the same versions, which it
 // inherited), then is laid out again as version 48 (the tape's rebuild: every field kept by
 // name, the newer ones at the reader's values just set).
-void convert_255_17_record(Tape &t, int v, int cv)
+//
+// to, to_cv: the format the record is laid out in afterwards (48, 4 for a save as 2.55.18; an
+// older one for an import into a quest whose enemies are in that format): only the conversions
+// the loader does below that format are made, as it makes the later ones itself when it reads
+// the result.
+void convert_255_17_record(Tape &t, int v, int cv, int to, int to_cv)
 {
     const long family = (long)t.get("family");
     const long a0 = (long)t.get("attr0"), a6 = (long)t.get("attr6"), a8 = (long)t.get("attr8"), a9 = (long)t.get("attr9");
     (void)a6;
 
-    if(cv < 4)
+    if(cv < 4 && to_cv >= 4)
     {
         if(family == eeKEESE && !a0)
             zqn255_tape_set(t, "attr15", 120), zqn255_tape_set(t, "attr16", 16);
@@ -2509,7 +2514,7 @@ void convert_255_17_record(Tape &t, int v, int cv)
 
     dword move = (dword)t.get("moveflags");
 
-    if(v < 42)
+    if(v < 42 && to >= 42)
     {
         switch(family)
         {
@@ -2553,7 +2558,7 @@ void convert_255_17_record(Tape &t, int v, int cv)
         }
     }
 
-    if(v < 43)
+    if(v < 43 && to >= 43)
     {
         switch(family)
         {
@@ -2568,28 +2573,37 @@ void convert_255_17_record(Tape &t, int v, int cv)
         }
     }
 
-    if(v < 46 && family == eeWALK && a8 == e9tPOLSVOICE)
+    if(v < 46 && to >= 46 && family == eeWALK && a8 == e9tPOLSVOICE)
         move |= MF_CAN_WATERWALK;
 
     zqn255_tape_set(t, "moveflags", move);
 
-    if(v < 44 && family == eeGHOMA)
+    if(v < 44 && to >= 44 && family == eeGHOMA)
         zqn255_tape_set(t, "flags", (dword)t.get("flags") | guy_fadeinstant);
 
-    if(v <= 44)
+    if(v <= 44 && to > 44)
     {
         zqn255_tape_set(t, "spr_shadow", (family == eeROCK && a9 == 1) ? iwLargeShadow : iwShadow);
         zqn255_tape_set(t, "spr_death", iwDeath);
         zqn255_tape_set(t, "spr_spawn", iwSpawn);
     }
 
-    if(v < 47 && family == eeDIG && a9 != 1)
+    if(v < 47 && to >= 47 && family == eeDIG && a9 != 1)
         zqn255_tape_set(t, "flags2", (dword)t.get("flags2") | U_guy_ignorekill);
 }
 
 int zqn255_17_guys(PACKFILE *f, const ZqNewerContext &ctx)
 {
     if(!zqn255_source(ctx) || !ctx.src_part || ctx.src_version < 41 || ctx.src_version > 47 || ctx.target != ZQ_NEWER_255)
+        return ZQW_UNSUPPORTED;
+
+    // the format to write: 2.55.18's, or an older one an import asked for
+    word to_cv = 0;
+    int to = zq_newer_convert_to(&to_cv);
+
+    if(!to)
+        to = V_GUYS_255, to_cv = CV_GUYS_255;
+    else if(to <= ctx.src_version || to > V_GUYS_255)
         return ZQW_UNSUPPORTED;
 
     Zqn255Section s;
@@ -2606,8 +2620,8 @@ int zqn255_17_guys(PACKFILE *f, const ZqNewerContext &ctx)
     }
 
     std::vector<byte> out;
-    put_le(out, V_GUYS_255, 2);
-    put_le(out, CV_GUYS_255, 2);
+    put_le(out, to, 2);
+    put_le(out, to_cv, 2);
     put_le(out, 0, 4);
 
     for(int i = 0; i < MAXGUYS; ++i)
@@ -2633,12 +2647,12 @@ int zqn255_17_guys(PACKFILE *f, const ZqNewerContext &ctx)
         }
 
         at = p.pos;
-        convert_255_17_record(tape, s.version, s.cversion);
+        convert_255_17_record(tape, s.version, s.cversion, to, to_cv);
         std::vector<byte> rec;
 
-        if(!zqn255_tape_rebuild(zq_tape_guy, tape, V_GUYS_255, rec))
+        if(!zqn255_tape_rebuild(zq_tape_guy, tape, to, rec))
         {
-            zqw_last_error = "an enemy couldn't be laid out as 2.55.17's version 48";
+            zqw_last_error = "an enemy couldn't be laid out as 2.55.18's version 48";
             return 2;
         }
 
@@ -2655,7 +2669,7 @@ int zqn255_17_guys(PACKFILE *f, const ZqNewerContext &ctx)
     return zqw_ig::write_part(f, ID_GUYS, out);
 }
 
-ZqNewerRegistration g_register_255_17(ID_GUYS, zqn255_17_guys, "2.55 enemies as 2.55.17");
+ZqNewerRegistration g_register_255_17(ID_GUYS, zqn255_17_guys, "2.55 enemies as 2.55.18");
 
 
 } // namespace

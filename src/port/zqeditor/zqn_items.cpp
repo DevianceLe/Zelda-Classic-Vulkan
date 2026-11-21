@@ -2655,7 +2655,7 @@ int zqn_items(PACKFILE *f, const ZqNewerContext &ctx)
     return rc != ZQW_OK ? rc : write_part(f, ID_ITEMS, out);
 }
 
-ZqNewerRegistration g_reg_items(ID_ITEMS, zqn_items, "items for 2.55.17 and 3.0");
+ZqNewerRegistration g_reg_items(ID_ITEMS, zqn_items, "items for 2.55.18 and 3.0");
 
 // ---- weapon sprites ---------------------------------------------------------------------
 
@@ -2896,6 +2896,6 @@ int zqn_weapons(PACKFILE *f, const ZqNewerContext &ctx)
     return rc != ZQW_OK ? rc : write_part(f, ID_WEAPONS, out);
 }
 
-ZqNewerRegistration g_reg_weapons(ID_WEAPONS, zqn_weapons, "weapon sprites for 2.55.17 and 3.0");
+ZqNewerRegistration g_reg_weapons(ID_WEAPONS, zqn_weapons, "weapon sprites for 2.55.18 and 3.0");
 
 } // namespace

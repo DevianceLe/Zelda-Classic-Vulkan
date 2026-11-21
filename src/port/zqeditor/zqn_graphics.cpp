@@ -111,7 +111,7 @@ int zqn_misc_colors(PACKFILE *f, const ZqNewerContext &ctx)
     return put_section(f, ID_COLORS, ctx, 4, 4, o);
 }
 
-ZqNewerRegistration g_reg_colors(ID_COLORS, zqn_misc_colors, "misc colours for 2.55.17 and 3.0");
+ZqNewerRegistration g_reg_colors(ID_COLORS, zqn_misc_colors, "misc colours for 2.55.18 and 3.0");
 
 // ---- ICON: game icons -----------------------------------------------------------------------
 
@@ -128,7 +128,7 @@ int zqn_icons(PACKFILE *f, const ZqNewerContext &ctx)
     return put_section(f, ID_ICONS, ctx, 10, 10, o);
 }
 
-ZqNewerRegistration g_reg_icons(ID_ICONS, zqn_icons, "game icons for 2.55.17 and 3.0");
+ZqNewerRegistration g_reg_icons(ID_ICONS, zqn_icons, "game icons for 2.55.18 and 3.0");
 
 // ---- CSET: palettes -------------------------------------------------------------------------
 //
@@ -223,7 +223,7 @@ int zqn_csets(PACKFILE *f, const ZqNewerContext &ctx)
     return put_section(f, ID_CSETS, ctx, 5, 6, o);
 }
 
-ZqNewerRegistration g_reg_csets(ID_CSETS, zqn_csets, "palettes for 2.55.17 and 3.0");
+ZqNewerRegistration g_reg_csets(ID_CSETS, zqn_csets, "palettes for 2.55.18 and 3.0");
 
 // ---- TILE: tiles ----------------------------------------------------------------------------
 //
@@ -264,6 +264,6 @@ int zqn_tiles(PACKFILE *f, const ZqNewerContext &ctx)
     return put_section(f, ID_TILES, ctx, 3, 4, o);
 }
 
-ZqNewerRegistration g_reg_tiles(ID_TILES, zqn_tiles, "tiles for 2.55.17 and 3.0");
+ZqNewerRegistration g_reg_tiles(ID_TILES, zqn_tiles, "tiles for 2.55.18 and 3.0");
 
 } // namespace

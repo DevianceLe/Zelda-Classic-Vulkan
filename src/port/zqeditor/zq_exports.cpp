@@ -326,11 +326,14 @@ std::string newer_words(const char *what, int file_v, int quest_v)
 // A file's section (version v, cversion cv, data) for a quest whose own section is in another
 // format. Upstream's imports read a file of any older format with its loader's reader, which
 // converts it to its newest; here an older file is converted the same way by what saving a quest
-// as 2.55.17 or 3.0 Nightly converts that section with (zq_newer_convert_section: checked
-// against upstream's loader), which gives the generation's newest format: for a quest whose
-// section is in exactly that format (2.55.17's or 3.0's). Other quests' sections sit between
-// formats, which nothing converts to, and a newer file would lose what the quest's format can't
-// hold: both are refused with the reason. True with v, cv and data the section to bring in.
+// as 2.55.18 or 3.0 Nightly converts that section with (zq_newer_convert_section: checked
+// against upstream's loader), which gives the generation's newest format, for a quest whose
+// section is in exactly that format (2.55.18's or 3.0's). A quest whose section sits between
+// formats gets the file converted up to its own format (zq_newer_convert_section_to: the same
+// conversions, stopped at that format), which the 2.55 converters of strings, enemies and items
+// can do; where none can (3.0's in-between formats), and for a newer file, which would lose
+// what the quest's format can't hold, it is refused with the reason. True with v, cv and data
+// the section to bring in.
 bool section_for_quest(dword id, const char *what, word &v, word &cv, std::vector<byte> &data, std::string &why)
 {
     const int qv = quest_section_version(id);
@@ -354,18 +357,33 @@ bool section_for_quest(dword id, const char *what, word &v, word &cv, std::vecto
     zqn255_newest(id, ZQ_NEWER_255, &n255, &ncv);
     zqn255_newest(id, ZQ_NEWER_30, &n30, &ncv);
 
-    if(qv != n255 && qv != n30)
+    std::vector<byte> out;
+    bool converted;
+
+    if(qv == n255 || qv == n30)
+        converted = zq_newer_convert_section(id, qv == n30 ? ZQ_NEWER_30 : ZQ_NEWER_255, whole_section(v, cv, data), out, why);
+    else
     {
-        char b[260];
-        snprintf(b, sizeof(b), "its %s are in format %d and this quest's in format %d; ZQuest converts older %s only for a quest "
-                 "whose %s are in 2.55.17's format (%d) or 3.0's (%d)", what, v, qv, what, what, n255, n30);
-        why = b;
-        return false;
+        // between formats: up to the quest's own (its cversion too), in the line it belongs to
+        const ZqQuestPart *part = zq_find_part(id);
+        word pv = 0, pcv = 0;
+
+        if(!part || !zq_part_versions(*part, &pv, &pcv))
+            pcv = cv;
+
+        converted = zq_newer_convert_section_to(id, qv < n255 ? ZQ_NEWER_255 : ZQ_NEWER_30, whole_section(v, cv, data), (word)qv, pcv, out, why);
+
+        if(!converted && qv > n255)
+        {
+            char b[300];
+            snprintf(b, sizeof(b), "its %s are in format %d and this quest's in format %d, between 2.55.18's (%d) and 3.0 Nightly's (%d); "
+                     "ZQuest doesn't convert older %s to a format in between yet", what, v, qv, n255, n30, what);
+            why = b;
+            return false;
+        }
     }
 
-    std::vector<byte> out;
-
-    if(!zq_newer_convert_section(id, qv == n30 ? ZQ_NEWER_30 : ZQ_NEWER_255, whole_section(v, cv, data), out, why))
+    if(!converted)
     {
         char b[120];
         snprintf(b, sizeof(b), "its %s (format %d) couldn't be converted to this quest's format %d: ", what, v, qv);

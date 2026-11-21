@@ -1108,9 +1108,9 @@ static int zq_save_own(const char *path)
 // The versions Save As offers: the quest's own, or newer ones (never an older one).
 enum { ZQV_CANCEL, ZQV_OWN, ZQV_253, ZQV_255, ZQV_30 };
 
-// Whether a quest was made in the 2.55 release "As 2.55.17" writes for, or a later one. 2.55.18
-// writes its quest files exactly as 2.55.17 does (only the header says which one saved it), so
-// saving such a quest "as 2.55.17" would only mark it as older.
+// Whether a quest was made in the 2.55 release "As 2.55.18" writes for, or a later one: saving
+// such a quest "as 2.55.18" would only mark it as older. A quest made in 2.55.17 or before is
+// offered it: 2.55.18 writes every section as 2.55.17 does, and its header says 2.55.18 saved it.
 static bool zq_made_in_255_release(const std::string &made, long patch)
 {
     if(made.compare(0, 5, "2.55.") != 0)
@@ -1128,12 +1128,12 @@ static int zq_choose_version()
     bool is253 = header.zelda_version == ZELDA_VERSION && header.build == VERSION_BUILD;
     bool newer = zq255_quest_is_newer();
     bool is30 = newer && made.compare(0, 2, "3.") == 0;
-    bool is25517 = newer && zq_made_in_255_release(made, 17);
+    bool is25518 = newer && zq_made_in_255_release(made, 18);
     std::vector<int> up;    // the newer versions on offer, oldest first
 
     if(!newer && !is253)
         up.push_back(ZQV_253);
-    if(!is30 && !is25517)
+    if(!is30 && !is25518)
         up.push_back(ZQV_255);
     // a quest made in a 3.0 prerelease whose parts are older than 3.0 Nightly's: still newer
     if(!is30 || zq_newer_upgrades(ZQ_NEWER_30))
@@ -1158,7 +1158,7 @@ static int zq_choose_version()
 
     if(up.size() > 1)
     {
-        const char *label[4] = { "", "", "As 2.53.1", "As 2.55.17" };
+        const char *label[4] = { "", "", "As 2.53.1", "As 2.55.18" };
         const char *b[3] = { NULL, NULL, NULL };
 
         for(size_t i = 0; i < up.size(); ++i)
@@ -1175,7 +1175,7 @@ static int zq_choose_version()
 
     if(pick == ZQV_255 || pick == ZQV_30)
     {
-        const char *t = pick == ZQV_255 ? "2.55.17" : "3.0 Nightly";
+        const char *t = pick == ZQV_255 ? "2.55.18" : "3.0 Nightly";
         std::string q = std::string("Older versions of ZC can't open a ") + t + " quest file.";
         std::string a = std::string("Save this quest as ") + t + "?";
 
@@ -1602,8 +1602,11 @@ int onImport_Map()
         sprintf(buf,"Unable to load %s",name);
         jwin_alert("Error",buf,loaderror[ret],NULL,"O&K",NULL,'k',0,lfont);
         
+#ifndef ZC_ZQEDITOR
         if(ret>1)
             Map.clearmap(false);
+#endif
+        // (ZQuest: Map.load put the map back as it was; nothing was imported)
     }
     else
     {
@@ -1664,6 +1667,100 @@ int onExport_Map()
     return D_O_K;
 }
 
+#ifdef ZC_ZQEDITOR
+// An import file with a section in a newer format than 2.53's loaders read (they are what reads
+// these files, converting an older format up as they go): a newer ZC wrote it. A quest of 2.53 or
+// older couldn't hold it in its own format either, so it is told to be saved as a newer version
+// first; nothing is read. True when the file was refused (and the user told why).
+static bool zq_import_too_new(const char *path)
+{
+    static const struct { dword id; int newest; const char *what; } known[] =
+    {
+        { ID_DMAPS, V_DMAPS, "DMaps" }, { ID_STRINGS, V_STRINGS, "strings" }, { ID_COMBOS, V_COMBOS, "combos" },
+        { ID_TILES, V_TILES, "tiles" }, { ID_GUYS, V_GUYS, "enemies" }, { ID_COMBOALIASES, V_COMBOALIASES, "combo aliases" },
+        { ID_CSETS, V_CSETS, "palettes" }, { ID_SUBSCREEN, V_SUBSCREEN, "subscreens" }, { ID_ITEMS, V_ITEMS, "items" },
+        { ID_WEAPONS, V_WEAPONS, "weapon sprites" }, { ID_ICONS, V_ICONS, "game icons" }, { ID_COLORS, V_COLORS, "misc colours" },
+        { ID_DOORS, V_DOORS, "door combo sets" }
+    };
+    PACKFILE *f = pack_fopen_password(path, F_READ, "");
+
+    if(!f)
+        return false;
+
+    dword id = 0;
+    word v = 0, cv = 0;
+    const char *what = NULL;
+    int file_v = 0, newest = 0;
+    bool more = p_mgetl(&id, f, true);
+
+    // 2.55 and 3.0's own DMap, combo and tile files (.zdmap, .zcombo, .ztileset) start with that
+    // editor's version, 0x255, as a 32-bit number (after a -1 for DMaps), not with a section
+    const bool newer_file = more && (id == 0xFFFFFFFF || id == 0x55020000);
+
+    if(newer_file)
+        more = false;
+
+    // a graphics pack: its own version, then its sections one after another
+    if(more && id == ID_GRAPHICSPACK)
+        more = p_igetw(&v, f, true) && p_igetw(&cv, f, true) && p_mgetl(&id, f, true);
+
+    while(more && !what)
+    {
+        dword size = 0;
+        size_t k = 0;
+
+        while(k < sizeof(known) / sizeof(known[0]) && known[k].id != id)
+            ++k;
+
+        if(k == sizeof(known) / sizeof(known[0]) || !p_igetw(&v, f, true) || !p_igetw(&cv, f, true) || !p_igetl(&size, f, true))
+            break;
+
+        if(v > known[k].newest)
+        {
+            what = known[k].what;
+            file_v = v;
+            newest = known[k].newest;
+            break;
+        }
+
+        more = size > 0 && pack_fseek(f, size) == 0 && p_mgetl(&id, f, true);
+    }
+
+    pack_fclose(f);
+
+    if(!what && !newer_file)
+        return false;
+
+    char l1[160], l2[200];
+
+    if(newer_file)
+        snprintf(l1, sizeof(l1), "This file was written by ZC 2.55 or 3.0 Nightly, in that version's format.");
+    else
+        snprintf(l1, sizeof(l1), "This file's %s are in format %d: a newer version of ZC wrote it.", what, file_v);
+
+    if(zq255_quest_is_newer())
+    {
+        if(newer_file)
+            snprintf(l2, sizeof(l2), "ZQuest reads this kind of file in 2.53's format only so far.");
+        else
+            snprintf(l2, sizeof(l2), "ZQuest reads this kind of file up to 2.53's format (%d) so far.", newest);
+
+        jwin_alert("Import", l1, l2, "Nothing was imported.", "O&K", NULL, 'k', 0, lfont);
+        return true;
+    }
+
+    if(newer_file)
+        snprintf(l2, sizeof(l2), "This quest was made in ZC %s, whose file format can't hold it.", zq_made_in().c_str());
+    else
+        snprintf(l2, sizeof(l2), "This quest was made in ZC %s, whose file format holds %s up to format %d.", zq_made_in().c_str(), what, newest);
+
+    if(jwin_alert("Import", l1, l2, "Save the quest as 2.55.18 or 3.0 Nightly first, then import the file?", "&Save As...", "&Cancel", 's', 'c', lfont) == 1)
+        onSaveAs();
+
+    return true;
+}
+#endif
+
 int onImport_DMaps()
 {
 #ifdef ZC_ZQEDITOR
@@ -1672,6 +1769,10 @@ int onImport_DMaps()
 #endif
     if(!getname("Import DMaps (.dmp)","dmp",NULL,datapath,false))
         return D_O_K;
+#ifdef ZC_ZQEDITOR
+    if(zq_import_too_new(temppath))
+        return D_O_K;
+#endif
         
     saved=false;
     
@@ -1745,6 +1846,10 @@ int onImport_Pals()
 {
     if(!getname("Import Palettes (.zpl)","zpl",NULL,datapath,false))
         return D_O_K;
+#ifdef ZC_ZQEDITOR
+    if(zq_import_too_new(temppath))
+        return D_O_K;
+#endif
         
     saved=false;
     
@@ -1790,6 +1895,10 @@ int onImport_Msgs()
 #endif
     if(!getname("Import String Table (.zqs)","zqs",NULL,datapath,false))
         return D_O_K;
+#ifdef ZC_ZQEDITOR
+    if(zq_import_too_new(temppath))
+        return D_O_K;
+#endif
         
     saved=false;
     
@@ -1872,6 +1981,10 @@ int onImport_Combos()
     
     if(!getname("Import Combo Table (.cmb)","cmb",NULL,datapath,false))
         return D_O_K;
+#ifdef ZC_ZQEDITOR
+    if(zq_import_too_new(temppath))
+        return D_O_K;
+#endif
         
     if(!load_combos(temppath, ret*COMBOS_PER_PAGE))
     {
@@ -1936,6 +2049,10 @@ int onImport_Tiles()
     
     if(!getname("Import Tiles (.til)","til",NULL,datapath,false))
         return D_O_K;
+#ifdef ZC_ZQEDITOR
+    if(zq_import_too_new(temppath))
+        return D_O_K;
+#endif
         
     saved=false;
     
@@ -1987,6 +2104,10 @@ int onImport_Guys()
 #endif
     if(!getname("Import Enemies (.guy)","guy",NULL,datapath,false))
         return D_O_K;
+#ifdef ZC_ZQEDITOR
+    if(zq_import_too_new(temppath))
+        return D_O_K;
+#endif
         
     if(!load_guys(temppath))
     {
@@ -2037,6 +2158,10 @@ int onImport_ComboAlias()
 {
     if(!getname("Import Combo Alias (.zca)","zca",NULL,datapath,false))
         return D_O_K;
+#ifdef ZC_ZQEDITOR
+    if(zq_import_too_new(temppath))
+        return D_O_K;
+#endif
         
     if(!load_combo_alias(temppath))
     {
@@ -2081,6 +2206,10 @@ int onImport_ZGP()
 #endif
     if(!getname("Import Graphics Pack (.zgp)","zgp",NULL,datapath,false))
         return D_O_K;
+#ifdef ZC_ZQEDITOR
+    if(zq_import_too_new(temppath))
+        return D_O_K;
+#endif
         
     saved=false;
     
@@ -2128,6 +2257,10 @@ int onImport_Subscreen()
 {
     if(!getname("Import Subscreen (.sub)","sub",NULL,datapath,false))
         return D_O_K;
+#ifdef ZC_ZQEDITOR
+    if(zq_import_too_new(temppath))
+        return D_O_K;
+#endif
         
     saved=false;
     
@@ -2223,7 +2356,15 @@ int onExport_ZQT()
     if(!zq_fits_253("exported"))
         return D_O_K;
 #endif
+#ifdef ZC_ZQEDITOR
+    // 2.53's writer stamps the open quest's header as a 2.53.1 quest's while it writes. An
+    // export leaves the open quest what it was: made in its own version, and saved in it.
+    const zquestheader keep_header = header;
+#endif
     int zqt_result = save_unencoded_quest(temppath, true);
+#ifdef ZC_ZQEDITOR
+    header = keep_header;
+#endif
 #ifdef ZC_PORT
     box_end(false);     // see save_quest()
 #endif
@@ -2289,7 +2430,15 @@ int onExport_UnencodedQuest()
     if(!zq_fits_253("exported"))
         return D_O_K;
 #endif
+#ifdef ZC_ZQEDITOR
+    // 2.53's writer stamps the open quest's header as a 2.53.1 quest's while it writes. An
+    // export leaves the open quest what it was: made in its own version, and saved in it.
+    const zquestheader keep_header = header;
+#endif
     int qsu_result = save_unencoded_quest(temppath, false);
+#ifdef ZC_ZQEDITOR
+    header = keep_header;
+#endif
 #ifdef ZC_PORT
     box_end(false);     // see save_quest()
 #endif

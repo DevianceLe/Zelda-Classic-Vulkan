@@ -705,6 +705,6 @@ int zqn_scripts(PACKFILE *f, const ZqNewerContext &ctx)
                               ctx.target == ZQ_NEWER_30 ? 7 : 5, w);    // the ZASM metadata version
 }
 
-ZqNewerRegistration g_reg(ID_FFSCRIPT, zqn_scripts, "scripts for 2.55.17 and 3.0");
+ZqNewerRegistration g_reg(ID_FFSCRIPT, zqn_scripts, "scripts for 2.55.18 and 3.0");
 
 } // namespace

@@ -953,13 +953,16 @@ struct Scripts255
 // read_one_ffscript: the count, the metadata, then the commands up to the count or the
 // terminator. A slot with no commands holds a terminator only; one with commands but no
 // terminator gets one, as 2.55.18 gives it (ddddf7a01; 2.55.17's recalc_size ran past it).
+// A script that jumps outside of itself (GOTO.., LOOP with a target below 0 or past its last
+// command) is disabled by 2.55.18's loader, which then saves it as a terminator alone under
+// its metadata: here too.
 bool read_script_255(Zqn255In &r, int v, word zv, Script255 *sc)
 {
     long num = r.s32();
 
     if(r.bad || num < 0 || num > MAX_COMMANDS)
     {
-        zqw_last_error = "a script is longer than 2.55.17 reads";
+        zqw_last_error = "a script is longer than 2.55.18 reads";
         return false;
     }
 
@@ -973,6 +976,8 @@ bool read_script_255(Zqn255In &r, int v, word zv, Script255 *sc)
 
     size_t at = r.pos;
     long count = 0;
+    bool jumps = false;
+    long lowest = 0, highest = 0;      // the jump targets' range
 
     for(long j = 0; j < num && !r.bad; ++j)
     {
@@ -984,7 +989,19 @@ bool read_script_255(Zqn255In &r, int v, word zv, Script255 *sc)
             break;
         }
 
-        r.skip(8);  // arg1, arg2
+        long arg1 = r.s32();
+        r.skip(4);  // arg2
+
+        switch(command)
+        {
+        case GOTO_: case GOTOTRUE_: case GOTOFALSE_: case GOTOLESS_: case GOTOMORE_: case LOOP_:
+            if(!jumps || arg1 < lowest)
+                lowest = arg1;
+            if(!jumps || arg1 > highest)
+                highest = arg1;
+            jumps = true;
+            break;
+        }
 
         if(v >= 21)
         {
@@ -1027,6 +1044,15 @@ bool read_script_255(Zqn255In &r, int v, word zv, Script255 *sc)
     sc->at = at;
     sc->end = r.pos;
     sc->count = num == 0 ? 1 : count;
+
+    // disabled: no commands, so the writer gives it the terminator alone
+    if(jumps && (lowest < 0 || highest >= sc->count))
+    {
+        sc->end = sc->at;
+        sc->count = 1;
+        sc->add_end = false;
+    }
+
     return true;
 }
 
@@ -1219,7 +1245,7 @@ int write_scripts_255(PACKFILE *f, const ZqNewerContext &ctx)
 
     if(s.extra.size() != 2 || zv > META_255)
     {
-        zqw_last_error = "its scripts' metadata is in a layout 2.55.17 doesn't know";
+        zqw_last_error = "its scripts' metadata is in a layout 2.55.18 doesn't know";
         return 2;
     }
 
@@ -1238,7 +1264,7 @@ int write_scripts_255(PACKFILE *f, const ZqNewerContext &ctx)
     return zqn::write_section(f, ID_FFSCRIPT, 22, 1, META_255, body);
 }
 
-ZqNewerRegistration g_reg_scripts_255(ID_FFSCRIPT, write_scripts_255, "2.55 scripts as 2.55.17");
+ZqNewerRegistration g_reg_scripts_255(ID_FFSCRIPT, write_scripts_255, "2.55 scripts as 2.55.18");
 
 // ---- versions 27-30, as 3.0's newer writer (31) ---------------------------------------------
 //

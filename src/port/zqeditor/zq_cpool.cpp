@@ -922,7 +922,7 @@ bool zq_cpool_section_tail(int version, const std::vector<byte> &orig_tail, std:
         if(has_pools || has_autos)
         {
             why = "its combo alias format (CMBA v" + std::to_string(version) +
-                  ") has no room for combo pools or autocombos; Save As 2.55.17 or 3.0 Nightly keeps them";
+                  ") has no room for combo pools or autocombos; Save As 2.55.18 or 3.0 Nightly keeps them";
             return false;
         }
 
@@ -934,7 +934,7 @@ bool zq_cpool_section_tail(int version, const std::vector<byte> &orig_tail, std:
     {
         if(has_autos)
         {
-            why = "its combo alias format (CMBA v4) has no room for autocombos; Save As 2.55.17 or 3.0 Nightly keeps them";
+            why = "its combo alias format (CMBA v4) has no room for autocombos; Save As 2.55.18 or 3.0 Nightly keeps them";
             return false;
         }
 

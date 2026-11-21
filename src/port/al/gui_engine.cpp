@@ -645,6 +645,10 @@ extern "C" int zcport_gui_host_owns(const DIALOG *d)
    return FALSE;
 }
 
+// A test driver's view of the dialogs (zqeditor's menu audit, zq_audit.cpp): called when a
+// dialog starts (1) and after it has ended (0). NULL unless a driver set it.
+extern "C" { void (*zcport_dialog_watch)(DIALOG *dialog, int opened) = NULL; }
+
 extern "C" DIALOG_PLAYER *init_dialog(DIALOG *dialog, int focus_obj)
 {
    Player *pl = (Player *)std::calloc(1, sizeof(Player));
@@ -672,6 +676,9 @@ extern "C" DIALOG_PLAYER *init_dialog(DIALOG *dialog, int focus_obj)
    pl->click_state = CLICK_EXPIRED;
 
    link_player(pl);
+
+   if (zcport_dialog_watch)
+      zcport_dialog_watch(dialog, 1);
 
    // a UI host may take the dialog (it sends MSG_START etc. itself)
    if (g_host) {
@@ -868,7 +875,12 @@ extern "C" int shutdown_dialog(DIALOG_PLAYER *player)
    unlink_player(pl);
 
    int obj = p->obj;
+   DIALOG *dialog = p->dialog;
    std::free(pl);
+
+   if (zcport_dialog_watch)
+      zcport_dialog_watch(dialog, 0);
+
    return obj;
 }
 

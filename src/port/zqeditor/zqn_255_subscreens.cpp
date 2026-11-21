@@ -835,7 +835,7 @@ bool convert_new_255(const Bytes &data, int v, Held &h, std::string &why)
 {
     if(v < 8 || v > 12)
     {
-        why = "its subscreens are in a version 2.55.17 doesn't read";
+        why = "its subscreens are in a version 2.55.18 doesn't read";
         return false;
     }
 
@@ -920,7 +920,7 @@ bool convert_new_255(const Bytes &data, int v, Held &h, std::string &why)
 
     if(!zqn255_tape_rebuild(zq_tape_subscreens, t, 12, h.section))
     {
-        why = "its subscreens couldn't be laid out as 2.55.17's version 12";
+        why = "its subscreens couldn't be laid out as 2.55.18's version 12";
         return false;
     }
 
@@ -999,7 +999,7 @@ bool held_lists(int target, std::vector<Zqn255DmapSubs> &dm, Held &h, std::strin
 {
     if((target != ZQ_NEWER_30 && target != ZQ_NEWER_255) || dm.size() != (size_t)MAXDMAPS)
     {
-        why = "the DMaps' subscreens are only worked out for 3.0 and 2.55.17";
+        why = "the DMaps' subscreens are only worked out for 3.0 and 2.55.18";
         return false;
     }
 
@@ -1213,7 +1213,7 @@ int write_subscreens_255(PACKFILE *f, const ZqNewerContext &ctx)
 
     if(!h.lists[3].empty())
     {
-        zqw_last_error = "it has map subscreens, which 2.55.17 doesn't have";
+        zqw_last_error = "it has map subscreens, which 2.55.18 doesn't have";
         return 2;
     }
 
@@ -1236,7 +1236,7 @@ int write_subscreens_255(PACKFILE *f, const ZqNewerContext &ctx)
     return zqn255_emit(f, ID_SUBSCREEN, 12, 3, none, o.b);
 }
 
-ZqNewerRegistration g_reg_subscreens_255(ID_SUBSCREEN, write_subscreens_255, "2.55 subscreens as 2.55.17");
+ZqNewerRegistration g_reg_subscreens_255(ID_SUBSCREEN, write_subscreens_255, "2.55 subscreens as 2.55.18");
 
 } // namespace
 

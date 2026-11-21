@@ -633,9 +633,30 @@ std::vector<zcui_fs::Place> make_places()
 }
 
 /* Runs the selector on se.edit until it closes. */
+} // namespace
+
+// A test driver's answer for the selector about to open (zqeditor's menu audit, zq_audit.cpp):
+// the path to take as chosen, without showing the selector. NULL unless a driver set it, and it
+// may answer NULL to let the selector show.
+extern "C" { const char *(*zcport_filesel_answer)(const char *message) = NULL; }
+
+namespace
+{
+
 Result run(Session &se, const char *message, const std::vector<std::string> &filters)
 {
     edit_canonical(se);
+
+    if(zcport_filesel_answer)
+    {
+        const char *answer = zcport_filesel_answer(message);
+
+        if(answer && *answer)
+        {
+            se.edit = answer;
+            return RES_CHOSEN;
+        }
+    }
     if(!zcui::available())
         return RES_CANCEL;              // no window to show it in
 

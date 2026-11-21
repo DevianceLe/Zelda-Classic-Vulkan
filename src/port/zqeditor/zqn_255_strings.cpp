@@ -134,6 +134,16 @@ int write_strings(PACKFILE *f, const ZqNewerContext &ctx)
     const int v = s.version;
     const int count = (int)t.get("count");
 
+    // the format to write: the target's newest, or an older 2.55 one an import asked for (7-9:
+    // the fields that format has, what the file lacks at readstrings' values for it)
+    word to_cv = 0;
+    int to = zq_newer_convert_to(&to_cv);
+
+    if(!to)
+        to = t30 ? 13 : 10, to_cv = t30 ? 13 : 2;
+    else if(t30 || to <= v || to < 7 || to > 10)
+        return ZQW_UNSUPPORTED;
+
     if(v >= 13)
     {
         // 3.0's own layout: as it is, with the init data's "more" icon when that sets it
@@ -182,8 +192,20 @@ int write_strings(PACKFILE *f, const ZqNewerContext &ctx)
         if(text.size() > 8192)
             text.resize(8192);
 
-        o.l((int64_t)text.size());
-        o.put(text.data(), text.size());
+        if(to >= 9)
+        {
+            o.l((int64_t)text.size());
+            o.put(text.data(), text.size());
+        }
+        else
+        {
+            // before version 9: a field of MSGSIZE + 1 bytes, the text and zeros
+            char fixed[145];
+            memset(fixed, 0, sizeof(fixed));
+            memcpy(fixed, text.data(), text.size() < 144 ? text.size() : 144);
+            o.put(fixed, sizeof(fixed));
+        }
+
         o.w(G("next", 0));
         o.l(G("tile", 0));
         o.c(G("cset", 0));
@@ -207,9 +229,16 @@ int write_strings(PACKFILE *f, const ZqNewerContext &ctx)
         o.c(G("portrait_y", 0));
         o.c(G("portrait_tw", 1));
         o.c(G("portrait_th", 1));
-        o.c(G("shadow_type", 0));
-        o.c(G("shadow_color", 0));
-        o.c(G("layer", 6));
+
+        if(to >= 8)
+        {
+            o.c(G("shadow_type", 0));
+            o.c(G("shadow_color", 0));
+        }
+
+        if(to >= 10)
+            o.c(G("layer", 6));
+
         const int64_t sfx = G("sfx", 0);
 
         if(t30)
@@ -254,7 +283,7 @@ int write_strings(PACKFILE *f, const ZqNewerContext &ctx)
     }
 
     std::vector<byte> none;
-    return t30 ? zqn255_emit(f, ID_STRINGS, 13, 13, none, o.b) : zqn255_emit(f, ID_STRINGS, 10, 2, none, o.b);
+    return t30 ? zqn255_emit(f, ID_STRINGS, 13, 13, none, o.b) : zqn255_emit(f, ID_STRINGS, (word)to, to_cv, none, o.b);
 }
 
 ZqNewerRegistration g_reg_strings(ID_STRINGS, write_strings, "2.55 strings");

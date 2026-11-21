@@ -469,7 +469,7 @@ int zqn_combos(PACKFILE *f, const ZqNewerContext &ctx)
     return put_section(f, ID_COMBOS, ctx, 45, 73, o);
 }
 
-ZqNewerRegistration g_reg_combos(ID_COMBOS, zqn_combos, "combos for 2.55.17 and 3.0");
+ZqNewerRegistration g_reg_combos(ID_COMBOS, zqn_combos, "combos for 2.55.18 and 3.0");
 
 // ---- CMBA: combo aliases ----------------------------------------------------------------------
 //
@@ -519,6 +519,6 @@ int zqn_aliases(PACKFILE *f, const ZqNewerContext &ctx)
     return put_section(f, ID_COMBOALIASES, ctx, 5, 5, o);
 }
 
-ZqNewerRegistration g_reg_aliases(ID_COMBOALIASES, zqn_aliases, "combo aliases for 2.55.17 and 3.0");
+ZqNewerRegistration g_reg_aliases(ID_COMBOALIASES, zqn_aliases, "combo aliases for 2.55.18 and 3.0");
 
 } // namespace

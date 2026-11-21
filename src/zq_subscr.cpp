@@ -6864,10 +6864,21 @@ const char *subscreenlist(int index, int *list_size)
         }
         
         *list_size = j+(show_new_ss?1:0);
+#ifndef ZC_ZQEDITOR
         sprintf(custom_subscreen[j].name, "<New>");
+#endif
         return NULL;
     }
     
+#ifdef ZC_ZQEDITOR
+    // The first unused subscreen is listed as "<New>" without being named that: opening the list
+    // used to write the name into the quest's data, which then counted as a change to its
+    // subscreens (a quest from before subscreens could no longer be saved in its own version,
+    // and a newer one's next save rewrote them). A subscreen made from it gets its template's
+    // name, as before.
+    if(custom_subscreen[index].objects[0].type==ssoNULL)
+        return "<New>";
+#endif
     return custom_subscreen[index].name;
 }
 

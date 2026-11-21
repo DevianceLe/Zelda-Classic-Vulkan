@@ -571,9 +571,9 @@ ZqNewerRegistration g_reg_cheats(ID_CHEATS, write_same_data, "2.55 cheats");
 ZqNewerRegistration g_reg_midis_30(ID_MIDIS, write_same_data, "3.0 tunes as they are");
 ZqNewerRegistration g_reg_sfx_30(ID_SFX, write_same_data, "3.0 sounds as they are");
 ZqNewerRegistration g_reg_amus_30(ID_ADVMUSIC_, write_same_data, "3.0 advanced music as it is");
-ZqNewerRegistration g_reg_init_255(ID_INITDATA, write_same_data, "2.55.17 init data as it is");
-ZqNewerRegistration g_reg_guys_255(ID_GUYS, write_same_data, "2.55.17 enemies as they are");
-ZqNewerRegistration g_reg_subs_255(ID_SUBSCREEN, write_same_data, "2.55.17 subscreens as they are");
-ZqNewerRegistration g_reg_ffsc_255(ID_FFSCRIPT, write_same_data, "2.55.17 scripts as they are");
+ZqNewerRegistration g_reg_init_255(ID_INITDATA, write_same_data, "2.55.18 init data as it is");
+ZqNewerRegistration g_reg_guys_255(ID_GUYS, write_same_data, "2.55.18 enemies as they are");
+ZqNewerRegistration g_reg_subs_255(ID_SUBSCREEN, write_same_data, "2.55.18 subscreens as they are");
+ZqNewerRegistration g_reg_ffsc_255(ID_FFSCRIPT, write_same_data, "2.55.18 scripts as they are");
 
 } // namespace

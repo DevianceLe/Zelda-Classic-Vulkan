@@ -312,7 +312,7 @@ int zqn_header(PACKFILE *f, const ZqNewerContext &ctx)
     }
     else
     {
-        o.l(2); o.l(55); o.l(17); o.l(0);   // 2.55.17
+        o.l(2); o.l(55); o.l(18); o.l(0);   // 2.55.18 (V_ZC_THIRD: all its writer changed from 2.55.17's)
         o.l(0); o.l(0); o.l(0); o.l(1);     // a release
     }
 
@@ -418,7 +418,7 @@ int zqn_rules_section(PACKFILE *f, const ZqNewerContext &ctx)
     {
         char buf[200];
         snprintf(buf, sizeof(buf), "rule %d was changed, but %s sets it for every quest made in this quest's version", r.overridden_rule,
-                 t30 ? "3.0" : "2.55.17");
+                 t30 ? "3.0" : "2.55.18");
         zqw_last_error = buf;
         return ZQN_REFUSED;
     }
@@ -807,13 +807,13 @@ int zqn_advmusic(PACKFILE *f, const ZqNewerContext &ctx)
     return emit(f, ID_ADVMUSIC_, 1, 1, NULL, o);
 }
 
-ZqNewerRegistration g_reg_header(ID_HEADER, zqn_header, "header for 2.55.17 and 3.0");
-ZqNewerRegistration g_reg_zinfo(ID_ZINFO_, zqn_zinfo, "editor names for 2.55.17 and 3.0");
-ZqNewerRegistration g_reg_rules(ID_RULES, zqn_rules_section, "rules for 2.55.17 and 3.0");
-ZqNewerRegistration g_reg_doors(ID_DOORS, zqn_doors, "door combo sets for 2.55.17 and 3.0");
-ZqNewerRegistration g_reg_cheats(ID_CHEATS, zqn_cheats, "cheats for 2.55.17 and 3.0");
-ZqNewerRegistration g_reg_drops(ID_ITEMDROPSETS, zqn_dropsets, "item drop sets for 2.55.17 and 3.0");
-ZqNewerRegistration g_reg_favs(ID_FAVORITES, zqn_favorites, "favorites for 2.55.17 and 3.0");
+ZqNewerRegistration g_reg_header(ID_HEADER, zqn_header, "header for 2.55.18 and 3.0");
+ZqNewerRegistration g_reg_zinfo(ID_ZINFO_, zqn_zinfo, "editor names for 2.55.18 and 3.0");
+ZqNewerRegistration g_reg_rules(ID_RULES, zqn_rules_section, "rules for 2.55.18 and 3.0");
+ZqNewerRegistration g_reg_doors(ID_DOORS, zqn_doors, "door combo sets for 2.55.18 and 3.0");
+ZqNewerRegistration g_reg_cheats(ID_CHEATS, zqn_cheats, "cheats for 2.55.18 and 3.0");
+ZqNewerRegistration g_reg_drops(ID_ITEMDROPSETS, zqn_dropsets, "item drop sets for 2.55.18 and 3.0");
+ZqNewerRegistration g_reg_favs(ID_FAVORITES, zqn_favorites, "favorites for 2.55.18 and 3.0");
 ZqNewerRegistration g_reg_amus(ID_ADVMUSIC_, zqn_advmusic, "advanced music for 3.0");
 
 } // namespace

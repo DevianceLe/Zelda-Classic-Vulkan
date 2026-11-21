@@ -1789,6 +1789,27 @@ bool final_dmaps(const ZqNewerContext &ctx, std::vector<UDmap> &out, int *file_c
             out[i].passive_subscreen = 0;
     }
 
+    // 2.55.18's loader, for damaged quests (2.55.17 and 3.0 Nightly keep these as read): a DMap
+    // on map 255 goes to map 0, a level or level palette past the last one (512) becomes 0
+    // (readdmaps), and once the maps are read too, a DMap on a map the quest doesn't have goes to
+    // map 0 (loadquest).
+    if(ctx.target == ZQ_NEWER_255)
+    {
+        const int maps = map_count < MAXMAPS2 ? map_count : MAXMAPS2;
+
+        for(int i = 0; i < MAXDMAPS; ++i)
+        {
+            if(out[i].map >= 255 || out[i].map >= maps)
+                out[i].map = 0;
+
+            if(out[i].level >= 512)
+                out[i].level = 0;
+
+            if(out[i].color >= 512)
+                out[i].color = 0;
+        }
+    }
+
     return true;
 }
 
@@ -2083,6 +2104,32 @@ bool final_screens(const ZqNewerContext &ctx, std::vector<UScr> &out, std::vecto
                 if(data < MAXCOMBOS && combobuf[data].type == cCHANGE)
                     out[idx].ffc[m].flags |= U_FFC_CHANGER;
             }
+
+    // 2.55.18's loader, for damaged quests (2.55.17 and 3.0 Nightly keep these as read): a warp
+    // to a DMap past the last one (512) goes to DMap 0, enemy 512 is no enemy (readmapscreen),
+    // and a layer on a screen past the last map's is no layer (readmaps).
+    if(ctx.target == ZQ_NEWER_255)
+        for(size_t idx = 0; idx < out.size(); ++idx)
+        {
+            UScr &s = out[idx];
+
+            for(int k = 0; k < 4; ++k)
+            {
+                if(s.tilewarpdmap[k] >= 512)
+                    s.tilewarpdmap[k] = 0;
+
+                if(s.sidewarpdmap[k] >= 512)
+                    s.sidewarpdmap[k] = 0;
+            }
+
+            for(int k = 0; k < 10; ++k)
+                if(s.enemy[k] >= U_MAXGUYS)
+                    s.enemy[k] = 0;
+
+            for(int k = 0; k < 6; ++k)
+                if(s.layermap[k] && (size_t)(s.layermap[k] - 1) * MAPSCRS + s.layerscreen[k] >= out.size())
+                    s.layermap[k] = 0;
+        }
 
     return true;
 }
@@ -2497,7 +2544,7 @@ int zqn_maps(PACKFILE *f, const ZqNewerContext &ctx)
     return put_section(f, ID_MAPS, 30, 9, o);
 }
 
-ZqNewerRegistration g_reg_maps(ID_MAPS, zqn_maps, "maps for 2.55.17 and 3.0");
+ZqNewerRegistration g_reg_maps(ID_MAPS, zqn_maps, "maps for 2.55.18 and 3.0");
 
 // count_dmaps (2.55.17 and 3.0): the DMaps up to the last that isn't empty
 int count_dmaps_u(const std::vector<UDmap> &d, const std::vector<int> &music, int target)
@@ -2688,7 +2735,7 @@ int zqn_dmaps(PACKFILE *f, const ZqNewerContext &ctx)
     return put_section(f, ID_DMAPS, 21, 1, o);
 }
 
-ZqNewerRegistration g_reg_dmaps(ID_DMAPS, zqn_dmaps, "DMaps for 2.55.17 and 3.0");
+ZqNewerRegistration g_reg_dmaps(ID_DMAPS, zqn_dmaps, "DMaps for 2.55.18 and 3.0");
 
 } // namespace
 

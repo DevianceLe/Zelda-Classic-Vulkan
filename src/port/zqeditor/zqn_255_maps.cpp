@@ -1511,7 +1511,7 @@ int write_maps_255(PACKFILE *f, const ZqNewerContext &ctx)
     std::vector<byte> rules;
 
     if(!zqn255_rules_loaded(ctx.target, rules) || rules.size() * 8 <= (size_t)QR_OLD_FFC_FUNCTIONALITY)
-        return refuse("the quest rules as 2.55.17 holds them couldn't be worked out");
+        return refuse("the quest rules as 2.55.18 holds them couldn't be worked out");
 
     const bool nofairyfires = (rules[QR_NOFAIRYGUYFIRES >> 3] >> (QR_NOFAIRYGUYFIRES & 7)) & 1;
     const bool old_ffcs = (rules[QR_OLD_FFC_FUNCTIONALITY >> 3] >> (QR_OLD_FFC_FUNCTIONALITY & 7)) & 1;
@@ -1574,6 +1574,6 @@ int write_maps_255(PACKFILE *f, const ZqNewerContext &ctx)
     return zqn255_emit(f, ID_MAPS, 30, 9, none, o.b);
 }
 
-ZqNewerRegistration g_reg_maps_255(ID_MAPS, write_maps_255, "2.55 maps as 2.55.17");
+ZqNewerRegistration g_reg_maps_255(ID_MAPS, write_maps_255, "2.55 maps as 2.55.18");
 
 } // namespace

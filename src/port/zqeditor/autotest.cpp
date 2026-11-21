@@ -31,6 +31,10 @@
 
 extern "C" int set_display_switch_mode(int mode);
 
+// A program's own script commands (zqeditor's menu audit, zq_audit.cpp): non-zero when it took
+// the line. NULL unless the program set it.
+extern "C" { int (*zc_autotest_command)(const char *line) = NULL; }
+
 namespace
 {
 
@@ -154,14 +158,27 @@ SDL_Scancode scancode_of(const std::string &name)
     return SDL_SCANCODE_UNKNOWN;
 }
 
+// The modifiers "down CTRL" and the like hold: key events carry them as real ones do, which
+// is where the newer UI's text fields read them (Ctrl+A to select a field's text).
+SDL_Keymod g_mods = SDL_KMOD_NONE;
+
 void key_event(SDL_Scancode sc, bool down)
 {
+    SDL_Keymod bit = sc == SDL_SCANCODE_LCTRL ? SDL_KMOD_LCTRL : sc == SDL_SCANCODE_LSHIFT ? SDL_KMOD_LSHIFT
+                   : sc == SDL_SCANCODE_LALT ? SDL_KMOD_LALT : SDL_KMOD_NONE;
+
+    if(down)
+        g_mods = (SDL_Keymod)(g_mods | bit);
+    else
+        g_mods = (SDL_Keymod)(g_mods & ~bit);
+
     SDL_Event e;
     SDL_zero(e);
     e.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
     e.key.windowID = window_id();
     e.key.scancode = sc;
     e.key.key = SDL_GetKeyFromScancode(sc, SDL_KMOD_NONE, false);
+    e.key.mod = g_mods;
     e.key.down = down;
     SDL_PushEvent(&e);
 }
@@ -185,10 +202,10 @@ void key(const std::string &name, int ms)
     for(int down = 1; down >= 0; --down)
     {
         key_event(sc, down != 0);
-        // as the system does: a letter is also typed text, if text input is on
+        // as the system does: a letter is also typed text, if text input is on (not a Ctrl or Alt shortcut)
         SDL_WindowID id = window_id();
         SDL_Window *win = SDL_GetWindowFromID(id);
-        if(down && win && SDL_TextInputActive(win) && name.size() == 1 && name[0] >= 'A' && name[0] <= 'Z')
+        if(down && win && SDL_TextInputActive(win) && name.size() == 1 && name[0] >= 'A' && name[0] <= 'Z' && !(g_mods & (SDL_KMOD_CTRL | SDL_KMOD_ALT)))
         {
             char letter[2] = { (char)(name[0] - 'A' + 'a'), 0 };
             SDL_Event t;
@@ -311,7 +328,9 @@ void run(const std::string &path)
                 at = f.tellg();
                 char word[32] = "", name[32] = "";
                 int a = 0, b = 0, c = 0;
-                if(sscanf(line.c_str(), "%31s %d %d %d", word, &a, &b, &c) >= 1)
+                if(zc_autotest_command && zc_autotest_command(line.c_str()))
+                    ;
+                else if(sscanf(line.c_str(), "%31s %d %d %d", word, &a, &b, &c) >= 1)
                 {
                     float x = (float)a, y = (float)b;
                     if(!strcmp(word, "drag"))
@@ -401,3 +420,9 @@ struct Start
 } g_start;
 
 } // namespace
+
+// For a program's own commands: a key press, as the "key" command sends it.
+extern "C" void zc_autotest_key(const char *name, int ms)
+{
+    key(name, ms);
+}

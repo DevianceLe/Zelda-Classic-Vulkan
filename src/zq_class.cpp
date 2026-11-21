@@ -844,6 +844,22 @@ const char *loaderror[] =
     
 };
 
+#ifdef ZC_ZQEDITOR
+// The header an import file is read with. The readers pick a file's layout by the header's
+// version, and 2.53's loaders gave them the open quest's own: right for a quest saved by 2.53.1,
+// which is all 2.53's ZQuest keeps open for long, but this editor keeps a quest in the version
+// it was made in, and a 1.90 to 2.50 quest then couldn't read back what it had just exported
+// ("Incomplete data", "Unable to load"), or read it by the wrong layout. The files 2.53's exports
+// write are in 2.53.1's layout (a map file says which version wrote it, at its start).
+static zquestheader zq_import_header(int version, int build)
+{
+    zquestheader h = header;
+    h.zelda_version = (word)version;
+    h.build = (byte)build;
+    return h;
+}
+#endif
+
 int zmap::load(const char *path)
 {
     // int size=file_size(path);
@@ -852,6 +868,11 @@ int zmap::load(const char *path)
     
     if(!f)
         return 1;
+        
+#ifdef ZC_ZQEDITOR
+    // the map as it is now, to put back when the file turns out not to be one this reads
+    std::vector<mapscr> zq_before(screens, screens + MAPSCRS);
+#endif
         
         
     short version;
@@ -889,8 +910,15 @@ int zmap::load(const char *path)
     {
         mapscr tmpimportscr;
         
+#ifdef ZC_ZQEDITOR
+        zquestheader zq_file_header = zq_import_header(version, build);
+
+        if(readmapscreen(f,&zq_file_header,&tmpimportscr,&temp_map,version)==qe_invalid)
+            goto file_error;
+#else
         if(readmapscreen(f,&header,&tmpimportscr,&temp_map,version)==qe_invalid)
             goto file_error;
+#endif
             
         bool copied = false;
         
@@ -928,19 +956,40 @@ int zmap::load(const char *path)
     
     pack_fclose(f);
     
+#ifdef ZC_ZQEDITOR
+    // A map file from before maps carried a version has no mark on its screens (and no header:
+    // what was read as one is its first screen). The mark was looked for on screen 0 alone,
+    // which an older quest's unused screen 0 doesn't carry: the editor's own export of such a
+    // map was refused ("Invalid version") and the map being edited was cleared. A file with the
+    // header this editor writes (its version and build) is a map; any other without the mark is refused as before, and
+    // the map is put back as it was.
+    if(!(screens[0].valid&mVERSION) && !(version==ZELDA_VERSION && build==VERSION_BUILD))
+    {
+        for(int i=0; i<MAPSCRS; i++)
+            screens[i] = zq_before[i];
+
+        return 3;
+    }
+#else
     if(!(screens[0].valid&mVERSION))
     {
         jwin_alert("Confirm Clear All","Clear all?",NULL,NULL,"O&K",NULL,'k',0,lfont);
         clearmap(false);
         return 3;
     }
+#endif
     
     setCurrScr(0);
     return 0;
     
 file_error:
     pack_fclose(f);
+#ifdef ZC_ZQEDITOR
+    for(int i=0; i<MAPSCRS; i++)
+        screens[i] = zq_before[i];
+#else
     clearmap(false);
+#endif
     return 2;
 }
 
@@ -4835,7 +4884,13 @@ bool load_msgstrs(const char *path, int startstring)
     
     if(section_id==ID_STRINGS)
     {
+#ifdef ZC_ZQEDITOR
+        zquestheader zq_file_header = zq_import_header(ZELDA_VERSION, VERSION_BUILD);
+
+        if(readstrings(f, &zq_file_header, true)==0)
+#else
         if(readstrings(f, &header, true)==0)
+#endif
         {
             pack_fclose(f);
             return true;
@@ -5191,6 +5246,11 @@ bool load_combo_alias(const char *path)
 
 bool load_zgp(const char *path)
 {
+#ifdef ZC_ZQEDITOR
+    zquestheader zq_file_header = zq_import_header(ZELDA_VERSION, VERSION_BUILD);     // see there
+#else
+    zquestheader &zq_file_header = header;
+#endif
     dword section_id;
     dword section_version;
     dword section_cversion;
@@ -5318,7 +5378,7 @@ bool load_zgp(const char *path)
     
     if(section_id==ID_WEAPONS)
     {
-        if(readweapons(f, &header, true)!=0)
+        if(readweapons(f, &zq_file_header, true)!=0)
         {
             pack_fclose(f);
             return false;
@@ -5342,7 +5402,7 @@ bool load_zgp(const char *path)
     
     if(section_id==ID_ICONS)
     {
-        if(readgameicons(f, &header, &misc, true)!=0)
+        if(readgameicons(f, &zq_file_header, &misc, true)!=0)
         {
             pack_fclose(f);
             return false;
@@ -5363,7 +5423,7 @@ bool load_zgp(const char *path)
     
     if(section_id==ID_COLORS)
     {
-        if(readmisccolors(f, &header, &misc, true)!=0)
+        if(readmisccolors(f, &zq_file_header, &misc, true)!=0)
         {
             pack_fclose(f);
             return false;
@@ -5384,7 +5444,7 @@ bool load_zgp(const char *path)
     
     if(section_id==ID_DOORS)
     {
-        if(readdoorcombosets(f, &header, true)!=0)
+        if(readdoorcombosets(f, &zq_file_header, true)!=0)
         {
             pack_fclose(f);
             return false;
@@ -5652,7 +5712,13 @@ bool load_subscreen(const char *path)
     }
     
     //subscreens
-    if(read_one_subscreen(f,&header,true,sslist_dlg[2].d1,section_version,section_cversion)!=0)
+#ifdef ZC_ZQEDITOR
+    zquestheader zq_file_header = zq_import_header(ZELDA_VERSION, VERSION_BUILD);     // see there
+#else
+    zquestheader &zq_file_header = header;
+#endif
+
+    if(read_one_subscreen(f,&zq_file_header,true,sslist_dlg[2].d1,section_version,section_cversion)!=0)
     {
         pack_fclose(f);
         return false;

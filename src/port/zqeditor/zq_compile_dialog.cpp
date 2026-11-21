@@ -369,7 +369,7 @@ std::string slot_label(int t, int id, const std::string &name, const ZqCompileRe
 void page_main(CompileDialog &e, float sc)
 {
     ImGui::Text("Quest made in %s: compiled by %s.", e.is30 ? "a 3.0 Nightly" : "2.55",
-                e.is30 ? "zscript30 (ZC 3.0 Nightly)" : "zscript255 (ZC 2.55.17)");
+                e.is30 ? "zscript30 (ZC 3.0 Nightly)" : "zscript255 (ZC 2.55.18)");
 
     if(zq_compile_last_version() >= 0)
         ImGui::Text("Last Compiled Using ZScript: v.%d", zq_compile_last_version());

@@ -667,29 +667,33 @@ ZqNewerRegistration g_reg_items(ID_ITEMS, write_items, "2.55 items as 3.0");
 // items' strength flags before 56; level 0 becomes 1). What a version doesn't store is 0, as
 // 2.55.17's default items hold it (memset, then default_items, whose newer fields are 0). Names
 // are read up to their end (strncat), zeros after.
-void update_item_255(Tape &t, int s)
+//
+// to: the format the item is laid out in afterwards (59 for a save as 2.55.18; an older one for
+// an import into a quest whose items are in that format): only the conversions the loader does
+// below that format are made, as it makes the later ones itself when it reads the result.
+void update_item_255(Tape &t, int s, int to)
 {
     const long family = (long)t.get("family");
 
-    if(s < 50 && family == IT_MIRROR)
+    if(s < 50 && to >= 50 && family == IT_MIRROR)
     {
         zqn255_tape_set(t, "misc2", t.get("misc1"));
         zqn255_tape_set(t, "usesound2", t.get("usesound"));
     }
 
-    if(s < 46 && family == IT_RAFT)
+    if(s < 46 && to >= 46 && family == IT_RAFT)
         zqn255_tape_set(t, "misc1", 1);
 
-    if(s < 47)
+    if(s < 47 && to >= 47)
         zqn255_tape_set(t, "pickupflag", 0);
 
-    if(s < 51 && family == IT_CANDLE)
+    if(s < 51 && to >= 51 && family == IT_CANDLE)
         zqn255_tape_set(t, "misc4", 50);
 
-    if(s < 52 && family == IT_SHIELD)
+    if(s < 52 && to >= 52 && family == IT_SHIELD)
         zqn255_tape_set(t, "flags", (dword)t.get("flags") | IF_FLAG1);
 
-    if(s < 53)
+    if(s < 53 && to >= 53)
     {
         long ctr = CR_NONE, amount = 0;
 
@@ -705,10 +709,10 @@ void update_item_255(Tape &t, int s)
         zqn255_tape_set(t, "costtimer1", 0);
     }
 
-    if(s < 54 && family == IT_FLIPPERS)
+    if(s < 54 && to >= 54 && family == IT_FLIPPERS)
         zqn255_tape_set(t, "misc3", INT_BTN_A_);
 
-    if(s < 55)
+    if(s < 55 && to >= 55)
     {
         if(family == IT_SPINSCROLL || family == IT_QUAKESCROLL)
             zqn255_tape_set(t, "usesound2", WAV_ZN1CHARGE_);
@@ -716,7 +720,7 @@ void update_item_255(Tape &t, int s)
             zqn255_tape_set(t, "usesound2", WAV_ZN1CHARGE2_);
     }
 
-    if(s < 56)
+    if(s < 56 && to >= 56)
     {
         dword flags = (dword)t.get("flags");
 
@@ -750,6 +754,15 @@ int write_items_255(PACKFILE *f, const ZqNewerContext &ctx)
     if(!zqn255_source(ctx) || !ctx.src_part || ctx.src_version < 45 || ctx.src_version > 59 || ctx.target != ZQ_NEWER_255)
         return ZQW_UNSUPPORTED;
 
+    // the format to write: 2.55.18's, or an older one an import asked for
+    word to_cv = 0;
+    int to = zq_newer_convert_to(&to_cv);
+
+    if(!to)
+        to = 59, to_cv = 15;
+    else if(to <= ctx.src_version || to > 59)
+        return ZQW_UNSUPPORTED;
+
     Zqn255Section s;
 
     if(!zqn255_section(ctx, s))
@@ -762,7 +775,7 @@ int write_items_255(PACKFILE *f, const ZqNewerContext &ctx)
     // 2.55 writes all 256 items; another count would leave the rest to 2.55.17's default items
     if(r.u16() != ITEMS || s.data.size() < 2 + 64 * (size_t)ITEMS)
     {
-        zqw_last_error = "its items aren't laid out as expected (2.55.17 needs all 256)";
+        zqw_last_error = "its items aren't laid out as expected (2.55.18 needs all 256)";
         return 2;
     }
 
@@ -793,12 +806,12 @@ int write_items_255(PACKFILE *f, const ZqNewerContext &ctx)
         }
 
         at = p.pos;
-        update_item_255(tape, v);
+        update_item_255(tape, v, to);
         std::vector<byte> rec;
 
-        if(!zqn255_tape_rebuild(zq_tape_item, tape, 59, rec))
+        if(!zqn255_tape_rebuild(zq_tape_item, tape, to, rec))
         {
-            zqw_last_error = "an item couldn't be laid out as 2.55.17's version 59";
+            zqw_last_error = "an item couldn't be laid out as 2.55.18's version 59";
             return 2;
         }
 
@@ -812,10 +825,10 @@ int write_items_255(PACKFILE *f, const ZqNewerContext &ctx)
     }
 
     std::vector<byte> none;
-    return zqn255_emit(f, ID_ITEMS, 59, 15, none, o.b);
+    return zqn255_emit(f, ID_ITEMS, (word)to, to_cv, none, o.b);
 }
 
-ZqNewerRegistration g_reg_items_255(ID_ITEMS, write_items_255, "2.55 items as 2.55.17");
+ZqNewerRegistration g_reg_items_255(ID_ITEMS, write_items_255, "2.55 items as 2.55.18");
 
 } // namespace
 

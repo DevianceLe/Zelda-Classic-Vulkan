@@ -107,7 +107,7 @@ enum ZqNewerTarget
     ZQ_NEWER_30 = 2         // ZC 3.0 Nightly (upstream main at ef321f8)
 };
 
-const char *zq_newer_target_name(int target);      // "2.55.17", "3.0 Nightly"
+const char *zq_newer_target_name(int target);      // "2.55.18", "3.0 Nightly"
 
 // What a newer-version writer knows about the quest it converts. Upstream's loader converts an
 // old quest's data as it reads it, by the quest's header version and by each section's own
@@ -155,6 +155,18 @@ bool zq_newer_convert_section(dword id, int target, const std::vector<byte> &sec
 // True while zq_newer_convert_section runs: a converter then leaves out what upstream's loader
 // does to a whole quest after its sections are read, which its imports don't do.
 bool zq_newer_converting_file();
+
+// The same, stopping at an older format than the target's newest: for an import into a quest
+// whose own section is in that format (to_version, with its cversion). The section comes out as
+// upstream's loader would read the file's, less what that loader still does to a section of
+// to_version when it reads it, so loading the result gives what loading the file's section
+// gives. False (why says) when the section's converter can't stop there.
+bool zq_newer_convert_section_to(dword id, int target, const std::vector<byte> &section, word to_version, word to_cversion,
+                                 std::vector<byte> &out, std::string &why);
+
+// For the converters: the format zq_newer_convert_section_to asked for (0: the target's newest,
+// which is every other time), and its cversion.
+int zq_newer_convert_to(word *cversion);
 
 // Whether saving the open quest (made in 2.55 or later) as the target would bring some of its
 // parts up to newer versions: some part is older than the target's newest and none is newer.

@@ -484,6 +484,6 @@ int zqn_initdata(PACKFILE *f, const ZqNewerContext &ctx)
     return ZQW_OK;
 }
 
-ZqNewerRegistration g_reg(ID_INITDATA, zqn_initdata, "init data for 2.55.17 and 3.0");
+ZqNewerRegistration g_reg(ID_INITDATA, zqn_initdata, "init data for 2.55.18 and 3.0");
 
 } // namespace

@@ -1240,7 +1240,7 @@ int zqn_subscreens(PACKFILE *f, const ZqNewerContext &ctx)
     return ZQW_OK;
 }
 
-ZqNewerRegistration g_reg(ID_SUBSCREEN, zqn_subscreens, "subscreens for 2.55.17 and 3.0");
+ZqNewerRegistration g_reg(ID_SUBSCREEN, zqn_subscreens, "subscreens for 2.55.18 and 3.0");
 
 } // namespace
 

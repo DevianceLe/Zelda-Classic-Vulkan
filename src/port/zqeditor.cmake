@@ -68,6 +68,7 @@ set(ZQEDITOR_SOURCES
 	${ZCPORT_DIR}/zqeditor/zq_sections.cpp
 	${ZCPORT_DIR}/zqeditor/zq_writers.cpp
 	${ZCPORT_DIR}/zqeditor/zq_tests.cpp
+	${ZCPORT_DIR}/zqeditor/zq_audit.cpp
 	${ZCPORT_DIR}/zqeditor/zq_tile_refs.cpp
 	${ZCPORT_DIR}/zqeditor/zq_combo_names.cpp
 	${ZCPORT_DIR}/zqeditor/zq_combo_editor.cpp

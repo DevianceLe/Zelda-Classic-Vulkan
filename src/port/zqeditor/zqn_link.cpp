@@ -147,6 +147,6 @@ int zqn_link(PACKFILE *f, const ZqNewerContext &ctx)
     return zqw_ig::write_part(f, ID_LINKSPRITES, out);
 }
 
-ZqNewerRegistration g_register(ID_LINKSPRITES, zqn_link, "Link's sprites for 2.55.17 and 3.0");
+ZqNewerRegistration g_register(ID_LINKSPRITES, zqn_link, "Link's sprites for 2.55.18 and 3.0");
 
 } // namespace

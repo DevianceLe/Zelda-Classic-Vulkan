@@ -37,6 +37,8 @@
 #include "zq_tape.h"
 #include "zqn_255.h"
 
+extern word map_count;      // ZQuest's (the quest's maps)
+
 namespace
 {
 
@@ -822,6 +824,20 @@ int write_dmaps_255(PACKFILE *f, const ZqNewerContext &ctx)
         if(v < 16)
             zqn255_tape_set(t, "mirror", -1);
 
+        // 2.55.18's loader, for damaged quests (2.55.17 kept these as read): a DMap on map 255 or
+        // on a map the quest doesn't have goes to map 0, and a level or level palette past the
+        // last one (512) becomes 0
+        {
+            if(t.get("map") >= 255 || t.get("map") >= map_count)
+                zqn255_tape_set(t, "map", 0);
+
+            if(t.get("level") >= 512)
+                zqn255_tape_set(t, "level", 0);
+
+            if(t.get("color") >= 512)
+                zqn255_tape_set(t, "color", 0);
+        }
+
         if(TapeField *rf = t.find("regions"))
             rf->bytes.assign(rf->bytes.size(), 0);
 
@@ -832,7 +848,7 @@ int write_dmaps_255(PACKFILE *f, const ZqNewerContext &ctx)
 
         if(!zqn255_tape_rebuild(zq_tape_dmap, t, 21, rec))
         {
-            zqw_last_error = "a DMap couldn't be laid out as 2.55.17's version 21";
+            zqw_last_error = "a DMap couldn't be laid out as 2.55.18's version 21";
             return 2;
         }
 
@@ -852,6 +868,6 @@ int write_dmaps_255(PACKFILE *f, const ZqNewerContext &ctx)
     return zqn255_emit(f, ID_DMAPS, 21, 1, none, o.b);
 }
 
-ZqNewerRegistration g_reg_dmaps_255(ID_DMAPS, write_dmaps_255, "2.55 DMaps as 2.55.17");
+ZqNewerRegistration g_reg_dmaps_255(ID_DMAPS, write_dmaps_255, "2.55 DMaps as 2.55.18");
 
 } // namespace
