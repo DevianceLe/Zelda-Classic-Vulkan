@@ -90,8 +90,10 @@ struct Ui
     SDL_Joystick *js;
     std::string name, guid;
     int step;
-    Raw rest, prev;
+    Raw rest, prev;         // rest: buttons and hats held since the start stay in it until let go
     bool armed;
+    Uint64 answered_at;     // when the last answer came (SDL_GetTicks)
+    Uint64 hold_since;      // since when no button has been held
     std::vector<std::string> bind;
     std::string message;
     bool nav_off;
@@ -113,14 +115,33 @@ void read_raw(SDL_Joystick *js, Raw &r)
         r.hat[i] = SDL_GetJoystickHat(js, i);
 }
 
-bool at_rest(const Raw &r, const Raw &rest)
+// A button or hat pressed that wasn't already held when the setup began (one may never be let go).
+bool pressing(const Raw &r, const Raw &rest)
 {
     for (size_t i = 0; i < r.button.size(); i++)
-        if (r.button[i])
-            return false;
+        if (r.button[i] && !(i < rest.button.size() && rest.button[i]))
+            return true;
     for (size_t i = 0; i < r.hat.size(); i++)
-        if (r.hat[i])
-            return false;
+        if (r.hat[i] && !(i < rest.hat.size() && rest.hat[i] == r.hat[i]))
+            return true;
+    return false;
+}
+
+// Buttons and hats held since the start count once they have been let go.
+void forget_released(const Raw &r, Raw &rest)
+{
+    for (size_t i = 0; i < r.button.size() && i < rest.button.size(); i++)
+        if (!r.button[i])
+            rest.button[i] = false;
+    for (size_t i = 0; i < r.hat.size() && i < rest.hat.size(); i++)
+        if (!r.hat[i])
+            rest.hat[i] = 0;
+}
+
+bool at_rest(const Raw &r, const Raw &rest)
+{
+    if (pressing(r, rest))
+        return false;
     for (size_t i = 0; i < r.axis.size() && i < rest.axis.size(); i++)
         if (std::abs(r.axis[i] - rest.axis[i]) > 8000)
             return false;
@@ -136,7 +157,8 @@ bool bound(const std::string &input)
 }
 
 // The input newly pressed for a prompt of this kind, in SDL's mapping notation, or "".
-std::string detect(int kind, const Raw &r, const Raw &prev, const Raw &rest)
+// *skip: a button already given to an earlier prompt was pressed (the pad's way to skip).
+std::string detect(int kind, const Raw &r, const Raw &prev, const Raw &rest, bool *skip)
 {
     char s[24];
 
@@ -145,6 +167,7 @@ std::string detect(int kind, const Raw &r, const Raw &prev, const Raw &rest)
             snprintf(s, sizeof(s), "b%d", (int)i);
             if (!bound(s))
                 return s;
+            *skip = true;
         }
 
     for (size_t i = 0; i < r.hat.size(); i++) {
@@ -204,9 +227,10 @@ void start_setup(SDL_JoystickID id)
     SDL_GUIDToString(SDL_GetJoystickGUIDForID(id), guid, sizeof(guid));
     g_ui.guid = guid;
     g_ui.bind.assign(kNumPrompts, std::string());
-    read_raw(g_ui.js, g_ui.rest);        // the pad untouched (it was started with the mouse or keys)
+    read_raw(g_ui.js, g_ui.rest);        // the pad untouched, but for the button that started this, if any
     g_ui.prev = g_ui.rest;
     g_ui.armed = true;
+    g_ui.answered_at = g_ui.hold_since = SDL_GetTicks();
     g_ui.step = 0;
     g_ui.message.clear();
     // while it is being set up its presses are answers, not menu moves
@@ -322,20 +346,49 @@ void setup_layer(void *)
     const ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize |
                                    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove;
     if (ImGui::Begin("Gamepad Setup###zplayer_gamepad", &open, flags)) {
+        // While a pad is set up its presses are answers, so it can't steer the window: holding
+        // any of its buttons 2 s cancels, a button already set skips a prompt, and the button
+        // set as the bottom face or Start saves at the end.
+        Raw r;
+        const Uint64 now = SDL_GetTicks();
+        if (u.step >= 0 && u.js) {
+            read_raw(u.js, r);
+            forget_released(r, u.rest);
+            if (!pressing(r, u.rest))
+                u.hold_since = now;
+            else if (now - u.hold_since >= 2000) {
+                stop_setup();
+                u.message = "Setup cancelled: a button was held for 2 seconds. Nothing was saved.";
+            }
+        }
         if (u.step >= 0 && u.js) {
             // ---- asking for one button after another ----
-            Raw r;
-            read_raw(u.js, r);
+            bool pad_save = false;
             if (u.step < kNumPrompts) {
                 if (!u.armed)
-                    u.armed = at_rest(r, u.rest);
+                    // everything let go, or a second passed (an input that never reads as let go
+                    // must not stop the setup; one still held gives no new press anyway)
+                    u.armed = at_rest(r, u.rest) || now - u.answered_at >= 1000;
                 else {
-                    const std::string in = detect(kPrompts[u.step].kind, r, u.prev, u.rest);
-                    if (!in.empty()) {
+                    bool skip = false;
+                    const std::string in = detect(kPrompts[u.step].kind, r, u.prev, u.rest, &skip);
+                    if (!in.empty() || skip) {
                         u.bind[u.step++] = in;
                         u.armed = false;
+                        u.answered_at = now;
                     }
                 }
+            }
+            else {
+                for (size_t i = 0; i < r.button.size(); i++)
+                    if (r.button[i] && !(i < u.prev.button.size() && u.prev.button[i])) {
+                        char s[24];
+                        snprintf(s, sizeof(s), "b%d", (int)i);
+                        for (int k = 0; k < kNumPrompts; k++)
+                            if ((!strcmp(kPrompts[k].field, "a") || !strcmp(kPrompts[k].field, "start")) &&
+                                u.bind[k] == s)
+                                pad_save = true;
+                    }
             }
             u.prev = r;
 
@@ -361,6 +414,7 @@ void setup_layer(void *)
                 if (ImGui::Button("Cancel (Esc)") || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
                     stop_setup();
                 ImGui::TextDisabled("Skip what the pad doesn't have (a PlayStation 1 pad has no sticks or L3/R3).");
+                ImGui::TextDisabled("On the pad: a button already set skips; hold any button 2 s to cancel.");
             }
             else {
                 ImGui::TextUnformatted("All asked. The answers:");
@@ -368,7 +422,7 @@ void setup_layer(void *)
                     if (!u.bind[i].empty())
                         ImGui::BulletText("%s: %s", kPrompts[i].field, u.bind[i].c_str());
                 ImGui::Spacing();
-                if (ImGui::Button("Save") || ImGui::IsKeyPressed(ImGuiKey_Enter, false))
+                if (ImGui::Button("Save") || ImGui::IsKeyPressed(ImGuiKey_Enter, false) || pad_save)
                     save_setup();
                 ImGui::SameLine();
                 if (ImGui::Button("Start over")) {
@@ -378,6 +432,8 @@ void setup_layer(void *)
                 ImGui::SameLine();
                 if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
                     stop_setup();
+                ImGui::TextDisabled("On the pad: the button set as the bottom face or Start saves;\n"
+                                    "hold any button 2 s to cancel.");
             }
         }
         else {

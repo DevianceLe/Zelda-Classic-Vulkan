@@ -68,6 +68,7 @@
 #include "zcport/gamepad_setup.h"  // zplayer: Settings > Controls > Gamepad Setup
 #endif
 #include "port/game/ui_dialogs.h"
+#include "zcport/platform.h"     // zcport_ticks_ms: the "Press a button" wait's hold-to-cancel
 #include "port/game/q30_audio.h" // 2.55/3.0 music and sound: empty and inert for 2.53 quests
 #else
 #define Q30_MAX_SFX WAV_COUNT
@@ -5166,7 +5167,7 @@ void kb_getkey(DIALOG *d)
 
 #ifdef ZC_PORT
     // zplayer: the prompt is an ImGui window (port/game/ui_dialogs.h)
-    zcui_dialog_prompt_begin("Press a key", "ESC to cancel", NULL);
+    zcui_dialog_prompt_begin("Press a key", "ESC or a gamepad button to cancel", NULL);
 #else
     scare_mouse();
     jwin_button_proc(MSG_DRAW,d,0);
@@ -5206,7 +5207,7 @@ void kb_clearkey(DIALOG *d)
     d->flags|=D_SELECTED;
 
 #ifdef ZC_PORT
-    zcui_dialog_prompt_begin("Press any key to clear", "ESC to cancel", NULL);
+    zcui_dialog_prompt_begin("Press any key or button to clear", "ESC to cancel", NULL);
 #else
     scare_mouse();
     jwin_button_proc(MSG_DRAW,d,0);
@@ -5246,7 +5247,7 @@ void kb_clearjoystick(DIALOG *d)
     d->flags|=D_SELECTED;
 
 #ifdef ZC_PORT
-    zcui_dialog_prompt_begin("Press any key to clear", "ESC to cancel", NULL);
+    zcui_dialog_prompt_begin("Press any key or button to clear", "ESC to cancel", NULL);
 #else
     scare_mouse();
     jwin_button_proc(MSG_DRAW,d,0);
@@ -5339,7 +5340,7 @@ void j_getbtn(DIALOG *d)
 {
     d->flags|=D_SELECTED;
 #ifdef ZC_PORT
-    zcui_dialog_prompt_begin("Press a button", "ESC to cancel", "SPACE to disable");
+    zcui_dialog_prompt_begin("Press a button", "ESC, or hold a button 2 s, to cancel", "SPACE to disable");
 #else
     scare_mouse();
     jwin_button_proc(MSG_DRAW,d,0);
@@ -6640,6 +6641,10 @@ int onKeyboard()
             {
                 if ( Exkey4 != 0 )unique = false;
             }
+            // zplayer leaves the cheat modifiers out: they act only together with a
+            // cheat key, so sharing one with a game button is no clash. The game's
+            // buttons stay unique among themselves.
+#ifndef ZC_PORT
 	    //modifier keys
 	    if(keyhash->find(cheat_modifier_keys[0]) == keyhash->end())
             {
@@ -6674,6 +6679,7 @@ int onKeyboard()
                 if ( cheat_modifier_keys[3] != 0 ) unique = false;
             }
             
+#endif
             delete keyhash;
             
             if(unique)
@@ -6775,6 +6781,10 @@ int onKeyboardDir()
             {
                 if ( Exkey4 != 0 )unique = false;
             }
+            // zplayer leaves the cheat modifiers out: they act only together with a
+            // cheat key, so sharing one with a game button is no clash. The game's
+            // buttons stay unique among themselves.
+#ifndef ZC_PORT
              //modifier keys
 	    if(keyhash->find(cheat_modifier_keys[0]) == keyhash->end())
             {
@@ -6808,6 +6818,7 @@ int onKeyboardDir()
             {
                 if ( cheat_modifier_keys[3] != 0 ) unique = false;
             }
+#endif
             delete keyhash;
             
             if(unique)
@@ -6900,6 +6911,10 @@ int onKeyboardModifierKeys()
             {
                 if ( Exkey4 != 0 )unique = false;
             }
+            // zplayer leaves the cheat modifiers out: they act only together with a
+            // cheat key, so sharing one with a game button is no clash. The game's
+            // buttons stay unique among themselves.
+#ifndef ZC_PORT
              //modifier keys
 	    if(keyhash->find(cheat_modifier_keys[0]) == keyhash->end())
             {
@@ -6933,6 +6948,7 @@ int onKeyboardModifierKeys()
             {
                 if ( cheat_modifier_keys[3] != 0 )unique = false;
             }
+#endif
             delete keyhash;
             
             if(unique)
@@ -9953,26 +9969,121 @@ bool joybtn(int b)
     return joy[joystick_index].button[b-1].b !=0;
 }
 
+#ifdef ZC_PORT
+// zplayer: the "Press a key" / "Press a button" waits below must not trap a
+// player who has only a gamepad (Android, the Switch, a Steam Deck, a TV), nor
+// one whose pad has a button that always reads as held (a raw adapter, a
+// trigger resting past half way). A button down when a wait begins counts only
+// after it has been let go.
+namespace
+{
+struct PadWait
+{
+    bool held[MAX_JOYSTICKS][MAX_JOYSTICK_BUTTONS];
+
+    void start()
+    {
+        poll_joystick();
+        for(int j = 0; j < MAX_JOYSTICKS; ++j)
+            for(int b = 0; b < MAX_JOYSTICK_BUTTONS; ++b)
+                held[j][b] = j < num_joysticks && b < joy[j].num_buttons && joy[j].button[b].b;
+    }
+
+    // The first button of joystick j pressed since the wait began (1-based), or 0.
+    // Reads joy[] as the last poll_joystick() left it.
+    int pressed(int j)
+    {
+        if(j < 0 || j >= num_joysticks)
+            return 0;
+        int found = 0;
+        for(int b = 0; b < joy[j].num_buttons && b < MAX_JOYSTICK_BUTTONS; ++b)
+        {
+            if(!joy[j].button[b].b)
+                held[j][b] = false;
+            else if(!held[j][b] && !found)
+                found = b + 1;
+        }
+        return found;
+    }
+};
+}
+#endif
+
 int next_press_key()
 {
     char k[128];
-    
+
     for(int i=0; i<128; i++)
         k[i]=key[i];
-        
+
+#ifdef ZC_PORT
+    // A gamepad button ends the wait too (-1: "Press a key" is cancelled, and it
+    // is the "any key" of "Press any key to clear"). It sleeps between looks.
+    PadWait pad;
+    pad.start();
+    for(;;)
+    {
+        for(int i=0; i<128; i++)
+            if(key[i]!=k[i])
+                return i;
+        poll_joystick();
+        for(int j = 0; j < num_joysticks; ++j)
+            if(pad.pressed(j))
+                return -1;
+        rest(1);
+    }
+#else
     for(;;)
     {
         for(int i=0; i<128; i++)
             if(key[i]!=k[i])
                 return i;
     }
-    
+#endif
+
     //	return (readkey()>>8);
 }
 
 int next_press_btn()
 {
     clear_keybuf();
+#ifdef ZC_PORT
+    // The answer is the first button pressed after the wait began, taken when it
+    // is let go; holding it 2 s cancels instead (a pad has no ESC). Buttons
+    // already down at the start (one may never be let go) don't count until
+    // released. It sleeps between looks.
+    PadWait pad;
+    pad.start();
+    int down = 0;
+    uint32_t since = 0;
+    for(;;)
+    {
+        if(keypressed())
+        {
+            switch(readkey()>>8)
+            {
+            case KEY_ESC:
+                return -1;
+
+            case KEY_SPACE:
+                return 0;
+            }
+        }
+
+        poll_joystick();
+        const int j = joystick_index;
+        if(!down)
+        {
+            down = pad.pressed(j);
+            since = zcport_ticks_ms();
+        }
+        else if(!(j < num_joysticks && down <= joy[j].num_buttons && joy[j].button[down-1].b))
+            return down;
+        else if(zcport_ticks_ms() - since >= 2000)
+            return -1;
+        rest(1);
+    }
+#else
     /*bool b[joy[joystick_index].num_buttons+1];
     
     for(int i=1; i<=joy[joystick_index].num_buttons; i++)
@@ -10020,12 +10131,13 @@ int next_press_btn()
         }
         
         poll_joystick();
-        
+
         for(int i=1; i<=joy[joystick_index].num_buttons; i++)
         {
             if(joybtn(i)) return i;
         }
     }
+#endif
 }
 
 static bool rButton(bool(proc)(),bool &flag)

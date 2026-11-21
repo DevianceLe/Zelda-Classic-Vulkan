@@ -57,17 +57,24 @@ float font_scale()
     return f > 0.0f ? f : 1.0f;
 }
 
-bool any_key_down()
+// A key or button still held after a "press a key" prompt. The pad's sticks and
+// triggers don't count: one that drifts or rests off zero would read as held for
+// good and leave the dialog frozen.
+bool digital_key_down()
 {
     for(int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_NamedKey_END; ++k)
     {
         if(k >= ImGuiKey_ReservedForModCtrl && k <= ImGuiKey_ReservedForModSuper)
+            continue;
+        if(k == ImGuiKey_GamepadL2 || k == ImGuiKey_GamepadR2 ||
+           (k >= ImGuiKey_GamepadLStickLeft && k <= ImGuiKey_GamepadRStickDown))
             continue;
         if(ImGui::IsKeyDown((ImGuiKey)k))
             return true;
     }
     return false;
 }
+double g_swallow_start = -1.0;      // when the swallow after a prompt began (ImGui time)
 
 bool any_key_pressed()
 {
@@ -1490,8 +1497,21 @@ void zcui_dlg::layer(void *)
         return;
     }
 
-    if(sh.swallow_keys && !sh.prompt && !any_key_down())
-        sh.swallow_keys = false;
+    // The key that ended a prompt must not also act on the dialog: it takes no
+    // input until that key is let go, or a second has passed (a release that
+    // never arrives must not freeze it for good).
+    if(sh.prompt || !sh.swallow_keys)
+        g_swallow_start = -1.0;
+    else
+    {
+        if(g_swallow_start < 0.0)
+            g_swallow_start = ImGui::GetTime();
+        if(!digital_key_down() || ImGui::GetTime() - g_swallow_start > 1.0)
+        {
+            sh.swallow_keys = false;
+            g_swallow_start = -1.0;
+        }
+    }
 
     // There is one bar at the top of the window: a dialog with its own menu
     // (ZQuest's subscreen editor) takes it over from the ones below.
