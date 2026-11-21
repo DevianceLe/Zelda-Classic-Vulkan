@@ -1,3 +1,16 @@
+## 2.53.444.9.1
+
+**Controls no longer lock up with a gamepad**
+
+- **"Press a key" and the "Clear" buttons** in Settings > Controls waited for the keyboard only, so with just a gamepad there was no way out. A gamepad button now cancels "Press a key", and it counts as the key in "Press any key or button to clear"
+- **"Press a button"** waited until no button at all was held, so a trigger resting past half way or a stuck button kept it waiting for good. Buttons held when the prompt opens are now ignored until you let go of them, and holding any button for 2 seconds cancels
+- **The Controls dialogs froze after a prompt** while a stick drifted a little or a trigger rested slightly pressed: the dialog looked normal, but the pad, the keys and the mouse did nothing. It no longer waits for the sticks and triggers, and never for more than a second
+- **Gamepad Setup** can now be finished or left with the pad alone: a button you've already set skips a step, holding any button for 2 seconds cancels, and the button you set as the bottom face button or Start saves. Buttons held when a step starts no longer keep it waiting
+- **Key Buttons always said "Key bindings must be unique!"** with the default keys, because B and a cheat modifier are both Left Ctrl, so keyboard changes couldn't be saved. Cheat modifier keys only act together with a cheat key and are no longer counted. Two game buttons on the same key still give the message
+- The prompts no longer keep a processor core busy while they wait
+
+**Tested:** with a virtual gamepad whose trigger was held and whose stick was drifting the whole time: clearing and binding joystick buttons, cancelling by holding a button, the dialog still responding after each prompt, the buttons saved in `zc.cfg`, and Gamepad Setup run to the end with the pad alone and its layout saved. Keyboard binding with ESC to cancel works as before. The 2.53 re-saves and the recorded 1st Quest run are unchanged (all 2,478 frames).
+
 ## What's new in 2.53.444.9
 
 **Upstream 2.55.18 and the latest 3.0**
