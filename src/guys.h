@@ -151,6 +151,12 @@ protected:
     //                         --==**==--
     void fix_coords(bool bound=false);
     // returns true if next step is ok, false if there is something there
+    // 2.55+ quests: the enemy's own move flags keep it off pitfalls (upstream's enemy::m_walkflag,
+    // groundblocked and flyerblocked); nothing changes for 2.53 quests
+    bool m_walkflag(int dx,int dy,int special, int x=-1000, int y=-1000);
+    bool flyerblocked(int dx, int dy, int special);
+    bool q30_shadow_overpit();
+    void q30_rock_shadow(BITMAP *dest, bool translucent);
     bool canmove(int ndir,fix s,int special,int dx1,int dy1,int dx2,int dy2);
     bool canmove(int ndir,fix s,int special);
     bool canmove(int ndir,int special);

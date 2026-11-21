@@ -323,6 +323,379 @@ std::string newer_words(const char *what, int file_v, int quest_v)
     return b;
 }
 
+// ---- a section laid out in an older format of its line ------------------------------------------
+
+// An enemy or item section's records as tapes, with the names a section holds in front of them
+// (enemies always, items before format 67; 64 bytes each).
+struct SecTapes
+{
+    int count;
+    std::vector<std::string> names;
+    std::vector<Tape> recs;
+};
+
+bool split_records(dword id, int v, const std::vector<byte> &data, SecTapes &s)
+{
+    const bool item = id == ID_ITEMS;
+    size_t at = 0;
+    s.names.clear();
+    s.recs.clear();
+
+    if(item)
+    {
+        if(data.size() < 2)
+            return false;
+
+        s.count = data[0] | (data[1] << 8);
+        at = 2;
+    }
+    else
+        s.count = MAXGUYS;
+
+    if(!item || v < 67)
+    {
+        if(data.size() < at + 64 * (size_t)s.count)
+            return false;
+
+        for(int i = 0; i < s.count; ++i)
+            s.names.push_back(std::string((const char *)&data[at + 64 * (size_t)i], 64));
+
+        at += 64 * (size_t)s.count;
+    }
+
+    s.recs.resize((size_t)s.count);
+
+    for(int i = 0; i < s.count; ++i)
+    {
+        TapeParser p(data.empty() ? NULL : &data[0], data.size(), at, &s.recs[i]);
+
+        if(!(item ? zq_tape_item(p, v) : zq_tape_guy(p, v)) || p.bad)
+            return false;
+
+        at = p.pos;
+    }
+
+    return at == data.size();
+}
+
+// The format of the weapon data the quest's own enemies or items hold (upstream's weapon_data
+// carries a format number of its own, in every record), -1 when they hold none.
+int quest_weapon_data_version(dword id)
+{
+    std::vector<byte> rec;
+    int rv = 0;
+
+    if(!(id == ID_ITEMS ? zq255_item_record(0, rec, &rv) : zq255_guy_record(0, rec, &rv)) || rec.empty())
+        return -1;
+
+    Tape t;
+    TapeParser p(&rec[0], rec.size(), 0, &t);
+
+    if(!(id == ID_ITEMS ? zq_tape_item(p, rv) : zq_tape_guy(p, rv)) || p.bad || !t.find("wd.version"))
+        return -1;
+
+    return (int)t.get("wd.version");
+}
+
+// A record of the line's newest format, for the schema of an older one: the fields the older
+// format keeps under another name (an enemy's script before format 59, its weapon's script before
+// 54; an item's scripts before 71, its weapon's data before 63) take the newer field's value, and
+// the weapon data is laid out in the format the quest's own records hold it in (wd: -1 none).
+// What the older format has no field for stays behind; the proof in lay_out_older then tells
+// whether that lost anything.
+void older_keys(dword id, Tape &t, int v, int wd)
+{
+    char from[48], to[48];
+    const bool config = t.find("wd.sc.script") != NULL;     // weapon data from its format 5
+
+    if(id == ID_ITEMS && v < 71)
+    {
+        // one set of arguments for the three scripts
+        zqn255_tape_set(t, "script", t.get("sc.action.script"));
+        zqn255_tape_set(t, "collect_script", t.get("sc.pickup.script"));
+        zqn255_tape_set(t, "sprite_script", t.get("sc.sprite.script"));
+
+        for(int q = 0; q < 8; ++q)
+        {
+            snprintf(from, sizeof(from), "sc.action.initd%d", q);
+            snprintf(to, sizeof(to), "initd%d", q);
+            zqn255_tape_set(t, to, t.get(from));
+        }
+    }
+
+    if(id == ID_ITEMS && v < 63)
+    {
+        // the weapon's data with the item
+        static const char *same[] = { "imitate", "defdef", "hxofs", "hyofs", "hxsz", "hysz", "hzsz", "xofs", "yofs", "override",
+                                      "tilew", "tileh", "moveflags" };
+
+        for(size_t k = 0; k < sizeof(same) / sizeof(same[0]); ++k)
+        {
+            snprintf(from, sizeof(from), "wd.%s", same[k]);
+            snprintf(to, sizeof(to), "w.%s", same[k]);
+            zqn255_tape_set(t, to, t.get(from));
+        }
+
+        zqn255_tape_set(t, "w.script", t.get(config ? "wd.sc.script" : "wd.script"));
+
+        for(int q = 0; q < 8; ++q)
+        {
+            snprintf(from, sizeof(from), config ? "wd.sc.initd%d" : "wd.initd%d", q);
+            snprintf(to, sizeof(to), "w.initd%d", q);
+            zqn255_tape_set(t, to, t.get(from));
+        }
+
+        for(int q = 0; q < 5; ++q)
+        {
+            snprintf(from, sizeof(from), "wd.burnspr%d", q);
+            snprintf(to, sizeof(to), "burnspr%d", q);
+            zqn255_tape_set(t, to, t.get(from));
+            snprintf(from, sizeof(from), "wd.lightrad%d", q);
+            snprintf(to, sizeof(to), "lightrad%d", q);
+            zqn255_tape_set(t, to, t.get(from));
+        }
+    }
+
+    // weapon data in the quest's own format of it: before 5 its script is a number and eight
+    // arguments, not a script config
+    if(wd >= 0 && t.find("wd.version") && wd < t.get("wd.version"))
+    {
+        if(wd < 5 && config)
+        {
+            zqn255_tape_set(t, "wd.script", t.get("wd.sc.script"));
+
+            for(int q = 0; q < 8; ++q)
+            {
+                snprintf(from, sizeof(from), "wd.sc.initd%d", q);
+                snprintf(to, sizeof(to), "wd.initd%d", q);
+                zqn255_tape_set(t, to, t.get(from));
+            }
+        }
+
+        zqn255_tape_set(t, "wd.version", wd);
+    }
+
+    if(id == ID_GUYS && v < 59)
+    {
+        zqn255_tape_set(t, "script", t.get("sc.script"));
+
+        for(int q = 0; q < 8; ++q)
+        {
+            snprintf(from, sizeof(from), "sc.initd%d", q);
+            snprintf(to, sizeof(to), "initd%d", q);
+            zqn255_tape_set(t, to, t.get(from));
+        }
+    }
+
+    if(id == ID_GUYS && v < 54)
+    {
+        // the weapon's script: weapon data keeps it as a script config from its own format 5
+        zqn255_tape_set(t, "w.script", t.get(config ? "wd.sc.script" : "wd.script"));
+
+        for(int q = 0; q < 8; ++q)
+        {
+            snprintf(from, sizeof(from), config ? "wd.sc.initd%d" : "wd.initd%d", q);
+            snprintf(to, sizeof(to), "w.initd%d", q);
+            zqn255_tape_set(t, to, t.get(from));
+        }
+
+        if(v >= 52)
+        {
+            // formats 52 and 53 hold these of the weapon's data with the enemy (the step speed in
+            // hundredths of a pixel, where weapon data keeps ten-thousandths)
+            static const char *same[] = { "unblockable", "moveflags", "override", "tilew", "tileh", "hxsz", "hysz", "hzsz",
+                                          "hxofs", "hyofs", "xofs", "yofs" };
+
+            for(size_t k = 0; k < sizeof(same) / sizeof(same[0]); ++k)
+            {
+                snprintf(from, sizeof(from), "wd.%s", same[k]);
+                snprintf(to, sizeof(to), "w.%s", same[k]);
+                zqn255_tape_set(t, to, t.get(from));
+            }
+
+            zqn255_tape_set(t, "w.step", t.get("wd.step") / 100);
+
+            for(int q = 0; q < 5; ++q)
+            {
+                snprintf(from, sizeof(from), "wd.burnspr%d", q);
+                snprintf(to, sizeof(to), "w.burnspr%d", q);
+                zqn255_tape_set(t, to, t.get(from));
+                snprintf(from, sizeof(from), "wd.lightrad%d", q);
+                snprintf(to, sizeof(to), "w.lightrad%d", q);
+                zqn255_tape_set(t, to, t.get(from));
+            }
+        }
+    }
+}
+
+// Whether two fields of the same key hold the same.
+bool same_field(const TapeField &a, const TapeField &b)
+{
+    return a.value == b.value && a.bytes == b.bytes;
+}
+
+// A section in its line's newest format (newest: its id first, as the converters give it) laid
+// out again in the older format qv of the same line (out: version, cversion, size, data), record
+// by record: the tape's rebuild, every field of the older format from the newer record's field of
+// that name. For a quest whose own section sits between formats, when the file's converter gives
+// only the line's newest.
+//
+// The proof that nothing was lost: the result is converted up again the way saving the quest as
+// the target converts that section (the port of the loader's reader for format qv, checked
+// against upstream), and must give the newest-format section back. A field that comes back
+// different is one format qv has no place for, which the loader makes up when it reads that
+// format (not_held): an enemy's second weapon sound before format 60 is its weapon sound; an
+// item's strong / magic / divine fire flags before format 56 are what the loader gives the
+// item's class in a quest of that version (a 2.53 quest's Din's Fire is strong fire, a 2.55
+// quest's of that format isn't). Those are counted for the import's note (g_format_note). Any
+// other difference refuses the file, with the reason.
+bool not_held(dword id, const TapeField &a, const TapeField *b, int qv)
+{
+    if(id == ID_GUYS && qv < 60 && a.key == "firesfx2")
+        return true;
+
+    // ITEM_FLAG9, 10 and 11
+    return id == ID_ITEMS && qv < 56 && a.key == "flags" && b && a.bytes == b->bytes && !((a.value ^ b->value) & ~(int64_t)0x70000);
+}
+
+// What an import brought in differently because the quest's format has no place for it (shown
+// with the import's result).
+std::string g_format_note;
+
+bool lay_out_older(dword id, int target, const std::vector<byte> &newest, int qv, word qcv, const char *what,
+                   std::vector<byte> &out, std::string &why)
+{
+    const bool item = id == ID_ITEMS;
+    char buf[300];
+    In in(newest, 4);
+    word nv = 0, ncv = 0;
+    std::vector<byte> nd;
+    SecTapes a;
+
+    if(newest.size() < 12 || !take_section(in, &nv, &ncv, nd) || !split_records(id, nv, nd, a))
+    {
+        why = std::string("its ") + what + " couldn't be laid out in this quest's format";
+        return false;
+    }
+
+    Out o;
+
+    if(item)
+        o.p16((word)a.count);
+
+    if(!item || qv < 67)
+        for(int i = 0; i < a.count; ++i)
+        {
+            char nm[64];
+            memset(nm, 0, sizeof(nm));
+
+            if(!a.names.empty())
+                memcpy(nm, a.names[i].data(), 64);
+            else if(const TapeField *nf = a.recs[i].find("name"))
+                memcpy(nm, nf->bytes.empty() ? "" : (const char *)&nf->bytes[0], nf->bytes.size() < 63 ? nf->bytes.size() : 63);
+
+            o.b.insert(o.b.end(), nm, nm + 64);
+        }
+
+    const int wd = quest_weapon_data_version(id);
+
+    for(int i = 0; i < a.count; ++i)
+    {
+        Tape t = a.recs[i];
+        older_keys(id, t, qv, wd);
+        std::vector<byte> rec;
+
+        if(!zqn255_tape_rebuild(item ? zq_tape_item : zq_tape_guy, t, qv, rec))
+        {
+            snprintf(buf, sizeof(buf), "%s %d of the file couldn't be laid out in this quest's format %d", item ? "item" : "enemy", i, qv);
+            why = buf;
+            return false;
+        }
+
+        o.pn(rec);
+    }
+
+    out = whole_section((word)qv, qcv, o.b);
+
+    // the proof
+    std::vector<byte> back;
+    std::string w;
+
+    if(!zq_newer_convert_section(id, target, out, back, w))
+    {
+        snprintf(buf, sizeof(buf), "its %s couldn't be laid out in this quest's format %d: ", what, qv);
+        why = buf + w;
+        return false;
+    }
+
+    if(back == newest)
+        return true;
+
+    In bin(back, 4);
+    word bv = 0, bcv = 0;
+    std::vector<byte> bd;
+    SecTapes b;
+
+    if(back.size() < 12 || !take_section(bin, &bv, &bcv, bd) || bv != nv || !split_records(id, bv, bd, b) || b.count != a.count)
+    {
+        snprintf(buf, sizeof(buf), "its %s don't stay as they are in this quest's format %d", what, qv);
+        why = buf;
+        return false;
+    }
+
+    int lost = 0;
+    std::string first_lost, lost_what;
+
+    for(int i = 0; i < a.count; ++i)
+    {
+        std::string key;
+
+        if(!a.names.empty() && !b.names.empty() && strncmp(a.names[i].c_str(), b.names[i].c_str(), 64))
+            key = "name";
+
+        for(size_t k = 0; k < a.recs[i].f.size() && key.empty(); ++k)
+        {
+            const TapeField &fa = a.recs[i].f[k];
+            const TapeField *fb = b.recs[i].find(fa.key.c_str());
+
+            if(fb && same_field(fa, *fb))
+                continue;
+
+            if(not_held(id, fa, fb, qv))
+            {
+                if(!lost++)
+                {
+                    snprintf(buf, sizeof(buf), "%s %d", item ? "item" : "enemy", i);
+                    first_lost = buf;
+                    lost_what = fa.key == "firesfx2" ? "second weapon sound" : "fire strength flags";
+                }
+            }
+            else
+                key = fa.label.empty() ? fa.key : fa.label + " (" + fa.key + ")";
+        }
+
+        if(key.empty() && b.recs[i].f.size() != a.recs[i].f.size())
+            key = "layout";
+
+        if(!key.empty())
+        {
+            snprintf(buf, sizeof(buf), "this quest's %s are in format %d, which can't hold what %s %d of the file becomes when converted (its %s)",
+                     what, qv, item ? "item" : "enemy", i, key.c_str());
+            why = buf;
+            return false;
+        }
+    }
+
+    if(lost)
+    {
+        snprintf(buf, sizeof(buf), "this quest's %s format %d has no place for the %s of %d of them (%s%s): they are as its version reads them; ",
+                 item ? "item" : "enemy", qv, lost_what.c_str(), lost, first_lost.c_str(), lost > 1 ? " first" : "");
+        g_format_note += buf;
+    }
+
+    return true;
+}
+
 // A file's section (version v, cversion cv, data) for a quest whose own section is in another
 // format. Upstream's imports read a file of any older format with its loader's reader, which
 // converts it to its newest; here an older file is converted the same way by what saving a quest
@@ -360,20 +733,38 @@ bool section_for_quest(dword id, const char *what, word &v, word &cv, std::vecto
     std::vector<byte> out;
     bool converted;
 
-    if(qv == n255 || qv == n30)
-        converted = zq_newer_convert_section(id, qv == n30 ? ZQ_NEWER_30 : ZQ_NEWER_255, whole_section(v, cv, data), out, why);
+    // the line the quest's section belongs to, and the quest's own cversion
+    const int target = qv <= n255 ? ZQ_NEWER_255 : ZQ_NEWER_30;
+    const int newest = target == ZQ_NEWER_255 ? n255 : n30;
+    const ZqQuestPart *part = zq_find_part(id);
+    word pv = 0, pcv = 0;
+
+    if(!part || !zq_part_versions(*part, &pv, &pcv))
+        pcv = cv;
+
+    // A file in one of 2.53's formats or older (2.53's own exports: enemies 24, items 25), which
+    // the 2.55 line's converters don't start from: converted as a quest of 2.53.1 saved as the
+    // line's newest version has that section converted, then laid out in the quest's format.
+    const bool old_file = (id == ID_GUYS && v <= 24) || (id == ID_ITEMS && v <= 25);
+
+    if(old_file)
+        converted = id == ID_GUYS ? zqn_guys_from_old_file(whole_section(v, cv, data), target, out, why)
+                                  : zqn_items_from_old_file(whole_section(v, cv, data), target, out, why);
+    else if(qv == newest)
+        converted = zq_newer_convert_section(id, target, whole_section(v, cv, data), out, why);
     else
     {
-        // between formats: up to the quest's own (its cversion too), in the line it belongs to
-        const ZqQuestPart *part = zq_find_part(id);
-        word pv = 0, pcv = 0;
+        // between formats: up to the quest's own (its cversion too), where the section's converter
+        // can stop there; otherwise up to the line's newest, to be laid out in the quest's
+        std::string w;
+        converted = zq_newer_convert_section_to(id, target, whole_section(v, cv, data), (word)qv, pcv, out, w);
 
-        if(!part || !zq_part_versions(*part, &pv, &pcv))
-            pcv = cv;
+        if(!converted && (id == ID_GUYS || id == ID_ITEMS))
+            converted = zq_newer_convert_section(id, target, whole_section(v, cv, data), out, why);
+        else if(!converted)
+            why = w;
 
-        converted = zq_newer_convert_section_to(id, qv < n255 ? ZQ_NEWER_255 : ZQ_NEWER_30, whole_section(v, cv, data), (word)qv, pcv, out, why);
-
-        if(!converted && qv > n255)
+        if(!converted && target == ZQ_NEWER_30 && id != ID_GUYS && id != ID_ITEMS)
         {
             char b[300];
             snprintf(b, sizeof(b), "its %s are in format %d and this quest's in format %d, between 2.55.18's (%d) and 3.0 Nightly's (%d); "
@@ -381,6 +772,20 @@ bool section_for_quest(dword id, const char *what, word &v, word &cv, std::vecto
             why = b;
             return false;
         }
+    }
+
+    // the line's newest format, for a quest whose section is in an older one of the line
+    if(converted && (id == ID_GUYS || id == ID_ITEMS) && out.size() >= 6 && (out[4] | (out[5] << 8)) == newest && qv != newest)
+    {
+        std::vector<byte> older;
+
+        if(!lay_out_older(id, target, out, qv, pcv, what, older, why))
+            return false;
+
+        Out o;
+        o.m32(id);
+        o.pn(older);
+        out.swap(o.b);
     }
 
     if(!converted)
@@ -408,34 +813,71 @@ bool section_for_quest(dword id, const char *what, word &v, word &cv, std::vecto
     return true;
 }
 
+// A DMap's music before DMap format 25 (a MIDI number and a music file, with loop points from
+// format 18), as the music object upstream's reader makes of it (read_one_dmap; the MIDI through
+// convert_from_old_midi_id). False when the DMap has no music.
+bool old_dmap_music(const Tape &t, int index, Zq255Store::Music &m)
+{
+    int midi = (int)t.get("midi") - 3;      // MIDIOFFSET_DMAP - MIDIOFFSET_ZSCRIPT
+
+    switch(midi)
+    {
+    case -3: midi = 0; break;
+    case -4: midi = -3; break;      // MIDI_GAMEOVER
+    case -2: midi = -5; break;      // MIDI_OVERWORLD
+    case -1: midi = -1; break;      // MIDI_DUNGEON
+    case 0: midi = -4; break;       // MIDI_LEVEL9
+    default: if(midi < 0) midi = 0; break;
+    }
+
+    m = Zq255Store::Music();
+    m.midi = (short)midi;
+
+    if(const TapeField *f = t.find("tmusic"))
+        for(size_t k = 0; k < f->bytes.size() && f->bytes[k]; ++k)
+            m.path += (char)f->bytes[k];
+
+    m.track = (byte)t.get("tmusictrack");
+    m.loop_start = (long)t.get("loop_start");
+    m.loop_end = (long)t.get("loop_end");
+    m.xfade_in = (long)t.get("xfade_in");
+    m.xfade_out = (long)t.get("xfade_out");
+
+    if(m.path.empty() && !m.midi)
+        return false;
+
+    char name[32];
+    snprintf(name, sizeof(name), "DMap %d", index);
+    m.name = name;
+    return true;
+}
+
 // DMap records of an older format laid out in the quest's, as upstream's reader reads an older
-// DMap (read_one_dmap, which its import uses): what the older format lacks takes the reader's
-// default (no mirror DMap, no overlay or map subscreen, no intro string, floor 0), and a title
-// that was 20 characters wide becomes a string. Not across the formats that changed how a DMap
-// holds something (25: its music, a number in the quest's music list instead of a file name;
-// 26: its disabled items; 27: its scripts), which are refused with the reason. Region ids (in
-// format 21 only) must be all 0: later formats keep regions with the maps. first: the first
-// record's DMap number, for the messages.
+// DMap (read_one_dmap, which its import uses, and its loader for a whole quest): what the older
+// format lacks takes the reader's default (no mirror DMap, no overlay or map subscreen, no intro
+// string, floor 0, no subscreen or map scripts), a title that was 20 characters wide becomes a
+// string, and an overworld DMap's map X offset is 0. Across the formats that changed how a DMap
+// holds something:
+//   25  its music: the MIDI and music file become one of the quest's music objects ("DMap n"),
+//       which the DMap then names by number. Upstream's import adds a new object every time; an
+//       object the quest already has just like it is used again here, so importing a quest's
+//       own DMaps into a copy of it saved as 3.0 gives the DMaps that copy has.
+//   26  its disabled items: 32 bytes of bits become a bit string.
+//   27  its scripts: the script numbers and their eight arguments become script configs (the
+//       passive subscreen's arguments are the active subscreen's).
+// Region ids (in format 21 only) must be all 0: later formats keep regions with the maps.
+// first: the first record's DMap number. The music objects go into the quest's list (zq255.music):
+// the caller puts the list back if the import fails.
 bool dmaps_to_format(std::vector<std::vector<byte> > &recs, int first, int v, int qv, std::string &why)
 {
-    static const struct { int v; const char *what; } steps[] = { { 25, "music" }, { 26, "disabled items" }, { 27, "scripts" } };
-    char buf[240];
+    char buf[240], k[48], k2[48];
 
-    if(v < 14)
+    if(v < 9)
     {
         snprintf(buf, sizeof(buf), "its DMaps are in format %d, older than ZQuest converts", v);
         why = buf;
         return false;
     }
-
-    for(size_t k = 0; k < sizeof(steps) / sizeof(steps[0]); ++k)
-        if(v < steps[k].v && qv >= steps[k].v)
-        {
-            snprintf(buf, sizeof(buf), "its DMaps are in format %d and this quest's in format %d: format %d changed how a DMap holds its %s, "
-                     "which ZQuest doesn't convert", v, qv, steps[k].v, steps[k].what);
-            why = buf;
-            return false;
-        }
 
     for(size_t i = 0; i < recs.size(); ++i)
     {
@@ -471,6 +913,75 @@ bool dmaps_to_format(std::vector<std::vector<byte> > &recs, int first, int v, in
                         why = buf;
                         return false;
                     }
+
+        if((t.get("type") & 0x7F) == 1)     // dmOVERW
+            zqn255_tape_set(t, "xoff", 0);
+
+        if(v < 25 && qv >= 25)
+        {
+            Zq255Store::Music m;
+            int number = 0;
+
+            if(old_dmap_music(t, first + (int)i, m))
+            {
+                for(size_t q = 0; q < zq255.music.size() && !number; ++q)
+                {
+                    const Zq255Store::Music &x = zq255.music[q];
+
+                    if(x.name == m.name && x.path == m.path && x.midi == m.midi && x.track == m.track && x.loop_start == m.loop_start &&
+                       x.loop_end == m.loop_end && x.xfade_in == m.xfade_in && x.xfade_out == m.xfade_out)
+                        number = (int)q + 1;
+                }
+
+                if(!number)
+                {
+                    if(zq255.music.size() >= 65535)
+                    {
+                        why = "this quest's music list is full";
+                        return false;
+                    }
+
+                    zq255.music.push_back(m);
+                    number = (int)zq255.music.size();
+                }
+            }
+
+            zqn255_tape_set(t, "music", number);
+        }
+
+        if(v < 26 && qv >= 26)
+            if(TapeField *df = t.find("disabled"))
+            {
+                const std::vector<byte> bits(df->bytes);
+                df->bytes = zq_bitstr_store(bits);
+            }
+
+        if(v < 27 && qv >= 27)
+        {
+            static const struct { const char *config, *script, *args; } sc[] =
+            {
+                { "sc.active", "script", "initd" }, { "sc.asub", "asub_script", "sub_initd" },
+                { "sc.psub", "psub_script", "sub_initd" }, { "sc.onmap", "onmap_script", "onmap_initd" }
+            };
+
+            for(int q = 0; q < 4; ++q)
+            {
+                int64_t script = t.get(sc[q].script);
+
+                if(q > 0 && script >= 256)      // NUMSCRIPTSDMAP: only a damaged quest has one past it
+                    script = 0;
+
+                snprintf(k, sizeof(k), "%s.script", sc[q].config);
+                zqn255_tape_set(t, k, script);
+
+                for(int a = 0; a < 8; ++a)
+                {
+                    snprintf(k, sizeof(k), "%s.initd%d", sc[q].config, a);
+                    snprintf(k2, sizeof(k2), "%s%d", sc[q].args, a);
+                    zqn255_tape_set(t, k, t.get(k2));
+                }
+            }
+        }
 
         std::vector<byte> out;
 
@@ -694,7 +1205,7 @@ PACKFILE_VTABLE mf_vtable = { mf_fclose, mf_getc, mf_ungetc, mf_fread, mf_putc, 
 
 // ---- reading a section with the 2.55 / 3.0 readers -----------------------------------------
 
-int read_255(int (*reader)(Q255Section &), word v, word cv, const std::vector<byte> &data, bool keep)
+int read_255(int (*reader)(Q255Section &), word v, word cv, const std::vector<byte> &data, bool keep, zquestheader *as = NULL)
 {
     Q255Section s;
     s.data = data.empty() ? NULL : &data[0];
@@ -702,7 +1213,7 @@ int read_255(int (*reader)(Q255Section &), word v, word cv, const std::vector<by
     s.version = v;
     s.cversion = cv;
     s.keep = keep;
-    s.header = &header;
+    s.header = as ? as : &header;
     s.misc = &misc;
     int ret = reader(s);
 
@@ -881,31 +1392,95 @@ bool zqx_import_dmaps(const char *path, int *max_map, std::string &why, std::str
     // readsomedmaps: a negative first number says the newer layout (V_ZDMAP); otherwise it is
     // the program's version and the file holds one DMap
     In in(b);
-    const int kind = (int)in.l();
-    dword zversion = kind < 0 ? in.l() : (dword)kind;
-    in.l();     // build
-    const word v = in.w();
-    in.w();     // cversion
+    word v = 0;
     int first = 0, last = 0;
 
-    if(kind < 0)
+    if(b.size() >= 14 && In(b).m32() == ID_DMAPS)
     {
-        in.l();     // the most DMaps
-        first = (int)in.l();
-        last = (int)in.l();
-        in.l();     // last - first
-    }
+        // An export of 2.53 or older (.dmp), which upstream's import doesn't read: the whole DMAP
+        // section, its id first, every DMap from 0. A format before 2.53's own (9) is read by
+        // 2.53's reader and written again as 9, as ZQuest reads such a file for an older quest.
+        in.m32();
+        v = in.w();
+        in.w();     // cversion
+        in.l();     // size
+        int count = in.w();
 
-    if(in.bad)
-    {
-        why = "it isn't a DMap file";
-        return false;
-    }
+        if(in.bad || !v || v > 28 || count < 1 || count > MAX_ZDMAPS)
+        {
+            why = "it isn't a DMap file";
+            return false;
+        }
 
-    if(zversion > UP_VERSION || v > 28)
+        if(v < 9)
+        {
+            const std::vector<dmap> kept(DMaps, DMaps + MAXDMAPS);
+            std::vector<byte> again;
+            MemFile m;
+            m.data = &b[4];
+            m.size = b.size() - 4;
+            m.pos = 0;
+            m.ungot = -1;
+            PACKFILE *f = pack_fopen_vtable(&mf_vtable, &m);
+            bool ok = f && readdmaps(f, NULL, ZELDA_VERSION, VERSION_BUILD, 0, MAXDMAPS, true) == 0;
+
+            if(f)
+                pack_fclose(f);
+
+            if(ok)
+            {
+                PACKFILE *o = zq_open_vector_sink(&again);
+                ok = o && writedmaps(o, ZELDA_VERSION, VERSION_BUILD, 0, MAXDMAPS) == 0;
+
+                if(o)
+                    pack_fclose(o);
+            }
+
+            memcpy(DMaps, &kept[0], sizeof(dmap) * MAXDMAPS);
+
+            if(!ok || again.size() < 14)
+            {
+                why = "its DMaps don't read as their format says";
+                return false;
+            }
+
+            b.swap(again);
+            in.pos = 4;
+            v = in.w();
+            in.w();
+            in.l();
+            count = in.w();
+        }
+
+        last = count - 1;
+    }
+    else
     {
-        why = "it was made by a newer version of ZC than ZQuest reads";
-        return false;
+        const int kind = (int)in.l();
+        dword zversion = kind < 0 ? in.l() : (dword)kind;
+        in.l();     // build
+        v = in.w();
+        in.w();     // cversion
+
+        if(kind < 0)
+        {
+            in.l();     // the most DMaps
+            first = (int)in.l();
+            last = (int)in.l();
+            in.l();     // last - first
+        }
+
+        if(in.bad)
+        {
+            why = "it isn't a DMap file";
+            return false;
+        }
+
+        if(zversion > UP_VERSION || v > 28)
+        {
+            why = "it was made by a newer version of ZC than ZQuest reads";
+            return false;
+        }
     }
 
     if(first < 0 || last < first || last >= MAX_ZDMAPS)
@@ -930,13 +1505,17 @@ bool zqx_import_dmaps(const char *path, int *max_map, std::string &why, std::str
         return false;
     }
 
-    if(v < qv && !dmaps_to_format(recs, first, v, qv, why))
-        return false;
-
-    // everything a commit changes, to put back if one fails
+    // everything a commit changes (and the music objects older DMaps' music becomes), to put back
+    // if one fails
     const std::vector<dmap> dmaps(DMaps, DMaps + MAXDMAPS);
     const std::map<int, std::vector<byte> > records = zq255.dmap_records;
     const std::vector<Zq255Store::Music> music = zq255.music;
+
+    if(v < qv && !dmaps_to_format(recs, first, v, qv, why))
+    {
+        zq255.music = music;
+        return false;
+    }
     const std::map<int, std::pair<int, bool> > dmap_music = zq255.dmap_music;
     std::map<int, Q30ScriptRef> scripts[q30_dmap_kinds];
 
@@ -1263,6 +1842,7 @@ bool zqx_import_tiles(const char *path, int dest, std::string &why, std::string 
 bool zqx_import_guys(const char *path, std::string &why, std::string &note)
 {
     note.clear();
+    g_format_note.clear();
     std::vector<byte> b, data;
 
     if(!read_file(path, b, why))
@@ -1291,6 +1871,10 @@ bool zqx_import_guys(const char *path, std::string &why, std::string &note)
         return false;
 
     note = "every enemy";
+
+    if(!g_format_note.empty())
+        note += "; " + g_format_note.substr(0, g_format_note.size() - 2);
+
     return true;
 }
 
@@ -1448,9 +2032,31 @@ bool zqx_import_one(bool item, int index, const char *path, std::string &why, st
     return true;
 }
 
+namespace
+{
+
+// ZQuest's palettes again from the quest's own palette section as it was (version, cversion,
+// size, data), after a graphics pack's older palettes were tried in their place. Empty: nothing
+// to put back.
+void restore_palettes(const std::vector<byte> &before)
+{
+    if(before.size() < 8)
+        return;
+
+    In in(before);
+    word v = 0, cv = 0;
+    std::vector<byte> data;
+
+    if(take_section(in, &v, &cv, data))
+        read_255(q255_read_csets, v, cv, data, true);
+}
+
+}
+
 bool zqx_import_zgp(const char *path, std::string &why, std::string &note)
 {
     note.clear();
+    g_format_note.clear();
     std::vector<byte> b;
 
     if(!read_file(path, b, why))
@@ -1482,6 +2088,10 @@ bool zqx_import_zgp(const char *path, std::string &why, std::string &note)
         }
     }
 
+    zquestheader old_tiles;
+    zquestheader *tiles_as = NULL;
+    std::vector<byte> palettes_before;      // the quest's palette section, while the file's are tried
+
     // Everything is checked before anything goes in: each section's format must be one the
     // readers take, and the items in the quest's own format or an older one that converts to it
     // (they replace the quest's item section). The combos are checked as they go in, first.
@@ -1500,8 +2110,20 @@ bool zqx_import_zgp(const char *path, std::string &why, std::string &note)
             return false;
         }
 
+        // The tiles of a pack 2.53 or an older version wrote are counted in a word, where 2.55
+        // and 3.0 count them in four bytes; the pack doesn't say which program wrote it, so its
+        // tiles are read the one way that takes the whole section (upstream reads the newer way
+        // only, and so can't read a 2.53 pack).
+        if(read_255(q255_read_tiles, v[0], cv[0], data[0], false) != 0)
+        {
+            old_tiles = header;
+            old_tiles.zelda_version = 0x250;
+            old_tiles.build = 33;
+            tiles_as = &old_tiles;
+        }
+
         // a dry walk of the media sections
-        if(read_255(q255_read_tiles, v[0], cv[0], data[0], false) != 0 || read_255(q255_read_csets, v[2], cv[2], data[2], false) != 0 ||
+        if(read_255(q255_read_tiles, v[0], cv[0], data[0], false, tiles_as) != 0 || read_255(q255_read_csets, v[2], cv[2], data[2], false) != 0 ||
            read_255(q255_read_weapons, v[4], cv[4], data[4], false) != 0 || read_255(q255_read_icons, v[5], cv[5], data[5], false) != 0 ||
            read_255(q255_read_colors, v[6], cv[6], data[6], false) != 0)
         {
@@ -1533,9 +2155,22 @@ bool zqx_import_zgp(const char *path, std::string &why, std::string &note)
 
         // The palettes too: ZQuest's own palettes hold 2.53's CSets and 6 bits a colour, and the
         // rest (2.55's four more CSets a level, 3.0's 8 bits) is in the quest's palette part,
-        // which becomes the file's.
+        // which becomes the file's. Palettes in 2.53's format (4) are converted from ZQuest's own
+        // palettes, as a quest of 2.53 saved as a newer version has them converted: so the file's
+        // go into ZQuest's first (and the quest's come back if the import stops after this).
+        if(v[2] < 5 && v[2] < quest_section_version(ID_CSETS))
+        {
+            if(!own_section(ID_CSETS, palettes_before, why))
+                return false;
+
+            read_255(q255_read_csets, v[2], cv[2], data[2], true);
+        }
+
         if(!section_for_quest(ID_CSETS, "palettes", v[2], cv[2], data[2], why))
+        {
+            restore_palettes(palettes_before);
             return false;
+        }
     }
 
     // Combos first, as load_zgp reads them before the items: readcombos clears every combo, then
@@ -1551,6 +2186,7 @@ bool zqx_import_zgp(const char *path, std::string &why, std::string &note)
         if(!zq255_combo_import(recs, v[1], count, 0, true, NULL, why) || !section_still_saves(ID_COMBOS, why))
         {
             keep_combos.restore();
+            restore_palettes(palettes_before);
             return false;
         }
     }
@@ -1560,11 +2196,12 @@ bool zqx_import_zgp(const char *path, std::string &why, std::string &note)
     if(!zq255_items_take(whole_section(v[3], cv[3], data[3]), why))
     {
         keep_combos.restore();
+        restore_palettes(palettes_before);
         return false;
     }
 
     // tiles
-    read_255(q255_read_tiles, v[0], cv[0], data[0], true);
+    read_255(q255_read_tiles, v[0], cv[0], data[0], true, tiles_as);
 
     // palettes, weapon sprites, game icons, misc colours
     read_255(q255_read_csets, v[2], cv[2], data[2], true);
@@ -1625,6 +2262,7 @@ bool zqx_import_zgp(const char *path, std::string &why, std::string &note)
     if(!cant.empty())
         note += "these parts can't be saved as they are now: " + cant;
 
+    note = g_format_note + note;
     why.clear();
     return true;
 }

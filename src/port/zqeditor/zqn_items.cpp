@@ -55,6 +55,7 @@ extern byte quest_rules[QUESTRULES_SIZE];
 extern itemdata default_items[iLast];
 extern const char *old_item_string[iLast];
 extern const char *old_weapon_string[wLast];
+bool zqn255_rules_loaded(int target, std::vector<byte> &rules);     // zqn_255_rules.cpp
 
 namespace
 {
@@ -185,27 +186,34 @@ int force_mode()
     return mode;
 }
 
+// An ITEM section out of a file (version, cversion, size, data) that is being converted for an
+// import into a quest made in 2.55 or 3.0 (zqn_items_from_old_file); NULL otherwise. Every item
+// then comes from the file, read as upstream's reader reads a section of that version in a quest
+// of 2.53.1, with the open quest's rules where the reader looks at them. Nothing of ZQuest's own
+// items takes part (nothing counts as changed).
+const std::vector<byte> *g_file = NULL;
+
 // every field of every record counts as changed
 bool all_changed()
 {
-    return force_mode() == FORCE_WHOLE;
+    return !g_file && force_mode() == FORCE_WHOLE;
 }
 
 // whether the item's record goes the way of a changed one
 bool item_changed(int i)
 {
-    return force_mode() != FORCE_NONE || !same_item(itemsbuf[i], g_items[i]);
+    return !g_file && (force_mode() != FORCE_NONE || !same_item(itemsbuf[i], g_items[i]));
 }
 
 // whether ZQuest's data for the item differs from the load (or counts as if)
 bool item_value_changed(int i)
 {
-    return all_changed() || !same_item(itemsbuf[i], g_items[i]);
+    return !g_file && (all_changed() || !same_item(itemsbuf[i], g_items[i]));
 }
 
 bool item_name_changed(int i)
 {
-    return all_changed() || strcmp(item_string[i], g_item_names[i]) != 0;
+    return !g_file && (all_changed() || strcmp(item_string[i], g_item_names[i]) != 0);
 }
 
 bool wpn_changed(int i)
@@ -302,6 +310,27 @@ struct Rules
 
 bool load_rules(Rules &r, const ZqNewerContext &ctx)
 {
+    if(g_file)
+    {
+        // a file's items, for a 2.55 / 3.0 quest: the rules upstream holds after loading that
+        // quest, which are also its "deprecated" copy of them
+        std::vector<byte> rules;
+
+        // (a quest whose rules the other line's reader takes: its rules all the same)
+        if((!zqn255_rules_loaded(ctx.target, rules) && !zqn255_rules_loaded(ctx.target == ZQ_NEWER_30 ? ZQ_NEWER_255 : ZQ_NEWER_30, rules)) ||
+           rules.size() < ZQN_RULES_SIZE)
+            return false;
+
+        memset(&r.up, 0, sizeof(r.up));
+        memcpy(r.up.stored, &rules[0], ZQN_RULES_SIZE);
+        memcpy(r.up.deprecated, &rules[0], ZQN_RULES_SIZE);
+        memcpy(r.up.after_readrules, &rules[0], ZQN_RULES_SIZE);
+        memcpy(r.up.loaded, &rules[0], ZQN_RULES_SIZE);
+        memcpy(r.up.now, &rules[0], ZQN_RULES_SIZE);
+        r.up.overridden_rule = -1;
+        return true;
+    }
+
     return zqn_upstream_rules(ctx.target, r.up);
 }
 
@@ -1895,6 +1924,9 @@ void init_overrides(std::vector<UpItem> &items)
 
 bool old_init_data(const ZqNewerContext &ctx)
 {
+    if(g_file)
+        return false;
+
     if(ctx.src_zelda_version < 0x193)
         return true;
 
@@ -1923,7 +1955,10 @@ int build_items(const ZqNewerContext &ctx, const Rules &R, ItemSet &out)
     {
         std::vector<byte> part;
 
-        if(!ctx.src_part || !read_part(*ctx.src_part, part) || !read_stored(part, target, orig))
+        if(g_file)
+            part = *g_file;
+
+        if(g_file ? !read_stored(part, target, orig) : (!ctx.src_part || !read_part(*ctx.src_part, part) || !read_stored(part, target, orig)))
         {
             if(part.size() >= 10 && ((word)get_le(part, 0, 2) > 25 || (word)get_le(part, 8, 2) > MAXITEMS))
                 zqw_ig_refuse("Items: the quest's item section (version %d, %d items) isn't one this save knows.", (int)get_le(part, 0, 2), (int)get_le(part, 8, 2));
@@ -2099,7 +2134,7 @@ int build_items(const ZqNewerContext &ctx, const Rules &R, ItemSet &out)
     // reading (with the user's changes to the letter's). A look the user gave the used letter
     // itself can't be kept by the quest's own-version save (2.53's reload does the same), so
     // there's no upstream file to match, and it is kept rather than dropped.
-    if(s < 2)
+    if(s < 2 && !g_file)
     {
         const itemdata &now = itemsbuf[iLetterUsed], &then = g_items[iLetterUsed];
 
@@ -2656,6 +2691,54 @@ int zqn_items(PACKFILE *f, const ZqNewerContext &ctx)
 }
 
 ZqNewerRegistration g_reg_items(ID_ITEMS, zqn_items, "items for 2.55.18 and 3.0");
+
+} // namespace
+
+// An item section out of a file (a graphics pack's) in one of 2.53's formats or an older one
+// (2 to 25), for a quest made in 2.55 or 3.0: converted as saving a quest of 2.53.1 as the target
+// converts its items. Upstream's own graphics pack import reads the items with its own version
+// number in place of the quest's, so it skips what its loader does to a 2.53 quest's items (the
+// greyed-out values it clears); here they are read as the loader reads the quest itself.
+bool zqn_items_from_old_file(const std::vector<byte> &section, int target, std::vector<byte> &out, std::string &why)
+{
+    out.clear();
+    const int v = section.size() >= 10 ? (int)get_le(section, 0, 2) : 0;
+
+    if(v < 2 || v > 25)
+    {
+        char b[120];
+        snprintf(b, sizeof(b), "items of format %d aren't converted (ZQuest converts formats 2 to 25 and 45 up)", v);
+        why = b;
+        return false;
+    }
+
+    ZqNewerContext ctx;
+    ctx.target = target;
+    ctx.src_zelda_version = 0x250;      // a quest of 2.53.1
+    ctx.src_build = 33;
+    ctx.src_part = NULL;
+    ctx.src_version = (word)v;
+    ctx.src_cversion = (word)get_le(section, 2, 2);
+    zqw_last_error.clear();
+    g_file = &section;
+    std::vector<byte> body;
+    const int rc = encode_items(ctx, body);
+    g_file = NULL;
+
+    if(rc != ZQW_OK)
+    {
+        why = zqw_last_error.empty() ? std::string("its items couldn't be converted") : zqw_last_error;
+        return false;
+    }
+
+    // its id first, as the converters give a section
+    out.push_back('I'); out.push_back('T'); out.push_back('E'); out.push_back('M');
+    out.insert(out.end(), body.begin(), body.end());
+    return true;
+}
+
+namespace
+{
 
 // ---- weapon sprites ---------------------------------------------------------------------
 

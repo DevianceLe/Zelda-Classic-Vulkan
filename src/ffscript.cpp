@@ -5179,22 +5179,25 @@ else \
     case COMBOFD:
         GET_COMBO_VAR(sflag, "Screen->ComboF") break;
         
-#define GET_COMBO_VAR_BUF(member, str) \
+// (a 2.55/3.0 quest's script gets upstream's type and flag numbers: q30_script_combo_get)
+#define GET_COMBO_VAR_BUF(member, str, what) \
 { \
     int pos = ri->d[0] / 10000; \
     bool cur; \
     mapscr *cs = zasm30_combo_screen(&pos, &cur); \
     if(BC::checkComboPos(pos, str) != SH::_NoError) \
         ret = -10000; \
+    else if(zasm30_ffscript_version) \
+        ret = q30_script_combo_get(cs->data[pos], what) * 10000; \
     else \
         ret = combobuf[cs->data[pos]].member * 10000; \
 }
         
     case COMBOTD:
-        GET_COMBO_VAR_BUF(type, "Screen->ComboT") break;
+        GET_COMBO_VAR_BUF(type, "Screen->ComboT", 0) break;
         
     case COMBOID:
-        GET_COMBO_VAR_BUF(flag, "Screen->ComboI") break;
+        GET_COMBO_VAR_BUF(flag, "Screen->ComboI", 1) break;
         
     case COMBOSD:
     {
@@ -5205,7 +5208,7 @@ else \
         if(BC::checkComboPos(pos, "Screen->ComboS") != SH::_NoError)
             ret = -10000;
         else
-            ret = (combobuf[cs->data[pos]].walk & 0xF) * 10000;
+            ret = (zasm30_ffscript_version ? q30_script_combo_get(cs->data[pos], 2) : (combobuf[cs->data[pos]].walk & 0xF)) * 10000;
     }
     break;
     
@@ -7370,6 +7373,9 @@ if(GuyH::loadNPC(ri->guyref, str) == SH::_NoError) \
             }
             
             combobuf[cid].type=value/10000;
+
+            if(zasm30_ffscript_version)     // (the combo's 3.0 copy too; a type 2.53 lacks lives there)
+                q30_script_combo_set(cid, 0, value / 10000);
             
             for(int i = 0; i < 176; i++)
             {
@@ -7388,7 +7394,9 @@ if(GuyH::loadNPC(ri->guyref, str) == SH::_NoError) \
         bool cur;
         mapscr *cs = zasm30_combo_screen(&pos, &cur);
         
-        if(pos >= 0 && pos < 176)
+        if(pos >= 0 && pos < 176 && zasm30_ffscript_version)
+            q30_script_combo_set(cs->data[pos], 1, value / 10000);
+        else if(pos >= 0 && pos < 176)
             combobuf[cs->data[pos]].flag=value/10000;
     }
     break;
@@ -7399,7 +7407,9 @@ if(GuyH::loadNPC(ri->guyref, str) == SH::_NoError) \
         bool cur;
         mapscr *cs = zasm30_combo_screen(&pos, &cur);
         
-        if(pos >= 0 && pos < 176)
+        if(pos >= 0 && pos < 176 && zasm30_ffscript_version)
+            q30_script_combo_set(cs->data[pos], 2, value / 10000);
+        else if(pos >= 0 && pos < 176)
             combobuf[cs->data[pos]].walk=(value/10000)&15;
     }
     break;
@@ -9649,6 +9659,8 @@ static std::vector<bool> zasm30_obj_marked;
 static long zasm30_allocs_since_collect = 0;
 static bool zasm30_mark_bitmap(long v);     // q30_scripts_cmds.h: bitmaps a script made
 static void zasm30_sweep_bitmaps(bool sweep);
+static bool zasm30_mark_handle(long v);     // q30_scripts_cmds.h: files, directories, stacks
+static void zasm30_sweep_handles(bool sweep);
 
 // `work` gets each newly reached array slot, and each object as -(index + 1).
 static void zasm30_mark(long v, std::vector<long> &work)
@@ -9666,7 +9678,7 @@ static void zasm30_mark(long v, std::vector<long> &work)
         return;
     }
 
-    if(zasm30_mark_bitmap(v))
+    if(zasm30_mark_bitmap(v) || zasm30_mark_handle(v))
         return;
 
     if(v <= 0 || v % 10000)
@@ -9715,8 +9727,11 @@ static void zasm30_mark_script(const refInfo &r, const long *stack_base, const Z
     zasm30_mark(frame.thiskey, work);
     zasm30_mark(frame.thiskey2, work);
 
+    // (the file, directory and stack a script last used: only the running script's count, in
+    // zasm30_collect; the others would keep a file open that nothing can reach)
     for(int n = 0; n < Z30REF_COUNT; ++n)
-        zasm30_mark(frame.refs[n], work);
+        if(n != Z30REF_FILE && n != Z30REF_DIRECTORY && n != Z30REF_STACK)
+            zasm30_mark(frame.refs[n], work);
 }
 
 static void zasm30_mark_stacks(std::vector<long> &work);
@@ -9729,6 +9744,7 @@ static void zasm30_collect()
     memset(zasm30_gc_marked, 0, sizeof(zasm30_gc_marked));
     zasm30_obj_marked.assign(zasm30_objects.size(), false);
     zasm30_sweep_bitmaps(false);    // clears the marks
+    zasm30_sweep_handles(false);
     std::vector<long> work;
 
     zasm30_mark_script(globalScriptData, global_stack, zasm30_frames[33], work);
@@ -9777,6 +9793,13 @@ static void zasm30_collect()
         for(int m = 0; m < 8; ++m)
             if(game->screen_d[n][m])
                 zasm30_mark(game->screen_d[n][m], work);
+
+    if(zasm30_cur_frame)    // the running script's file, directory and stack registers
+    {
+        zasm30_mark(zasm30_cur_frame->refs[Z30REF_FILE], work);
+        zasm30_mark(zasm30_cur_frame->refs[Z30REF_DIRECTORY], work);
+        zasm30_mark(zasm30_cur_frame->refs[Z30REF_STACK], work);
+    }
 
     zasm30_mark_stacks(work);
     zasm30_mark_engine(work);
@@ -9829,6 +9852,7 @@ static void zasm30_collect()
     // From version 25 a bitmap nothing refers to goes too, as upstream's reference counting
     // frees it (ParallaxLayer makes two for every layer of every screen it shows).
     zasm30_sweep_bitmaps(counted);
+    zasm30_sweep_handles(counted);
     zasm30_allocs_since_collect = 0;
 }
 

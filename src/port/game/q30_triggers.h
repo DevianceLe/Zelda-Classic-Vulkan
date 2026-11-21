@@ -269,6 +269,8 @@ void q30_set_item_passive_script(int id, bool on);  // for the quest reader
 void q30_combo_store(int id, Q30Combo *data);
 // The quest's whole rule bitfield (q255_read_rules should call this).
 void q30_set_quest_rules(const byte *rules, size_t bytes);
+bool q30_script_rule_get(long id);      // Game->FFRules[]: every rule upstream has
+void q30_script_rule_set(long id, bool on);
 bool q30_quest_rule(int id);                   // upstream's rule number; false for older quests
 bool q30_show_bottom_8px();     // the quest shows the playing field's bottom 8 rows (a 232-row picture)
 extern int q30_subscr_speed;    // upstream's Hero.subscr_speed (zc_subscr.cpp): 1 for 2.53 quests
@@ -353,6 +355,9 @@ bool q30_compat_rule(int id);
 
 // NULL for a combo with no extra data, or in a quest older than 2.55.
 const Q30Combo *q30_combo(int id);
+int q30_script_combo_get(int id, int what);     // what a script reads: 0 type, 1 flag, 2 solid, 3 effect squares
+void q30_script_combo_set(int id, int what, int value);
+Q30Combo *q30_combo_for_write(int id);  // a script's write: made if the combo has none
 // The combo's true type and flag, or the engine's own if it has no entry.
 int q30_combo_type(int id);
 int q30_combo_flag(int id);

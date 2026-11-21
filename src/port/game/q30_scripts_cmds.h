@@ -108,7 +108,7 @@ static void zasm30_sweep_bitmaps(bool sweep)
 static std::map<long, unsigned int> zasm30_rngs;
 static long zasm30_next_rng = 1;
 static std::map<long, std::vector<long> > zasm30_stacks;
-static long zasm30_next_stack = 1;
+static long zasm30_next_stack = 0x7E300001;     // Z30_STACK_BASE + 1 (below)
 
 static unsigned int z30_rng_next(unsigned int &seed)
 {
@@ -119,7 +119,26 @@ static unsigned int z30_rng_next(unsigned int &seed)
 // ---- script files and directories ------------------------------------------------------------
 // As upstream: a script can only reach Files/<quest name>/ beside the player.
 
-enum { Z30_MAX_FILES = 256, Z30_MAX_DIRS = 256, Z30_MAX_ARRAY = 214748 };
+enum { Z30_MAX_FILES = 256, Z30_MAX_DIRS = 256, Z30_MAX_STACKS = 256, Z30_MAX_ARRAY = 214748 };
+
+// From ZScript version 25 upstream counts the references to a file, directory or stack: Free()
+// does nothing, and the object goes (a file closes) when the last reference does. Here the
+// collector (zasm30_collect) finds the ones scripts still refer to, when a file is about to be
+// opened or removed and when a table is full. Their ids sit in ranges of their own, so a plain
+// number in a script's variable isn't taken for one.
+enum { Z30_FILE_BASE = 0x7E100000, Z30_DIR_BASE = 0x7E200000, Z30_STACK_BASE = 0x7E300000, Z30_HANDLE_END = 0x7E400000 };
+static std::set<long> zasm30_handle_marks;
+
+static bool z30_counted() { return zasm30_ffscript_version >= 25; }
+
+static bool zasm30_mark_handle(long v)
+{
+    if(v < Z30_FILE_BASE || v >= Z30_HANDLE_END)
+        return false;
+
+    zasm30_handle_marks.insert(v);
+    return true;
+}
 
 struct Z30File
 {
@@ -244,6 +263,54 @@ static bool z30_resolve_path(const std::string &user, bool is_file, std::string 
     return true;
 }
 
+// Without quest rule 678 (upstream parse_legacy_user_path, after get_filestr's trimming of
+// slashes at both ends): a path relative to the program's folder that can't leave it.
+static bool z30_legacy_path(std::string user, std::string &out)
+{
+    const size_t first = user.find_first_not_of('/');
+
+    if(first != std::string::npos)
+        user = user.substr(first);
+
+    const size_t last = user.find_last_not_of('/');
+
+    if(last != std::string::npos)
+        user = user.substr(0, last + 1);
+
+    if(user.find(':') != std::string::npos || (!user.empty() && (user[0] == '/' || user[0] == '\\')))
+        return false;
+
+    int depth = 0;
+    std::string cur;
+
+    for(size_t n = 0; n <= user.size(); ++n)
+    {
+        const char c = n < user.size() ? user[n] : '/';
+
+        if(n < user.size() && (unsigned char)c < 32)
+            return false;
+
+        if(c != '/' && c != '\\')
+        {
+            cur += c;
+            continue;
+        }
+
+        if(cur == "..")
+        {
+            if(--depth < 0)
+                return false;
+        }
+        else if(!cur.empty() && cur != ".")
+            ++depth;
+
+        cur.clear();
+    }
+
+    out = user;
+    return true;
+}
+
 static void z30_make_dirs_for(const std::string &file)
 {
     for(size_t n = file.find('/'); n != std::string::npos; n = file.find('/', n + 1))
@@ -268,6 +335,8 @@ static bool z30_path_is(const std::string &path, bool dir)
 
 static Z30File *z30_file(long ref, bool need_open)
 {
+    ref -= Z30_FILE_BASE;
+
     if(ref < 1 || ref > Z30_MAX_FILES || !z30_files[ref - 1].used)
         return NULL;
 
@@ -284,17 +353,41 @@ static void z30_file_close(Z30File *f)
     f->path.clear();
 }
 
-static long z30_new_file()
+// Before a file is opened or removed: closes the files no script refers to any more.
+static void z30_collect_open_files()
 {
+    if(!z30_counted())
+        return;
+
     for(int n = 0; n < Z30_MAX_FILES; ++n)
     {
-        if(!z30_files[n].used)
+        if(z30_files[n].used && z30_files[n].f)
         {
-            z30_files[n].used = true;
-            z30_files[n].f = NULL;
-            z30_files[n].path.clear();
-            return n + 1;
+            zasm30_collect();
+            return;
         }
+    }
+}
+
+static long z30_new_file()
+{
+    for(int pass = 0; pass < 2; ++pass)
+    {
+        for(int n = 0; n < Z30_MAX_FILES; ++n)
+        {
+            if(!z30_files[n].used)
+            {
+                z30_files[n].used = true;
+                z30_files[n].f = NULL;
+                z30_files[n].path.clear();
+                return Z30_FILE_BASE + n + 1;
+            }
+        }
+
+        if(pass || !z30_counted())
+            break;
+
+        zasm30_collect();
     }
 
     Z_scripterrlog("Scripts have used all %d files.\n", (int)Z30_MAX_FILES);
@@ -320,6 +413,8 @@ static void z30_file_open(long path_ptr, const char *mode)
 
     if(getenv("ZC_Q30_TRACE"))      // diagnostics: the files the quest's scripts open
         al_trace("q30: script opens file '%s' mode '%s'\n", user.c_str(), mode);
+
+    z30_collect_open_files();
 
     if(!z30_mode_ok(mode) || !z30_resolve_path(user, true, path))
     {
@@ -552,42 +647,105 @@ static void z30_file_write_ints()
 
 static Z30Dir *z30_dir(long ref)
 {
+    ref -= Z30_DIR_BASE;
     return ref >= 1 && ref <= Z30_MAX_DIRS && z30_dirs[ref - 1].used ? &z30_dirs[ref - 1] : NULL;
 }
 
-static void z30_dir_add(Z30Dir &d, const char *name)
+// A listing as upstream's (its file selector's list): the folders first, each with a path
+// separator at its end and ".." among them, then the files; both sorted without regard to case,
+// digits compared as numbers.
+static int z30_name_cmp(const std::string &a, const std::string &b)
 {
-    if(strcmp(name, ".") && strcmp(name, ".."))
-        d.names.push_back(name);
+    size_t i = 0, j = 0;
+
+    while(i < a.size() && j < b.size())
+    {
+        const unsigned char ca = (unsigned char)a[i], cb = (unsigned char)b[j];
+
+        if(isdigit(ca) && isdigit(cb))
+        {
+            size_t ie = i, je = j;
+            unsigned long na = 0, nb = 0;
+
+            while(ie < a.size() && isdigit((unsigned char)a[ie]))
+                na = na * 10 + (unsigned long)(a[ie++] - '0');
+
+            while(je < b.size() && isdigit((unsigned char)b[je]))
+                nb = nb * 10 + (unsigned long)(b[je++] - '0');
+
+            if(na != nb)
+                return na < nb ? -1 : 1;
+
+            i = ie;
+            j = je;
+            continue;
+        }
+
+        const int la = tolower(ca), lb = tolower(cb);
+
+        if(la != lb)
+            return la < lb ? -1 : 1;
+
+        ++i;
+        ++j;
+    }
+
+    return i < a.size() ? 1 : (j < b.size() ? -1 : 0);
+}
+
+static bool z30_name_less(const std::string &a, const std::string &b)
+{
+    return z30_name_cmp(a, b) < 0;
 }
 
 static void z30_dir_load(Z30Dir &d)
 {
-    d.names.clear();
+    std::vector<std::string> folders, files;
 #ifdef _WIN32
+    const char sep = '\\';
     _finddata_t info;
     const intptr_t find = _findfirst((d.path + "/*").c_str(), &info);
 
     if(find != -1)
     {
         do
-            z30_dir_add(d, info.name);
+        {
+            if(!strcmp(info.name, "."))
+                continue;
+
+            if(info.attrib & _A_SUBDIR)
+                folders.push_back(std::string(info.name) + sep);
+            else
+                files.push_back(info.name);
+        }
         while(_findnext(find, &info) == 0);
 
         _findclose(find);
     }
 #else
+    const char sep = '/';
     DIR *dir = opendir(d.path.c_str());
 
     if(dir)
     {
         while(struct dirent *entry = readdir(dir))
-            z30_dir_add(d, entry->d_name);
+        {
+            if(!strcmp(entry->d_name, "."))
+                continue;
+
+            if(z30_path_is(d.path + "/" + entry->d_name, true))
+                folders.push_back(std::string(entry->d_name) + sep);
+            else
+                files.push_back(entry->d_name);
+        }
 
         closedir(dir);
     }
 #endif
-    std::sort(d.names.begin(), d.names.end());
+    std::sort(folders.begin(), folders.end(), z30_name_less);
+    std::sort(files.begin(), files.end(), z30_name_less);
+    d.names = folders;
+    d.names.insert(d.names.end(), files.begin(), files.end());
 }
 
 static long z30_load_dir(const std::string &user)
@@ -600,15 +758,23 @@ static long z30_load_dir(const std::string &user)
         return 0;
     }
 
-    for(int n = 0; n < Z30_MAX_DIRS; ++n)
+    for(int pass = 0; pass < 2; ++pass)
     {
-        if(!z30_dirs[n].used)
+        for(int n = 0; n < Z30_MAX_DIRS; ++n)
         {
-            z30_dirs[n].used = true;
-            z30_dirs[n].path = path;
-            z30_dir_load(z30_dirs[n]);
-            return n + 1;
+            if(!z30_dirs[n].used)
+            {
+                z30_dirs[n].used = true;
+                z30_dirs[n].path = path;
+                z30_dir_load(z30_dirs[n]);
+                return Z30_DIR_BASE + n + 1;
+            }
         }
+
+        if(pass || !z30_counted())
+            break;
+
+        zasm30_collect();
     }
 
     Z_scripterrlog("Scripts have used all %d directories.\n", (int)Z30_MAX_DIRS);
@@ -632,8 +798,43 @@ static void z30_reset_script_objects()
     }
 
     zasm30_stacks.clear();
-    zasm30_next_stack = 1;
+    zasm30_next_stack = Z30_STACK_BASE + 1;
     z30_reset_paldatas();
+}
+
+// The end of a collection: with `sweep` the files, directories and stacks no script refers to go.
+static void zasm30_sweep_handles(bool sweep)
+{
+    if(sweep)
+    {
+        for(int n = 0; n < Z30_MAX_FILES; ++n)
+        {
+            if(z30_files[n].used && !zasm30_handle_marks.count(Z30_FILE_BASE + n + 1))
+            {
+                z30_file_close(&z30_files[n]);
+                z30_files[n].used = false;
+            }
+        }
+
+        for(int n = 0; n < Z30_MAX_DIRS; ++n)
+        {
+            if(z30_dirs[n].used && !zasm30_handle_marks.count(Z30_DIR_BASE + n + 1))
+            {
+                z30_dirs[n].used = false;
+                z30_dirs[n].names.clear();
+            }
+        }
+
+        for(std::map<long, std::vector<long> >::iterator it = zasm30_stacks.begin(); it != zasm30_stacks.end(); )
+        {
+            if(!zasm30_handle_marks.count(it->first))
+                zasm30_stacks.erase(it++);
+            else
+                ++it;
+        }
+    }
+
+    zasm30_handle_marks.clear();
 }
 
 // A stack can hold the only reference to an array.
@@ -3435,6 +3636,24 @@ static bool zasm30_command(word cmd)
     // -- stack objects ------------------------------------------------------------------------
     case Z30C_LOADSTACK:
     {
+        // upstream: 256 stacks at a time
+        if(zasm30_stacks.size() >= Z30_MAX_STACKS && z30_counted())
+            zasm30_collect();
+
+        if(zasm30_stacks.size() >= Z30_MAX_STACKS)
+        {
+            Z_scripterrlog("Scripts have used all %d stacks.\n", (int)Z30_MAX_STACKS);
+            Z30_REF(STACK) = 0;
+            ri->d[2] = 0;
+            return true;
+        }
+
+        if(zasm30_next_stack >= Z30_HANDLE_END)
+            zasm30_next_stack = Z30_STACK_BASE + 1;
+
+        while(zasm30_stacks.count(zasm30_next_stack))
+            ++zasm30_next_stack;
+
         const long id = zasm30_next_stack++;
         zasm30_stacks[id];
         Z30_REF(STACK) = id;
@@ -3444,7 +3663,8 @@ static bool zasm30_command(word cmd)
     case Z30C_STACKOWN:
         return true;
     case Z30C_STACKFREE:
-        zasm30_stacks.erase(Z30_REF(STACK));
+        if(!z30_counted())      // (counted: it lives while something refers to it)
+            zasm30_stacks.erase(Z30_REF(STACK));
         return true;
     case Z30C_STACKCLEAR:
     {
@@ -4314,6 +4534,9 @@ static bool zasm30_command(word cmd)
     }
     case Z30C_FILEFREE:
     {
+        if(z30_counted())       // (it lives, and stays open, while something refers to it)
+            return true;
+
         if(Z30File *f = z30_file(Z30_REF(FILE), false))
         {
             z30_file_close(f);
@@ -4419,11 +4642,12 @@ static bool zasm30_command(word cmd)
     case Z30C_FILEWRITESTR:
     {
         Z30File *f = z30_file(Z30_REF(FILE), true);
+        const long ptr = get_register(sarg1) / 10000;   // (read first: the result goes in the same register)
         ri->d[2] = 0;
         if(f)
         {
             string out;
-            ArrayH::getString(get_register(sarg1) / 10000, out, 65535);
+            ArrayH::getString(ptr, out, 65535);
             ri->d[2] = (long)fwrite(out.data(), 1, out.size(), f->f) * 10000;
         }
         return true;
@@ -4435,11 +4659,21 @@ static bool zasm30_command(word cmd)
         string user;
         std::string path;
         ArrayH::getString(get_register(sarg1) / 10000, user, 2048);
-        const bool ok = z30_resolve_path(user, cmd != Z30C_DIREXISTS, path);
         if(cmd == Z30C_FILESYSREMOVE)
+        {
+            z30_collect_open_files();
+            const bool ok = z30_resolve_path(user, true, path);
             set_register(sarg1, ok && !remove(path.c_str()) ? 10000 : 0);
+        }
         else
-            set_register(sarg1, ok && z30_path_is(path, cmd == Z30C_DIREXISTS) ? 10000 : 0);
+        {
+            // FileExists and DirExists look in the quest's folder only with the quest rule "All
+            // bitmap-> and FileSystem-> paths relative to quest 'Files' folder" (678); without
+            // it the path is relative to the program's folder, as in older versions. Either
+            // way any name may be asked about (upstream do_checkdir: is_file false).
+            const bool ok = q30_quest_rule(678) ? z30_resolve_path(user, false, path) : z30_legacy_path(user, path);
+            set_register(sarg1, ok && !path.empty() && z30_path_is(path, cmd == Z30C_DIREXISTS) ? 10000 : 0);
+        }
         return true;
     }
     case Z30C_LOADDIRECTORYR:
@@ -4468,6 +4702,9 @@ static bool zasm30_command(word cmd)
     }
     case Z30C_DIRECTORYFREE:
     {
+        if(z30_counted())
+            return true;
+
         if(Z30Dir *d = z30_dir(Z30_REF(DIRECTORY)))
         {
             d->used = false;

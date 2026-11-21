@@ -1215,10 +1215,10 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_COMBODATAID: ret = Z30_REF(COMBODATA) * 10000; return true;
     case Z30R_COMBODTILE: ret = z30_cdata().tile * 10000; return true;
     case Z30R_COMBODFLIP: ret = z30_cdata().flip * 10000; return true;
-    case Z30R_COMBODWALK: ret = (z30_cdata().walk & 0x0F) * 10000; return true;
-    case Z30R_COMBODTYPE: ret = z30_cdata().type * 10000; return true;
+    case Z30R_COMBODWALK: ret = q30_script_combo_get(Z30_REF(COMBODATA), 2) * 10000; return true;
+    case Z30R_COMBODTYPE: ret = q30_script_combo_get(Z30_REF(COMBODATA), 0) * 10000; return true;
     case Z30R_COMBODCSET: ret = (z30_cdata().csets & 0x0F) * 10000; return true;
-    case Z30R_COMBODFLAG: ret = z30_cdata().flag * 10000; return true;
+    case Z30R_COMBODFLAG: ret = q30_script_combo_get(Z30_REF(COMBODATA), 1) * 10000; return true;
     case Z30R_COMBODFRAMES: ret = z30_cdata().frames * 10000; return true;
     case Z30R_COMBODASPEED: ret = z30_cdata().speed * 10000; return true;
     case Z30R_COMBODNEXTD: ret = z30_cdata().nextcombo * 10000; return true;
@@ -1237,6 +1237,22 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     {
         const Q30Combo *c = q30_combo(Z30_REF(COMBODATA));
         ret = (c && Z30_INDEX >= 0 && Z30_INDEX < 16) ? ((c->usrflags & (1 << Z30_INDEX)) ? 10000 : 0) : 0;
+        return true;
+    }
+    // GenFlags[] (4), and what a combo that can be walked on top of or dived under needs
+    // (upstream combodata.cpp; the heights are zfix numbers, as a script's own)
+    case Z30R_COMBODGENFLAGARR:
+    {
+        const Q30Combo *c = q30_combo(Z30_REF(COMBODATA));
+        ret = (c && Z30_INDEX >= 0 && Z30_INDEX < 4) ? ((c->genflags & (1 << Z30_INDEX)) ? 10000 : 0) : 0;
+        return true;
+    }
+    case Z30R_COMBOD_Z_HEIGHT:
+    case Z30R_COMBOD_Z_STEP_HEIGHT:
+    case Z30R_COMBOD_DIVE_UNDER_LEVEL:
+    {
+        const Q30Combo *c = q30_combo(Z30_REF(COMBODATA));
+        ret = !c ? 0 : (arg == Z30R_COMBOD_Z_HEIGHT ? c->z_height : (arg == Z30R_COMBOD_Z_STEP_HEIGHT ? c->z_step_height : c->dive_under_level * 10000));
         return true;
     }
     case Z30R_COMBODATAINITD:
@@ -1353,8 +1369,8 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
             case Z30R_MAPDATACOMBODD: ret = m->data[n] * 10000; break;
             case Z30R_MAPDATACOMBOCD: ret = m->cset[n] * 10000; break;
             case Z30R_MAPDATACOMBOFD: ret = m->sflag[n] * 10000; break;
-            case Z30R_MAPDATACOMBOTD: ret = combobuf[m->data[n]].type * 10000; break;
-            case Z30R_MAPDATACOMBOID: ret = combobuf[m->data[n]].flag * 10000; break;
+            case Z30R_MAPDATACOMBOTD: ret = q30_script_combo_get(m->data[n], 0) * 10000; break;
+            case Z30R_MAPDATACOMBOID: ret = q30_script_combo_get(m->data[n], 1) * 10000; break;
             }
         }
         return true;
@@ -1484,7 +1500,8 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_GAMEBOTTLEST: ret = q30_bottle_slot(Z30_INDEX) * 10000; return true;   // the save's bottle slots (q30_triggers.cpp)
     case Z30R_MUSICUPDATECOND: ret = zasm30_store_get(arg, 0, 0) * 10000; return true;
     case Z30R_GAMEASUBYOFF: ret = zasm30_store_get(arg, 0, 0) * 10000; return true;
-    case Z30R_FFRULE: ret = (Z30_INDEX >= 0 && Z30_INDEX < QUESTRULES_SIZE * 8) ? (get_bit(quest_rules, Z30_INDEX) ? 10000 : 0) : 0; return true;
+    // (2.53's rule table holds the first 160 rules; the 2.55 and 3.0 ones are q30_triggers.cpp's)
+    case Z30R_FFRULE: ret = (Z30_INDEX >= 0 && Z30_INDEX < QUESTRULES_SIZE * 8) ? (get_bit(quest_rules, Z30_INDEX) ? 10000 : 0) : (q30_script_rule_get(Z30_INDEX) ? 10000 : 0); return true;
     // (in a 3.0 scrolling region an FFC's ID goes across the region, 128 to a screen as upstream's:
     // q30_scripts_region.h; outside one, its slot + 1; 0 for no FFC, as upstream's)
     case Z30R_FFCID:
@@ -1715,8 +1732,7 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     // combodata->
     case Z30R_COMBODEFFECT:
     {
-        const Q30Combo *c = q30_combo(Z30_REF(COMBODATA));
-        ret = (Z30_REF(COMBODATA) >= 0 && Z30_REF(COMBODATA) < MAXCOMBOS) ? ((c ? c->walk : z30_cdata().walk) >> 4) * 10000 : -10000;
+        ret = (Z30_REF(COMBODATA) >= 0 && Z30_REF(COMBODATA) < MAXCOMBOS) ? q30_script_combo_get(Z30_REF(COMBODATA), 3) * 10000 : -10000;
         return true;
     }
     case Z30R_COMBODATTRISHORTS:
@@ -1743,12 +1759,21 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
 
     // mapdata->
     case Z30R_MAPDATACOMBOSD:
+    case Z30R_MAPDATACOMBOED:
     {
         long n = Z30_INDEX;
         mapscr *m = z30_mapdata_combo(Z30_REF(MAPDATA), n);
         ret = -10000;
         if(m && n >= 0 && n < (long)m->data.size() && m->data[n] < MAXCOMBOS)
-            ret = (combobuf[m->data[n]].walk & 0xF) * 10000;
+            ret = q30_script_combo_get(m->data[n], arg == Z30R_MAPDATACOMBOED ? 3 : 2) * 10000;
+        return true;
+    }
+    case Z30R_COMBOED:      // Screen->ComboE[]: the effect squares of the combo there
+    {
+        int pos = Z30_INDEX;
+        bool cur;
+        mapscr *cs = zasm30_combo_screen(&pos, &cur);
+        ret = (pos >= 0 && pos < 176) ? q30_script_combo_get(cs->data[pos], 3) * 10000 : -10000;
         return true;
     }
     case Z30R_MAPDATAFFSCRIPT:
@@ -2210,17 +2235,17 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     // combodata->
     case Z30R_COMBODTILE: z30_cdata().tile = vbound(value / 10000, 0, NEWMAXTILES - 1); return true;
     case Z30R_COMBODFLIP: z30_cdata().flip = (byte)(value / 10000); return true;
-    case Z30R_COMBODWALK: z30_cdata().walk = (z30_cdata().walk & ~0x0F) | ((value / 10000) & 0x0F); return true;
+    case Z30R_COMBODWALK: q30_script_combo_set(Z30_REF(COMBODATA), 2, value / 10000); return true;
     case Z30R_COMBODTYPE:
         // (as upstream: a negative type is no type; a 3.0 quest's type past the last is refused
         // and a 2.55 quest's is kept within the byte. They wrapped round to some other type.)
         if(value < 0)
-            z30_cdata().type = 0;
+            q30_script_combo_set(Z30_REF(COMBODATA), 0, 0);
         else if(!zasm30_bad_combo_type(value))
-            z30_cdata().type = (byte)zc_min(value / 10000, 255);
+            q30_script_combo_set(Z30_REF(COMBODATA), 0, zc_min(value / 10000, 255));
         return true;
     case Z30R_COMBODCSET: z30_cdata().csets = (z30_cdata().csets & 0xF0) | ((value / 10000) & 0x0F); return true;
-    case Z30R_COMBODFLAG: z30_cdata().flag = (byte)(value / 10000); return true;
+    case Z30R_COMBODFLAG: q30_script_combo_set(Z30_REF(COMBODATA), 1, value / 10000); return true;
     case Z30R_COMBODFRAMES: z30_cdata().frames = (byte)(value / 10000); return true;
     case Z30R_COMBODASPEED: z30_cdata().speed = (byte)(value / 10000); return true;
     case Z30R_COMBODNEXTD: if(!zasm30_bad_combo(value)) z30_cdata().nextcombo = (word)(value / 10000); return true;
@@ -2238,6 +2263,32 @@ static bool zasm30_set_register_inner(const long arg, const long value)
             Q30Combo *cc = const_cast<Q30Combo *>(c);
             if(value) cc->usrflags |= (1 << Z30_INDEX);
             else cc->usrflags &= ~(1 << Z30_INDEX);
+        }
+        return true;
+    }
+    case Z30R_COMBODGENFLAGARR:
+    {
+        Q30Combo *cc = q30_combo_for_write(Z30_REF(COMBODATA));
+
+        if(cc && Z30_INDEX >= 0 && Z30_INDEX < 4)
+        {
+            if(value) cc->genflags |= (1 << Z30_INDEX);
+            else cc->genflags &= ~(1 << Z30_INDEX);
+        }
+        return true;
+    }
+    case Z30R_COMBOD_Z_HEIGHT:
+    case Z30R_COMBOD_Z_STEP_HEIGHT:
+    case Z30R_COMBOD_DIVE_UNDER_LEVEL:
+    {
+        if(Q30Combo *cc = q30_combo_for_write(Z30_REF(COMBODATA)))
+        {
+            if(arg == Z30R_COMBOD_Z_HEIGHT)
+                cc->z_height = value;
+            else if(arg == Z30R_COMBOD_Z_STEP_HEIGHT)
+                cc->z_step_height = zc_max(0L, value);
+            else
+                cc->dive_under_level = (byte)vbound(value / 10000, 0, 255);
         }
         return true;
     }
@@ -2360,8 +2411,8 @@ static bool zasm30_set_register_inner(const long arg, const long value)
             case Z30R_MAPDATACOMBODD: m->data[n] = vbound(value / 10000, 0, MAXCOMBOS - 1); break;
             case Z30R_MAPDATACOMBOCD: m->cset[n] = vbound(value / 10000, 0, 15); break;
             case Z30R_MAPDATACOMBOFD: m->sflag[n] = vbound(value / 10000, 0, 255); break;
-            case Z30R_MAPDATACOMBOTD: combobuf[m->data[n]].type = vbound(value / 10000, 0, 255); break;
-            case Z30R_MAPDATACOMBOID: combobuf[m->data[n]].flag = vbound(value / 10000, 0, 255); break;
+            case Z30R_MAPDATACOMBOTD: q30_script_combo_set(m->data[n], 0, value / 10000); break;
+            case Z30R_MAPDATACOMBOID: q30_script_combo_set(m->data[n], 1, value / 10000); break;
             }
         }
         return true;
@@ -2507,7 +2558,7 @@ static bool zasm30_set_register_inner(const long arg, const long value)
         if(Z30_INDEX >= 0 && Z30_INDEX < (long)zasm30_event_data.size())
             zasm30_event_data[Z30_INDEX] = value;
         return true;
-    case Z30R_FFRULE: if(Z30_INDEX >= 0 && Z30_INDEX < QUESTRULES_SIZE * 8) set_bit(quest_rules, Z30_INDEX, value ? 1 : 0); return true;
+    case Z30R_FFRULE: if(Z30_INDEX >= 0 && Z30_INDEX < QUESTRULES_SIZE * 8) set_bit(quest_rules, Z30_INDEX, value ? 1 : 0); q30_script_rule_set(Z30_INDEX, value != 0); return true;
     case Z30R_FFCLAYER: if(ri->ffcref >= 0 && ri->ffcref < tmpscr->ffc_count()) tmpscr->fflayer[ri->ffcref] = (signed char)(vbound(value / 10000, 0, 7) - 1); return true;
     case Z30R_FFCID:
     case Z30R_MAX_FFC_ID:
@@ -2724,11 +2775,7 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     // combodata->
     case Z30R_COMBODEFFECT:
     {
-        const int cid = Z30_REF(COMBODATA);
-        if(const Q30Combo *c = q30_combo(cid))
-            const_cast<Q30Combo *>(c)->walk = (c->walk & 0x0F) | (((value / 10000) & 0x0F) << 4);
-        if(cid >= 0 && cid < MAXCOMBOS)
-            combobuf[cid].walk = (combobuf[cid].walk & 0x0F) | (((value / 10000) & 0x0F) << 4);
+        q30_script_combo_set(Z30_REF(COMBODATA), 3, value / 10000);
         return true;
     }
     case Z30R_COMBODATTRISHORTS: z30_combo_attr_set(Z30_REF(COMBODATA), 16 + Z30_INDEX, (value / 10000) * 10000); return true;
@@ -2762,14 +2809,21 @@ static bool zasm30_set_register_inner(const long arg, const long value)
 
     // mapdata->
     case Z30R_MAPDATACOMBOSD:
+    case Z30R_MAPDATACOMBOED:
     {
         long n = Z30_INDEX;
         mapscr *m = z30_mapdata_combo(Z30_REF(MAPDATA), n);
         if(m && n >= 0 && n < (long)m->data.size() && m->data[n] < MAXCOMBOS)
-        {
-            newcombo &c = combobuf[m->data[n]];
-            c.walk = (c.walk & 0xF0) | ((value / 10000) & 0x0F);
-        }
+            q30_script_combo_set(m->data[n], arg == Z30R_MAPDATACOMBOED ? 3 : 2, value / 10000);
+        return true;
+    }
+    case Z30R_COMBOED:      // Screen->ComboE[]: the effect squares of the combo there
+    {
+        int pos = Z30_INDEX;
+        bool cur;
+        mapscr *cs = zasm30_combo_screen(&pos, &cur);
+        if(pos >= 0 && pos < 176)
+            q30_script_combo_set(cs->data[pos], 3, value / 10000);
         return true;
     }
     case Z30R_MAPDATAFFSCRIPT:

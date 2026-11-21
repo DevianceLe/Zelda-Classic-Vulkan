@@ -103,7 +103,7 @@ static inline bool isSideview()
 
 // 2.55/3.0: a tall grass or shallow water combo names the sprite drawn over Link's feet
 // (upstream's attribytes[6]). 0 keeps iwTallGrass / iwRipples; 2.53 quests always get 0.
-static int q30_deco_sprite(int cx, int cy, bool grass)
+static int q30_deco_sprite(int cx, int cy, bool grass, bool any_water = false)
 {
     int cid = MAPCOMBO(cx, cy);
     const Q30Combo *qc = q30_combo(cid);
@@ -113,7 +113,7 @@ static int q30_deco_sprite(int cx, int cy, bool grass)
 
     int t = combobuf[cid].type;
 
-    if(grass ? !isGrassType(t) : t != cSHALLOWWATER)
+    if(grass ? !isGrassType(t) : (t != cSHALLOWWATER && !(any_water && combo_class_buf[t].water)))
         return 0;
 
     return int(qc->attributes[8 + 6] / 10000);
@@ -4461,7 +4461,7 @@ bool LinkClass::animate(int)
            && !(ladderx+laddery) && !pull_link && !toogam
            && q30_ss_water(x+11,y+15,true) && q30_ss_water(x+4,y+15,true) && q30_ss_water(x+11,y+9,true) && q30_ss_water(x+4,y+9,true)
            && q30_ss_water(int(x)+7,int(y)+12,true) && decorations.idCount(dRIPPLES)==0)
-            decorations.add(new dRipples(x, y, dRIPPLES, 0));
+            decorations.add(new dRipples(x, y, dRIPPLES, 0, q30_deco_sprite(int(x)+7, int(y)+12, false, true)));   // (the water's own sprite, as upstream)
     }
     else if((COMBOTYPE(x,y+15)==cSHALLOWWATER)&&(COMBOTYPE(x+15,y+15)==cSHALLOWWATER) && z==0)
     {
@@ -7580,7 +7580,10 @@ void LinkClass::movelink()
         return;
     }
 
-    if(q30_no_gridlock() && action!=swimming && action!=casting && action!=drowning && !(ladderx+laddery))
+    // (with diagonal movement upstream's moveheroOld never looks at the gridlock rule, so
+    // qr_NEW_HERO_MOVEMENT alone already means moveOld2's walk at the hero's step rate)
+    if((q30_no_gridlock() || (diagonalMovement && q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT)))
+       && action!=swimming && action!=casting && action!=drowning && !(ladderx+laddery))
     {
         q30_free_walk(push);
         return;
@@ -9196,6 +9199,7 @@ void LinkClass::q30_free_walk(int push)
     double diag = (diagonalMovement && shiftdir != -1) ? step * 0.7071 : step;
     double dx = 0, dy = 0;
     double side = diag;     // the step across movedir, when Link walks diagonally
+    bool still = false;     // moveOld2 with nowhere to go: it returns before the walk animation
 
     // moveheroOld and moveOld2: the step is fitted to the walls first (q30_fit_step, with last
     // frame's hero_newstep), then hero_newstep (_diag) is capped at the full step,
@@ -9206,6 +9210,7 @@ void LinkClass::q30_free_walk(int push)
     {
         const double movepix = (q30_steprate + q30_step_boost) / 100.0;
         const bool walkable = q30_fit_step(movedir, q30_hero_newstep, -1, 0);
+        still = !walkable;
 
         if(shiftdir >= 0 && diagonalMovement)
         {
@@ -9219,6 +9224,8 @@ void LinkClass::q30_free_walk(int push)
                 side = 0;
                 diag = step;
             }
+            else
+                still = false;
         }
 
         q30_hero_newstep = zc_min(q30_hero_newstep, movepix);
@@ -9247,13 +9254,16 @@ void LinkClass::q30_free_walk(int push)
         else if(shiftdir == down) dy = side;
     }
 
-    linkstep();
+    if(!still)
+    {
+        linkstep();
 
-    if(charging == 0 && spins == 0 && z == 0 && !(isSideview() && !ON_SIDEPLATFORM))
-        action = walking;
+        if(charging == 0 && spins == 0 && z == 0 && !(isSideview() && !ON_SIDEPLATFORM))
+            action = walking;
 
-    if(++link_count > (16 * link_animation_speed))
-        link_count = 0;
+        if(++link_count > (16 * link_animation_speed))
+            link_count = 0;
+    }
 
     if(charging != 0 && attack == wHammer)
         return;

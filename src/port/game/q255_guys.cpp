@@ -478,6 +478,58 @@ static void read_guy(Q255Section &s, guydata &g)
     if(v < 47 && g.family == eeDIG && g.misc10 != 1)
         g.flags2 |= FILE_FLAG2_IGNORE_KILL_ALL;
 
+    // Upstream's move flags (readguys) for enemies saved before they had any: fliers and bosses
+    // go over pits (0x04), walkers obey gravity (0x01) and fall in pits (0x02).
+    if(v < 42)
+    {
+        switch(g.family)
+        {
+        case eeTEK: case eePEAHAT: case eeROCK: case eeTRAP: case eePROJECTILE: case eeSPINTILE:
+        case eeKEESE: case eeFIRE: case eeFAIRY: case eeGUY: case eeNONE: case eeZORA: case eeAQUA:
+        case eeDIG: case eeGHOMA: case eeGANON: case eePATRA: case eeGLEEOK: case eeMOLD: case eeMANHAN:
+            g_npc_moveflags = 0x04;
+            break;
+
+        case eeLEV:
+            g_npc_moveflags = 0x02;
+            break;
+
+        case eeDONGO:
+            g_npc_moveflags = 0x01;
+            break;
+
+        case eeWIZZ: case eeWALLM: case eeGHINI:
+            g_npc_moveflags = 0x01 | 0x04;
+            break;
+
+        case eeWALK:
+            if(g.misc9 != e9tPOLSVOICE && g.misc9 != e9tVIRE)
+                g_npc_moveflags = 0x01 | 0x02;
+
+            break;
+
+        default:
+            if(g.family == eeOTHER || (g.family > eeMAX && g.family <= eeMAX + 30))   // scripted and friendly types
+                g_npc_moveflags = 0x01 | 0x02;
+        }
+    }
+
+    if(v < 43)
+    {
+        switch(g.family)
+        {
+        case eeTEK: case eePEAHAT: case eeROCK: case eeTRAP: case eePROJECTILE: case eeSPINTILE:
+        case eeKEESE: case eeFIRE: case eeFAIRY: case eeGUY: case eeNONE: case eeZORA: case eeAQUA:
+        case eeDIG: case eeGHOMA: case eeGANON: case eePATRA: case eeGLEEOK: case eeMOLD: case eeMANHAN:
+        case eeWIZZ: case eeWALLM: case eeGHINI:
+            g_npc_moveflags |= 0x10 | 0x04;     // walks on water and over pits
+            break;
+        }
+    }
+
+    if(v < 46 && g.family == eeWALK && g.misc9 == e9tPOLSVOICE)
+        g_npc_moveflags |= 0x10;
+
     if(v >= 49 && g.family == eeWALK
             && (g.misc7 == e7tTEMPJINX || g.misc7 == e7tPERMJINX || g.misc7 == e7tUNJINX))
         g.misc8 = map_jinx_target(g.misc8);

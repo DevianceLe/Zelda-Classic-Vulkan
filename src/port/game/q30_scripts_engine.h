@@ -884,6 +884,8 @@ static Zasm30SpriteState *zasm30_npc_state(sprite *spr)
     return &st;
 }
 
+dword q30_npc_moveflags(sprite *e) { return (dword)zasm30_npc_state(e)->move_flags; }
+
 static Zasm30SpriteState *zasm30_item_state(item *spr)
 {
     Zasm30SpriteState &st = zasm30_sprite_state(spr->getUID());

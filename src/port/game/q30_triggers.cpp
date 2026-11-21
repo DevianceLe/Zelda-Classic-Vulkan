@@ -112,6 +112,86 @@ const Q30Combo *q30_combo(int id)
     return g_combos[id];
 }
 
+// For a script's write to a combo's 3.0 fields: its entry, made now if the quest gave it none
+// (holding what the fallbacks for a combo without one give).
+Q30Combo *q30_combo_for_write(int id)
+{
+    if(quest_header_zelda_version < 0x255 || id < 0 || id >= MAXCOMBOS)
+        return NULL;
+
+    if(!g_combos[id])
+    {
+        g_combos[id] = new Q30Combo;
+        g_combos[id]->type = combobuf[id].type;
+        g_combos[id]->flag = combobuf[id].flag;
+        g_combos[id]->walk = combobuf[id].walk | 0xF0;
+    }
+
+    return g_combos[id];
+}
+
+// A script's view of a combo's type, inherent flag and solid and effect squares (combodata->Type,
+// Flag, Walk, Effect and the Screen->Combo?[] arrays; `what` 0..3 in that order), in upstream's
+// numbers. 2.53's combobuf holds the type and flag only where 2.53 has them (else none) and the
+// solid squares; a 3.0 combo's own type and flag and its effect squares are in its entry, which the
+// 3.0 code reads when there is one. A write keeps the two alike.
+int q30_script_combo_get(int id, int what)
+{
+    if(id < 0 || id >= MAXCOMBOS)
+        return 0;
+
+    const Q30Combo *c = q30_combo(id);
+
+    switch(what)
+    {
+    case 0:  return c ? c->type : combobuf[id].type;
+    case 1:  return c ? c->flag : (combobuf[id].flag == mfPUSHED ? 104 : combobuf[id].flag);
+    case 2:  return (c ? c->walk : combobuf[id].walk) & 0x0F;
+    default: return c ? (c->walk >> 4) : 0x0F;
+    }
+}
+
+void q30_script_combo_set(int id, int what, int value)
+{
+    if(quest_header_zelda_version < 0x255 || id < 0 || id >= MAXCOMBOS)
+        return;
+
+    Q30Combo *c = g_combos[id];
+
+    switch(what)
+    {
+    case 0:
+        value = vbound(value, 0, 255);
+
+        if(c || value >= cMAX)
+            q30_combo_for_write(id)->type = (byte)value;
+
+        combobuf[id].type = value >= cMAX ? cNONE : value;
+        break;
+
+    case 1:
+        value &= 0xFF;
+
+        if(c || value >= mfMAX)
+            q30_combo_for_write(id)->flag = (byte)value;
+
+        combobuf[id].flag = value == 104 ? mfPUSHED : (value >= mfMAX ? mfNONE : value);
+        break;
+
+    case 2:
+        combobuf[id].walk = (combobuf[id].walk & ~0x0F) | (value & 0x0F);
+
+        if(c)
+            c->walk = (c->walk & 0xF0) | (value & 0x0F);
+        break;
+
+    default:
+        c = q30_combo_for_write(id);
+        c->walk = (c->walk & 0x0F) | ((value & 0x0F) << 4);
+        break;
+    }
+}
+
 int q30_combo_type(int id)
 {
     const Q30Combo *c = q30_combo(id);
@@ -9072,6 +9152,7 @@ struct ThrownInfo
     double ax, ay, z, fall, step;
     int death_sprite, death_sfx, drop_item, drop_set, drop_flags;
     bool break_solid;
+    bool dying;     // upstream's weapon_dying_frame (qr_WEAPONS_EXTRA_DEATH_FRAME)
 };
 
 static std::map<long, ThrownInfo> g_thrown;
@@ -9205,6 +9286,7 @@ static void release_lift(int step_100, int fall)
     info.z = g_lift_height + (double)int(Link.getZ());
     info.fall = fall;
     info.step = step_100 / 100.0;
+    info.dying = false;
     w->z = (fix)(int)info.z;
     w->dir = Link.getDir();
     Lwpns.add(w);
@@ -10095,6 +10177,8 @@ void q30_passive_buttons()
         q30_do_liftglove(-1, true);
 }
 
+static void q30_add_combo_sprite(int x, int y, int spr);
+
 static void thrown_tick(weapon *w)
 {
     std::map<long, ThrownInfo>::iterator it = g_thrown.find(w->getUID());
@@ -10105,24 +10189,31 @@ static void thrown_tick(weapon *w)
     ThrownInfo &t = it->second;
     int x = int(w->x), y = int(w->y);
 
-    switch(w->dir)
+    // As upstream's weapon::animate, a weapon that is dying (dead 0) falls but no longer moves:
+    // the frame it lands on, and its extra frame under qr_WEAPONS_EXTRA_DEATH_FRAME.
+    const bool lands = t.z > 0 && t.z - t.fall / 100.0 <= 0;
+
+    if(!t.dying && !lands)
     {
-    case up: t.ay -= t.step; break;
-    case down: t.ay += t.step; break;
-    case left: t.ax -= t.step; break;
-    case right: t.ax += t.step; break;
+        switch(w->dir)
+        {
+        case up: t.ay -= t.step; break;
+        case down: t.ay += t.step; break;
+        case left: t.ax -= t.step; break;
+        case right: t.ax += t.step; break;
+        }
+
+        int sx = (int)t.ax, sy = (int)t.ay;
+        t.ax -= sx;
+        t.ay -= sy;
+        x += sx;
+        y += sy;
+        w->x = (fix)x;
+        w->y = (fix)y;
     }
 
-    int sx = (int)t.ax, sy = (int)t.ay;
-    t.ax -= sx;
-    t.ay -= sy;
-    x += sx;
-    y += sy;
-    w->x = (fix)x;
-    w->y = (fix)y;
-
-    // As upstream's weapon::animate: the height changes by the fall speed first, and only an
-    // object still in the air speeds up after that; it draws on the nearest pixel (zfix's getInt).
+    // The height changes by the fall speed first, and only an object still in the air speeds
+    // up after that; it draws on the nearest pixel (zfix's getInt).
     t.z -= t.fall / 100.0;
 
     if(t.z > 0)
@@ -10139,8 +10230,16 @@ static void thrown_tick(weapon *w)
     bool solid = t.break_solid && _walkflag(x + 8, y + 8, 1);
     bool gone = x < -16 || y < -16 || x > 256 || y > 176;
 
-    if(t.z > 0 && !solid && !gone)
+    if(t.z > 0 && !solid && !gone && !t.dying)
         return;
+
+    // qr_WEAPONS_EXTRA_DEATH_FRAME: the weapon lives one more frame before its death effects
+    if(!gone && !t.dying && q30_quest_rule(Q30_QR_WEAPONS_EXTRA_DEATH_FRAME))
+    {
+        t.dying = true;
+        w->xofs = (fix)(-1000);     // (upstream draws neither a dying weapon nor its shadow)
+        return;
+    }
 
     if(!gone)
     {
@@ -10158,8 +10257,7 @@ static void thrown_tick(weapon *w)
 
         default:    // a sprite of the quest's, played once where the object broke (upstream weapon::do_death_fx's comboSprite)
             if(t.death_sprite >= 0 && t.death_sprite < MAXWPNS)
-                q30_add_sprite_deco(x, (int)floor(y - (t.z > 0 ? t.z : 0) + 0.5), t.death_sprite,
-                                    zc_max(1, (int)wpnsbuf[t.death_sprite].frames) * zc_max(1, (int)wpnsbuf[t.death_sprite].speed), false);
+                q30_add_combo_sprite(x, (int)floor(y - (t.z > 0 ? t.z : 0) + 0.5), t.death_sprite);
             break;
         }
 
@@ -11952,6 +12050,14 @@ void q30_add_sprite_deco(int x, int y, int spr, int duration, bool hold_last)
     decorations.add(new q30_sprite_deco(x, y, spr, duration, hold_last, hold_last ? playing_field_offset : playing_field_offset - 2));
 }
 
+// Upstream's comboSprite: a quest sprite played once, drawn where every decoration is (two pixels
+// up only under qr_DECO_2_YOFFSET).
+static void q30_add_combo_sprite(int x, int y, int spr)
+{
+    decorations.add(new q30_sprite_deco(x, y, spr, zc_max(1, (int)wpnsbuf[spr].frames) * zc_max(1, (int)wpnsbuf[spr].speed), false,
+                                        playing_field_offset - (q30_compat_rule(344) ? 2 : 0)));
+}
+
 // Upstream's breakable: the switched combo shown where Link stood until the switch ends,
 // then broken (sprite or clippings, sound, item drop).
 class q30_breakable : public decoration
@@ -12903,6 +13009,18 @@ void q30_switchhook_update()
 bool q30_quest_rule(int id)
 {
     return quest_header_zelda_version >= 0x255 && g_rules_known && get_bit(g_rules, id) != 0;
+}
+
+// Game->FFRules[] from a script: any of upstream's rules.
+bool q30_script_rule_get(long id)
+{
+    return g_rules_known && id >= 0 && id < (long)sizeof(g_rules) * 8 && get_bit(g_rules, (int)id) != 0;
+}
+
+void q30_script_rule_set(long id, bool on)
+{
+    if(g_rules_known && id >= 0 && id < (long)sizeof(g_rules) * 8)
+        set_bit(g_rules, (int)id, on ? 1 : 0);
 }
 
 extern dword q255_compat_rule_version;

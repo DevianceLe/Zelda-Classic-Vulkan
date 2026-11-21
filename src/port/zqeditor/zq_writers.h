@@ -168,6 +168,14 @@ bool zq_newer_convert_section_to(dword id, int target, const std::vector<byte> &
 // which is every other time), and its cversion.
 int zq_newer_convert_to(word *cversion);
 
+// An enemy or item section out of a file (version, cversion, size, data) in one of 2.53's formats
+// or an older one, for an import into a quest made in 2.55 or 3.0: converted as saving a quest of
+// 2.53.1 as the target converts that section (upstream's reader of that version), into the
+// target's newest format, its id first. Enemies: formats 4 to 24; items: 2 to 25 (zqn_guys.cpp,
+// zqn_items.cpp). False (why says) otherwise.
+bool zqn_guys_from_old_file(const std::vector<byte> &section, int target, std::vector<byte> &out, std::string &why);
+bool zqn_items_from_old_file(const std::vector<byte> &section, int target, std::vector<byte> &out, std::string &why);
+
 // Whether saving the open quest (made in 2.55 or later) as the target would bring some of its
 // parts up to newer versions: some part is older than the target's newest and none is newer.
 // A quest made in a 3.0 prerelease is then still offered 3.0 Nightly (it is a newer version).

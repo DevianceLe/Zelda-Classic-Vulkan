@@ -1731,6 +1731,41 @@ void upstream_name(char out[64], const char *name, int i)
     }
 }
 
+// A GUY section out of a file (version, cversion, size, data) that is being converted for an
+// import into a quest made in 2.55 or 3.0 (zqn_guys_from_old_file); NULL otherwise. Every enemy
+// then comes from the file, read as upstream's reader reads a section of that version, with the
+// open quest's rules where the reader looks at them (upstream's import reads the file into the
+// open quest the same way).
+const std::vector<byte> *g_file = NULL;
+
+// The open (2.55 / 3.0) quest's rules for a file's enemies: the rules upstream holds after
+// loading the quest, which are also its "deprecated" copy of them.
+bool file_rules(UCtx &c)
+{
+    std::vector<byte> rules;
+
+    // (a quest whose rules the other line's reader takes: its rules all the same)
+    if((!zqn255_rules_loaded(c.target, rules) && !zqn255_rules_loaded(c.target == ZQ_NEWER_30 ? ZQ_NEWER_255 : ZQ_NEWER_30, rules)) ||
+       rules.size() < 100)
+        return false;
+
+#define ZQN_QR(n) (((rules[(n) >> 3] >> ((n) & 7)) & 1) != 0)
+    c.newenemytiles = ZQN_QR(55);       // qr_NEWENEMYTILES
+    c.moresounds = ZQN_QR(106);         // qr_MORESOUNDS
+    c.eightway_dep = ZQN_QR(277);       // qr_8WAY_SHOT_SFX_DEP
+    c.dep_brkblshlds = ZQN_QR(37);      // qr_BRKBLSHLDS_DEP
+    c.dep_rope2flash = ZQN_QR(56);      // qr_NOROPE2FLASH_DEP
+    c.dep_bubbleflash = ZQN_QR(57);     // qr_NOBUBBLEFLASH_DEP
+    c.dep_ghini2blink = ZQN_QR(58);     // qr_GHINI2BLINK_DEP
+    c.dep_phantomghini2 = ZQN_QR(60);   // qr_PHANTOMGHINI2_DEP
+    c.dep_slowanim = ZQN_QR(82);        // qr_SLOWENEMYANIM_DEP
+    c.dep_oldtribbles = ZQN_QR(101);    // qr_OLDTRIBBLES_DEP
+    c.dep_46 = ZQN_QR(46);
+#undef ZQN_QR
+    c.polsvoice = false;
+    return true;
+}
+
 // Every enemy as upstream holds it after opening the quest, with the user's changes.
 int build_guys(const ZqNewerContext &ctx, std::vector<UGuy> &gs)
 {
@@ -1739,14 +1774,22 @@ int build_guys(const ZqNewerContext &ctx, std::vector<UGuy> &gs)
     c.target = ctx.target;
     c.zver = ctx.src_zelda_version;
     c.build = ctx.src_build;
-    c.v = ctx.src_part ? ctx.src_version : 0;
-    c.cv = ctx.src_part ? ctx.src_cversion : 0;
+    c.v = (ctx.src_part || g_file) ? ctx.src_version : 0;
+    c.cv = (ctx.src_part || g_file) ? ctx.src_cversion : 0;
     c.newenemytiles = get_bit(quest_rules, qr_NEWENEMYTILES) != 0;
     c.moresounds = get_bit(quest_rules, qr_MORESOUNDS) != 0;
     c.eightway_dep = c.zver < 0x250;    // 3.0's qr_8WAY_SHOT_SFX_DEP, set for quests older than 2.50
     c.polsvoice = fixpolsvoice;
 
-    if(!probe_rules(c))
+    if(g_file)
+    {
+        if(!file_rules(c))
+        {
+            zqw_ig_refuse("Enemies: this quest's rules couldn't be read.\n");
+            return 1;
+        }
+    }
+    else if(!probe_rules(c))
     {
         zqw_ig_refuse("Enemies: ZQuest's own enemy reader failed while checking the quest's old rules.\n");
         return 1;
@@ -1758,7 +1801,9 @@ int build_guys(const ZqNewerContext &ctx, std::vector<UGuy> &gs)
 
     std::vector<byte> orig;
 
-    if(ctx.src_part && !zqw_ig::read_part(*ctx.src_part, orig))
+    if(g_file)
+        orig = *g_file;
+    else if(ctx.src_part && !zqw_ig::read_part(*ctx.src_part, orig))
     {
         zqw_ig_refuse("Enemies: the quest's own enemy section couldn't be read back.\n");
         return 1;
@@ -1802,7 +1847,7 @@ int build_guys(const ZqNewerContext &ctx, std::vector<UGuy> &gs)
     const char *all = getenv("ZQN_GUYS_ALL_CHANGED");
     bool force = all && *all == '1';
 
-    for(int i = 0; i < MAXGUYS; ++i)
+    for(int i = 0; i < MAXGUYS && !g_file; ++i)
         if(force || !same_guy(guysbuf[i], g_guys[i]))
             from_changed(gs[i], guysbuf[i], c, i);
 
@@ -2041,7 +2086,7 @@ int zqn_guys(PACKFILE *f, const ZqNewerContext &ctx)
         return ZQW_UNSUPPORTED;     // 2.55 quests saved as 3.0 come later
 
     // GUY version 2 holds Link's sprites; no quest has it
-    if(ctx.src_part && (ctx.src_version == 2 || ctx.src_version > 24))
+    if((ctx.src_part || g_file) && (ctx.src_version == 2 || ctx.src_version > 24))
         return ZQW_UNSUPPORTED;
 
     std::vector<UGuy> gs;
@@ -2673,3 +2718,58 @@ ZqNewerRegistration g_register_255_17(ID_GUYS, zqn255_17_guys, "2.55 enemies as 
 
 
 } // namespace
+
+// An enemy file's section in one of 2.53's formats or an older one (4 to 24), for a quest made
+// in 2.55 or 3.0: converted as saving a quest of 2.53.1 as the target converts its enemies. The
+// names are the file's as 2.53's own reader takes them (ZQuest's buffers are put back after).
+bool zqn_guys_from_old_file(const std::vector<byte> &section, int target, std::vector<byte> &out, std::string &why)
+{
+    out.clear();
+    const int v = section.size() >= 8 ? (int)get_le(section, 0, 2) : 0;
+
+    if(v < 4 || v > 24)
+    {
+        char b[120];
+        snprintf(b, sizeof(b), "enemies of format %d aren't converted (ZQuest converts formats 4 to 24 and 41 up)", v);
+        why = b;
+        return false;
+    }
+
+    SavedBuffers saved;
+
+    if(!run_253_reader(section))
+    {
+        why = "its enemies don't read as their format says";
+        return false;
+    }
+
+    ZqNewerContext ctx;
+    ctx.target = target;
+    ctx.src_zelda_version = 0x250;      // a quest of 2.53.1
+    ctx.src_build = 33;
+    ctx.src_part = NULL;
+    ctx.src_version = (word)v;
+    ctx.src_cversion = (word)get_le(section, 2, 2);
+    PACKFILE *f = zq_open_vector_sink(&out);
+
+    if(!f)
+    {
+        why = "out of memory";
+        return false;
+    }
+
+    zqw_last_error.clear();
+    g_file = &section;
+    const int rc = zqn_guys(f, ctx);
+    g_file = NULL;
+    pack_fclose(f);
+
+    if(rc != ZQW_OK)
+    {
+        why = zqw_last_error.empty() ? std::string("its enemies couldn't be converted") : zqw_last_error;
+        out.clear();
+        return false;
+    }
+
+    return true;
+}

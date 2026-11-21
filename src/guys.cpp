@@ -316,6 +316,58 @@ bool m_walkflag(int dx,int dy,int special, int x=-1000, int y=-1000)
 }
 
 
+// 2.55+ quests (upstream's enemy::m_walkflag, groundblocked and flyerblocked): an enemy keeps off
+// pitfalls unless its move flags let it walk on pits (move_can_pitwalk 0x04, move_only_pitwalk
+// 0x80). Upstream lets a knocked-back enemy that can fall (0x02) onto a pit, where it falls;
+// enemies don't fall here, so a pit stops those too.
+static bool q30_pit4(int dx, int dy)
+{
+    return q30_pitfall_at(dx,dy) || q30_pitfall_at(dx+8,dy) || q30_pitfall_at(dx,dy+8) || q30_pitfall_at(dx+8,dy+8);
+}
+
+bool enemy::m_walkflag(int dx,int dy,int special, int x, int y)
+{
+    if(::m_walkflag(dx,dy,special,x,y))
+        return true;
+
+    if(!q30_active())
+        return false;
+
+    const dword mf = q30_npc_moveflags(this);
+
+    if(!(mf & 0x04) && q30_pit4(dx,dy))
+        return true;
+
+    if(special==spw_wizzrobe || special==spw_floater || special==spw_water || (mf & 0x84))
+        return false;
+
+    dx&=(special==spw_halfstep)?(~7):(~15);
+    dy&=(special==spw_halfstep || tmpscr->flags7&fSIDEVIEW)?(~7):(~15);
+    return q30_pitfall_at(dx,dy+8) || q30_pitfall_at(dx+8,dy+8);
+}
+
+bool enemy::flyerblocked(int dx, int dy, int special)
+{
+    if(::flyerblocked(dx,dy,special))
+        return true;
+
+    return q30_active() && special==spw_floater && !(q30_npc_moveflags(this) & 0x04) && q30_pitfall_at(dx,dy);
+}
+
+// Upstream's enemy::shadow_overpit: no shadow is drawn over a pitfall (one diagonal of the hit box
+// is looked at, as there).
+bool enemy::q30_shadow_overpit()
+{
+    if(!q30_active())
+        return false;
+
+    for(int q = 0; q < hysz; ++q)
+        if(q30_pitfall_at(int(x)+q+hxofs, int(y)+q+hyofs+hysz-2))
+            return true;
+
+    return false;
+}
+
 /**********************************/
 /*******  Enemy Base Class  *******/
 /**********************************/
@@ -518,8 +570,21 @@ bool enemy::Dead(int index)
 // Basic animation code that all derived classes should call.
 // The one with an index is the one that is called by
 // the guys sprite list; index is the enemy's index in the list.
+// ZC_Q30_PITTRACE (test runs): logs each enemy on the ground whose middle is over a pitfall.
+static void q30_pit_trace(enemy *e)
+{
+    static int on = -1;
+
+    if(on < 0)
+        on = getenv("ZC_Q30_PITTRACE") ? 1 : 0;
+
+    if(on && q30_active() && e->z <= 0 && e->clk >= 0 && q30_pitfall_at(int(e->x)+8, int(e->y)+8))
+        al_trace("q30: frame %d enemy %d (family %d) on a pit at %d,%d\n", frame, e->id & 0xFFF, (int)guysbuf[e->id & 0xFFF].family, int(e->x), int(e->y));
+}
+
 bool enemy::animate(int index)
 {
+    q30_pit_trace(this);
     int nx = real_x(x);
     int ny = real_y(y);
     
@@ -1812,6 +1877,28 @@ void enemy::drawblock(BITMAP *dest,int mask)
     tile=thold;
 }
 
+// Upstream's enemy::enemycanfall(id, false).
+static bool q30_enemy_can_fall(int id)
+{
+    if(((unsigned)(id&0xFFF)) > MAXGUYS-1 || id <= 0)
+        return false;
+
+    switch(guysbuf[id&0xFFF].family)
+    {
+    case eeGUY:
+        if(id < eOCTO1S)
+            return false;
+
+        return guysbuf[id&0xFFF].misc10 == 1 || guysbuf[id&0xFFF].misc10 == 2;
+
+    case eeGHOMA:
+    case eeDIG:
+        return false;
+    }
+
+    return true;
+}
+
 void enemy::drawshadow(BITMAP *dest, bool translucent)
 {
     if(dont_draw() || tmpscr->flags7&fSIDEVIEW)
@@ -1841,10 +1928,14 @@ void enemy::drawshadow(BITMAP *dest, bool translucent)
         
         //this hack is in place as not all enemies that should use the z axis while in the air
         //(ie rocks, boulders) actually do. To be removed when the enemy revamp is complete -DD
-        if(canfall(id) && shadowtile == 0)
+        // 2.55+ quests (upstream's enemy::can_drawshadow): only guys, Gohmas and Digdoggers have a
+        // shadow on the ground, so a flier's shows only once it has height; none over a pitfall
+        const bool falls = q30_active() ? q30_enemy_can_fall(id) : canfall(id);
+
+        if(falls && shadowtile == 0)
             shadowtile = wpnsbuf[iwShadow].tile;
             
-        if(z>0 || !canfall(id))
+        if((z>0 || !falls) && !q30_shadow_overpit())
             sprite::drawshadow(dest,translucent);
     }
 }
@@ -5922,9 +6013,19 @@ bool eRock::animate(int index)
     return enemy::animate(index);
 }
 
+// A rock's or boulder's shadow. 2.55+ quests: upstream draws these with sprite::drawshadow, past
+// the rule that keeps other enemies' shadows off the ground.
+void enemy::q30_rock_shadow(BITMAP *dest, bool translucent)
+{
+    if(q30_active())
+        sprite::drawshadow(dest, translucent);
+    else
+        enemy::drawshadow(dest, translucent);
+}
+
 void eRock::drawshadow(BITMAP *dest, bool translucent)
 {
-    if(clk2>=0)
+    if(clk2>=0 && !q30_shadow_overpit())
     {
         int tempy=yofs;
         flip = 0;
@@ -5936,7 +6037,7 @@ void eRock::drawshadow(BITMAP *dest, bool translucent)
         
         yofs+=8;
         yofs+=zc_max(0,zc_min(29-clk3,clk3));
-        enemy::drawshadow(dest, translucent);
+        q30_rock_shadow(dest, translucent);
         yofs=tempy;
     }
 }
@@ -6044,7 +6145,7 @@ bool eBoulder::animate(int index)
 
 void eBoulder::drawshadow(BITMAP *dest, bool translucent)
 {
-    if(clk2>=0)
+    if(clk2>=0 && !q30_shadow_overpit())
     {
         int tempy=yofs;
         flip = 0;
@@ -6054,16 +6155,16 @@ void eBoulder::drawshadow(BITMAP *dest, bool translucent)
         
         yofs+=8;
         xofs-=8;
-        enemy::drawshadow(dest, translucent);
+        q30_rock_shadow(dest, translucent);
         xofs+=16;
         ++shadowtile;
-        enemy::drawshadow(dest, translucent);
+        q30_rock_shadow(dest, translucent);
         yofs+=16;
         shadowtile+=20;
-        enemy::drawshadow(dest, translucent);
+        q30_rock_shadow(dest, translucent);
         xofs-=16;
         --shadowtile;
-        enemy::drawshadow(dest, translucent);
+        q30_rock_shadow(dest, translucent);
         xofs+=8;
         yofs=tempy;
     }

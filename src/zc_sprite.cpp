@@ -560,6 +560,15 @@ void movingblock::push(fix bx,fix by,int d2,int f)
     endy=y=by;
     dir=d2;
     oldflag=f;
+
+    if(q30_active())
+    {
+        // Upstream (movingblock::push): a block going right or down is drawn half a pixel back,
+        // so it is seen to move on the same frame as one going left or up.
+        xofs = (dir == right) ? (fix)(-0.5) : (fix)0;
+        yofs = (fix)playing_field_offset - ((dir == down) ? (fix)0.5 : (fix)0);
+    }
+
     word *di = &(m->data[(int(y)&0xF0)+(int(x)>>4)]);
     byte *ci = &(m->cset[(int(y)&0xF0)+(int(x)>>4)]);
     //   bcombo = ((*di)&0xFF)+(tmpscr->cpage<<8);
