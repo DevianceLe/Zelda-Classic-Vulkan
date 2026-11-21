@@ -2253,8 +2253,32 @@ int onExport_ZGP()
     return D_O_K;
 }
 
+#ifdef ZC_ZQEDITOR
+// A 2.55/3.0 quest whose subscreens are in upstream's own format (SUBS 8 on): 2.53's import and
+// export here work on 2.53's subscreens, so its .sub files go through the subscreen layout
+// editor's Subscreen menu instead, in upstream's format. True when the user was told so.
+static bool zq_subs_in_layout_editor()
+{
+    bool zq255_subs_record(std::vector<byte> &rec, int *version);      // zqw_init.cpp
+    std::vector<byte> rec;
+    int v = 0;
+
+    if(!zq255_subs_record(rec, &v))
+        return false;
+
+    char line[80];
+    sprintf(line, "upstream's own format (subscreen format %d):", v);
+    jwin_alert("Subscreens", "This quest's subscreens are in", line, "use Export / Import in Quest > Misc Data > Subscreens.", "O&K", NULL, 'k', 0, lfont);
+    return true;
+}
+#endif
+
 int onImport_Subscreen()
 {
+#ifdef ZC_ZQEDITOR
+    if(zq_subs_in_layout_editor())
+        return D_O_K;
+#endif
     if(!getname("Import Subscreen (.sub)","sub",NULL,datapath,false))
         return D_O_K;
 #ifdef ZC_ZQEDITOR
@@ -2279,6 +2303,10 @@ int onImport_Subscreen()
 
 int onExport_Subscreen()
 {
+#ifdef ZC_ZQEDITOR
+    if(zq_subs_in_layout_editor())
+        return D_O_K;
+#endif
     if(!getname("Export Subscreen (.sub)","sub",NULL,datapath,false))
         return D_O_K;
         

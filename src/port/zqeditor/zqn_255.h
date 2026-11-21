@@ -133,6 +133,18 @@ struct Zqn255DmapSubs
 // reach, and validate_subscreens against the lists 3.0 ends up with (the subscreen writer's).
 bool zqn255_dmap_subscreens(int target, std::vector<Zqn255DmapSubs> &dmaps);
 
+// How many bytes one new-format subscreen (ZCSubscreen::write's, format v 8 on) takes at the start
+// of data, as the player's reader walks it (q255_init.cpp); 0 when it doesn't read.
+size_t zqn255_subscreen_extent(const std::vector<byte> &data, int v);
+
+// One subscreen out of an upstream .sub file of subscreen format v (what follows its 'SUBS', format
+// and cversion: ZCSubscreen::write's bytes from format 8, 2.53's write_one_subscreen in formats 6
+// and 7), as the target's load_subscreen reads it (ZCSubscreen::read; the old format through
+// read_one_old_subscreen and load_old) and ZCSubscreen::write writes it: 3.0's format 21
+// (ZQ_NEWER_30) or 2.55.18's 12 (ZQ_NEWER_255). *kind: its type (0 active, 1 passive, 2 overlay,
+// 3 map). False (why says) when it doesn't read so, or v is newer than the target's.
+bool zqn255_subscreen_file(int target, const std::vector<byte> &data, int v, std::vector<byte> &out, int *kind, std::string &why);
+
 // Sets a number field of a tape (adding the field if the record's version doesn't hold it), for
 // conversions before a rebuild in a newer version.
 void zqn255_tape_set(Tape &t, const char *key, int64_t value);

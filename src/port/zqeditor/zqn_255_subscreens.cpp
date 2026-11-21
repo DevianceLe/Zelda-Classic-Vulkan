@@ -1240,6 +1240,211 @@ ZqNewerRegistration g_reg_subscreens_255(ID_SUBSCREEN, write_subscreens_255, "2.
 
 } // namespace
 
+size_t q255_widget_extent(const byte *data, size_t size, int version, byte type);                  // q255_init.cpp
+size_t q255_page_trans_extent(const byte *data, size_t size, int version);
+size_t q255_subscreen_head_extent(const byte *data, size_t size, int version, int *file_type);
+
+size_t zqn255_subscreen_extent(const std::vector<byte> &data, int v)
+{
+    if(v < 8 || data.empty())
+        return 0;
+
+    int kind = -1;
+    size_t at = q255_subscreen_head_extent(&data[0], data.size(), v, &kind);
+
+    if(!at || at >= data.size())
+        return 0;
+
+    const int pages = data[at++];
+
+    for(int pg = 0; pg < pages; ++pg)
+    {
+        // where the cursor starts (4 bytes), the widget count, the widgets (their type byte, then
+        // their data), from version 16 the page's change transitions
+        if(at + 6 > data.size())
+            return 0;
+
+        at += 4;
+        const int widgets = data[at] | (data[at + 1] << 8);
+        at += 2;
+
+        for(int w = 0; w < widgets; ++w)
+        {
+            if(at + 1 >= data.size())
+                return 0;
+
+            const size_t n = q255_widget_extent(&data[at + 1], data.size() - at - 1, v, data[at]);
+
+            if(!n)
+                return 0;
+
+            at += 1 + n;
+        }
+
+        if(v >= 16)
+        {
+            const size_t n = at < data.size() ? q255_page_trans_extent(&data[at], data.size() - at, v) : 0;
+
+            if(!n)
+                return 0;
+
+            at += n;
+        }
+    }
+
+    return at <= data.size() ? at : 0;
+}
+
+bool zqn255_subscreen_file(int target, const std::vector<byte> &data, int v, std::vector<byte> &out, int *kind, std::string &why)
+{
+    out.clear();
+    *kind = -1;
+
+    if(target != ZQ_NEWER_30 && target != ZQ_NEWER_255)
+    {
+        why = "subscreen files are only read for 3.0 and 2.55.18";
+        return false;
+    }
+
+    const int newest = target == ZQ_NEWER_255 ? 12 : 21;
+
+    if(v > newest)
+    {
+        why = "its subscreen format, " + std::to_string(v) + ", is newer than " + (target == ZQ_NEWER_255 ? "2.55.18" : "3.0") +
+              "'s " + std::to_string(newest);
+        return false;
+    }
+
+    if(v == 6 || v == 7)
+    {
+        // read_one_old_subscreen: a 64-byte name, the type, the object count and the objects. The
+        // old section's reader takes 128 of them: the file's, then empty ones (a name, type 0 and
+        // no objects), which it skips; the DMaps' fix-up only adds copies to the lists' ends.
+        enum { OLD_GROUPS = 128, EMPTY_GROUP = 64 + 1 + 2 };
+
+        if(data.size() < EMPTY_GROUP)
+        {
+            why = "it is too short for an old-format subscreen";
+            return false;
+        }
+
+        const int type = data[64];
+
+        if(type > 1)
+        {
+            why = "its old-format subscreen has a type (" + std::to_string(type) + ") that is neither active nor passive";
+            return false;
+        }
+
+        if(!(data[65] | data[66]))
+        {
+            why = "its subscreen has no objects (upstream's import then leaves an empty subscreen with no page)";
+            return false;
+        }
+
+        Bytes sec(data);
+        sec.resize(data.size() + (size_t)(OLD_GROUPS - 1) * EMPTY_GROUP, 0);
+        std::vector<int> act(MAXDMAPS, 0), pas(MAXDMAPS, 0);
+        std::vector<Bytes> a, p;
+
+        if(!zqn_old_subscreens(target, sec, v, act, pas, a, p))
+        {
+            why = "its old-format subscreen doesn't read the way upstream reads one";
+            return false;
+        }
+
+        const std::vector<Bytes> &got = type == 1 ? p : a;
+
+        if(got.empty())
+        {
+            why = "its old-format subscreen doesn't read the way upstream reads one";
+            return false;
+        }
+
+        out = got[0];
+        *kind = type;
+        return true;
+    }
+
+    if(v < 8)
+    {
+        why = "its subscreen format, " + std::to_string(v) + ", is older than 2.53's (6), which isn't read here yet";
+        return false;
+    }
+
+    const size_t n = zqn255_subscreen_extent(data, v);
+    int k = -1;
+
+    if(!n || !q255_subscreen_head_extent(&data[0], data.size(), v, &k) || k < 0 || k > 3)
+    {
+        why = "its subscreen doesn't read as subscreen format " + std::to_string(v) + " lays one out";
+        return false;
+    }
+
+    const int lists = v >= 16 ? 4 : 3;
+
+    if(k >= lists)
+    {
+        why = "it holds a map subscreen, which subscreen format " + std::to_string(v) + " has no list for";
+        return false;
+    }
+
+    // the section upstream's reader would take with only this subscreen in it
+    Bytes sec;
+
+    for(int l = 0; l < lists; ++l)
+    {
+        sec.push_back(l == k ? 1 : 0);
+
+        if(l == k)
+            sec.insert(sec.end(), data.begin(), data.begin() + n);
+    }
+
+    if(target == ZQ_NEWER_30)
+    {
+        std::vector<Bytes> got[4];
+
+        if(!convert_new(sec, v, got, why))
+            return false;
+
+        if(got[k].size() != 1)
+        {
+            why = "its subscreen doesn't read the way 3.0 reads one";
+            return false;
+        }
+
+        out = got[k][0];
+    }
+    else
+    {
+        Held h;
+
+        if(!convert_new_255(sec, v, h, why))
+            return false;
+
+        // three lists' counts, only this one's 1: 0 .. 1 <the subscreen> .. 0
+        const Bytes &s = h.section;
+
+        if(s.size() < 4 || s[k] != 1)
+        {
+            why = "its subscreen doesn't read the way 2.55.18 reads one";
+            return false;
+        }
+
+        for(int l = 0; l < 3; ++l)
+            if(l != k && s[l < k ? l : s.size() - (size_t)(3 - l)] != 0)
+            {
+                why = "its subscreen doesn't read the way 2.55.18 reads one";
+                return false;
+            }
+
+        out.assign(s.begin() + k + 1, s.end() - (2 - k));
+    }
+
+    *kind = k;
+    return true;
+}
+
 bool zqn255_dmap_subscreens(int target, std::vector<Zqn255DmapSubs> &dmaps)
 {
     if(zq_quest_file.zelda_version < 0x255 || (target != ZQ_NEWER_30 && target != ZQ_NEWER_255) || dmaps.size() != (size_t)MAXDMAPS)

@@ -536,6 +536,7 @@ void q30_set_screen_data_init(int index, long size, int key, long value)
 // ---- subscreens ----------------------------------------------------------------------
 
 void q30_sub_clear() { zq255.subscreens.clear(); }
+void q30_sub_read_new_format() {}     // the player's (no active subscreen opens none)
 
 void q30_sub_begin(int list, int slot, const char *name)
 {

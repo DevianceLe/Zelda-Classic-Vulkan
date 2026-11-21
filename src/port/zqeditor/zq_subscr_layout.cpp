@@ -54,6 +54,7 @@
 #include "zcport/ui.h"
 #include "zq_q255_store.h"
 #include "zq_tape.h"
+#include "zq_writers.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>     // RegisterUserTexture, ImTextureDataQueueUpload (the page's texture)
@@ -92,6 +93,11 @@ bool zq255_dmap_records_all(std::vector<std::vector<byte> > &recs, int *version)
 bool zq255_dmap_commit(int i, const std::vector<byte> &rec, std::string &why);
 int select_tile(int &tile, int &flip, int type, int &cs, bool edit_cs, int exnow, bool always_use_flip);   // zq_tiles.cpp
 extern char *sfx_string[WAV_COUNT];
+struct EXT_LIST;
+bool getname(const char *prompt, const char *ext, EXT_LIST *list, const char *def, bool usefilename);     // zquest.cpp
+extern char *temppath, *datapath;
+size_t zqn255_subscreen_extent(const std::vector<byte> &data, int v);                   // zqn_255_subscreens.cpp
+bool zqn255_subscreen_file(int target, const std::vector<byte> &data, int v, std::vector<byte> &out, int *kind, std::string &why);
 
 // ---- what subscr.cpp asks while this editor draws ----------------------------------------------
 
@@ -877,6 +883,7 @@ struct Editor
     int want_props;             // a widget's property list
     bool want_ok;
     std::string error;
+    std::string note;           // what the last import or export did (shown when there is no error)
 
     Editor() : open(false), close(false), focus(false), busy(false), is30(false), v(0), sub(0), page(0), sel(-1),
                add_type(W_TEXT), zoom(2), grid(false), snap(false), grid_x(8), grid_y(8), grid_xofs(0), grid_yofs(0), canvas_h(176),
@@ -2559,7 +2566,7 @@ void editor_layer(void *)
         menu_bar();
         top_bar();
         const ImGuiStyle &st = ImGui::GetStyle();
-        const float bottom = ImGui::GetFrameHeightWithSpacing() * (e.error.empty() ? 2 : 3) + st.ItemSpacing.y;
+        const float bottom = ImGui::GetFrameHeightWithSpacing() * (e.error.empty() && e.note.empty() ? 2 : 3) + st.ItemSpacing.y;
 
         if(ImGui::BeginChild("body", ImVec2(0, -bottom)))
         {
@@ -2597,6 +2604,8 @@ void editor_layer(void *)
 
         if(!e.error.empty())
             ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f), "%s", e.error.c_str());
+        else if(!e.note.empty())
+            ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f), "%s", e.note.c_str());
 
         if(ImGui::Button("OK", ImVec2(90 * sc, 0)))
             e.want_ok = true;
@@ -3126,7 +3135,7 @@ bool start(std::string &why)
 
     Model m;
 
-    if(!parse(body, v, m) || m.empty())
+    if(!parse(body, v, m))
     {
         why = "the subscreens don't read as their format says";
         return false;
@@ -3140,6 +3149,7 @@ bool start(std::string &why)
     e.original = body;
     e.undo.clear();
     e.error.clear();
+    e.note.clear();
     fit_kept(v);
     e.want_props = -1;
     e.want_ok = false;

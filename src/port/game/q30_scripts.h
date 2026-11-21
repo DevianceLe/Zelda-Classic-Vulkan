@@ -86,6 +86,8 @@ struct Q30DarkArea
 // list: 0 active, 1 passive, 2 overlay, 3 map; slot: custom_subscreen[] index or -1; obj: the
 // widget's index in that subscreen's objects, -1 if it isn't drawn.
 void q30_sub_clear();
+void q30_sub_read_new_format(); // the section is in the new format (version 8+)
+bool q30_sub_none_active();     // ... and has no active subscreen
 void q30_sub_begin(int list, int slot, const char *name);
 void q30_sub_page(int list, int cursor_pos);
 void q30_sub_widget(int list, int type, const char *label, int obj, int posflags, int x, int y, int w, int h,

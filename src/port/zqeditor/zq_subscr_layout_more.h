@@ -491,6 +491,7 @@ bool page_trans_encode(const std::vector<PageTr> &in, int v, Bytes &o, std::stri
 // ---- this part's state ------------------------------------------------------------------------
 
 enum { POP_NONE, POP_RENAME, POP_DELETE, POP_SETTINGS, POP_PAGE, POP_WIZARD, POP_DMAP };
+enum { FILE_NONE, FILE_EXPORT, FILE_IMPORT_NEW, FILE_IMPORT_OVER };
 enum { WIZ_ITEM_GRID, WIZ_COUNTER_BLOCK, WIZ_TILE_GRID };
 enum { GRID_W = 16, GRID_H = 8 };
 
@@ -566,9 +567,10 @@ struct More
     // requests to the game thread
     int want_tile;              // the tile selector: 1 for the Counter Block's tile, 2 for a Map Tile Grid cell
     int reopen;                 // the dialog to show again when the tile selector closes
+    int want_file;              // the file selector for a .sub file (FILE_*)
 
     More() : show_invis(false), full_ctr(false), max_ctr(false), no_inf(false), all_inf(false), hints(false), preview_dmap(-1), popup(POP_NONE),
-             cursor(0), dmap_typed(-1), menu_x(0), menu_y(0), want_tile(0), reopen(POP_NONE)
+             cursor(0), dmap_typed(-1), menu_x(0), menu_y(0), want_tile(0), reopen(POP_NONE), want_file(0)
     {
         orig_count[0] = orig_count[1] = orig_count[2] = orig_count[3] = 0;
         name[0] = 0;
@@ -707,15 +709,14 @@ void duplicate_subscreen()
 // Why the shown subscreen can't be deleted ("" when it can).
 std::string delete_refused()
 {
-    Editor &e = g_ed;
     const Sub *s = cur_sub();
 
     if(!s)
         return "No subscreen is shown.";
 
-    if(s->list < 2 && list_size(e.m, s->list) <= 1)
-        return std::string("This is the quest's only ") + list_lower(s->list) + " subscreen: every DMap uses one, so it stays (make another first).";
-
+    // As upstream's editor, the only active or passive subscreen can go too: the DMaps that used it
+    // then name one that isn't there, so the player opens no active subscreen and draws no
+    // passive one (update_subscreens, dosubscr).
     return std::string();
 }
 
@@ -1981,6 +1982,13 @@ void delete_popup()
                             "follow it down a number, as in upstream's editor." :
                             "When OK keeps the subscreens: DMaps that use it get subscreen 0 of this list, and DMaps that use a later one "
                             "follow it down a number, as in upstream's editor.");
+
+        if(s->list < 2 && list_size(e.m, s->list) <= 1)
+            ImGui::TextDisabled(s->list == 0 ? "It is the quest's only active subscreen: with none left, the DMaps name one that isn't there, so "
+                                "Start opens no subscreen in the game (as upstream's)." :
+                                "It is the quest's only passive subscreen: with none left, the DMaps name one that isn't there, so no "
+                                "passive subscreen is drawn in the game (as upstream's).");
+
         ImGui::PopTextWrapPos();
         const int r = ok_cancel("Delete");
 
@@ -2460,6 +2468,383 @@ void more_popups()
     wizard_popup();
 }
 
+// ---- .sub files ----------------------------------------------------------------------------------
+
+// Upstream's save_subscreen and load_subscreen (zq_class.cpp; 2.55.18 and 3.0 alike): a plain file
+// of 'SUBS' (the section id, high byte first), the subscreen format and a cversion as words, then
+// one subscreen as ZCSubscreen::write writes it (formats 8 on) or as 2.53's write_one_subscreen
+// does (formats 6 and 7, the old format).
+//
+// Export writes the shown subscreen as the quest's section holds it, in the quest's own format
+// and cversion, so upstream reads it as it reads the quest (3.0 reads formats up to 21, 2.55.18
+// up to 12; every format before the reader's own is converted up as it reads).
+//
+// Import follows the user's rule for the quest's version: a file in the quest's own format goes in
+// as it is; an older one is read the way the quest's upstream reads it (load_subscreen: 3.0 for a
+// 3.0 quest, 2.55.18 for a 2.55 one: zqn255_subscreen_file), then laid out in the quest's format,
+// and the result must read back the same, or nothing goes in; one in a newer format than the
+// quest's is refused, as the quest is never saved in an older version than its own. As upstream's
+// Load, "over this one" takes a file of the same kind only (its DMaps keep using it); "as new" puts
+// it at the end of its own list.
+
+// The bytes one subscreen takes in a section of version v (what a .sub file holds after its head).
+Bytes sub_bytes(const Sub &s, int v)
+{
+    Model one(1, s);
+    Bytes enc;
+    encode(one, v, enc);
+    const int lists = v >= 16 ? 4 : 3;
+    return Bytes(enc.begin() + s.list + 1, enc.end() - (lists - 1 - s.list));
+}
+
+// A section of version v holding only this subscreen (kind: its list), taken apart.
+bool one_sub(const Bytes &b, int v, int kind, Sub &out)
+{
+    const int lists = v >= 16 ? 4 : 3;
+
+    if(kind < 0 || kind >= lists)
+        return false;
+
+    Bytes sec;
+
+    for(int l = 0; l < lists; ++l)
+    {
+        sec.push_back(l == kind ? 1 : 0);
+
+        if(l == kind)
+            sec.insert(sec.end(), b.begin(), b.end());
+    }
+
+    Model m;
+
+    if(!parse(sec, v, m) || m.size() != 1 || m[0].kind != kind)
+        return false;
+
+    out = m[0];
+    return true;
+}
+
+// A subscreen of version `from` laid out again in the older version `to`: its head, every widget
+// (convert_widget) and every page's change transitions. False (why says) when a part can't be.
+bool lay_out_older(const Bytes &b, int from, int to, int kind, Bytes &out, std::string &why)
+{
+    Sub s;
+    Head h;
+
+    if(!one_sub(b, from, kind, s) || !head_parse(s.head, from, h))
+    {
+        why = "the converted subscreen doesn't take apart";
+        return false;
+    }
+
+    if(!head_encode(h, to, s.head, why))
+        return false;
+
+    for(size_t pg = 0; pg < s.pages.size(); ++pg)
+    {
+        Page &p = s.pages[pg];
+
+        for(size_t i = 0; i < p.widgets.size(); ++i)
+        {
+            Bytes w;
+
+            if(!convert_widget(p.widgets[i], from, to, w))
+            {
+                why = std::string("its ") + type_name(p.widgets[i].empty() ? 0 : p.widgets[i][0]) + " widget on page " + std::to_string((int)pg + 1) +
+                      " can't be laid out in " + format_note(to);
+                return false;
+            }
+
+            p.widgets[i].swap(w);
+        }
+
+        Bytes t;
+
+        if(to >= 16)
+        {
+            if(!convert_page_trans(p.trans, from, to, t))
+            {
+                why = "page " + std::to_string((int)pg + 1) + "'s change transitions can't be laid out in " + format_note(to);
+                return false;
+            }
+        }
+
+        p.trans.swap(t);
+    }
+
+    out = sub_bytes(s, to);
+    return true;
+}
+
+// The quest's own subscreen section's cversion (what an export writes with the format).
+int quest_subs_cversion()
+{
+    const ZqQuestPart *p = zq_find_part(ID_SUBSCREEN);
+    word v = 0, cv = 0;
+    return p && zq_part_versions(*p, &v, &cv) ? cv : 0;
+}
+
+bool export_sub(const std::string &path, std::string &why)
+{
+    Editor &e = g_ed;
+    Bytes body;
+    int cv = 0;
+    {
+        zcui::Lock lock;
+        const Sub *s = cur_sub();
+
+        if(!s)
+        {
+            why = "No subscreen is shown.";
+            return false;
+        }
+
+        body = sub_bytes(*s, e.v);
+    }
+    cv = quest_subs_cversion();
+    FILE *f = fopen(path.c_str(), "wb");
+
+    if(!f)
+    {
+        why = "it can't be written";
+        return false;
+    }
+
+    const byte head[8] = { 'S', 'U', 'B', 'S', (byte)(e.v & 0xFF), (byte)(e.v >> 8), (byte)(cv & 0xFF), (byte)(cv >> 8) };
+    bool ok = fwrite(head, 1, 8, f) == 8 && (body.empty() || fwrite(&body[0], 1, body.size(), f) == body.size());
+    ok = fclose(f) == 0 && ok;
+
+    if(!ok)
+        why = "writing it failed";
+
+    return ok;
+}
+
+// The file's subscreen laid out for this quest (bytes in its format e.v; kind: its list), or why not.
+bool read_sub_file(const std::string &path, Bytes &out, int &kind, int &file_v, std::string &why)
+{
+    Editor &e = g_ed;
+    FILE *f = fopen(path.c_str(), "rb");
+
+    if(!f)
+    {
+        why = "it can't be opened";
+        return false;
+    }
+
+    Bytes file;
+    byte buf[65536];
+    size_t n;
+
+    while((n = fread(buf, 1, sizeof(buf), f)) > 0)
+        file.insert(file.end(), buf, buf + n);
+
+    fclose(f);
+
+    if(file.size() < 8 || memcmp(&file[0], "SUBS", 4) != 0)
+    {
+        why = "it isn't a subscreen file: it doesn't start with 'SUBS'";
+        return false;
+    }
+
+    file_v = file[4] | (file[5] << 8);
+    const Bytes data(file.begin() + 8, file.end());
+    char b[400];
+
+    if(file_v > e.v)
+    {
+        snprintf(b, sizeof(b), "its subscreen is in subscreen format %d (%s), newer than this quest's %d (%s): the quest is saved in "
+                 "its own format, which can't hold it, so it stays out", file_v, file_v <= 12 ? "2.55" : "3.0", e.v, e.v <= 12 ? "2.55" : "3.0");
+        why = b;
+        return false;
+    }
+
+    // the quest's line: 3.0's reader for a 3.0 quest, 2.55.18's for a 2.55 one
+    const bool line30 = e.is30 || e.v > 12;
+    const int target = line30 ? ZQ_NEWER_30 : ZQ_NEWER_255;
+    const int newest = line30 ? 21 : 12;
+
+    if(file_v == e.v)
+    {
+        // as it is, up to where the subscreen ends (upstream's reader stops there too)
+        const size_t ext = zqn255_subscreen_extent(data, e.v);
+        kind = -1;
+
+        if(!ext || !q255_subscreen_head_extent(&data[0], data.size(), e.v, &kind))
+        {
+            snprintf(b, sizeof(b), "its subscreen doesn't read as subscreen format %d lays one out", file_v);
+            why = b;
+            return false;
+        }
+
+        out.assign(data.begin(), data.begin() + ext);
+        return true;
+    }
+
+    Bytes top;
+
+    if(!zqn255_subscreen_file(target, data, file_v, top, &kind, why))
+        return false;
+
+    if(e.v == newest)
+    {
+        out.swap(top);
+        return true;
+    }
+
+    // between formats: laid out in the quest's, and read back the way upstream reads that format
+    Bytes back;
+    int k2 = -1;
+    std::string w;
+
+    if(!lay_out_older(top, newest, e.v, kind, out, why))
+        return false;
+
+    if(!zqn255_subscreen_file(target, out, e.v, back, &k2, w) || k2 != kind || back != top)
+    {
+        snprintf(b, sizeof(b), "%s has no place for some of what the file's subscreen (format %d) holds, so it stays out",
+                 format_note(e.v).c_str(), file_v);
+        why = b;
+        out.clear();
+        return false;
+    }
+
+    return true;
+}
+
+bool import_sub(const std::string &path, bool over, std::string &why)
+{
+    Editor &e = g_ed;
+    Bytes b;
+    int kind = -1, file_v = 0;
+
+    if(!read_sub_file(path, b, kind, file_v, why))
+        return false;
+
+    Sub s;
+
+    if(!one_sub(b, e.v, kind, s))
+    {
+        why = "the file's subscreen doesn't take apart in " + format_note(e.v);
+        return false;
+    }
+
+    // the widget types the quest's format holds (2.55.17 refuses a 3.0 type in format 12 or older)
+    for(size_t pg = 0; pg < s.pages.size(); ++pg)
+        for(size_t i = 0; i < s.pages[pg].widgets.size(); ++i)
+        {
+            const int ty = s.pages[pg].widgets[i].empty() ? 0 : s.pages[pg].widgets[i][0];
+
+            if(ty < 1 || ty >= type_limit(e.v))
+            {
+                why = std::string("it holds a ") + type_name(ty) + " widget, which " + format_note(e.v) + " has no type for";
+                return false;
+            }
+        }
+
+    zcui::Lock lock;
+    char note[300];
+
+    if(over)
+    {
+        Sub *cur = cur_sub();
+
+        if(!cur)
+        {
+            why = "No subscreen is shown.";
+            return false;
+        }
+
+        if(cur->kind != kind)
+        {
+            // upstream: "Found subscreen type '...', expecting type '...'"
+            why = std::string("the file holds a ") + list_lower(kind) + " subscreen, not " + (cur->kind == 0 ? "an " : "a ") +
+                  list_lower(cur->kind) + " one";
+            return false;
+        }
+
+        remember();
+        s.list = cur->list;
+        s.orig = cur->orig;     // the DMaps that use it keep using it
+        *cur = s;
+        e.clip_sub = e.clip_page = -1;
+        e.error.clear();
+        e.fit = true;
+        show_page(e.sub, 0);
+    }
+    else
+    {
+        const std::string full = list_full(kind);
+
+        if(!full.empty())
+        {
+            why = full;
+            return false;
+        }
+
+        s.list = kind;
+        s.orig = -1;
+        insert_subscreen(s);
+    }
+
+    if(file_v == e.v)
+        snprintf(note, sizeof(note), "Imported '%s' (%s, subscreen format %d).", s.name.c_str(), list_lower(kind), file_v);
+    else
+        snprintf(note, sizeof(note), "Imported '%s' (%s): subscreen format %d converted up to this quest's %d.", s.name.c_str(),
+                 list_lower(kind), file_v, e.v);
+
+    e.note = note;
+    return true;
+}
+
+// The game thread's side of Export / Import: the file selector (ZQuest's own page), then the file.
+bool sub_file_request()
+{
+    More &x = g_more;
+    Editor &e = g_ed;
+    int want;
+    {
+        zcui::Lock lock;
+        want = x.want_file;
+        x.want_file = FILE_NONE;
+
+        if(want == FILE_NONE)
+            return false;
+
+        e.busy = true;
+        e.note.clear();
+    }
+
+    const bool picked = want == FILE_EXPORT ? getname("Export Subscreen (.sub)", "sub", NULL, datapath, false)
+                                            : getname("Import Subscreen (.sub)", "sub", NULL, datapath, false);
+    const std::string path = picked ? std::string(temppath) : std::string();
+    std::string why;
+    bool ok = false;
+
+    if(!path.empty())
+        ok = want == FILE_EXPORT ? export_sub(path, why) : import_sub(path, want == FILE_IMPORT_OVER, why);
+
+    zcui::Lock lock;
+    e.busy = false;
+    e.focus = true;
+
+    if(path.empty())
+        return true;
+
+    const std::string name = path.substr(path.find_last_of("/\\") == std::string::npos ? 0 : path.find_last_of("/\\") + 1);
+
+    if(!ok)
+        e.error = (want == FILE_EXPORT ? "Not saved " : "Not imported ") + name + ": " + why + ".";
+    else if(want == FILE_EXPORT)
+    {
+        e.error.clear();
+        e.note = "Saved " + name + " (subscreen format " + std::to_string(e.v) + ").";
+    }
+
+    changed();
+    return true;
+}
+
 // ---- the menus -----------------------------------------------------------------------------------
 
 void subscreen_menu()
@@ -2492,6 +2877,19 @@ void subscreen_menu()
         else
             e.error = why;
     }
+
+    ImGui::Separator();
+
+    // upstream's subscreen list's Save and Load (subscr_lists_edit.cpp): Load puts the file in as a
+    // new subscreen or over the one picked
+    if(m_item("Export (.sub)...", NULL, false, s != NULL))
+        x.want_file = FILE_EXPORT;
+
+    if(m_item("Import (.sub) as new..."))
+        x.want_file = FILE_IMPORT_NEW;
+
+    if(m_item("Import (.sub) over this one...", NULL, false, s != NULL))
+        x.want_file = FILE_IMPORT_OVER;
 
     ImGui::Separator();
 
@@ -2583,6 +2981,7 @@ void ui_map_flush()
              (int)e.undo.size());
     std::string text = line;
     text += "# error " + e.error + " | " + g_more.dlg_error + "\n";
+    text += "# note " + e.note + "\n";
 
     for(size_t i = 0; i < u.now.size(); ++i)
     {
@@ -2617,6 +3016,10 @@ bool more_requests()
 {
     More &x = g_more;
     Editor &e = g_ed;
+
+    if(sub_file_request())
+        return true;
+
     int want, tile = 0, flip = 0, cs = 0, cell = 0, layer = 0;
     {
         zcui::Lock lock;

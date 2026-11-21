@@ -34,6 +34,7 @@ extern int directItemB;
 //DIALOG *sso_properties_dlg;
 
 bool q30_subscreen_anim_draw(BITMAP *dest, int dx, int dy);    // q30_scripts_subscr.h
+bool q30_sub_none_active();                                       // q30_scripts_subscr.h
 extern word q30_init_subscr_speed;      // q255_init.cpp
 
 int q30_subscr_speed = 1;   // see q30_triggers.h; init_game sets it from the quest's init data
@@ -232,6 +233,10 @@ void dosubscr(miscQdata *misc)
     {
         return;
     }
+
+    // 2.55/3.0: a quest with no active subscreen opens none (q30_scripts_subscr.h)
+    if(q30_active() && q30_sub_none_active())
+        return;
     
     if(usebombpal)
     {

@@ -1873,7 +1873,25 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
         t.d6 = f1 | (f2 << 1);
 
         if(s.version >= 12)
-            s.skip(3 * 3);  // second colours
+        {
+            // the "full" colours, kept for the player's drawing (subscr.h SSO_COUNTER_FULLCOLORS);
+            // ZQuest's own view keeps the widget as it is
+            SubColor255 c2[3];
+            get_sub_colors(s, c2, 3);
+
+            if(player_widgets())
+            {
+                subscreen_object f;
+                memset(&f, 0, sizeof(f));
+                put_sub_colors(f, c2);
+                t.frames = f.colortype1;
+                t.speed = f.colortype2;
+                t.delay = f.colortype3;
+                t.frame = (word)f.color1;
+                t.d6 |= SSO_COUNTER_FULLCOLORS | (int)((unsigned)(word)f.color2 << 16);
+                t.d5 = (t.d5 & 0xFF) | (int)((unsigned)(word)f.color3 << 16);
+            }
+        }
 
         // Only the first one drives the number in 2.53, so a showable one goes first.
         int shown[3] = { -1, -1, -1 };
@@ -2518,6 +2536,9 @@ static int read_new_subscreens(Q255Section &s)
             memset(custom_subscreen[i].name, 0, 64);
         }
     }
+
+    if(s.keep)
+        q30_sub_read_new_format();
 
     // active, passive, overlay and (from v16) map subscreens, in that order
     int lists = s.version >= 16 ? 4 : 3;

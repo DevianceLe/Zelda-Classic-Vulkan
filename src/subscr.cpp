@@ -60,6 +60,12 @@ static inline bool q30_sub_newer()
 }
 #endif
 
+#ifdef Q30_SUB_DRAW
+// While a 2.55/3.0 counter widget with "full" colours is drawn: those colours (text, shadow,
+// background), which counter() uses when every counter it shows is full. NULL otherwise.
+static const int *q30_counter_full = NULL;
+#endif
+
 bool show_subscreen_dmap_dots=true;
 bool show_subscreen_numbers=true;
 bool show_subscreen_items=true;
@@ -3969,7 +3975,23 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
             
             case ssoCOUNTER:
             {
+#ifdef Q30_SUB_DRAW
+                // a 2.55/3.0 counter's "full" colours (q255_init.cpp, SSO_COUNTER_FULLCOLORS)
+                int full[3];
+                const subscreen_object &co = css->objects[i];
+
+                if(q30_sub_newer() && (co.d6 & SSO_COUNTER_FULLCOLORS))
+                {
+                    full[0] = subscreen_color(misc, co.frames, (short)co.frame);
+                    full[1] = subscreen_color(misc, co.speed, (short)(word)((unsigned)co.d6 >> 16));
+                    full[2] = subscreen_color(misc, co.delay, (short)(word)((unsigned)co.d5 >> 16));
+                    q30_counter_full = full;
+                }
+#endif
                 counter(dest, x, y, tempfont,subscreen_color(misc, css->objects[i].colortype1, css->objects[i].color1),subscreen_color(misc, css->objects[i].colortype2, css->objects[i].color2),subscreen_color(misc, css->objects[i].colortype3, css->objects[i].color3),css->objects[i].d2,css->objects[i].d3,css->objects[i].d4,css->objects[i].d5,css->objects[i].d6&1, css->objects[i].d7, css->objects[i].d8, css->objects[i].d9, css->objects[i].d10, (css->objects[i].d6&2)!=0);
+#ifdef Q30_SUB_DRAW
+                q30_counter_full = NULL;
+#endif
             }
             break;
             
@@ -4483,6 +4505,102 @@ static int q30_ssc_value(int ssc)
 
     return (ssc >= sscSCRIPT1 && ssc <= sscSCRIPT25) ? game->get_counter(ssc-3) : 0;
 }
+
+// Upstream's is_full_ssc_ctr (new_subscr.cpp: get_ssc_ctr >= get_ssc_ctrmax) for a counter as
+// the reader gives it (q255_init.cpp sub_counter): a 2.53 ssc number or Q30_SSC_COUNTER + the
+// counter. An infinite one is full (get_ssc_ctr gives its max then).
+static bool q30_ssc_full(int ssc)
+{
+    bool inf = false;
+    int val = 0, max = 0;
+
+    switch(ssc)
+    {
+    case sscRUPEES:
+        inf = current_item_power(itype_wallet) != 0;
+        val = game->get_rupies();
+        max = game->get_maxcounter(1);
+        break;
+
+    case sscBOMBS:
+        inf = current_item_power(itype_bombbag) != 0;
+        val = game->get_bombs();
+        max = game->get_maxcounter(2);
+        break;
+
+    case sscSBOMBS:
+    {
+        const int id = current_item_id(itype_bombbag);
+        inf = id > -1 && itemsbuf[id].power > 0 && (itemsbuf[id].flags & ITEM_FLAG1);
+        val = game->get_sbombs();
+        max = game->get_maxcounter(6);
+        break;
+    }
+
+    case sscARROWS:
+        inf = current_item_power(itype_quiver) != 0;
+
+        if(get_bit(quest_rules,qr_TRUEARROWS))
+        {
+            val = game->get_arrows();
+            max = game->get_maxcounter(3);
+        }
+        else
+        {
+            inf = inf || current_item_power(itype_wallet) != 0;
+            val = game->get_rupies();
+            max = game->get_maxcounter(1);
+        }
+        break;
+
+    case sscGENKEYMAGIC:
+    case sscLEVKEYMAGIC:
+    case sscANYKEYMAGIC:
+    {
+        const int id = current_item_id(itype_magickey);
+
+        if(id > -1)
+            inf = (itemsbuf[id].flags & ITEM_FLAG1) ? itemsbuf[id].power >= get_dlevel() : itemsbuf[id].power == get_dlevel();
+    }
+    //fall through
+    case sscGENKEYNOMAGIC:
+    case sscLEVKEYNOMAGIC:
+    case sscANYKEYNOMAGIC:
+    {
+        const bool gen = ssc == sscGENKEYMAGIC || ssc == sscGENKEYNOMAGIC || ssc == sscANYKEYMAGIC || ssc == sscANYKEYNOMAGIC;
+        const bool lev = ssc == sscLEVKEYMAGIC || ssc == sscLEVKEYNOMAGIC || ssc == sscANYKEYMAGIC || ssc == sscANYKEYNOMAGIC;
+
+        if(gen)
+        {
+            val += game->get_keys();
+            max = game->get_maxcounter(5);
+        }
+
+        if(lev)
+        {
+            val += game->get_lkeys();
+            max = 65535;
+        }
+        break;
+    }
+
+    default:
+        if(ssc >= sscSCRIPT1 && ssc <= sscSCRIPT25)
+        {
+            val = game->get_counter(ssc-3);
+            max = game->get_maxcounter(ssc-3);
+        }
+        else if(ssc >= Q30_SSC_COUNTER && ssc < Q30_SSC_COUNTER+Q30_MAX_COUNTERS)
+        {
+            val = game->get_counter(ssc-Q30_SSC_COUNTER);
+            max = game->get_maxcounter(ssc-Q30_SSC_COUNTER);
+        }
+        else
+            return true;    // nothing upstream counts (crNONE)
+    }
+
+    return inf || (val > 65535 ? 65535 : val) >= max;
+}
 #endif
 
 void counter(BITMAP *dest, int x, int y, FONT *tempfont, int color, int shadowcolor, int bgcolor, int alignment, int textstyle, int digits, char idigit, bool showzero, int itemtype1, int itemtype2, int itemtype3, int infiniteitem, bool onlyselected)
@@ -4672,6 +4790,35 @@ void counter(BITMAP *dest, int x, int y, FONT *tempfont, int color, int shadowco
                   types[q] == sscGENKEYMAGIC || types[q] == sscLEVKEYMAGIC || types[q] == sscANYKEYMAGIC;
 
         infinite = zq_subscr_view_infinite(infinite, can);
+    }
+#endif
+
+#ifdef Q30_SUB_DRAW
+    // 2.55/3.0 (SW_Counter::draw): the "full" colours when every counter it shows is full (a
+    // repeated one counted once; with none at all it counts as full)
+    if(q30_counter_full && q30_sub_newer())
+    {
+        const int types[3] = { itemtype1, itemtype2, itemtype3 };
+        bool full = true;
+
+        for(int q=0; q<3 && full; ++q)
+        {
+            const int ty = types[q];
+            bool repeated = ty < 0;
+
+            for(int p=0; p<q; ++p)
+                repeated = repeated || types[p]==ty;
+
+            if(!repeated)
+                full = q30_ssc_full(ty);
+        }
+
+        if(full)
+        {
+            color = q30_counter_full[0];
+            shadowcolor = q30_counter_full[1];
+            bgcolor = q30_counter_full[2];
+        }
     }
 #endif
 

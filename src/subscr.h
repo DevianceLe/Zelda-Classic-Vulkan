@@ -170,6 +170,12 @@ struct subscreen_object
 #define SSO_GAUGE_NEWER      0x10000
 #define SSO_GAUGE_NEWLAYOUT  0x20000
 
+// A 2.55/3.0 counter widget with its "full" colours (SUBS format 12+: upstream's c_text2,
+// c_shadow2, c_bg2, drawn when every counter it shows is full): this bit in d6, their colour
+// types in frames/speed/delay, the text colour in frame, the shadow colour in d6's high half and
+// the background colour in d5's (d5's low byte stays the infinite character).
+#define SSO_COUNTER_FULLCOLORS 0x4
+
 struct subscreen_group
 {
     byte             ss_type;

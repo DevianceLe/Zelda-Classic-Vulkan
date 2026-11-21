@@ -696,6 +696,51 @@ bool lay_out_older(dword id, int target, const std::vector<byte> &newest, int qv
     return true;
 }
 
+// A whole STR section of the line's newest format (newest: its id first, as the converters give it)
+// laid out again in the older format qv of the line (out: version, cversion, size, data): the
+// strings' tape (zq_tape_strings, one field per string's setting) rebuilt in that format. The same
+// proof as lay_out_older's: converted up again the way saving the quest converts it, it must give
+// the newest-format section back, or what the older format has no place for would be lost.
+bool strings_to_older(int target, const std::vector<byte> &newest, int qv, word qcv, std::vector<byte> &out, std::string &why)
+{
+    char buf[300];
+    In in(newest, 4);
+    word nv = 0, ncv = 0;
+    std::vector<byte> nd;
+    Tape t;
+
+    if(newest.size() < 12 || !take_section(in, &nv, &ncv, nd))
+    {
+        why = "its strings couldn't be laid out in this quest's format";
+        return false;
+    }
+
+    TapeParser p(nd.empty() ? NULL : &nd[0], nd.size(), 0, &t);
+    std::vector<byte> data;
+
+    if(!zq_tape_strings(p, nv) || p.bad || p.pos != nd.size() || !zqn255_tape_rebuild(zq_tape_strings, t, qv, data))
+    {
+        snprintf(buf, sizeof(buf), "its strings couldn't be laid out in this quest's format %d", qv);
+        why = buf;
+        return false;
+    }
+
+    out = whole_section((word)qv, qcv, data);
+    std::vector<byte> back;
+    std::string w;
+
+    if(!zq_newer_convert_section(ID_STRINGS, target, out, back, w) || back != newest)
+    {
+        snprintf(buf, sizeof(buf), "this quest's strings (format %d) have no place for some of what the file's hold (3.0's format %d keeps "
+                 "string settings format %d lacks), so they stay out", qv, (int)nv, qv);
+        why = buf;
+        out.clear();
+        return false;
+    }
+
+    return true;
+}
+
 // A file's section (version v, cversion cv, data) for a quest whose own section is in another
 // format. Upstream's imports read a file of any older format with its loader's reader, which
 // converts it to its newest; here an older file is converted the same way by what saving a quest
@@ -704,9 +749,10 @@ bool lay_out_older(dword id, int target, const std::vector<byte> &newest, int qv
 // section is in exactly that format (2.55.18's or 3.0's). A quest whose section sits between
 // formats gets the file converted up to its own format (zq_newer_convert_section_to: the same
 // conversions, stopped at that format), which the 2.55 converters of strings, enemies and items
-// can do; where none can (3.0's in-between formats), and for a newer file, which would lose
-// what the quest's format can't hold, it is refused with the reason. True with v, cv and data
-// the section to bring in.
+// can do. In 3.0's in-between formats, enemies, items and strings are converted to 3.0's newest
+// and laid out again in the quest's format, with the proof that nothing is lost (lay_out_older,
+// strings_to_older); other sections there, and a newer file, which would lose what the quest's
+// format can't hold, are refused with the reason. True with v, cv and data the section to bring in.
 bool section_for_quest(dword id, const char *what, word &v, word &cv, std::vector<byte> &data, std::string &why)
 {
     const int qv = quest_section_version(id);
@@ -759,12 +805,12 @@ bool section_for_quest(dword id, const char *what, word &v, word &cv, std::vecto
         std::string w;
         converted = zq_newer_convert_section_to(id, target, whole_section(v, cv, data), (word)qv, pcv, out, w);
 
-        if(!converted && (id == ID_GUYS || id == ID_ITEMS))
+        if(!converted && (id == ID_GUYS || id == ID_ITEMS || (id == ID_STRINGS && target == ZQ_NEWER_30)))
             converted = zq_newer_convert_section(id, target, whole_section(v, cv, data), out, why);
         else if(!converted)
             why = w;
 
-        if(!converted && target == ZQ_NEWER_30 && id != ID_GUYS && id != ID_ITEMS)
+        if(!converted && target == ZQ_NEWER_30 && id != ID_GUYS && id != ID_ITEMS && id != ID_STRINGS)
         {
             char b[300];
             snprintf(b, sizeof(b), "its %s are in format %d and this quest's in format %d, between 2.55.18's (%d) and 3.0 Nightly's (%d); "
@@ -775,11 +821,12 @@ bool section_for_quest(dword id, const char *what, word &v, word &cv, std::vecto
     }
 
     // the line's newest format, for a quest whose section is in an older one of the line
-    if(converted && (id == ID_GUYS || id == ID_ITEMS) && out.size() >= 6 && (out[4] | (out[5] << 8)) == newest && qv != newest)
+    if(converted && (id == ID_GUYS || id == ID_ITEMS || id == ID_STRINGS) && out.size() >= 6 && (out[4] | (out[5] << 8)) == newest &&
+       qv != newest)
     {
         std::vector<byte> older;
 
-        if(!lay_out_older(id, target, out, qv, pcv, what, older, why))
+        if(id == ID_STRINGS ? !strings_to_older(target, out, qv, pcv, older, why) : !lay_out_older(id, target, out, qv, pcv, what, older, why))
             return false;
 
         Out o;
@@ -1883,6 +1930,78 @@ bool zqx_import_guys(const char *path, std::string &why, std::string &note)
 namespace
 {
 
+// One item's or enemy's record of an older format (v, cv) brought to the quest's format qv, as a
+// section of that format is (section_for_quest: upstream's reader of format v, and for a quest in
+// between formats laid out in its own with the proof that nothing is lost): the record stands for
+// every one of a section of format v (items: index + 1 of them; enemies: all of them, with the
+// name in front of each where the format keeps names), so record `index` comes out with its own
+// number's conversion. name: the 64-byte name, in and out (the format may keep it in the record).
+bool one_record_to_format(bool item, int index, word v, word cv, std::vector<byte> &rec, std::string &name, int qv, std::string &why)
+{
+    const dword id = item ? ID_ITEMS : ID_GUYS;
+    const int count = item ? index + 1 : MAXGUYS;
+    std::vector<byte> data;
+
+    if(item)
+    {
+        data.push_back((byte)(count & 0xFF));
+        data.push_back((byte)(count >> 8));
+    }
+
+    if(!item || v < 67)
+    {
+        std::string n = name;
+        n.resize(64, 0);
+
+        for(int i = 0; i < count; ++i)
+            data.insert(data.end(), n.begin(), n.end());
+    }
+
+    for(int i = 0; i < count; ++i)
+        data.insert(data.end(), rec.begin(), rec.end());
+
+    word nv = v, ncv = cv;
+
+    if(!section_for_quest(id, item ? "items" : "enemies", nv, ncv, data, why))
+        return false;
+
+    // the records of the converted section (as split_records walks it), record `index` by its bytes
+    const int n = item ? (data.size() >= 2 ? data[0] | (data[1] << 8) : 0) : MAXGUYS;
+    size_t at = item ? 2 : 0;
+    const bool names = !item || qv < 67;
+
+    if(nv != qv || index >= n || (names && data.size() < at + 64 * (size_t)n))
+    {
+        why = std::string("the converted ") + (item ? "item" : "enemy") + " doesn't read in this quest's format";
+        return false;
+    }
+
+    if(names)
+    {
+        name.assign((const char *)&data[at + 64 * (size_t)index], 64);
+        at += 64 * (size_t)n;
+    }
+
+    for(int i = 0; i <= index; ++i)
+    {
+        Tape t;
+        TapeParser q(&data[0], data.size(), at, &t);
+
+        if(!(item ? zq_tape_item(q, qv) : zq_tape_guy(q, qv)) || q.bad)
+        {
+            why = std::string("the converted ") + (item ? "item" : "enemy") + " doesn't read in this quest's format";
+            return false;
+        }
+
+        if(i == index)
+            rec.assign(data.begin() + at, data.begin() + q.pos);
+
+        at = q.pos;
+    }
+
+    return true;
+}
+
 // Whether the single file of this format carries the name in front of the record: an enemy's
 // always (readonenpc), an item's until its record holds the name itself (readoneitem).
 bool one_file_has_name(bool item, int v)
@@ -1936,7 +2055,7 @@ bool zqx_import_one(bool item, int index, const char *path, std::string &why, st
     const dword zversion = in.l();
     in.l();     // the build
     const word v = in.w();
-    in.w();     // the cversion: nothing reads it
+    const word cv = in.w();
 
     if(in.bad || zversion < 0x192 || zversion > 0x999 || !v)
     {
@@ -1962,12 +2081,34 @@ bool zqx_import_one(bool item, int index, const char *path, std::string &why, st
         return false;
     }
 
-    if(v != qv)
+    // An older file: upstream 3.0's readoneitem reads a .zitem of any older format (read_single_item,
+    // then update_old_item), its readonenpc a .znpc from format 57 on (V_GUYS_ZNPC_MIN: older ones
+    // laid their fields out another way), each converted up; 2.55.18's read only their own layout.
+    // So for a quest of the 3.0 line (its own format in between too) the record is converted up to
+    // the quest's format the way a section of the file's format is (one_record_to_format).
+    word n255 = 0, ncv = 0;
+    zqn255_newest(item ? ID_ITEMS : ID_GUYS, ZQ_NEWER_255, &n255, &ncv);
+    const bool line30 = qv > n255;
+
+    if(v > qv || (v < qv && (!line30 || (!item && v < 57))))
     {
-        char t[200];
-        snprintf(t, sizeof(t), "it is in %s format %d and this quest's %s are in format %d; one %s isn't converted between "
-                 "formats", item ? "item" : "enemy", (int)v, item ? "items" : "enemies", (int)qv, item ? "item" : "enemy");
-        why = t;
+        char t[300];
+
+        if(v > qv)
+            why = newer_words(item ? "item" : "enemy", v, qv);
+        else if(!line30)
+        {
+            snprintf(t, sizeof(t), "it is in %s format %d and this quest's %s are in format %d; 2.55.18's import reads only its own "
+                     "format", item ? "item" : "enemy", (int)v, item ? "items" : "enemies", (int)qv);
+            why = t;
+        }
+        else
+        {
+            snprintf(t, sizeof(t), "it is in enemy format %d, from before 57, whose files laid an enemy out another way (upstream "
+                     "refuses them too)", (int)v);
+            why = t;
+        }
+
         return false;
     }
 
@@ -2015,6 +2156,19 @@ bool zqx_import_one(bool item, int index, const char *path, std::string &why, st
     }
 
     rec.resize(used);
+    std::string converted;
+
+    if(v < qv)
+    {
+        std::string nm(name, 64);
+
+        if(!one_record_to_format(item, index, v, cv, rec, nm, qv, why))
+            return false;
+
+        memset(name, 0, sizeof(name));
+        memcpy(name, nm.data(), nm.size() < 63 ? nm.size() : 63);
+        converted = " (format " + std::to_string((int)v) + " converted up to this quest's " + std::to_string((int)qv) + ")";
+    }
 
     if(!(item ? zq255_item_commit(index, rec, why) : zq255_guy_commit(index, rec, why)))
         return false;
@@ -2028,7 +2182,7 @@ bool zqx_import_one(bool item, int index, const char *path, std::string &why, st
 
     extern bool saved;
     saved = false;
-    note = std::string("replaced ") + (item ? "item " : "enemy ") + std::to_string(index);
+    note = std::string("replaced ") + (item ? "item " : "enemy ") + std::to_string(index) + converted;
     return true;
 }
 

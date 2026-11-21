@@ -78,6 +78,7 @@ std::atomic<bool> g_stuck(false);
 std::chrono::steady_clock::time_point g_t0;
 std::string g_answer;                   // auditfile: the next file selector's answer ("" none)
 std::string g_answer_given;             // kept alive for the selector
+bool g_answer_any = false;              // auditanswer outside an entry: any next selector takes it
 
 int ms_since(std::chrono::steady_clock::time_point t)
 {
@@ -164,13 +165,17 @@ std::string describe(DIALOG *d)
 // The entry's first file selector takes the path "auditfile" gave; later ones show.
 const char *answer_selector(const char *message)
 {
-    if(g_state != RUNNING)
-        return NULL;
-
     std::lock_guard<std::mutex> hold(g_lock);
+
+    // "auditanswer" outside an audited entry: the next file selector anywhere takes it (a UI
+    // script driving a window's own menus)
+    if(g_state != RUNNING && !g_answer_any)
+        return NULL;
 
     if(g_answer.empty())
         return NULL;
+
+    g_answer_any = false;
 
     g_events.push_back("file:" + plain(message));
     g_answer_given.swap(g_answer);
@@ -363,6 +368,7 @@ int command(const char *line)
 
         std::lock_guard<std::mutex> hold(g_lock);
         g_answer = path;
+        g_answer_any = g_state != RUNNING;
         return 1;
     }
 

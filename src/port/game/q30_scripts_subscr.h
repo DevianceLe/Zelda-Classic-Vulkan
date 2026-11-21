@@ -78,6 +78,7 @@ struct Z30Subscreen
 // active, passive, overlay, map: upstream's sstACTIVE..sstMAP
 static std::vector<Z30Subscreen> zasm30_subs[4];
 static bool z30_sub_any_cond = false;   // some widget has display conditions
+static bool z30_sub_read_newer = false; // the subscreens were read in the new format (version 8+)
 
 // ---- filled by the reader ----------------------------------------------------------------------
 
@@ -87,6 +88,7 @@ void q30_sub_clear()
         zasm30_subs[i].clear();
 
     z30_sub_any_cond = false;
+    z30_sub_read_newer = false;
 }
 
 void q30_sub_widget_seltext(int list, const char *text)
@@ -120,6 +122,19 @@ void q30_sub_widget_cond(int list, int first, int end, const Q30SubCond &c)
                  (int)c.owned.size(), (int)c.unowned.size(), c.counter, c.counter_cond, c.counter_val, c.litems, (int)c.floors.size(),
                  (int)c.levels.size(), (int)c.dmaps.size(), (int)c.maps.size(), (int)c.screens.size(), (unsigned)c.scrstate, (unsigned)c.exstate,
                  (unsigned)c.lvlstate, (unsigned long)c.genflags);
+}
+
+void q30_sub_read_new_format()
+{
+    z30_sub_read_newer = true;
+}
+
+// A quest whose new-format subscreens have no active one (upstream's editor deletes the last
+// one): upstream's dosubscr opens nothing then (no CURRENT_ACTIVE_SUBSCREEN). The reader put a
+// placeholder in for 2.53's search, which the player must not open.
+bool q30_sub_none_active()
+{
+    return z30_sub_read_newer && zasm30_subs[0].empty();
 }
 
 void q30_sub_begin(int list, int slot, const char *name)
