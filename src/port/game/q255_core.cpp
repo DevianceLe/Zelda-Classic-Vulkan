@@ -55,6 +55,8 @@ int readitemdropsets(PACKFILE *f, int version, word build, bool keepdata); // qs
 #ifdef ZC_PLAYER_BUILD
 void q30_high_items_survey();   // link.cpp: ZC_Q30_ITEMDUMP (declared out here: inside the
                                 // unnamed namespace below it would name a function of its own)
+void q30_clear_itemclass_names();                       // q30_scripts_sys.h (same reason)
+void q30_set_itemclass_name(int q, const char *name);   // q30_scripts_sys.h
 #endif
 
 namespace
@@ -286,7 +288,6 @@ int read_sections(PACKFILE *f, zquestheader *header, miscQdata *misc, zctune *tu
     g_tile_use.clear();
     q255_compat_rule_version = 0;   // an old rules section has none, and must not see the last quest's
 #ifdef ZC_PLAYER_BUILD
-    void q30_clear_itemclass_names();   // q30_scripts_sys.h
     if(keepall)
         q30_clear_itemclass_names();
 #endif
@@ -371,7 +372,6 @@ int read_sections(PACKFILE *f, zquestheader *header, miscQdata *misc, zctune *tu
             // help texts and the rest are the editor's)
             if(id == ID_ZINFO_255 && keepall && size)
             {
-                void q30_set_itemclass_name(int q, const char *name);   // q30_scripts_sys.h
                 Q255Section z;
                 z.data = &body[0];
                 z.size = size;
