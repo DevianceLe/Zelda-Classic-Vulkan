@@ -330,13 +330,14 @@ void q30_scroll_begin(int dir);     // after the frames before the scroll, befor
 void q30_scroll_loaded(bool moves); // the new screen is loaded (moves: the scroll is animated)
 bool q30_scroll_on();               // a 3.0 quest's scroll is running
 // Each frame of the scroll loop: aligning first (the scroll waits); the alignment step, which says
-// 1: the scroll waits a frame, 2: aligning after the scroll (nothing moves), 0 otherwise; and
+// bit 1: the scroll waits a frame, bit 2: aligning after the scroll (nothing moves); and
 // whether any alignment is still to come.
 bool q30_scroll_align_first();
 int q30_scroll_align_step(bool scroll_left);
 bool q30_scroll_align_pending();
 // The view's offset on the other axis, relative to both screens (add it to the scroll's x or y).
 void q30_scroll_offset(int *ox, int *oy);
+int q30_scroll_pfo_shift();     // the playing field offset's change so far in a 3.0 scroll (upstream's pfo_counter)
 // The view at scroll position (sx, sy) (scrollscr's numbers): Game->Scrolling's moving entries
 // and Viewport->X / Y for scripts.
 void q30_scroll_view(int sx, int sy);

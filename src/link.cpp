@@ -17170,15 +17170,15 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
         // 3.0 scrolling regions: the view lines up with the new region's camera on the other
         // axis, 4 pixels a frame, before the scroll (which waits) or after it (upstream's
         // secondary_axis_alignment_amount). Nothing for 2.53 quests.
-        switch(q30_scroll_align_step(cx >= 0 && delay != 0))
+        // (and the playing field offset changes with the view's height: upstream's pfo_counter)
         {
-        case 1:
-            cx++;
-            break;
+            const int q30step = q30_scroll_align_step(cx >= 0 && delay != 0);
 
-        case 2:
-            no_move = 1;
-            break;
+            if(q30step & 1)
+                cx++;
+
+            if(q30step & 2)
+                no_move = 1;
         }
 
         //Move Link and the scroll position
@@ -17397,7 +17397,7 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
         
         // (Link, through a 3.0 scroll's offset on the other axis)
         q30_draw_cam_x = q30ox;
-        q30_draw_cam_y = q30oy;
+        q30_draw_cam_y = q30oy - q30_scroll_pfo_shift();   // (sprites keep the old offset)
 
         if(z > 0 && (!get_bit(quest_rules,qr_SHADOWSFLICKER) || frame&1))
         {

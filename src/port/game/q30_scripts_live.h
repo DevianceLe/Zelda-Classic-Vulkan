@@ -445,6 +445,13 @@ static void z30_wpn_set_v(weapon *w, bool vx, long value)
     w->angle = atan2(nvy, nvx);
     w->step = fix(floor(sqrt(nvx * nvx + nvy * nvy) * 10000.0) / 10000.0);    // (upstream's zfix: 1/10000ths)
 
+    // (an eweapon's: upstream divides its Distance() by 10000 as an integer, whole pixels)
+    if(Ewpns.getByUID(w->getUID()))
+    {
+        volatile double xx = nvx * nvx, yy = nvy * nvy;
+        w->step = fix(int(int(sqrt((xx + yy) * 1000000.0) * 10) / 10000));
+    }
+
     if(Zasm30SpriteState *st = zasm30_sprite_state_if(w->getUID()))
         q30_auto_rotate(w, st);
 }

@@ -26,6 +26,15 @@ extern COLOR_MAP trans_table;
 extern itemdata   *itemsbuf;
 extern wpndata    *wpnsbuf;
 extern byte        quest_rules[QUESTRULES_SIZE];
+
+// 2.55/3.0 quests (the player sets it): a combo's cset 2 offset is signed and the cset wraps
+// (upstream's WRAP_CS2); NULL in ZQuest, and 2.53 quests add it as they always did
+int (*zc_cs2_cset)(int cset, int cofs) = NULL;
+
+static inline int cs2_cset(int cset, int cofs)
+{
+    return zc_cs2_cset ? zc_cs2_cset(cset, cofs & 15) : cset + cofs;
+}
 //extern byte *tilebuf;
 //BITMAP* tilebuf[NEWMAXTILES];
 tiledata *newtilebuf, *grabtilebuf;
@@ -1630,7 +1639,7 @@ void putcombotranslucent(BITMAP* dest,int x,int y,int cmbdat,int cset,int opacit
             cofs |= ~int(0xF);
             
         for(int i=0; i<4; ++i)
-            csets[i] = c.csets&(16<<i) ? cset + cofs : cset;
+            csets[i] = c.csets&(16<<i) ? cs2_cset(cset, cofs) : cset;
             
         putblocktranslucent8(dest,drawtile<<2,x,y,csets,c.flip,15,opacity);
     }
@@ -1671,7 +1680,7 @@ void overcomboblocktranslucent(BITMAP *dest, int x, int y, int cmbdat, int cset,
                     cofs |= ~int(0xF);
                     
                 for(int i=0; i<4; ++i)
-                    csets[i] = c.csets&(16<<i) ? cset + cofs : cset;
+                    csets[i] = c.csets&(16<<i) ? cs2_cset(cset, cofs) : cset;
                     
                 overblocktranslucent8(dest,tiletodraw<<2,x+16*woff,y+16*hoff,csets,c.flip,15,opacity);
             }
@@ -2488,7 +2497,7 @@ void putcombo(BITMAP* dest,int x,int y,int cmbdat,int cset)
         
         for(int i=0; i<4; ++i)
         {
-            csets[i] = c.csets&(16<<i) ? cset + cofs : cset;
+            csets[i] = c.csets&(16<<i) ? cs2_cset(cset, cofs) : cset;
         }
         
         putblock8(dest,drawtile<<2,x,y,csets,c.flip,15);
@@ -2513,7 +2522,7 @@ void oldputcombo(BITMAP* dest,int x,int y,int cmbdat,int cset)
         
         for(int i=0; i<4; ++i)
         {
-            csets[i] = c.csets&(16<<i) ? cset + cofs : cset;
+            csets[i] = c.csets&(16<<i) ? cs2_cset(cset, cofs) : cset;
         }
         
         oldputblock8(dest,drawtile<<2,x,y,csets,c.flip,15);
@@ -2556,7 +2565,7 @@ void overcomboblock(BITMAP *dest, int x, int y, int cmbdat, int cset, int w, int
                     cofs |= ~int(0xF);
                     
                 for(int i=0; i<4; ++i)
-                    csets[i] = c.csets&(16<<i) ? cset + cofs : cset;
+                    csets[i] = c.csets&(16<<i) ? cs2_cset(cset, cofs) : cset;
                     
                 overblock8(dest,tiletodraw<<2,x+16*woff,y+16*hoff,csets,c.flip,15);
             }

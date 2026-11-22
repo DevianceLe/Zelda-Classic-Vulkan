@@ -1573,6 +1573,11 @@ bool weapon::animate(int index)
         q30_dying_frame = false;    // (a script brought it back)
     }
 
+    // 2.55/3.0: a weapon being switched with Link (a switch hook or a script's Switch) stays as
+    // it is until the switch is over (upstream's switch_hooked in weapon::animate)
+    if(q30_switch_hooked(this, -1))
+        return false;
+
     const bool gone = animate_body(index);
 
     if(gone && dead == 0 && q30_quest_rule(Q30_QR_WEAPONS_EXTRA_DEATH_FRAME))

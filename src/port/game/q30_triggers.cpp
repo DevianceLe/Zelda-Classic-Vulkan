@@ -54,6 +54,8 @@ void q30_saved_portals_load(const std::vector<long> &kv);
 // ---- data ----------------------------------------------------------------------------
 
 
+extern int (*zc_cs2_cset)(int cset, int cofs);     // tiles.cpp
+
 namespace
 {
 
@@ -89,11 +91,25 @@ void q30_combo_store(int id, Q30Combo *data)
     g_scripts_pending = true;
 }
 
+// upstream's WRAP_CS2 for a 2.55/3.0 quest's combo cset 2 offset (tiles.cpp): signed, the cset
+// wrapping at 14, or at 16 under qr_OLDCS2; 2.53 quests: the plain sum
+static int q30_cs2_cset(int cset, int cofs)
+{
+    if(quest_header_zelda_version < 0x255 || !g_rules_known)
+        return cset + cofs;
+
+    if(cofs & 8)
+        cofs -= 16;
+
+    return get_bit(g_rules, 241) ? (cset + cofs + 16) % 16 : (cset + cofs + 14) % 14;
+}
+
 void q30_set_quest_rules(const byte *rules, size_t bytes)
 {
     memset(g_rules, 0, sizeof(g_rules));
     memcpy(g_rules, rules, zc_min(bytes, sizeof(g_rules)));
     g_rules_known = true;
+    zc_cs2_cset = q30_cs2_cset;
 
     if(getenv("ZC_Q30_TRACE"))     // diagnostics: the upstream rule numbers the quest sets
     {

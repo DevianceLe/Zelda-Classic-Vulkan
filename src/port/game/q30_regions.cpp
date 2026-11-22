@@ -2728,6 +2728,11 @@ struct Scroll
     int s_from, s_to, s;        // the view's offset on the other axis, relative to both screens
     int align_mode;             // 0: line up before the scroll, 1: after it
     int align_left;             // pixels still to line up
+    int amount;                 // upstream's secondary_axis_alignment_amount (screen pixels)
+    int old_pfo, new_pfo;       // the playing field offset in the old and the new region
+    int old_vh;                 // the old region's view height
+    int pfo_mode;               // upstream's pfo_mode: 0 change the offset first, 1 after the scroll
+    int pfo_left;               // upstream's pfo_counter
     RegionScreen *old_nb[2];    // the old screen's neighbours on the other axis (before, after)
     int new_nb[2];              // the new screen's (screen numbers, -1: none)
 };
@@ -2752,10 +2757,26 @@ RegionScreen *scroll_neighbour(bool new_screen, int k)
     return g_scroll.new_nb[k] >= 0 ? region_screen(g_scroll.new_nb[k]) : NULL;
 }
 
-// the view shows the neighbour k: it leans that way on the other axis
+int scroll_pfo_shift()
+{
+    return g_scroll.on ? playing_field_offset - g_scroll.old_pfo : 0;
+}
+
+// the view shows the neighbour k: it leans that way on the other axis (a horizontal scroll's view
+// is as tall as the field below the playing field offset)
 bool scroll_shows(int k)
 {
-    return k ? g_scroll.s > 0 : g_scroll.s < 0;
+    if(!g_scroll.horiz)
+        return k ? g_scroll.s > 0 : g_scroll.s < 0;
+
+    const int top = g_scroll.s + scroll_pfo_shift();
+    return k ? top + zc_view_h - playing_field_offset > 176 : top < 0;
+}
+
+// the scroll's picture needs the canvas: it is offset or shows a neighbour
+bool scroll_canvas()
+{
+    return g_scroll.on && (g_scroll.s || scroll_pfo_shift() || scroll_shows(0) || scroll_shows(1));
 }
 
 } // namespace
@@ -2774,6 +2795,9 @@ void q30_scroll_reset()
     g_scroll.on = false;
     g_scroll.s = 0;
     g_scroll.align_left = 0;
+    g_scroll.amount = 0;
+    g_scroll.pfo_left = 0;
+    g_scroll.old_pfo = g_scroll.new_pfo = original_playing_field_offset;
     g_scroll.new_nb[0] = g_scroll.new_nb[1] = -1;
 }
 
@@ -2802,6 +2826,8 @@ void q30_scroll_begin(int dir)
     s.old_sy = g_reg.on ? g_reg.dy * 176 : 0;
     s.old_vx = s.old_sx;
     s.old_vy = s.old_sy;
+    s.old_pfo = s.new_pfo = original_playing_field_offset;
+    s.old_vh = q30_view_h();
 
     if(g_reg.on)
     {
@@ -2867,19 +2893,32 @@ void q30_scroll_loaded(bool moves)
     s.s_from = s.horiz ? s.old_vy - s.old_sy : s.old_vx - s.old_sx;
     s.s_to = s.horiz ? new_vy - ndy * 176 : new_vx - ndx * 256;
 
-    // line up first when the old region can show the view lined up (upstream's align_mode)
-    int lo = 0, hi = 0;
+    // the playing field offset changes with the view's height (upstream's pfo_mode / pfo_counter):
+    // first, unless scrolling up, or sideways into a lower offset from a region's top row
+    s.new_pfo = q30_extended_height_mode() ? 0 : 56;
+    const int dpfo = s.new_pfo - s.old_pfo;
+    s.pfo_mode = s.dir == up ? 1 : s.dir == down ? 0 : ((!s.old_reg.on || s.old_reg.dy == 0) && dpfo < 0) ? 1 : 0;
+    s.pfo_left = moves ? abs(dpfo) : 0;
 
-    if(s.old_reg.on)
+    // (up/down scrolls: our scroll starts from the old screen's top, not from the old camera, so
+    // the offset still jumps after them)
+    if(!s.horiz)
+        s.pfo_left = 0;
+
+    // the other axis in screen rows, with both field offsets (upstream's
+    // secondary_axis_alignment_amount: Link's place on the new view minus on the old one)
+    s.amount = s.s_from - s.s_to + (s.horiz ? dpfo : 0);
+
+    // line up first when the old region can show the view lined up (upstream's align_mode)
     {
-        const int d = s.horiz ? s.old_reg.dy : s.old_reg.dx, n = s.horiz ? s.old_reg.h : s.old_reg.w;
-        const int size = s.horiz ? 176 : 256;
-        lo = -d * size;
-        hi = (n - 1 - d) * size;
+        const int d = s.old_reg.on ? (s.horiz ? s.old_reg.dy : s.old_reg.dx) : 0;
+        const int n = s.old_reg.on ? (s.horiz ? s.old_reg.h : s.old_reg.w) : 1;
+        const int size = s.horiz ? 176 : 256, vsize = s.horiz ? s.old_vh : 256;
+        const int top = d * size + s.s_from - s.amount + (s.horiz && s.pfo_mode == 0 ? dpfo : 0);
+        s.align_mode = (top >= 0 && top + vsize <= n * size) ? 0 : 1;
     }
 
-    s.align_mode = (s.s_to >= lo && s.s_to <= hi) ? 0 : 1;
-    s.align_left = moves ? abs(s.s_from - s.s_to) : 0;
+    s.align_left = moves ? abs(s.amount) : 0;
     s.s = moves ? s.s_from : s.s_to;
 
     for(int k = 0; k < 2; ++k)
@@ -2925,40 +2964,61 @@ void q30_scroll_loaded(bool moves)
 
 bool q30_scroll_align_first()
 {
-    return g_scroll.on && g_scroll.align_mode == 0 && g_scroll.align_left > 0;
+    return g_scroll.on && ((g_scroll.align_mode == 0 && g_scroll.align_left > 0) || (g_scroll.pfo_mode == 0 && g_scroll.pfo_left > 0));
 }
 
 bool q30_scroll_align_pending()
 {
-    return g_scroll.on && g_scroll.align_left > 0;
+    return g_scroll.on && (g_scroll.align_left > 0 || g_scroll.pfo_left > 0);
 }
 
 int q30_scroll_align_step(bool scroll_left)
 {
     Scroll &s = g_scroll;
 
-    if(!s.on || !s.align_left)
+    if(!s.on || (!s.align_left && !s.pfo_left))
         return 0;
 
-    int ret;
+    int ret = 0;
 
     if(s.align_mode == 0)
     {
-        s.align_left = s.align_left > 4 ? s.align_left - 4 : 0;
-        ret = s.align_left ? 1 : 0;
+        // (after the offset when that changes first)
+        if(s.align_left > 0 && (s.pfo_left == 0 || s.pfo_mode == 1))
+        {
+            s.align_left = s.align_left > 4 ? s.align_left - 4 : 0;
+            ret |= s.align_left ? 1 : 0;
+        }
     }
-    else if(!scroll_left)
+    else if(s.align_left > 0 && !scroll_left)
     {
         s.align_left = s.align_left > 4 ? s.align_left - 4 : 0;
-        ret = 2;
+        ret |= 2;
     }
-    else
-        return 0;
+
+    // the playing field offset, 4 rows a frame (upstream's do_pfo_adjust)
+    if(s.pfo_left > 0 && (s.pfo_mode == 0 || !scroll_left))
+    {
+        const int dpfo = s.new_pfo > s.old_pfo ? 1 : -1;
+        s.pfo_left = s.pfo_left > 4 ? s.pfo_left - 4 : 0;
+        playing_field_offset = s.new_pfo - s.pfo_left * dpfo;
+
+        if(s.pfo_mode == 0)
+            ret |= s.pfo_left ? 1 : 0;
+        else
+            ret |= 2;
+    }
 
     // upstream: the view moves by (align_counter - |amount|) * sign(amount) from where it began
-    const int amount = s.s_from - s.s_to;
-    s.s = s.s_from + (s.align_left - abs(amount)) * (amount > 0 ? 1 : -1);
+    if(s.amount)
+        s.s = s.s_from + (s.align_left - abs(s.amount)) * (s.amount > 0 ? 1 : -1);
+
     return ret;
+}
+
+int q30_scroll_pfo_shift()
+{
+    return scroll_pfo_shift();
 }
 
 void q30_scroll_offset(int *ox, int *oy)
@@ -2972,6 +3032,9 @@ void q30_scroll_offset(int *ox, int *oy)
         *oy = g_scroll.s;
     else
         *ox = g_scroll.s;
+
+    // (upstream's viewport.y follows the playing field offset while it changes)
+    *oy += scroll_pfo_shift();
 }
 
 void q30_scroll_view(int sx, int sy)
@@ -3005,7 +3068,7 @@ void q30_scroll_view(int sx, int sy)
 
 bool q30_scroll_blit_lower(BITMAP *scrollbuf, BITMAP *framebuf, int sx, int sy)
 {
-    if(!g_scroll.on || !g_scroll.s)
+    if(!scroll_canvas())
         return false;
 
     if(!g_canvas)
@@ -3098,7 +3161,7 @@ int q30_scroll_view_screens(Q30ViewScreen *out, int sx, int sy, int *vx, int *vy
 
 void q30_scroll_layer(BITMAP *bmp, int type, bool new_screen, int x, int y, bool scrolling)
 {
-    if(!g_scroll.on || !g_scroll.s)
+    if(!scroll_canvas())
         return;
 
     for(int k = 0; k < 2; ++k)
