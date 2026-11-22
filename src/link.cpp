@@ -17440,7 +17440,10 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
         
         putscrdoors(framebuf, 0-tx2, 0-ty2+playing_field_offset, oldscr);
         putscrdoors(framebuf, 0-tx,  0-ty+playing_field_offset, newscr);
-        linkstep();
+        // (3.0: no step on the frame the scroll ends while the view still lines up, as upstream's
+        // "if(!align_counter || scroll_counter) herostep()")
+        if(!q30_scroll_aligning() || cx != 0)
+            linkstep();
         
         // (Link, through a 3.0 scroll's offset on the other axis)
         q30_draw_cam_x = q30ox;

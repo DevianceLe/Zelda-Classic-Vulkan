@@ -2824,6 +2824,8 @@ struct Scroll
     int extra;                  // up/down: upstream's scroll_amount minus 176
     RegionScreen *old_far;      // up/down: the old region's screen beyond the old one (away from the new)
     int new_far;                // and the new region's beyond the new one (screen number, -1: none)
+    RegionScreen *old_corner[2];    // up/down: the screens beside those two on the other axis (the
+    int new_corner[2];              // diagonal corners the view leans over: before, after)
 };
 
 Scroll g_scroll;
@@ -2838,6 +2840,12 @@ void scroll_free_old()
 
     delete g_scroll.old_far;
     g_scroll.old_far = NULL;
+
+    for(int k = 0; k < 2; ++k)
+    {
+        delete g_scroll.old_corner[k];
+        g_scroll.old_corner[k] = NULL;
+    }
 }
 
 // up/down: the screen beyond the old (new_screen false) or the new one on the scroll's axis, and
@@ -2854,6 +2862,18 @@ RegionScreen *scroll_far(bool new_screen, int *dy)
         return g_scroll.old_far;
 
     return g_scroll.new_far >= 0 ? region_screen(g_scroll.new_far) : NULL;
+}
+
+// up/down: the screen beside scroll_far's on the other axis (k 0 before, 1 after)
+RegionScreen *scroll_corner(bool new_screen, int k)
+{
+    if(g_scroll.horiz)
+        return NULL;
+
+    if(!new_screen)
+        return g_scroll.old_corner[k];
+
+    return g_scroll.new_corner[k] >= 0 ? region_screen(g_scroll.new_corner[k]) : NULL;
 }
 
 // a screen beside the old (new_screen false) or the new one on the other axis: k 0 before, 1 after
@@ -2915,6 +2935,7 @@ void q30_scroll_reset()
     g_scroll.new_nb[0] = g_scroll.new_nb[1] = -1;
     g_scroll.v0 = g_scroll.extra = 0;
     g_scroll.new_far = -1;
+    g_scroll.new_corner[0] = g_scroll.new_corner[1] = -1;
 }
 
 bool q30_scroll_on()
@@ -2979,6 +3000,17 @@ void q30_scroll_begin(int dir)
 
             if(rs)
                 s.old_far = new RegionScreen(*rs);
+        }
+
+        for(int k = 0; k < 2; ++k)
+        {
+            if(in_region(k ? 1 : -1, dir == down ? -1 : 1, &scr))
+            {
+                RegionScreen *rs = region_screen(scr);
+
+                if(rs)
+                    s.old_corner[k] = new RegionScreen(*rs);
+            }
         }
     }
 
@@ -3077,6 +3109,9 @@ void q30_scroll_loaded(bool moves)
     {
         int scr;
         s.new_far = in_region(0, s.dir == down ? 1 : -1, &scr) ? scr : -1;
+
+        for(int k = 0; k < 2; ++k)
+            s.new_corner[k] = in_region(k ? 1 : -1, s.dir == down ? 1 : -1, &scr) ? scr : -1;
     }
 
     // upstream's ScrollingData at the start (the region delta is the new region's top-left in
@@ -3126,6 +3161,11 @@ bool q30_scroll_align_pending()
 bool q30_scroll_pfo_pending()
 {
     return g_scroll.on && g_scroll.pfo_left > 0;
+}
+
+bool q30_scroll_aligning()
+{
+    return g_scroll.on && g_scroll.align_left > 0;
 }
 
 int q30_scroll_align_step(bool scroll_left)
@@ -3298,13 +3338,24 @@ bool q30_scroll_blit_lower(BITMAP *scrollbuf, BITMAP *framebuf, int sx, int sy)
             continue;
 
         const int ox = 256 + (n ? g_scroll.nbx : g_scroll.obx), oy = 176 + (n ? g_scroll.nby : g_scroll.oby) + fdy;
-        mapscr *s = &rs->base;
-        LayersIn in(rs);
 
-        if(s->flags7 & fLAYER2BG) do_layer(g_canvas, 1, s, -ox, pfo - oy, 3);
-        if(s->flags7 & fLAYER3BG) do_layer(g_canvas, 2, s, -ox, pfo - oy, 3);
+        // (and the corners beside it that the view leans over)
+        for(int k = -1; k < 2; ++k)
+        {
+            RegionScreen *cs = k < 0 ? rs : scroll_shows(k) ? scroll_corner(n != 0, k) : NULL;
 
-        putscr(g_canvas, ox, oy, s);
+            if(!cs)
+                continue;
+
+            const int cx = ox + (k < 0 ? 0 : k ? 256 : -256);
+            mapscr *s = &cs->base;
+            LayersIn in(cs);
+
+            if(s->flags7 & fLAYER2BG) do_layer(g_canvas, 1, s, -cx, pfo - oy, 3);
+            if(s->flags7 & fLAYER3BG) do_layer(g_canvas, 2, s, -cx, pfo - oy, 3);
+
+            putscr(g_canvas, cx, oy, s);
+        }
     }
 
     int ox, oy;
@@ -3383,10 +3434,18 @@ void q30_scroll_layer(BITMAP *bmp, int type, bool new_screen, int x, int y, bool
     int fdy;
     RegionScreen *rs = scroll_far(new_screen, &fdy);
 
-    if(rs && !((type == 1 && (rs->base.flags7 & fLAYER2BG)) || (type == 2 && (rs->base.flags7 & fLAYER3BG))))
+    if(!rs)
+        return;
+
+    for(int k = -1; k < 2; ++k)
     {
-        LayersIn in(rs);
-        do_layer(bmp, type, &rs->base, x, y - fdy, 3, scrolling);
+        RegionScreen *cs = k < 0 ? rs : scroll_shows(k) ? scroll_corner(new_screen, k) : NULL;
+
+        if(!cs || (type == 1 && (cs->base.flags7 & fLAYER2BG)) || (type == 2 && (cs->base.flags7 & fLAYER3BG)))
+            continue;
+
+        LayersIn in(cs);
+        do_layer(bmp, type, &cs->base, x - (k < 0 ? 0 : k ? 256 : -256), y - fdy, 3, scrolling);
     }
 }
 

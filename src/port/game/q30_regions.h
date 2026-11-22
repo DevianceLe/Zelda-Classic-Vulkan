@@ -343,6 +343,7 @@ int q30_scroll_align_step(bool scroll_left);
 bool q30_scroll_align_pending();
 // the playing field offset has yet to change (upstream's pfo_counter): no still frames at the end
 bool q30_scroll_pfo_pending();
+bool q30_scroll_aligning();      // the view still lines up on the other axis (upstream's align_counter)
 // The view's offset on the other axis, relative to both screens (add it to the scroll's x or y).
 void q30_scroll_offset(int *ox, int *oy);
 int q30_scroll_pfo_shift();     // the playing field offset's change so far in a 3.0 scroll (upstream's pfo_counter)
