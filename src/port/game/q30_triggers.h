@@ -305,6 +305,7 @@ const char *q30_item_name(int id);
 // on an item sprite (item::item; in_place for putitem's, which has no playing field offset).
 void q30_set_item_size(int item, dword flags, const long *v);
 void q30_item_apply_size(sprite *s, int item, bool in_place);
+void q30_item_hit_box(int item, int &hxofs, int &hyofs, int &hxsz, int &hysz);    // just its hit box
 // A DMap's disabled items past 255 (the DMap reader; dmap -1 clears them all), and whether the
 // current DMap disables such an item (item_disabled).
 void q30_set_dmap_item_disabled(int dmap, int item);

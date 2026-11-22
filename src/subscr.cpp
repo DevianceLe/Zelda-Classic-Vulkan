@@ -4216,6 +4216,12 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
             case ssoSELECTOR1:
             case ssoSELECTOR2:
             {
+#ifdef ZC_PLAYER_BUILD
+                // 2.55/3.0 newer subscreens: upstream's selector, on any selectable widget
+                bool q30_sub_draw_selector(BITMAP *dest, const subscreen_group *css, const subscreen_object &o, int xofs, int yofs);
+                if(q30_sub_draw_selector(dest, css, css->objects[i], xofs, yofs))
+                    break;
+#endif
                 int p=-1;
                 
                 for(int j=0; j<MAXSUBSCREENITEMS&&css->objects[j].type!=ssoNULL; ++j)
@@ -4884,12 +4890,19 @@ void minimaptitle(BITMAP *dest, int x, int y, FONT *tempfont, int color, int sha
     }
 }
 
+// The opening and closing waits draw the passive subscreen a second time each frame; that one
+// doesn't count for the newer selector's clock (upstream draws it once).
+bool q30_subscr_clk_hold = false;
+
 void put_passive_subscr(BITMAP *dest,miscQdata *misc,int x,int y,bool showtime,int pos2)
 {
     // uncomment this?
     //  load_Sitems();
     Sitems.animate();
 #ifdef ZC_PLAYER_BUILD
+    extern int q30_subscr_item_clk;     // (upstream's subscr_item_clk: the newer selector's animation)
+    if(!q30_subscr_clk_hold)
+        ++q30_subscr_item_clk;
     // 2.55/3.0 with the newer subscreens: drawing a button item checks the buttons again (link.cpp)
     void q30_button_items_drawn(const subscreen_group *g);
     q30_button_items_drawn(current_subscreen_passive);

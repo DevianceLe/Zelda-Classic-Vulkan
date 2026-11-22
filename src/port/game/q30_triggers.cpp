@@ -10132,6 +10132,24 @@ void q30_item_apply_size(sprite *s, int item, bool in_place)
     if(f & DRAW_Y) s->yofs = (int)v[6] + (in_place ? 0 : (q30_quest_rule(QR_OLD_DRAWOFFSET) ? playing_field_offset : original_playing_field_offset));
 }
 
+// The item's hit box as its size flags set it (left as it is where they don't).
+void q30_item_hit_box(int item, int &hxofs, int &hyofs, int &hxsz, int &hysz)
+{
+    enum { HIT_W = 0x4, HIT_H = 0x8, HIT_X = 0x20, HIT_Y = 0x40 };
+    std::map<int, Q30ItemSize>::const_iterator it = g_item_sizes.find(item);
+
+    if(!q30_active() || it == g_item_sizes.end())
+        return;
+
+    const dword f = it->second.flags;
+    const long *v = it->second.v;
+
+    if(f & HIT_W) hxsz = (int)v[2];
+    if(f & HIT_H) hysz = (int)v[3];
+    if(f & HIT_X) hxofs = (int)v[0];
+    if(f & HIT_Y) hyofs = (int)v[1];
+}
+
 bool q30_item_box(bool big_hitbox, int *xofs, int *yofs, int *w, int *h)
 {
     if(q30_compat_rule(570))    // qr_OLD_ITEM_HITBOXES, on for compat versions before 103

@@ -53,6 +53,11 @@ enum
 
 enum { Z30S_NONE, Z30S_HERO, Z30S_NPC, Z30S_LWPN, Z30S_EWPN, Z30S_ITEM, Z30S_FFC };
 
+// Hero->ScriptTile and friends. Hero->ScriptTile is 0 when unset; the others are -1. A sprite
+// reference to the Hero reads and sets the same ScriptTile and ScriptFlip (upstream's
+// script_hero_sprite and script_hero_flip).
+static long zasm30_hero_script_tile = 0, zasm30_hero_script_flip = -1, zasm30_hero_script_cset = -1;
+
 #define Z30_FFC_BASE 0x7FF00000L
 
 struct Z30Sprite
@@ -197,7 +202,7 @@ static bool zasm30_sprite_read(const long arg, long &ret, const Z30Sprite &r)
         if(isffc) ret = combobuf[tmpscr->ffdata[f]].tile * 10000;
         else ret = s->tile * 10000;
         return true;
-    case Z30R_SPRITE_SCRIPT_TILE: ret = st ? st->script_tile * 10000 : -10000; return true;
+    case Z30R_SPRITE_SCRIPT_TILE: ret = (r.kind == Z30S_HERO ? zasm30_hero_script_tile : st ? st->script_tile : -1) * 10000; return true;
     case Z30R_SPRITE_TILE_W:
         if(isffc) ret = z30_ffc_tile_w(f) * 10000;
         else ret = s->txsz * 10000;
@@ -226,7 +231,7 @@ static bool zasm30_sprite_read(const long arg, long &ret, const Z30Sprite &r)
     case Z30R_SPRITE_CUSTOM_GRAVITY_STRENGTH: ret = st ? st->gravity_strength : 0; return true;
     case Z30R_SPRITE_CUSTOM_TERMINAL_VELOCITY: ret = st ? st->terminal_v : 0; return true;
     case Z30R_SPRITE_FLIP: ret = s ? s->flip * 10000 : 0; return true;
-    case Z30R_SPRITE_SCRIPT_FLIP: ret = st ? st->script_flip * 10000 : -10000; return true;
+    case Z30R_SPRITE_SCRIPT_FLIP: ret = (r.kind == Z30S_HERO ? zasm30_hero_script_flip : st ? st->script_flip : -1) * 10000; return true;
     case Z30R_SPRITE_ENGINE_ANIMATE: ret = st ? (st->engine_animate ? 10000 : 0) : 10000; return true;
     case Z30R_SPRITE_EXTEND: ret = s ? s->extend * 10000 : 0; return true;
     case Z30R_SPRITE_HIT_WIDTH:
@@ -384,7 +389,10 @@ static bool zasm30_sprite_write(const long arg, const long value, const Z30Sprit
         return true;
     case Z30R_SPRITE_INVIS_CLK: if(st) st->invis_clk = value / 10000; return true;
     case Z30R_SPRITE_TILE: if(s) s->tile = vbound(value / 10000, 0, NEWMAXTILES - 1); return true;
-    case Z30R_SPRITE_SCRIPT_TILE: if(st) st->script_tile = value / 10000; return true;
+    case Z30R_SPRITE_SCRIPT_TILE:
+        if(r.kind == Z30S_HERO) zasm30_hero_script_tile = vbound(value / 10000, -1, NEWMAXTILES - 1);
+        else if(st) st->script_tile = value / 10000;
+        return true;
     case Z30R_SPRITE_TILE_W: if(s) s->txsz = vbound(value / 10000, 1, 20); return true;
     case Z30R_SPRITE_TILE_H: if(s) s->tysz = vbound(value / 10000, 1, 20); return true;
     case Z30R_SPRITE_CSET:
@@ -410,7 +418,10 @@ static bool zasm30_sprite_write(const long arg, const long value, const Z30Sprit
     case Z30R_SPRITE_CUSTOM_GRAVITY_STRENGTH: if(st) st->gravity_strength = value; return true;
     case Z30R_SPRITE_CUSTOM_TERMINAL_VELOCITY: if(st) st->terminal_v = value; return true;
     case Z30R_SPRITE_FLIP: if(s) s->flip = value / 10000; return true;
-    case Z30R_SPRITE_SCRIPT_FLIP: if(st) st->script_flip = vbound(value / 10000, -1, 127); return true;
+    case Z30R_SPRITE_SCRIPT_FLIP:
+        if(r.kind == Z30S_HERO) zasm30_hero_script_flip = vbound(value / 10000, -1, 256);
+        else if(st) st->script_flip = vbound(value / 10000, -1, 127);
+        return true;
     case Z30R_SPRITE_ENGINE_ANIMATE: if(st) st->engine_animate = value != 0; return true;
     case Z30R_SPRITE_EXTEND: if(s) s->extend = value / 10000; return true;
     case Z30R_SPRITE_HIT_WIDTH: if(s) s->hxsz = value / 10000; return true;
@@ -614,8 +625,7 @@ static bool z30_hitby_is_uid(long n)
     return (n >= 4 && n <= 7) || (n >= 13 && n <= 15);
 }
 
-// Hero->ScriptTile and friends. Hero->ScriptTile is 0 when unset; the others are -1.
-static long zasm30_hero_script_tile = 0, zasm30_hero_script_flip = -1, zasm30_hero_script_cset = -1;
+// (Hero->ScriptTile and friends: at the top, the sprite registers reach them too)
 static long zasm30_hero_move_flags = 0;
 static long &z30_hero_moveflags() { return zasm30_hero_move_flags; }
 static long zasm30_hero_immortal = 0, zasm30_hero_hurt_sfx = 0;     // 0: not set
@@ -1908,7 +1918,9 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_LINKITEMB: ret = Bwpn * 10000; return true;
     case Z30R_LINKSTUN: ret = zasm30_store_get(arg, 0, 0); return true;
     case Z30R_HEROBUNNY: ret = q30_bunny_clock() * 10000; return true;
-    case Z30R_LINKTILEMOD:
+    // Hero->TileMod: what the items (and bunny form) add to the Hero's tile now (upstream's
+    // getTileModifier; read only)
+    case Z30R_LINKTILEMOD: ret = (item_tile_mod(false) + q30_bunny_tile_mod()) * 10000L; return true;
     case Z30R_LINKCANFLICKER: ret = zasm30_store_get(arg, 0, 0) ? 10000 : (arg == Z30R_LINKCANFLICKER ? 10000 : 0); return true;
     case Z30R_LINKDIAG: ret = get_bit(quest_rules, qr_LTTPWALK) ? 10000 : 0; return true;
     case Z30R_LINKBIGHITBOX: ret = get_bit(quest_rules, qr_LTTPCOLLISION) ? 10000 : 0; return true;
@@ -2927,8 +2939,8 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     case Z30R_HEROBUNNY: q30_set_bunny_clock(value / 10000); return true;
     case Z30R_LINKITEMA: q30_set_ab_item(true, value / 10000); return true;
     case Z30R_LINKITEMB: q30_set_ab_item(false, value / 10000); return true;
+    case Z30R_LINKTILEMOD: return true;    // (read only, as upstream)
     case Z30R_LINKSTUN:
-    case Z30R_LINKTILEMOD:
     case Z30R_LINKCANFLICKER:
         zasm30_store_set(arg, 0, 0, arg == Z30R_LINKCANFLICKER ? (value ? 10000 : 0) : value / 10000);
         return true;

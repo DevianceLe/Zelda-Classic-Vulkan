@@ -2012,6 +2012,10 @@ int init_game()
     ALLOFF();
     whistleclk=-1;
     clockclk=0;
+#ifdef ZC_PLAYER_BUILD
+    extern int q30_subscr_item_clk;     // (upstream's subscr_item_clk starts again with each game)
+    q30_subscr_item_clk=0;
+#endif
     currcset=DMaps[currdmap].color;
     darkroom=naturaldark=false;
     

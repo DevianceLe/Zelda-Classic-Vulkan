@@ -6991,7 +6991,7 @@ int read_one_subscreen(PACKFILE *f, zquestheader *, bool keepdata, int i, word s
     
     int j;
     
-    for(j=0; (j<MAXSUBSCREENITEMS&&j<numsub); j++)
+    for(j=0; (j<MAXSUBSCREENITEMS_253&&j<numsub); j++)
     {
         if(keepdata)
         {

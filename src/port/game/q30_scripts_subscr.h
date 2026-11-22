@@ -38,6 +38,11 @@ struct Z30SubWidget
     int pg_mode, pg_btns, pg_targ;  // its page change while selected (upstream SubscrWidget pg_*)
     Q30SubTrans pg_tr;              // and that change's animation
     std::string seltext;            // its selected text override
+    bool has_sel;                   // its selector override (SUBSCRFLAG_SELOVERRIDE)
+    Q30SubSel sel;
+    int script, script_btns;        // the generic script a press runs (generic_scrconfig) and its buttons
+    long script_initd[8];
+    int maxdigits;                  // a counter's max digits (its selector box)
 };
 
 // A page's button transition (upstream SubscrPageTransition), with its animation.
@@ -73,6 +78,8 @@ struct Z30Subscreen
     dword flags;                // upstream's SUBFLAG_ (0x1: no page wrap)
     int curpage;                // the page in custom_subscreen[slot]
     int def_btns[4];            // A, B, X, Y on a new game: pos << 8 | page (page 255: none)
+    bool has_sel;               // its selector override (SUBFLAG_ACT_OVERRIDESEL, flag 0x2)
+    Q30SubSel sel;
 };
 
 // active, passive, overlay, map: upstream's sstACTIVE..sstMAP
@@ -152,7 +159,58 @@ void q30_sub_begin(int list, int slot, const char *name)
     s.curpage = 0;
     for(int q = 0; q < 4; ++q)
         s.def_btns[q] = 255;
+    s.has_sel = false;
+    memset(&s.sel, 0, sizeof(s.sel));
     zasm30_subs[list].push_back(s);
+}
+
+void q30_sub_selector(int list, const Q30SubSel &sel)
+{
+    if(list < 0 || list >= 4 || zasm30_subs[list].empty())
+        return;
+
+    zasm30_subs[list].back().has_sel = true;
+    zasm30_subs[list].back().sel = sel;
+}
+
+void q30_sub_widget_script(int list, int script, int btns, const long *initd)
+{
+    if(list < 0 || list >= 4 || zasm30_subs[list].empty() || zasm30_subs[list].back().pages.empty() ||
+       zasm30_subs[list].back().pages.back().widgets.empty())
+        return;
+
+    Z30SubWidget &w = zasm30_subs[list].back().pages.back().widgets.back();
+    w.script = script;
+    w.script_btns = btns;
+    memcpy(w.script_initd, initd, sizeof(w.script_initd));
+
+    if(getenv("ZC_Q30_SUBLOG"))     // diagnostics only
+        al_trace("q30 subscreen: list %d widget (pos %d) generic script %d on buttons 0x%02x\n", list, w.pos, script, btns);
+}
+
+void q30_sub_widget_digits(int list, int maxdigits)
+{
+    if(list < 0 || list >= 4 || zasm30_subs[list].empty() || zasm30_subs[list].back().pages.empty() ||
+       zasm30_subs[list].back().pages.back().widgets.empty())
+        return;
+
+    zasm30_subs[list].back().pages.back().widgets.back().maxdigits = maxdigits;
+}
+
+void q30_sub_widget_sel(int list, const Q30SubSel &sel)
+{
+    if(list < 0 || list >= 4 || zasm30_subs[list].empty() || zasm30_subs[list].back().pages.empty() ||
+       zasm30_subs[list].back().pages.back().widgets.empty())
+        return;
+
+    Z30SubWidget &w = zasm30_subs[list].back().pages.back().widgets.back();
+    w.has_sel = true;
+    w.sel = sel;
+
+    if(getenv("ZC_Q30_SUBLOG"))     // diagnostics only
+        al_trace("q30 subscreen: list %d widget (pos %d) selector override %d,%d %dx%d, A tile %ld %dx%d cset %d frames %d, B tile %ld %dx%d\n",
+                 list, w.pos, sel.x, sel.y, sel.w, sel.h, sel.t[0].tile, sel.t[0].sw, sel.t[0].sh, sel.t[0].cset, sel.t[0].frames,
+                 sel.t[1].tile, sel.t[1].sw, sel.t[1].sh);
 }
 
 void q30_sub_trans(int list, int which, const Q30SubTrans &t)
@@ -320,6 +378,11 @@ void q30_sub_widget(int list, int type, const char *label, int obj, int posflags
     wd.pg_btns = pg_btns;
     wd.pg_targ = pg_targ;
     memset(&wd.pg_tr, 0, sizeof(wd.pg_tr));
+    wd.has_sel = false;
+    memset(&wd.sel, 0, sizeof(wd.sel));
+    wd.script = wd.script_btns = 0;
+    wd.maxdigits = 0;
+    memset(wd.script_initd, 0, sizeof(wd.script_initd));
     zasm30_subs[list].back().pages.back().widgets.push_back(wd);
 
     if(pg_mode && getenv("ZC_Q30_SUBLOG"))     // diagnostics only
@@ -761,16 +824,29 @@ static struct Z30PageAnim
     int clk;
     Q30SubTrans tr;
     BITMAP *from, *to, *work;
-} g_pg_anim = { false, 0, { 0, 0, 0, { 0, 0, 0, 0 } }, NULL, NULL, NULL };
+    // with SUBSCR_TRANS_NOHIDESELECTOR the pages' selectors are drawn each frame on copies of the
+    // pictures (which leave them out): the subscreen, the pages and the old page's cursor
+    BITMAP *from_sel, *to_sel;
+    const struct Z30Subscreen *sub;
+    int from_pg, from_pos, to_pg;
+} g_pg_anim = { false, 0, { 0, 0, 0, { 0, 0, 0, 0 } }, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, 0 };
+
+static void z30_anim_selectors(BITMAP *dest, const Z30Subscreen &s, int pg, int pos);
 
 enum { Z30_SUB_W = 256, Z30_SUB_H = 176 };
 
+// The newer selector (q30_sub_draw_selector) isn't drawn: upstream hides it while a page change
+// animates, unless the change has SUBSCR_TRANS_NOHIDESELECTOR.
+static bool z30_sel_hidden = false;
+
 // as the open subscreen draws (dosubscr: put_active_subscr with sspDOWN; the cursor is Bpos)
-static void z30_sub_draw_page(BITMAP *dest)
+static void z30_sub_draw_page(BITMAP *dest, bool hide_selector = false)
 {
     clear_bitmap(dest);
     bool q30_should_show_time();    // zc_subscr.cpp
+    z30_sel_hidden = hide_selector;
     show_custom_subscreen(dest, &QMisc, current_subscreen_active, 0, 0, q30_should_show_time(), sspDOWN);
+    z30_sel_hidden = false;
 }
 
 static bool z30_anim_dither(int x, int y, double perc)     // upstream dither_staticcheck
@@ -791,6 +867,26 @@ bool q30_subscreen_anim_draw(BITMAP *dest, int dx, int dy)
 
     clear_bitmap(a.work);
     bool done = false;
+    BITMAP *from = a.from, *to = a.to;
+
+    if((a.tr.flags & 0x1) && a.sub)     // SUBSCR_TRANS_NOHIDESELECTOR: the selectors go on animating
+    {
+        if(!a.from_sel)
+        {
+            a.from_sel = create_bitmap_ex(8, Z30_SUB_W, Z30_SUB_H);
+            a.to_sel = create_bitmap_ex(8, Z30_SUB_W, Z30_SUB_H);
+        }
+
+        if(a.from_sel && a.to_sel)
+        {
+            blit(a.from, a.from_sel, 0, 0, 0, 0, Z30_SUB_W, Z30_SUB_H);
+            z30_anim_selectors(a.from_sel, *a.sub, a.from_pg, a.from_pos);
+            blit(a.to, a.to_sel, 0, 0, 0, 0, Z30_SUB_W, Z30_SUB_H);
+            z30_anim_selectors(a.to_sel, *a.sub, a.to_pg, Bpos);
+            from = a.from_sel;
+            to = a.to_sel;
+        }
+    }
 
     if(a.tr.type == 1)     // slide: the old page goes out one way, the new one follows
     {
@@ -811,8 +907,8 @@ bool q30_subscreen_anim_draw(BITMAP *dest, int dx, int dy)
 
         if(!done)
         {
-            blit(a.from, a.work, 0, 0, x1, y1, Z30_SUB_W, Z30_SUB_H);
-            blit(a.to, a.work, 0, 0, x2, y2, Z30_SUB_W, Z30_SUB_H);
+            blit(from, a.work, 0, 0, x1, y1, Z30_SUB_W, Z30_SUB_H);
+            blit(to, a.work, 0, 0, x2, y2, Z30_SUB_W, Z30_SUB_H);
         }
     }
     else if(a.tr.type == 2)    // pixellate from one page to the other
@@ -837,9 +933,9 @@ bool q30_subscreen_anim_draw(BITMAP *dest, int dx, int dy)
                 for(int x = 0; x < Z30_SUB_W; ++x)
                 {
                     if(!z30_anim_dither(x + ox, y + oy, iperc) != !inv)
-                        a.work->line[y][x] = a.from->line[y][x];
+                        a.work->line[y][x] = from->line[y][x];
                     if(!z30_anim_dither(x + ox, y + oy, perc) != !inv)
-                        a.work->line[y][x] = a.to->line[y][x];
+                        a.work->line[y][x] = to->line[y][x];
                 }
         }
     }
@@ -914,7 +1010,13 @@ static bool z30_page_change(Z30Subscreen &s, int mode, int targ, bool nowrap, in
             g_pg_anim.work = create_bitmap_ex(8, Z30_SUB_W, Z30_SUB_H);
         }
 
-        z30_sub_draw_page(g_pg_anim.from);
+        // (the pictures leave the selectors out: upstream hides them while a change animates, or
+        // with SUBSCR_TRANS_NOHIDESELECTOR draws them anew each frame, q30_subscreen_anim_draw)
+        z30_sub_draw_page(g_pg_anim.from, true);
+        g_pg_anim.sub = &s;
+        g_pg_anim.from_pg = s.curpage;
+        g_pg_anim.from_pos = pos;
+        g_pg_anim.to_pg = pg;
     }
 
     subscreen_object *objs = custom_subscreen[s.slot].objects;
@@ -926,7 +1028,7 @@ static bool z30_page_change(Z30Subscreen &s, int mode, int targ, bool nowrap, in
 
     if(animate && g_pg_anim.from)
     {
-        z30_sub_draw_page(g_pg_anim.to);    // (pos is Bpos itself here: the dosubscr loop's)
+        z30_sub_draw_page(g_pg_anim.to, true);     // (pos is Bpos itself here: the dosubscr loop's)
         g_pg_anim.tr = *tr;
         g_pg_anim.clk = 0;
         g_pg_anim.on = true;
@@ -945,6 +1047,76 @@ static bool z30_page_change(Z30Subscreen &s, int mode, int targ, bool nowrap, in
         al_trace("q30 subscreen: page %d of %d, cursor %d\n", pg, n, pos);
 
     return true;
+}
+
+extern int directItem;      // link.cpp: the item Bweapon chose directly, -1 for a class's
+static const Z30SubWidget *z30_sel_widget(const Z30SubPage &p, int pos);
+static const subscreen_object *z30_btn_objects(const Z30Subscreen &s, int pg, int &n);
+static int z30_btn_item_of(const subscreen_object &o);
+
+// upstream's dosubscr: the buttons of a press (INT_BTN_* bits) the selected widget w passes to its
+// page change. None when it can't be used: an item slot holding no item with
+// SUBSCR_CURITM_NO_INTER_WO_ITEM, or one with NO_INTER_WO_EQUIP (when a button besides B equips)
+// that can't equip or holds no item; with NO_INTER_WO_EQUIP only those that would equip its item.
+static int z30_widget_btns(const Z30Subscreen &s, const Z30SubWidget &w, int btns)
+{
+    enum { QR_SUBSCR_PRESS_TO_EQUIP = 417, QR_NO_BUTTON_VERIFY = 424 };
+    enum { NONEQP = 0x2, NO_INTER_WO_ITEM = 0x10, NO_INTER_WO_EQUIP = 0x20, NO_UNEQUIP = 0x40 };
+
+    if(w.type != Z30W_ITEMSLOT)
+        return btns;
+
+    int n;
+    const subscreen_object *objs = z30_btn_objects(s, s.curpage, n);
+    const int keep = directItem;
+    const int id = (w.obj >= 0 && w.obj < n) ? z30_btn_item_of(objs[w.obj]) : 0;    // getItemVal (0: none)
+    directItem = keep;
+
+    const bool use_a = get_bit(quest_rules, qr_SELECTAWPN) != 0, use_x = q30_use_x_button(), use_y = q30_use_y_button();
+    const bool b_only = !(use_a || use_x || use_y || q30_quest_rule(QR_SUBSCR_PRESS_TO_EQUIP));
+    const bool can_equip = !(w.flags & NONEQP);
+    const bool can_unequip = q30_quest_rule(QR_NO_BUTTON_VERIFY) && !(w.flags & NO_UNEQUIP);
+    const bool must_equip = !b_only && (w.flags & NO_INTER_WO_EQUIP);
+
+    if((w.flags & NO_INTER_WO_ITEM) && !id)
+        return 0;
+
+    if(must_equip && (!can_equip || !id))
+        return 0;
+
+    if(must_equip)
+        btns &= ((!can_unequip || Bwpn != id) ? 0x02 : 0) | ((use_a && (!can_unequip || Awpn != id)) ? 0x01 : 0) |
+                ((use_x && (!can_unequip || Xwpn != id)) ? 0x10 : 0) | ((use_y && (!can_unequip || Ywpn != id)) ? 0x20 : 0);
+
+    return btns;
+}
+
+bool q30_msg_run_generic_frozen(int script, const long *initd, int count);    // q30_scripts_cmds.h
+
+// upstream's subscreen loop, before an item is equipped: the selected widget's generic script, when a
+// press it takes (z30_widget_btns) is one of its script buttons. It runs frozen, there and then.
+// False when the script left the subscreen shown no longer what it was (upstream skips the rest
+// of the press then).
+bool q30_subscreen_widget_script(int btns, int pos)
+{
+    if(!btns || !q30_active())
+        return true;
+
+    Z30Subscreen *s = z30_shown_active();
+
+    if(!s || s->curpage < 0 || s->curpage >= (int)s->pages.size())
+        return true;
+
+    const Z30SubWidget *w = z30_sel_widget(s->pages[s->curpage], pos);
+
+    if(!w || !w->script || !(z30_widget_btns(*s, *w, btns) & w->script_btns))
+        return true;
+
+    long initd[8];
+    memcpy(initd, w->script_initd, sizeof(initd));
+    const subscreen_group *shown = current_subscreen_active;
+    q30_msg_run_generic_frozen(w->script, initd, 8);
+    return current_subscreen_active == shown;
 }
 
 // As upstream's subscreen loop: the selected widget's page buttons, then the page's transitions
@@ -966,16 +1138,11 @@ void q30_subscreen_pages(int btns, int &pos)
     const int start = s->curpage;
     const Z30SubPage &cur = s->pages[start];
 
-    for(size_t i = 0; i < cur.widgets.size(); ++i)
-    {
-        const Z30SubWidget &w = cur.widgets[i];
+    // the selected widget (get_sel_widg, of any kind), with the buttons a press on it passes on
+    const Z30SubWidget *sel = z30_sel_widget(cur, pos);
 
-        if(w.pos == pos && w.pg_mode && (btns & w.pg_btns))
-        {
-            z30_page_change(*s, w.pg_mode, w.pg_targ, (w.genflags & 0x2) != 0, pos, &w.pg_tr);  // SUBSCRFLAG_PGGOTO_NOWRAP
-            break;
-        }
-    }
+    if(sel && sel->pg_mode && (z30_widget_btns(*s, *sel, btns) & sel->pg_btns))
+        z30_page_change(*s, sel->pg_mode, sel->pg_targ, (sel->genflags & 0x2) != 0, pos, &sel->pg_tr);  // SUBSCRFLAG_PGGOTO_NOWRAP
 
     if(s->curpage != start)
         return;
@@ -1407,6 +1574,599 @@ int q30_btn_find_item(int id)
     }
 
     return 255;
+}
+
+// ---- the subscreen cursor with the newer subscreens (upstream SubscrPage) --------------------
+// The cursor stands on any selectable widget: an item slot, or another widget's stop (the reader
+// adds one, an item slot of no class, after each selectable widget that isn't a slot).
+
+enum { Z30_QR_SUBSCR_OLD_SELECTOR = 271, Z30_QR_FREEFORM_SUBSCREEN_CURSOR = 416,
+       Z30_QR_SUBSCR_SELECTOR_USES_ITEM_HITBOX = 571, Z30_QR_NO_L_R_BUTTON_INVENTORY_SWAP = 172 };
+
+// SubscrPage::move_cursor, for the directions (dir SEL_*): with qr_FREEFORM_SUBSCREEN_CURSOR any
+// selectable widget is a stop, otherwise only a slot holding an item; a position whose only widget
+// is a slot that can't be equipped stops the move there (get_widg_pos skips it). false when the
+// subscreen shown isn't a newer one (2.53's selectWpn_new moves the cursor).
+bool q30_sub_move_cursor(int dir, int &pos)
+{
+    Z30Subscreen *s = z30_shown_active();
+
+    if(!s || s->curpage < 0 || s->curpage >= (int)s->pages.size())
+        return false;
+
+    const Z30SubPage &p = s->pages[s->curpage];
+    int n;
+    const subscreen_object *objs = z30_btn_objects(*s, s->curpage, n);
+
+    if(pos == 0xFF)     // verify startpos
+        pos = 0;
+
+    const bool item_only = !q30_quest_rule(Z30_QR_FREEFORM_SUBSCREEN_CURSOR);
+
+    if(dir == SEL_VERIFY_RIGHT || dir == SEL_VERIFY_LEFT)
+        return true;
+
+    int at = -1, first = -1;
+
+    for(int i = 0; i < n; ++i)
+    {
+        if(z30_btn_selectable(objs[i]) && z30_btn_cond(p, i))
+        {
+            if(first == -1 && objs[i].d3 >= 0)
+                first = i;
+
+            if(objs[i].d3 == pos)
+                at = i;
+
+            if(at > -1 && first > -1)
+                break;
+        }
+    }
+
+    if(at == -1)
+    {
+        if(first >= 0)
+            pos = objs[first].d3;
+
+        return true;
+    }
+
+    //remember we've been here
+    std::set<int> old_positions;
+    int cur = pos;
+    old_positions.insert(cur);
+
+    for(;;)
+    {
+        switch(dir)
+        {
+        case SEL_LEFT:  cur = objs[at].d6; break;
+        case SEL_RIGHT: cur = objs[at].d7; break;
+        case SEL_DOWN:  cur = objs[at].d5; break;
+        case SEL_UP:    cur = objs[at].d4; break;
+        }
+
+        at = z30_btn_widg_pos(p, objs, n, cur, item_only);     //find our new position
+
+        if(at < 0)
+            return true;
+
+        //if we've already been here, give up
+        if(old_positions.find(cur) != old_positions.end())
+            return true;
+
+        old_positions.insert(cur);
+
+        //Valid stop point?
+        if((!item_only || z30_btn_item_of(objs[at]) != 0) && z30_btn_cond(p, at))
+        {
+            pos = cur;
+            return true;
+        }
+    }
+}
+
+// With qr_OLD_SUBSCR, L and R move the cursor as upstream's movepos_legacy (items only, on this
+// page), unless qr_NO_L_R_BUTTON_INVENTORY_SWAP; false when the subscreen isn't a newer one.
+bool q30_sub_move_legacy(int dir, int &pos)
+{
+    Z30Subscreen *s = z30_shown_active();
+
+    if(!s || s->curpage < 0 || s->curpage >= (int)s->pages.size())
+        return false;
+
+    if(!q30_quest_rule(Z30_QR_NO_L_R_BUTTON_INVENTORY_SWAP))
+        pos = (z30_btn_movepos(*s, s->curpage, dir, ((pos & 0xFF) << 8) | s->curpage, 255, 255, 255, false, true) >> 8) & 0xFF;
+
+    return true;
+}
+
+// The selected widget (SubscrPage::get_sel_widg: the first selectable widget at pos, whatever it
+// shows or its conditions say), NULL for none.
+static const Z30SubWidget *z30_sel_widget(const Z30SubPage &p, int pos)
+{
+    for(size_t i = 0; i < p.widgets.size(); ++i)
+        if((p.widgets[i].genflags & 1) && p.widgets[i].pos == pos)     // SUBSCRFLAG_SELECTABLE
+            return &p.widgets[i];
+
+    return NULL;
+}
+
+static int z30_shadow_x(int s)
+{
+    switch(s)
+    {
+    case sstsSHADOWU: case sstsOUTLINE8: case sstsOUTLINEPLUS: case sstsOUTLINEX:
+    case sstsSHADOWEDU: case sstsOUTLINED8: case sstsOUTLINEDPLUS: case sstsOUTLINEDX:
+        return -1;
+    }
+
+    return 0;
+}
+
+static int z30_shadow_y(int s)
+{
+    switch(s)
+    {
+    case sstsOUTLINE8: case sstsOUTLINEPLUS: case sstsOUTLINEX:
+    case sstsOUTLINED8: case sstsOUTLINEDPLUS: case sstsOUTLINEDX:
+        return -1;
+    }
+
+    return 0;
+}
+
+static int z30_shadow_wh(int s)     // upstream's shadow_w and shadow_h: 1 for any shadow or outline
+{
+    return (s > sstsNORMAL && s < sstsMAX) ? 1 : 0;
+}
+
+// The widget's box as the selector sees it (upstream's getX, getY, getW and getH), from what it
+// was read with and the object it became (o, NULL if none; scripts move a widget through it).
+// A type with no object to measure (or one 2.53 can't draw) keeps the widget's own size.
+static void z30_widget_box(const Z30SubWidget &w, const subscreen_object *o, int &x, int &y, int &bw, int &bh)
+{
+    x = o ? (short)o->x : w.x;
+    y = o ? (short)o->y : w.y;
+    bw = w.w;
+    bh = w.h;
+
+    switch(w.type)
+    {
+    case Z30W_FRAME:
+        bw = w.w * 8;
+        bh = w.h * 8;
+        break;
+
+    case Z30W_TEXT:
+        if(o && o->type == ssoTEXT)
+        {
+            FONT *f = ss_font(o->d1);
+            const int len = text_length(f, o->dp1 ? (const char *)o->dp1 : "");
+            bw = len == 0 ? 8 : len;
+            bh = text_height(f);
+            x += z30_shadow_x(o->d3);
+            y += z30_shadow_y(o->d3);
+
+            if(o->d2 == sstaCENTER)
+                x -= bw / 2;
+            else if(o->d2 == sstaRIGHT)
+                x -= bw;
+        }
+        break;
+
+    case Z30W_TIME:
+        if(o && (o->type == ssoBSTIME || o->type == ssoSSTIME || o->type == ssoTIME))
+        {
+            FONT *f = ss_font(o->d1);
+            const dword tm = game ? game->get_time() : 0;
+            bw = text_length(f, (w.flags & 0x1) ? time_str_short2(tm) : time_str_med(tm)) + z30_shadow_wh(o->d3);    // SUBSCR_TIME_ALTSTR
+            bh = text_height(f) + z30_shadow_wh(o->d3);
+            x += z30_shadow_x(o->d3);
+            y += z30_shadow_y(o->d3);
+
+            if(o->d2 == sstaCENTER)
+                x -= bw / 2;
+            else if(o->d2 == sstaRIGHT)
+                x -= bw;
+        }
+        break;
+
+    case Z30W_COUNTER:
+        if(o && o->type == ssoCOUNTER)
+        {
+            FONT *f = ss_font(o->d1);
+            int digitw = text_length(f, "0") * (w.maxdigits > 0 ? w.maxdigits : zc_max(1, o->d4));
+
+            if(w.flags & 0x8)   // SUBSCR_COUNTER_FRACTION
+                digitw = digitw * 2 + text_length(f, "/");
+
+            bw = digitw + z30_shadow_wh(o->d3);
+            bh = text_height(f) + z30_shadow_wh(o->d3);
+            x += z30_shadow_x(o->d3);
+            y += z30_shadow_y(o->d3);
+
+            if(o->d2 == sstaCENTER)
+                x -= bw / 2;
+            else if(o->d2 == sstaRIGHT)
+                x -= bw;
+        }
+        break;
+
+    case Z30W_OLDCTR:
+        if(o && o->type == ssoCOUNTERS)
+        {
+            bw = 32 + z30_shadow_wh(o->d3);
+            bh = 32 + z30_shadow_wh(o->d3);
+            x += z30_shadow_x(o->d3);
+            y += z30_shadow_y(o->d3);
+        }
+        break;
+
+    case Z30W_LGAUGE:
+    case Z30W_MGAUGE:
+        if(o && (o->type == ssoLIFEGAUGE || o->type == ssoMAGICGAUGE) && (o->d10 & SSO_GAUGE_NEWER))
+        {
+            // the grid as the reader keeps it: columns - 1, rows - 1, spacing, offsets
+            const int sz = (w.flags & 0x20) ? 16 : 8;   // SUBSCR_GAUGE_FULLTILE
+            const int wid = o->frames, hei = o->speed, xoff = o->color3, yoff = (short)o->frame;
+            x += xoff < 0 ? hei * xoff : 0;
+            y += yoff < 0 ? hei * yoff : 0;
+            bw = (wid + 1) * sz + wid * o->delay + hei * abs(xoff);
+            bh = (hei + 1) * sz + hei * o->colortype3 + wid * abs(yoff);
+        }
+        break;
+
+    case Z30W_MMETER:
+        x -= 10;
+        bw = 82;
+        bh = 8;
+        break;
+
+    case Z30W_LMETER:
+    {
+        const int rows = (o && o->d3) ? 3 : 2;
+
+        if(!(w.flags & 0x1))    // SUBSCR_LIFEMET_BOT
+            y += (4 - rows) * 8;
+
+        bw = 64;
+        bh = 8 * rows;
+        break;
+    }
+
+    case Z30W_BTNITM:
+    case Z30W_ITEMSLOT:
+    case Z30W_MCGUFF:
+        bw = bh = 16;
+        break;
+
+    case Z30W_MMAP:
+        bw = 80;
+        bh = 48;
+        break;
+
+    case Z30W_LMAP:
+        bw = 16 * ((w.flags & 0x8) ? 9 : 7);   // SUBSCR_LMAP_LARGE
+        bh = 80;
+        break;
+
+    case Z30W_MCGUFF_FRAME:
+        bw = 16 * ((w.flags & 0x4) ? 7 : 6);   // SUBSCR_TRIFR_LGPC
+        bh = 16 * ((w.flags & 0x4) ? 7 : 3);
+        break;
+
+    case Z30W_TILEBLOCK:
+        bw = w.w * 16;
+        bh = w.h * 16;
+        break;
+
+    case Z30W_MINITILE:
+        bw = bh = 8;
+        break;
+
+    case Z30W_SELECTOR:
+        bw = bh = (w.flags & 0x2) ? 32 : 16;   // SUBSCR_SELECTOR_LARGE
+        break;
+    }
+}
+
+// upstream's subscr_item_clk: counts the frames the passive subscreen is drawn (subscr.cpp)
+int q30_subscr_item_clk = 0;
+
+// upstream's dummyitem_animate followed by item::animate's frame step, for a selector drawn anew
+// each frame: its frame from the subscreen clock.
+static void z30_sel_animate(item &it, int clk)
+{
+    int fr = it.frames, spd = it.o_speed, del = it.o_delay;
+
+    if(fr < 1)
+        fr = 1;
+    if(spd < 1)
+        spd = 1;
+
+    const int clkwid = spd * (fr + del);
+    clk %= clkwid;
+    clk = clk ? clk - 1 : clkwid - 1;   //To counter needing to call animate, calculate one clk back
+    it.aframe = clk < (del * spd) ? 0 : (clk - del * spd) / spd;
+    it.aclk = it.aframe ? (clk - del * spd) % spd : clk;
+
+    q30_item_apply_size(&it, it.id, true);  // the selector item's own sizes, drawn in place
+
+    if(it.flash)    // the item's flashing: its two csets, 8 frames each
+    {
+        it.cs = it.o_cset;
+
+        if(frame & 8)
+            it.cs >>= 4;
+        else
+            it.cs &= 15;
+    }
+
+    if(it.frames > 0)
+    {
+        int s = it.o_speed;
+
+        if(it.aframe == 0)
+            s *= it.o_delay + 1;
+
+        if(++it.aclk >= s)
+        {
+            it.aclk = 0;
+
+            if(++it.aframe >= it.frames)
+                it.aframe = 0;
+        }
+
+        if(it.extend > 2)
+        {
+            if(it.o_tile / TILES_PER_ROW == (it.o_tile + it.txsz * it.aframe) / TILES_PER_ROW)
+                it.tile = it.o_tile + it.txsz * it.aframe;
+            else
+                it.tile = it.o_tile + (it.txsz * it.aframe) + ((it.tysz - 1) * TILES_PER_ROW) *
+                          (((it.o_tile + it.txsz * it.aframe) / TILES_PER_ROW) - (it.o_tile / TILES_PER_ROW));
+        }
+        else
+            it.tile = it.o_tile + it.aframe;
+    }
+}
+
+// Selector object o (2.53's ssoSELECTOR1/2) of page pg of subscreen s, whose objects are objs (n of
+// them), with the cursor at pos, drawn as upstream's SW_Selector::draw: on the selected widget of
+// any kind, at its box (or the item's hit box, with qr_SUBSCR_SELECTOR_USES_ITEM_HITBOX), the
+// selector tile stretched to it; a widget's selector override, or the subscreen's, gives the tiles
+// and the box. pos goes to 0 when nothing is selectable at it but something is there.
+static void z30_draw_sel(BITMAP *dest, const Z30Subscreen &sub, int pg, int &pos, const subscreen_object *objs, int n,
+                         const subscreen_object &o, int xofs, int yofs)
+{
+    const Z30Subscreen *s = &sub;
+    const Z30SubPage &p = s->pages[pg];
+    const Z30SubWidget *widg = z30_sel_widget(p, pos);
+
+    if(!widg)
+    {
+        if(pos && (widg = z30_sel_widget(p, 0)) != NULL)
+            pos = 0;
+
+        if(!widg)
+            return;
+    }
+
+    const int sel_type = (o.type == ssoSELECTOR2) ? 1 : 0;     // SUBSCR_SELECTOR_USEB
+    const subscreen_object *wo = (widg->obj >= 0 && widg->obj < n && objs[widg->obj].type != ssoNULL) ? &objs[widg->obj] : NULL;
+    bool big_sel = o.d5 != 0;
+    const bool oldsel = q30_compat_rule(Z30_QR_SUBSCR_OLD_SELECTOR);
+    const bool use_item_hitbox = q30_compat_rule(Z30_QR_SUBSCR_SELECTOR_USES_ITEM_HITBOX);
+
+    item tempsel((fix)0, (fix)0, (fix)0, sel_type ? iSelectB : iSelectA, 0, 0, true);
+    tempsel.xofs = tempsel.yofs = 0;
+    tempsel.drawstyle = o.d4 ? 1 : 0;   // SUBSCR_SELECTOR_TRANSP
+
+    // the item it holds (getItemVal) and that item's own hit box (overrideFLAGS: hit x/y offset,
+    // width, height; 0, 0, 16, 16 for what they leave)
+    int id = -1;
+
+    if(wo && widg->type == Z30W_ITEMSLOT)
+    {
+        const int keep = directItem;
+        const int it = z30_btn_item_of(*wo);
+        directItem = keep;
+        id = it ? it : -1;
+    }
+
+    struct { int hxofs, hyofs, hxsz, hysz; } ibox = { 0, 0, 16, 16 };
+
+    if(id > -1)
+        q30_item_hit_box(id, ibox.hxofs, ibox.hyofs, ibox.hxsz, ibox.hysz);
+
+    if(!oldsel)
+        big_sel = false;
+
+    int sw = 16, sh = 16, dw = 16, dh = 16, sxofs = 0, syofs = 0, dxofs = 0, dyofs = 0;
+    bool new_animate = true;
+    int wx, wy, ww, wh;
+    z30_widget_box(*widg, wo, wx, wy, ww, wh);
+
+    if(widg->has_sel || s->has_sel)
+    {
+        const Q30SubSel &ss = widg->has_sel ? widg->sel : s->sel;
+        sw = ss.t[sel_type].sw;
+        sh = ss.t[sel_type].sh;
+
+        if(widg->has_sel)
+        {
+            dw = ss.w;
+            dh = ss.h;
+            dxofs = ss.x;
+            dyofs = ss.y;
+        }
+        else
+        {
+            if(use_item_hitbox && widg->type == Z30W_ITEMSLOT && id > -1)
+            {
+                dw = ibox.hxsz;
+                dh = ibox.hysz;
+                dxofs = widg->x + ibox.hxofs + (tempsel.extend > 2 ? (int)tempsel.xofs : 0);
+                dyofs = widg->y + ibox.hyofs + (tempsel.extend > 2 ? (int)tempsel.yofs : 0);
+            }
+            else
+            {
+                dw = ww;
+                dh = wh;
+                dxofs = wx;
+                dyofs = wy;
+            }
+
+            dw += ss.w;
+            dh += ss.h;
+            dxofs += ss.x;
+            dyofs += ss.y;
+        }
+
+        big_sel = false;
+        tempsel.tile = tempsel.o_tile = ss.t[sel_type].tile;
+        tempsel.o_cset = ss.t[sel_type].cset;
+        tempsel.cs = tempsel.o_cset & 0xF;
+        tempsel.frames = ss.t[sel_type].frames;
+        tempsel.o_speed = ss.t[sel_type].speed;
+        tempsel.o_delay = ss.t[sel_type].delay;
+        tempsel.extend = 3;
+        tempsel.txsz = ((sw % 16) ? 1 : 0) + (sw / 16);
+        tempsel.tysz = ((sh % 16) ? 1 : 0) + (sh / 16);
+    }
+    else
+        new_animate = false;
+
+    z30_sel_animate(tempsel, q30_subscr_item_clk);
+
+    if(!tempsel.tile)
+        return;
+
+    if(!new_animate)
+    {
+        if(oldsel)
+        {
+            sw = dw = (tempsel.extend > 2 ? tempsel.txsz * 16 : 16);
+            sh = dh = (tempsel.extend > 2 ? tempsel.tysz * 16 : 16);
+            dxofs = widg->x + (tempsel.extend > 2 ? (int)tempsel.xofs : 0);
+            dyofs = widg->y + (tempsel.extend > 2 ? (int)tempsel.yofs : 0);
+        }
+        else
+        {
+            sw = (tempsel.extend > 2 ? tempsel.hxsz : 16);
+            sh = (tempsel.extend > 2 ? tempsel.hysz : 16);
+            sxofs = (tempsel.extend > 2 ? tempsel.hxofs : 0);
+            syofs = (tempsel.extend > 2 ? tempsel.hyofs : 0);
+
+            if(use_item_hitbox && widg->type == Z30W_ITEMSLOT && id > -1)
+            {
+                dw = ibox.hxsz;
+                dh = ibox.hysz;
+                dxofs = widg->x + ibox.hxofs + (tempsel.extend > 2 ? (int)tempsel.xofs : 0);
+                dyofs = widg->y + ibox.hyofs + (tempsel.extend > 2 ? (int)tempsel.yofs : 0);
+            }
+            else
+            {
+                dw = ww;
+                dh = wh;
+                dxofs = wx;
+                dyofs = wy;
+            }
+        }
+    }
+
+    if(sw <= 0 || sh <= 0)
+        return;
+
+    BITMAP *tmp = create_bitmap_ex(8, sw, sh);
+
+    if(!tmp)
+        return;
+
+    const int sx = vbound(sxofs, 0, sw), sy = vbound(syofs, 0, sh);
+
+    for(int j = 0; j < 4; ++j)
+    {
+        clear_bitmap(tmp);
+        tempsel.x = 0;
+        tempsel.y = 0;
+        tempsel.draw(tmp);
+
+        const int tx = xofs + (big_sel ? (j % 2 ? 8 : -8) : 0);
+        const int ty = yofs + (big_sel ? (j > 1 ? 8 : -8) : 0);
+
+        if(sw - sx > 0 && sh - sy > 0 && dw > 0 && dh > 0)
+            masked_stretch_blit(tmp, dest, sx, sy, sw - sx, sh - sy, tx + dxofs, ty + dyofs, dw, dh);
+
+        if(!big_sel)
+            break;
+
+        tempsel.tile += zc_max(itemsbuf[tempsel.id].frames, 1);
+    }
+
+    destroy_bitmap(tmp);
+}
+
+// The 2.55/3.0 active or map subscreen that is custom_subscreen[] entry css, if any.
+static Z30Subscreen *z30_sub_of_group(const subscreen_group *css)
+{
+    static const int lists[2] = { 0, 3 };
+
+    for(int l = 0; l < 2; ++l)
+        for(size_t i = 0; i < zasm30_subs[lists[l]].size(); ++i)
+        {
+            Z30Subscreen &s = zasm30_subs[lists[l]][i];
+
+            if(s.slot >= 0 && s.slot < MAXCUSTOMSUBSCREENS && &custom_subscreen[s.slot] == css)
+                return &s;
+        }
+
+    return NULL;
+}
+
+// subscr.cpp's selector object o on a newer subscreen (z30_draw_sel, the cursor Bpos); false when
+// css isn't one (2.53's drawing then).
+bool q30_sub_draw_selector(BITMAP *dest, const subscreen_group *css, const subscreen_object &o, int xofs, int yofs)
+{
+    if(!q30_active() || !css)
+        return false;
+
+    Z30Subscreen *s = z30_sub_of_group(css);
+
+    if(!s || s->curpage < 0 || s->curpage >= (int)s->pages.size())
+        return false;
+
+    if(!z30_sel_hidden)
+    {
+        int n = 0;
+
+        while(n < MAXSUBSCREENITEMS && css->objects[n].type != ssoNULL)
+            ++n;
+
+        z30_draw_sel(dest, *s, s->curpage, Bpos, css->objects, n, o, xofs, yofs);
+    }
+
+    return true;
+}
+
+// A page change animating with SUBSCR_TRANS_NOHIDESELECTOR: upstream draws both pages anew each
+// frame, so their selectors go on animating. The pages' pictures leave them out; this puts page
+// pg's selectors (cursor pos) on such a picture.
+static void z30_anim_selectors(BITMAP *dest, const Z30Subscreen &s, int pg, int pos)
+{
+    if(pg < 0 || pg >= (int)s.pages.size())
+        return;
+
+    int n;
+    const subscreen_object *objs = z30_btn_objects(s, pg, n);
+
+    for(int i = 0; i < n; ++i)
+    {
+        const subscreen_object &o = objs[i];
+
+        if((o.type == ssoSELECTOR1 || o.type == ssoSELECTOR2) && (o.pos & sspDOWN) && z30_btn_cond(s.pages[pg], i))
+            z30_draw_sel(dest, s, pg, pos, objs, n, o, 0, 0);
+    }
 }
 
 // ---- overlay and map subscreens ---------------------------------------------------------------

@@ -336,7 +336,15 @@ typedef word tile_id;
 #define COMBOS_PER_PAGE  256
 #define COMBO_PAGES      255
 #define MAXCOMBOS        COMBO_PAGES*COMBOS_PER_PAGE
-#define MAXSUBSCREENITEMS	256
+// What a 2.53 subscreen (and 2.55's older subscreen format) holds; the quest readers stop there.
+#define MAXSUBSCREENITEMS_253	256
+#ifdef ZC_PLAYER_BUILD
+// The player: room for a 2.55/3.0 page converted to 2.53 objects (upstream has no limit; Mystical
+// Harps' first page has 281 widgets, and its selectors come last).
+#define MAXSUBSCREENITEMS	1024
+#else
+#define MAXSUBSCREENITEMS	MAXSUBSCREENITEMS_253
+#endif
 #define MAXCUSTOMSUBSCREENS 128
 #define MAXFFCS			 32
 // 2.55/3.0 quests have up to 128 FFCs a screen (upstream's MAXFFCS); 2.53 quests and ZQuest

@@ -1745,6 +1745,8 @@ int choose_opening_shape()
     return bosCIRCLE;
 }
 
+extern bool q30_subscr_clk_hold;    // subscr.cpp
+
 void close_black_opening(int x, int y, bool wait)
 {
     black_opening_shape=choose_opening_shape();
@@ -1777,7 +1779,9 @@ void close_black_opening(int x, int y, bool wait)
         for(int i=0; i<66; i++)
         {
             draw_screen(tmpscr);
+            q30_subscr_clk_hold = true;     // (drawn twice a frame: upstream's selector clock counts once)
             put_passive_subscr(framebuf,&QMisc,0,passive_subscreen_offset,false,sspUP);
+            q30_subscr_clk_hold = false;
             syskeys();
             advanceframe(true);
             
@@ -1820,7 +1824,9 @@ void open_black_opening(int x, int y, bool wait)
         for(int i=0; i<66; i++)
         {
             draw_screen(tmpscr);
+            q30_subscr_clk_hold = true;     // (drawn twice a frame: upstream's selector clock counts once)
             put_passive_subscr(framebuf,&QMisc,0,passive_subscreen_offset,false,sspUP);
+            q30_subscr_clk_hold = false;
             syskeys();
             advanceframe(true);
             

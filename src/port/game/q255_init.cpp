@@ -1263,6 +1263,21 @@ static void read_sub_object(Q255Section &s, subscreen_object &t)
     // v7 changed "always show" on magic gauges from 0 to -1; 2.53 still uses 0.
     if(s.version >= 7 && t.type == ssoMAGICGAUGE && t.d9 == -1)
         t.d9 = 0;
+
+#ifdef ZC_PLAYER_BUILD
+    // 2.55's subscreen fonts go past 2.53's (ssfAT800 22 to ssfLISA 65, upstream's to_real_font:
+    // font id ssf + 5); upstream draws a font past those with the Zelda font. The player draws
+    // them by font id (ss_font); 2.53 would pick a random font every frame. ZQuest keeps the
+    // number as stored.
+    switch(t.type)
+    {
+    case ssoTEXT: case ssoBSTIME: case ssoTIME: case ssoSSTIME: case ssoCOUNTER: case ssoCOUNTERS:
+    case ssoMINIMAPTITLE: case ssoTEXTBOX: case ssoSELECTEDITEMNAME:
+        if(t.d1 >= ssfMAX)
+            t.d1 = t.d1 <= 65 ? Q30_SSF_FONTS + t.d1 + 5 : ssfZELDA;
+        break;
+    }
+#endif
 }
 
 static void read_sub_group(Q255Section &s, int i)
@@ -1276,7 +1291,7 @@ static void read_sub_group(Q255Section &s, int i)
     int j;
 
     // The format stops at this limit too: no file holds objects past it.
-    for(j = 0; j < MAXSUBSCREENITEMS && j < numsub && !s.failed; ++j)
+    for(j = 0; j < MAXSUBSCREENITEMS_253 && j < numsub && !s.failed; ++j)
     {
         if(s.keep)
             clear_sub_object(g.objects[j]);
@@ -1563,6 +1578,44 @@ static void skip_selector_info(Q255Section &s)
     walk_items(s, n, 12);
 }
 
+#ifdef ZC_PLAYER_BUILD
+// The same, kept (the player draws the selector with it): x, y, w, h, then the tile infos (the
+// A and B selectors'; any past those two are read and dropped, as upstream does).
+static void read_selector_info(Q255Section &s, Q30SubSel &sel)
+{
+    memset(&sel, 0, sizeof(sel));
+    sel.x = s.igetw_s();
+    sel.y = s.igetw_s();
+    sel.w = s.igetw_s();
+    sel.h = s.igetw_s();
+    byte n = s.getc();
+
+    for(int q = 0; q < n && !s.failed; ++q)
+    {
+        const int sw = s.igetw(), sh = s.igetw();
+        const long tile = s.igetl_s();
+        const int cset = s.getc(), frames = s.getc(), speed = s.getc(), delay = s.getc();
+
+        if(q < 2)
+        {
+            sel.t[q].sw = sw;
+            sel.t[q].sh = sh;
+            sel.t[q].tile = tile;
+            sel.t[q].cset = cset;
+            sel.t[q].frames = frames;
+            sel.t[q].speed = speed;
+            sel.t[q].delay = delay;
+        }
+    }
+}
+
+static Q30SubSel g_sub_sel;     // the last widget's selector override (SUBSCRFLAG_SELOVERRIDE)
+static word g_sub_script;       // and its generic script, the buttons that run it and its InitD
+static byte g_sub_script_btns;
+static long g_sub_script_initd[8];
+static int g_sub_maxdigits = -1;    // the last counter widget's max digits
+#endif
+
 // What scripts can ask of each widget (q30_scripts_subscr.h): the last one's base and label.
 static SubWidget255 g_sub_last;
 static std::string g_sub_label;
@@ -1602,20 +1655,53 @@ static void read_widget_base(Q255Section &s, SubWidget255 &b)
         g_sub_seltext = s.getwstr();    // selected text override
 
         if(b.genflags & WIDG_SELOVERRIDE)
+        {
+#ifdef ZC_PLAYER_BUILD
+            read_selector_info(s, g_sub_sel);
+#else
             skip_selector_info(s);
+#endif
+        }
 
+#ifdef ZC_PLAYER_BUILD
+        // the generic script a press on it runs (upstream generic_scrconfig, gen_script_btns)
+        g_sub_script = 0;
+        g_sub_script_btns = 0;
+        memset(g_sub_script_initd, 0, sizeof(g_sub_script_initd));
+#endif
         if(v >= 21)
         {
+#ifdef ZC_PLAYER_BUILD
+            g_sub_script_btns = s.getc();   // script buttons
+            g_sub_script = s.igetw();       // p_getvar(script_config)
+            word n = s.igetw();
+            for(int q = 0; q < n && !s.failed; ++q)
+            {
+                long a = s.igetl_s();
+                if(q < 8)
+                    g_sub_script_initd[q] = a;
+            }
+            word m = s.igetw();
+            walk_items(s, m, 6);
+#else
             s.skip(1);  // script buttons
             skip_script_config(s);
+#endif
         }
         else
         {
             word script = s.igetw();
             if(script)
             {
+#ifdef ZC_PLAYER_BUILD
+                g_sub_script = script;
+                g_sub_script_btns = s.getc();
+                for(int q = 0; q < 8; ++q)
+                    g_sub_script_initd[q] = s.igetl_s();
+#else
                 s.skip(1);
                 s.skip(8 * 4);
+#endif
             }
         }
 
@@ -1881,7 +1967,11 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
         ctrs[1] = s.igetl_s();
         ctrs[2] = s.igetl_s();
         t.d4 = s.getc();    // min digits
+#ifdef ZC_PLAYER_BUILD
+        g_sub_maxdigits = s.getc();     // max digits (for the selector's box)
+#else
         s.skip(1);          // max digits
+#endif
         t.d10 = sub_item(s.igetl_s());
         t.d5 = s.getc();    // infinite character
         t.d6 = f1 | (f2 << 1);
@@ -2348,8 +2438,9 @@ static void read_sub_page(Q255Section &s, subscreen_group *dest, bool first)
 
         static const bool sublog = getenv("ZC_Q30_SUBLOG") != NULL;     // diagnostics only
         if(sublog && s.keep && (b.genflags & WIDG_SELECTABLE) && (g_sub_list == 0 || g_sub_list == 3))
-            al_trace("q30 subscreen: list %d widget type %d at %d,%d: pos %d up %d down %d left %d right %d flags 0x%lx\n", g_sub_list, ty, b.x, b.y,
-                     b.pos, b.pos_up, b.pos_down, b.pos_left, b.pos_right, (unsigned long)b.flags);
+            al_trace("q30 subscreen: list %d widget type %d at %d,%d size %dx%d: pos %d up %d down %d left %d right %d flags 0x%lx genflags 0x%lx\n",
+                     g_sub_list, ty, b.x, b.y, b.w, b.h, b.pos, b.pos_up, b.pos_down, b.pos_left, b.pos_right, (unsigned long)b.flags,
+                     (unsigned long)b.genflags);
         if(sublog && s.keep && (g_sub_list == 1 || g_sub_list == 2))
             al_trace("q30 subscreen: list %d widget type %d at %d,%d size %dx%d posflags 0x%x flags 0x%lx genflags 0x%lx obj %d\n", g_sub_list, ty,
                      b.x, b.y, b.w, b.h, b.posflags, (unsigned long)b.flags, (unsigned long)b.genflags, obj);
@@ -2396,7 +2487,21 @@ static void read_sub_page(Q255Section &s, subscreen_group *dest, bool first)
 
         if(s.keep && !s.failed && (b.genflags & WIDG_SELECTABLE) && !g_sub_seltext.empty())
             q30_sub_widget_seltext(g_sub_list, g_sub_seltext.c_str());
+
+#ifdef ZC_PLAYER_BUILD
+        if(s.keep && !s.failed && (b.genflags & WIDG_SELECTABLE) && (b.genflags & WIDG_SELOVERRIDE))
+            q30_sub_widget_sel(g_sub_list, g_sub_sel);
+
+        if(s.keep && !s.failed && (b.genflags & WIDG_SELECTABLE) && g_sub_script)
+            q30_sub_widget_script(g_sub_list, g_sub_script, g_sub_script_btns, g_sub_script_initd);
+
+        if(s.keep && !s.failed && ty == WIDG_COUNTER && g_sub_maxdigits >= 0)
+            q30_sub_widget_digits(g_sub_list, g_sub_maxdigits);
+#endif
     }
+
+    if(getenv("ZC_Q30_SUBLOG") && s.keep && (g_sub_list == 0 || g_sub_list == 3))     // diagnostics only
+        al_trace("q30 subscreen: list %d page of %d widgets, %d objects, cursor %ld\n", g_sub_list, (int)widgets, stored, cursor_pos);
 
     if(into && s.keep && !s.failed)
         q30_sub_page_objects(g_sub_list, into->objects, stored);
@@ -2444,6 +2549,9 @@ struct SubHead255
     // a page past the subscreen's last counts as none, as upstream checks once they're read)
     word def_btns[4];
     Q30SubTrans trans_lr[2];
+#ifdef ZC_PLAYER_BUILD
+    Q30SubSel sel;      // the selector override (SUBFLAG_ACT_OVERRIDESEL)
+#endif
 };
 
 static void read_sub_head(Q255Section &s, SubHead255 &h)
@@ -2455,11 +2563,20 @@ static void read_sub_head(Q255Section &s, SubHead255 &h)
     for(int q = 0; q < 4; ++q)
         h.def_btns[q] = 255;
     memset(h.trans_lr, 0, sizeof(h.trans_lr));
+#ifdef ZC_PLAYER_BUILD
+    memset(&h.sel, 0, sizeof(h.sel));
+#endif
 
     if(h.file_type == 0 || h.file_type == 3)   // active and map subscreens
     {
         if(h.flags & 2)                     // SUBFLAG_ACT_OVERRIDESEL
+        {
+#ifdef ZC_PLAYER_BUILD
+            read_selector_info(s, h.sel);
+#else
             skip_selector_info(s);
+#endif
+        }
 
         for(int q = 0; q < 4; ++q)      // default buttons
             h.def_btns[q] = s.igetw();
@@ -2518,6 +2635,10 @@ static void read_new_subscreen(Q255Section &s, int slot, byte ss_type)
         q30_sub_settings(ss_type, flags, btn_left, btn_right, def_btns);
         q30_sub_trans(ss_type, 2, trans_lr[0]);
         q30_sub_trans(ss_type, 3, trans_lr[1]);
+#ifdef ZC_PLAYER_BUILD
+        if(flags & 2)       // SUBFLAG_ACT_OVERRIDESEL
+            q30_sub_selector(ss_type, head.sel);
+#endif
     }
 
     if(s.keep && slot >= 0 && slot < MAXCUSTOMSUBSCREENS && !s.failed)

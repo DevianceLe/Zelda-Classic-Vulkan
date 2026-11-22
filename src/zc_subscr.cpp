@@ -35,7 +35,22 @@ extern int directItemB;
 
 bool q30_subscreen_anim_draw(BITMAP *dest, int dx, int dy);    // q30_scripts_subscr.h
 bool q30_sub_none_active();                                       // q30_scripts_subscr.h
+bool q30_sub_move_cursor(int dir, int &pos);                      // q30_scripts_subscr.h
+bool q30_sub_move_legacy(int dir, int &pos);                      // q30_scripts_subscr.h
+bool q30_subscreen_widget_script(int btns, int pos);              // q30_scripts_subscr.h
 extern word q30_init_subscr_speed;      // q255_init.cpp
+
+// The subscreen cursor's move from pos in direction dir: a 2.55/3.0 newer subscreen's as upstream
+// moves it (legacy: L and R with qr_OLD_SUBSCR), else 2.53's (any_stop: 2.55/3.0's freeform cursor).
+static int q30_move_cursor(int dir, int pos, bool any_stop, bool legacy)
+{
+    int p = pos;
+
+    if(q30_active() && (legacy ? q30_sub_move_legacy(dir, p) : q30_sub_move_cursor(dir, p)))
+        return p;
+
+    return legacy ? selectWpn_new(dir, pos) : selectWpn_new(dir, pos, -1, any_stop);
+}
 
 int q30_subscr_speed = 1;   // see q30_triggers.h; init_game sets it from the quest's init data
 
@@ -365,22 +380,30 @@ void dosubscr(miscQdata *misc)
         const int q30_btns = q30_now & ~q30_held;
         q30_held = q30_now;
 
-        // (2.55/3.0 with qr_FREEFORM_SUBSCREEN_CURSOR: the cursor stops on any selectable widget)
+        // (2.55/3.0 with qr_FREEFORM_SUBSCREEN_CURSOR: the cursor stops on any selectable widget;
+        // the newer subscreens move it as upstream's SubscrPage does, q30_sub_move_cursor)
         const bool q30_free = q30_active() && q30_quest_rule(416);
-        if(rUp())         Bpos = selectWpn_new(SEL_UP, pos, -1, q30_free);
-        else if(rDown())  Bpos = selectWpn_new(SEL_DOWN, pos, -1, q30_free);
-        else if(rLeft())  Bpos = selectWpn_new(SEL_LEFT, pos, -1, q30_free);
-        else if(rRight()) Bpos = selectWpn_new(SEL_RIGHT, pos, -1, q30_free);
-        else if(!q30_lr && rLbtn())  Bpos = selectWpn_new(SEL_LEFT, pos);
-        else if(!q30_lr && rRbtn())  Bpos = selectWpn_new(SEL_RIGHT, pos);
+        if(rUp())         Bpos = q30_move_cursor(SEL_UP, pos, q30_free, false);
+        else if(rDown())  Bpos = q30_move_cursor(SEL_DOWN, pos, q30_free, false);
+        else if(rLeft())  Bpos = q30_move_cursor(SEL_LEFT, pos, q30_free, false);
+        else if(rRight()) Bpos = q30_move_cursor(SEL_RIGHT, pos, q30_free, false);
+        else if(!q30_lr && rLbtn())  Bpos = q30_move_cursor(SEL_LEFT, pos, false, true);
+        else if(!q30_lr && rRbtn())  Bpos = q30_move_cursor(SEL_RIGHT, pos, false, true);
 
         const bool q30_x = q30_use_x_button(), q30_y = q30_use_y_button();
+
+        // 2.55/3.0 newer subscreens: the selected widget's generic script, before anything is
+        // equipped; when it changed the subscreen shown, the rest of the press is dropped (upstream)
+        const bool q30_press_ok = q30_subscreen_widget_script(q30_btns, Bpos);
 
         // 2.55/3.0, as upstream: a press where the cursor has no item (a page arrow) equips nothing,
         // nor (newer subscreens) one on a slot that can't be equipped
         const bool q30_no_item = q30_active() && (!Bweapon(Bpos) || q30_cant_equip_here());
 
-        if(get_bit(quest_rules,qr_SELECTAWPN) || q30_x || q30_y)
+        if(!q30_press_ok)
+        {
+        }
+        else if(get_bit(quest_rules,qr_SELECTAWPN) || q30_x || q30_y)
         {
             if(rBbtn() && !q30_no_item)
             {
@@ -463,7 +486,7 @@ void dosubscr(miscQdata *misc)
         if(pos!=Bpos)
             sfx(WAV_CHIME);
 
-        if(q30_btns)
+        if(q30_btns && q30_press_ok)
             q30_subscreen_pages(q30_btns, Bpos);
 
         do_dcounters();

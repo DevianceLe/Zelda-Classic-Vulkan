@@ -137,6 +137,21 @@ void q30_sub_widget_cond(int list, int first, int end, const Q30SubCond &c);
 // The last widget's selected text override (upstream override_text: what a selected text widget
 // shows while the cursor is on it, in place of an item's name).
 void q30_sub_widget_seltext(int list, const char *text);
+// A selector override (upstream SubscrSelectorInfo): where it is drawn and, for the A and B
+// selectors, the tiles, the size they are taken at and their animation. A widget's (with
+// SUBSCRFLAG_SELOVERRIDE) places the selector at x, y, w, h; the subscreen's (SUBFLAG_ACT_OVERRIDESEL)
+// adds them to the selected widget's box.
+struct Q30SubSel
+{
+    int x, y, w, h;
+    struct { int sw, sh; long tile; int cset, frames, speed, delay; } t[2];
+};
+void q30_sub_widget_sel(int list, const Q30SubSel &sel);    // the last widget's
+void q30_sub_selector(int list, const Q30SubSel &sel);      // the subscreen being read's
+// The last widget's generic script (upstream generic_scrconfig): run frozen when one of the
+// buttons (INT_BTN_* bits) is pressed with the cursor on it.
+void q30_sub_widget_script(int list, int script, int btns, const long *initd);
+void q30_sub_widget_digits(int list, int maxdigits);       // the last counter widget's max digits
 
 // The screen script data (Screen->Data[]) a new game starts with, from the init data reader
 // (q30_scripts_save.h). key -1 only sets the size.
