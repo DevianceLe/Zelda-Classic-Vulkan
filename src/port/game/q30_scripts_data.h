@@ -1581,7 +1581,6 @@ static bool z30d_script_load_enemies()
 enum { Z30D_WD_GLOW_RAD = 0x1, Z30D_WD_SET_STEP = 0x2 };    // upstream wdata_glow_rad, wdata_set_step
 
 static std::map<long, Q30WeaponData> zasm30_weapdatas;
-static long zasm30_next_weapdata = 1;
 
 static Q30WeaponData *z30d_weapdata_view_data(long ref);   // (below: a combo's weapon data)
 
@@ -1807,9 +1806,12 @@ static bool z30d_weapdata_command(word cmd)
     switch(cmd)
     {
     case Z30C_CREATEWEAPDATA:
-        Z30_REF(WEAPDATA) = zasm30_next_weapdata;
-        zasm30_weapdatas[zasm30_next_weapdata] = Q30WeaponData();
-        ri->d[2] = zasm30_next_weapdata++;
+    {
+        const long id = zasm30_object_id_new();     // (upstream's shared object ids)
+        Z30_REF(WEAPDATA) = id;
+        zasm30_weapdatas[id] = Q30WeaponData();
+        ri->d[2] = id;
+    }
         return true;
 
     case Z30C_WEAPDATA_COPY:
@@ -1868,7 +1870,7 @@ static long z30d_weapdata_view(int type, long index)
     if(it != zasm30_weapdata_view_refs.end())
         return it->second;
 
-    const long ref = zasm30_next_weapdata++;
+    const long ref = zasm30_object_id_new();
     zasm30_weapdata_view_refs[std::make_pair(type, index)] = ref;
     zasm30_weapdata_views[ref] = std::make_pair(type, index);
     return ref;
@@ -2060,6 +2062,8 @@ static int z30d_screen_index(long ref, bool screen)
 
 // mapdata-> and Screen-> fields 2.53's mapscr holds (upstream's GET/SET_MAPDATA_VAR_* and the
 // screendata ones): the mapdata's screen, or the current one.
+extern std::map<long, byte> g_q30_door_none;   // q255_maps.cpp: doors the quest left as dNONE
+
 static bool z30d_scr_reg(const long arg, long &ret, const long value, const bool write)
 {
     enum { F_NONE, F_VALID, F_CSENS, F_HOLDUP, F_SECRET, F_BOSS, F_MAP, F_SCREEN, F_MIDI, F_MUSIC, F_NORESET, F_NOCARRY,
@@ -2222,7 +2226,13 @@ static bool z30d_scr_reg(const long arg, long &ret, const long value, const bool
         case F_ARRX: ret = m->warparrivalx * 10000; break;
         case F_ARRY: ret = m->warparrivaly * 10000; break;
         case F_WARPRETC: ret = m->warpreturnc * 10000; break;
-        case F_DOOR: ret = m->door[n] * 10000; break;
+        case F_DOOR:    // (a door the quest left as dNONE reads 16, as upstream's)
+        {
+            const long mi = screen ? currmap * MAPSCRS + currscr : Z30_REF(MAPDATA) - 1;
+            std::map<long, byte>::const_iterator it = g_q30_door_none.find(mi);
+            ret = (m->door[n] == dWALL && it != g_q30_door_none.end() && ((it->second >> n) & 1)) ? 16 * 10000 : m->door[n] * 10000;
+            break;
+        }
         case F_PATH: ret = m->path[n] * 10000; break;
         case F_LAYEROPAC: ret = (n == 0 ? 255 : m->layeropacity[n - 1]) * 10000; break;
         case F_SWDMAP: ret = m->sidewarpdmap[n] * 10000; break;
@@ -2287,7 +2297,11 @@ static bool z30d_scr_reg(const long arg, long &ret, const long value, const bool
     case F_ARRX: m->warparrivalx = (byte)z30d_bound(v, 0, 255); break;
     case F_ARRY: m->warparrivaly = (byte)z30d_bound(v, 0, 255); break;
     case F_WARPRETC: m->warpreturnc = (word)z30d_bound(v, -214747, 214747); break;
-    case F_DOOR: m->door[n] = (byte)z30d_bound(v, 0, 255); break;
+    case F_DOOR:
+        m->door[n] = (byte)z30d_bound(v, 0, 255);
+        if(g_q30_door_none.count(screen ? currmap * MAPSCRS + currscr : Z30_REF(MAPDATA) - 1))
+            g_q30_door_none[screen ? currmap * MAPSCRS + currscr : Z30_REF(MAPDATA) - 1] &= (byte)~(1 << n);
+        break;
     case F_PATH: m->path[n] = (byte)z30d_bound(v, 0, 255); break;
     case F_LAYEROPAC: if(n > 0) m->layeropacity[n - 1] = (byte)z30d_bound(v, 0, 255); break;
     case F_SWDMAP: m->sidewarpdmap[n] = (word)z30d_bound(v, 0, MAXDMAPS - 1); break;
@@ -3496,10 +3510,207 @@ void q30_weapon_load_item_data(weapon *w)
     q30_weapon_seed_data(w, d, true);   // lifting, piercing, bouncing, burning sprites
 }
 
+// ---- r18: combo data and position state arrays, FFC script flags, message segments ----------
+byte &q30_pos_state(int mi, int key);       // q30_triggers.cpp (keys: layer * 176 + pos, 1000 + FFC)
+
+// upstream's legacy SCC argument counts by code (components/scc/scc.cpp scc_commands; -1 unknown)
+static const signed char Z30D_SCC_ARGS[] = {
+    -1,2,1,3,2,2,3,-1,2,2,2,2,2,-1,-1,-1,1,1,6,4,1,1,0,5,6,0,2,1,5,0,0,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+    -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+    -1,-1,-1,-1,-1,-1,5,5,0,2,1,2,4,1,-1,1,3,3,5,3,5,4,4,1,2,4,2,3,3,1,1,1,1,1,1,3,3,1,1,2 };
+
+// messagedata->Segments[]: upstream's ParsedMsgStr (parse_legacy_binary_msg_str) flattened as
+// segmentsAsZFixArray: per segment its type (1 text, 2 command, 0 unknown code), source start and
+// length, and for a command its code, argument count and arguments
+static void z30d_msg_segments(const std::string &str, std::vector<long> &out)
+{
+    size_t last = 0, prev = 0, cur = 0;
+
+    for(size_t i = str.size(); i > 0; --i)
+        if(str[i - 1] != ' ')
+        {
+            last = i;
+            break;
+        }
+
+    while(cur < last)
+    {
+        const byte c = (byte)str[cur];
+
+        if(c >= 32 && c <= 126)
+        {
+            ++cur;
+            continue;
+        }
+
+        if(prev != cur)
+        {
+            out.push_back(1); out.push_back((long)prev); out.push_back((long)(cur - prev));
+            prev = cur;
+        }
+
+        const int code = c - 1;
+        const int want = (code >= 0 && code < (int)sizeof(Z30D_SCC_ARGS)) ? Z30D_SCC_ARGS[code] : -1;
+
+        if(want < 0)
+        {
+            ++cur;
+            out.push_back(0); out.push_back((long)prev); out.push_back((long)(cur - prev));
+            prev = cur;
+            continue;
+        }
+
+        const size_t start = cur;
+        long args[8];
+        int found = 0;
+
+        for(; found < want; ++found)
+        {
+            if(cur + 1 >= str.size())
+                break;
+
+            long v = ((byte)str[++cur] - 1) & 0xFF;
+
+            if(cur + 2 < str.size() && (byte)str[cur + 1] == 255)
+            {
+                v += 254 * (byte)str[cur + 2];
+                cur += 2;
+            }
+
+            args[found] = v;
+        }
+
+        ++cur;
+        prev = cur;
+        out.push_back(2); out.push_back((long)start); out.push_back((long)(cur - start));
+        out.push_back(code); out.push_back(found);
+        for(int j = 0; j < found; ++j)
+            out.push_back(args[j]);
+    }
+
+    if(prev < last)
+    {
+        out.push_back(1); out.push_back((long)prev); out.push_back((long)(last - prev));
+    }
+}
+
+static bool z30d_r18_reg(const long arg, long &ret, const long value, const bool write)
+{
+    long n = Z30_INDEX;
+
+    switch(arg)
+    {
+    // mapdata->ComboData[] / Screen->ComboData[]: the combo's id as a combodata (read only)
+    case Z30R_MAPDATACOMBODATAD:
+    case Z30R_COMBODATAD:
+    {
+        if(write)
+        {
+            Z_scripterrlog("Tried to write to a read-only array\n");
+            return true;
+        }
+
+        mapscr *m = NULL;
+
+        if(arg == Z30R_MAPDATACOMBODATAD)
+            m = z30_mapdata_combo(Z30_REF(MAPDATA), n);
+        else if(q30_region_on())
+        {
+            int pos = 0;
+            bool current;
+            m = q30_region_rpos_screen((int)n, 0, &pos, &current);
+            n = pos;
+        }
+        else
+            m = (n >= 0 && n < 176) ? tmpscr : NULL;
+
+        ret = (m && n >= 0 && n < (long)m->data.size()) ? m->data[n] : (arg == Z30R_COMBODATAD ? -1 : -10000);
+        return true;
+    }
+    // mapdata->ComboPosState[] / Screen->ComboPosState[] / mapdata->FFCPosState[]: the states
+    // combo triggers set on a position (upstream's game->pos_states / ffcpos_states)
+    case Z30R_MAPDATACOMBOPOSSTATE:
+    case Z30R_SCREENCOMBOPOSSTATE:
+    case Z30R_MAPDATAFFCPOSSTATE:
+    {
+        int mi = -1;
+        int key;
+
+        if(arg == Z30R_SCREENCOMBOPOSSTATE)
+            mi = homescr < MAPSCRSNORMAL ? currmap * MAPSCRSNORMAL + homescr : -1;
+        else if(z30_mapdata(Z30_REF(MAPDATA)))
+            mi = z30_mapdata_mi(Z30_REF(MAPDATA));
+
+        if(arg == Z30R_MAPDATAFFCPOSSTATE)
+        {
+            if(n < 1)
+                mi = -1;
+            key = 1000 + (int)((n - 1) % Q30_MAXFFCS);
+        }
+        else
+        {
+            if(n < 0)
+                mi = -1;
+            key = (int)(n % 176);
+        }
+
+        if(!write)
+            ret = mi < 0 ? 0 : q30_pos_state(mi, key) * 10000;
+        else if(mi >= 0)
+            q30_pos_state(mi, key) = (byte)(value / 10000);
+        return true;
+    }
+    // mapdata->FFCInitialised[] (1..) and Screen->FFCInitialised (rINDEX 0..): an FFC's script
+    // has started (upstream's script engine data); only the screen being played has any
+    case Z30R_MAPDATAFFINITIALISED:
+    case Z30R_SCREENDATAFFINITIALISED:
+    {
+        const long ref = Z30_REF(MAPDATA);
+        const bool here = arg == Z30R_SCREENDATAFFINITIALISED || (ref > 0 && (ref & Z30_MAPDATA_TMP));
+        const long i = arg == Z30R_MAPDATAFFINITIALISED ? n - 1 : n;
+        const bool ok = here && i >= 0 && i < 32;
+
+        if(!write)
+            ret = (ok && tmpscr->initialized[i]) ? 10000 : 0;
+        else if(ok)
+            tmpscr->initialized[i] = value != 0;
+        return true;
+    }
+    // messagedata->Segments[] (read only)
+    case Z30R_MESSAGEDATASEGMENTS:
+    {
+        if(write)
+        {
+            Z_scripterrlog("Tried to write to a read-only array\n");
+            return true;
+        }
+
+        const long id = Z30_REF(MSGDATA);
+        ret = 0;
+
+        if(id > 0 && id < msg_count)
+        {
+            std::vector<long> seg;
+            z30d_msg_segments(std::string(MsgStrings[id].s), seg);
+
+            if(z30_array_index(n, (long)seg.size(), n))
+                ret = seg[n] * 10000;     // (zfix values)
+        }
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
 static bool zasm30_data_reg(const long arg, long &ret, const long value, const bool write)
 {
     if(!q30_active())
         return false;
+
+    if(z30d_r18_reg(arg, ret, value, write))
+        return true;
 
     return z30d_ffc_reg(arg, ret, value, write) || z30d_mapdata_reg(arg, ret, value, write) || z30d_item_reg(arg, ret, value, write)
            || z30d_msg_reg(arg, ret, value, write) || z30d_npcdata_reg(arg, ret, value, write) || z30d_dmap_reg(arg, ret, value, write)

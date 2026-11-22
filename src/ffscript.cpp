@@ -2255,6 +2255,7 @@ static void zasm30_begin(long inits)
 // Quest load: forget what the previous 3.0 quest left behind.
 static void zasm30_drop_all_state();
 void zasm30_clear_heap();
+static void zasm30_object_ids_reset();
 void q30_sprite_destroyed(long uid);
 extern void (*q30_sprite_destroy_hook)(long);
 
@@ -2267,6 +2268,7 @@ void zasm30_reset()
     zasm30_literals.clear();
     zasm30_inst_inits.clear();
     zasm30_clear_heap();
+    zasm30_object_ids_reset();
     memset(zasm30_extra_gd, 0, sizeof(zasm30_extra_gd));
 }
 
@@ -2342,6 +2344,54 @@ static long zasm30_wrap(long v, long half)
 static bool zasm30_array_live(long p)
 {
     return localRAM[p].Size() != 0 || zasm30_empty_array[p];
+}
+
+// ---- upstream's script object ids (script_object.cpp get_next_script_object_id) ---------------
+// The objects a 2.55/3.0 quest's scripts make (weapondata, bitmaps, paldata, RNGs) take their ids
+// from one pool, 60001 up, as upstream's: a freed id is the next one given out. Upstream's arrays
+// are objects too (ZScript version 28 on): here the global arrays take one id each, as upstream
+// makes them at the start, so the first object reads 6.0045 after 44 global arrays. Other arrays
+// keep this engine's pointers and take none (upstream frees its temporary ones before the next
+// object is made, so the next id is the same).
+static std::vector<long> zasm30_id_freelist;
+static std::set<long> zasm30_ids_live;
+static long zasm30_id_fill = 60000;
+
+static void zasm30_object_ids_reset()
+{
+    zasm30_id_freelist.clear();
+    for(long id = 61000; id >= 60001; --id)
+        zasm30_id_freelist.push_back(id);
+    zasm30_ids_live.clear();
+}
+
+static long zasm30_object_id_new()
+{
+    if(zasm30_id_freelist.empty() && zasm30_ids_live.empty())
+        zasm30_object_ids_reset();
+
+    for(long checked = 0; zasm30_id_freelist.empty() && checked < 0x01000000; ++checked)
+    {
+        // as upstream: go on from where the last fill stopped (ids stay below the file handles)
+        if(!zasm30_ids_live.count(zasm30_id_fill))
+            zasm30_id_freelist.push_back(zasm30_id_fill);
+        if(++zasm30_id_fill >= 0x7E000000)
+            zasm30_id_fill = 60000;
+    }
+
+    if(zasm30_id_freelist.empty())
+        return 0;
+
+    const long id = zasm30_id_freelist.back();
+    zasm30_id_freelist.pop_back();
+    zasm30_ids_live.insert(id);
+    return id;
+}
+
+static void zasm30_object_id_free(long id)
+{
+    if(zasm30_ids_live.erase(id) && zasm30_id_freelist.size() < 10000)
+        zasm30_id_freelist.push_back(id);
 }
 
 // ---- the 3.0 heap: arrays a 3.0 quest's scripts make (slots Z30_HEAP_FIRST and up) ----------
@@ -7840,9 +7890,18 @@ void do_allocatemem(const bool v, const bool local, const byte i)
         }
         
         ZScriptArray &a = game->globalRAM[ptrval];
-        
+
         a.Resize(size);
-        
+
+        // upstream's global arrays are objects (version 28 on): the game's first one starts the
+        // ids again (init_script_objects), each takes one
+        if(zasm30_ffscript_version >= 28)
+        {
+            if(ptrval == 0)
+                zasm30_object_ids_reset();
+            zasm30_object_id_new();
+        }
+
         for(dword j = 0; j < (dword)size; j++)
             a[j] = 0;
             

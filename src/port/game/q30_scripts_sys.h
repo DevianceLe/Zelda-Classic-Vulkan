@@ -2544,8 +2544,11 @@ static bool zasm30_sys_command(word cmd)
             ri->d[2] = text_height(f) * 10000;
         else
         {
+            // upstream's do_msgwidth measures the text as the quest file holds it (from string
+            // version 11 the "\Command\" form, whose command text is measured too)
             const char *lt = q30_msg_long_text((int)id);
-            std::string s(lt ? lt : MsgStrings[id].s);
+            const Q30MsgStr *qs = q30_msg_string_edit((int)id);
+            std::string s(qs ? qs->text : std::string(lt ? lt : MsgStrings[id].s));
             const size_t last = s.find_last_not_of(' ');
             s = last == std::string::npos ? std::string() : s.substr(0, last + 1);
             ri->d[2] = text_length(f, s.c_str()) * 10000;

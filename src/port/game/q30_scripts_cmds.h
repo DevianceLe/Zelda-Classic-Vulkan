@@ -30,7 +30,6 @@ extern ffscript *zasm30_stream;
 // A script bitmap reference: 0 none; 10..17 the render targets; 1000+ a bitmap the script made.
 
 static std::map<long, BITMAP *> zasm30_bitmaps;
-static long zasm30_next_bitmap = 1000;
 // Bitmaps a failed bitmap->Read() left blank: upstream gives them a 256x176 picture but keeps the
 // width and height it cleared, so Width and Height read 0 until the bitmap is made again.
 static std::set<long> zasm30_bitmap_unsized;
@@ -58,7 +57,7 @@ static long z30_new_bitmap(int w, int h)
         return 0;
 
     clear_bitmap(bmp);
-    const long id = zasm30_next_bitmap++;
+    const long id = zasm30_object_id_new();      // (upstream's shared object ids)
     zasm30_bitmaps[id] = bmp;
     return id;
 }
@@ -73,6 +72,7 @@ static void z30_free_bitmap(long ref)
     {
         destroy_bitmap(it->second);
         zasm30_bitmaps.erase(it);
+        zasm30_object_id_free(ref);
     }
 }
 
@@ -83,7 +83,7 @@ static std::set<long> zasm30_bitmap_marks;
 
 static bool zasm30_mark_bitmap(long v)
 {
-    if(v < 1000 || v >= zasm30_next_bitmap || !zasm30_bitmaps.count(v))
+    if(v < 1000 || !zasm30_bitmaps.count(v))
         return false;
 
     zasm30_bitmap_marks.insert(v);
@@ -99,6 +99,7 @@ static void zasm30_sweep_bitmaps(bool sweep)
             if(it->first >= 1000 && !zasm30_bitmap_marks.count(it->first))
             {
                 destroy_bitmap(it->second);
+                zasm30_object_id_free(it->first);
                 zasm30_bitmaps.erase(it++);
             }
             else
@@ -112,7 +113,6 @@ static void zasm30_sweep_bitmaps(bool sweep)
 // ---- RNG and stack objects (a list of user objects, ids from 1) ---------------------------------
 
 static std::map<long, unsigned int> zasm30_rngs;
-static long zasm30_next_rng = 1;
 static std::map<long, std::vector<long> > zasm30_stacks;
 static long zasm30_next_stack = 0x7E300001;     // Z30_STACK_BASE + 1 (below)
 
@@ -1035,7 +1035,6 @@ struct Z30PalData
 };
 
 static std::map<long, Z30PalData> zasm30_paldatas;
-static long zasm30_next_paldata = 1;
 
 static int z30_color_max() { return q30_quest_rule(Z30_QR_SCRIPTS_6_BIT_COLOR) ? 63 : 255; }
 
@@ -1058,7 +1057,7 @@ static long z30_new_paldata()
         return 0;
     }
 
-    const long id = zasm30_next_paldata++;
+    const long id = zasm30_object_id_new();     // (upstream's shared object ids)
     zasm30_paldatas[id];
     return id;
 }
@@ -1510,7 +1509,6 @@ static bool zasm30_paldata_set(const long arg, const long value)
 static void z30_reset_paldatas()
 {
     zasm30_paldatas.clear();
-    zasm30_next_paldata = 1;
 }
 
 // bitmap->ReplaceColors, ShiftColors and MaskDraw, on the script's own bitmaps.
@@ -3746,7 +3744,7 @@ static bool zasm30_command(word cmd)
     // -- rng objects ----------------------------------------------------------------------------
     case Z30C_LOADRNG:
     {
-        const long id = zasm30_next_rng++;
+        const long id = zasm30_object_id_new();     // (upstream's shared object ids)
         zasm30_rngs[id] = (unsigned int)rand();
         Z30_REF(RNG) = id;
         ri->d[2] = id;
@@ -3801,7 +3799,8 @@ static bool zasm30_command(word cmd)
         return true;
     }
     case Z30C_RNGFREE:
-        zasm30_rngs.erase(Z30_REF(RNG));
+        if(zasm30_rngs.erase(Z30_REF(RNG)))
+            zasm30_object_id_free(Z30_REF(RNG));
         return true;
 
     // -- stack objects ------------------------------------------------------------------------
@@ -4444,7 +4443,8 @@ static bool zasm30_command(word cmd)
         return true;
     }
     case Z30C_PALDATAFREE:
-        zasm30_paldatas.erase(Z30_REF(PALDATA));
+        if(zasm30_paldatas.erase(Z30_REF(PALDATA)))
+            zasm30_object_id_free(Z30_REF(PALDATA));
         return true;
 
     // -- bitmap drawing that the 2.53 draw commands have no form of ----------------------------

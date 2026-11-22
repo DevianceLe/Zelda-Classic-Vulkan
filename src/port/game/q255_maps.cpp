@@ -49,6 +49,7 @@
 #include "q30.h"
 #include "q30_audio.h"
 #include "q30_triggers.h"
+#include <map>
 
 #ifdef ZC_PLAYER_BUILD
 void q30_vp_note(const char *what, int id, long suspend, long despawn);     // q30_region_spawn.cpp (ZC_VP_RANGELOG)
@@ -127,6 +128,28 @@ static byte read_room(byte room, mapscr *t)
 static byte map_door(byte door)
 {
     return door == DOOR_NONE_255 ? (byte)dWALL : door;
+}
+
+// Doors the quest left as "no dungeon door" (dNONE), which this engine reads as walls: a bit per
+// door by TheMaps index, so scripts read Screen->Door[] as upstream does (16). Player side only.
+std::map<long, byte> g_q30_door_none;
+
+static void note_doors(const mapscr *t, const byte *raw)
+{
+    if(TheMaps.empty() || t < &TheMaps[0] || t >= &TheMaps[0] + TheMaps.size())
+        return;
+
+    const long i = (long)(t - &TheMaps[0]);
+    byte bits = 0;
+
+    for(int k = 0; k < 4; ++k)
+        if(raw[k] == DOOR_NONE_255)
+            bits |= (byte)(1 << k);
+
+    if(bits)
+        g_q30_door_none[i] = bits;
+    else
+        g_q30_door_none.erase(i);
 }
 
 // Screen sound fields hold a byte. A sound past 255 is recorded here, and when both the
@@ -357,6 +380,7 @@ static void read_screen(Q255Section &s, mapscr *t)
     t->color = s.igetw();
     t->enemyflags = s.getc();
     s.read(t->door, 4);
+    note_doors(t, t->door);
 
     for(int k = 0; k < 4; ++k)
         t->door[k] = map_door(t->door[k]);
@@ -749,6 +773,7 @@ static void read_screen_new(Q255Section &s, mapscr *t, int screen, const word *a
     {
         t->door_combo_set = s.igetw();
         s.read(t->door, 4);
+        note_doors(t, t->door);
 
         for(int k = 0; k < 4; ++k)
             t->door[k] = map_door(t->door[k]);
@@ -757,6 +782,12 @@ static void read_screen_new(Q255Section &s, mapscr *t, int screen, const word *a
         t->stairy = s.getc();
         t->undercombo = clamp_combo(s.igetw());
         t->undercset = s.getc();
+    }
+    else
+    {
+        // (upstream's default doors are dNONE; this engine's stay walls)
+        const byte none[4] = { DOOR_NONE_255, DOOR_NONE_255, DOOR_NONE_255, DOOR_NONE_255 };
+        note_doors(t, none);
     }
 
     byte flags10 = 0;
