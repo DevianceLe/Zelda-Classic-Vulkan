@@ -34,6 +34,8 @@ summoner       | 311 | 57 | summoner.txt | summon.zs | 100:+RIGHT 170:-RIGHT | 4
 shop_walk      | 312 | 57 | shop.txt | - | 250:+UP 362:-UP 370:+LEFT 530:-LEFT | 700 | 360 520 | hero | merchant on 0x39 sets up the origin 0x28's shop; Link walks up out of 0x39 and left into 0x28
 shop_buy       | 313 | 57 | shop.txt | shop_buy.zs | 250:+UP 362:-UP 370:+LEFT 530:-LEFT | 760 | 450 520 600 750 | hero lines | the same with wares from a script: prices kept across the hand-off, item 32 bought at 524
 no_enemy_spawn | 314 | 57 | no_enemy_spawn.txt | - | 230:+UP 231:-UP | 240 | 69 72 | hero random | flag 163 on every ground cell but one: all four random Octoroks come out on row 2 col 3 at 68
+viewport_move  | 315 | 57 | viewport_still.txt | viewport_move.zs | - | 400 | 150 200 240 262 290 330 370 | hero lines | r16view/r19view: a script moves the viewport (Mode 2) right/down 2/1 px a frame from ~126, back 4/2 px a frame ~186-246, Mode 1 and 0 at ~267, placed at 300,200, then more than a screen past Link (650,420 at ~311, -280,-200 at ~352)
+viewport_lone  | 316 | 89 | viewport_lone.txt | viewport_lone.zs | - | 330 | 140 160 180 200 215 240 275 320 | hero lines | r19view: Viewport on a lone screen (a 1x1 region): Mode 1 stays at 0,0; Mode 2 moves it 3/2 px a frame from ~127 and back 6/4 ~167-207, places it at 300,200 (~228), -100,50 (~259); Mode 0 at ~290
 
 # --- hero, enemies, sideview (script rooms; the scripts build the room and press the buttons) -----
 sideswim       | 330 | 20 | @script | sideswim.zs | - | 1700 | 1650 | lines | sideview swimming, Game->Generic[] swim rates, leaving the water, drowning, sideview ladders
