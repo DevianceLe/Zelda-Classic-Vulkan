@@ -5615,7 +5615,11 @@ bool LinkClass::animate(int)
         stop_sfx(WAV_ER);
     }
     
-    if(rSbtn())
+    bool q30_open_queued_subscreen();   // q30_scripts_sys.h: a 2.55/3.0 script's subscreendata->Open()
+
+    if(q30_open_queued_subscreen())
+        ;
+    else if(rSbtn())
     {
         int tmp_subscr_clk = frame;
         

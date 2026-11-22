@@ -889,6 +889,8 @@ static Zasm30SpriteState *zasm30_npc_state(sprite *spr)
 
 dword q30_npc_moveflags(sprite *e) { return (dword)zasm30_npc_state(e)->move_flags; }
 
+long q30_item_moveflags_of(int id);     // q30_scripts_sys.h
+
 static Zasm30SpriteState *zasm30_item_state(item *spr)
 {
     Zasm30SpriteState &st = zasm30_sprite_state(spr->getUID());
@@ -896,6 +898,7 @@ static Zasm30SpriteState *zasm30_item_state(item *spr)
     if(!st.script_started)
     {
         st.script_started = true;
+        st.move_flags = q30_item_moveflags_of(spr->id & 0xFFF);     // the item's data (upstream's item constructor)
         const Q30ScriptRef *ref = q30_item_sprite_script(spr->id & 0xFFF);
 
         if(ref)

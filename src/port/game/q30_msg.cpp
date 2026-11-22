@@ -3114,3 +3114,9 @@ int q30_msg_layer()
 {
     return layer;
 }
+
+// A script set an item's ForceGrab (q30_scripts_sys.h): Link takes it as he takes CollectItem's.
+void q30_msg_collect_item(long uid)
+{
+    g_collect_uids.push_back(uid);
+}

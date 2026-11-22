@@ -604,6 +604,9 @@ void q30_msg_clear_display();
 void q30_msg_do_new(int str);
 void q30_msg_dismiss();
 void q30_msg_run();
+void q30_portals_clear();       // q30_scripts_sys.h
+void q30_portals_reset();
+void q30_savemenu_game_over();
 void q30_msg_draw_icons();
 void q30_msg_init();
 bool q30_msg_nofreeze();
@@ -1132,6 +1135,7 @@ void ALLOFF(bool messagesToo, bool decorationsToo)
     Lwpns.clear();
     Ewpns.clear();
     chainlinks.clear();
+    q30_portals_clear();    // 2.55/3.0 scripts' portals (q30_scripts_sys.h)
     clearScriptHelperData();
     
     if(decorationsToo)
@@ -1616,6 +1620,7 @@ int init_game()
     linkedmsgclk=0;
     if(q30_msg_engine())
         q30_msg_init();     // 2.55/3.0: upstream's init_string_vars
+    q30_portals_reset();    // 2.55/3.0 scripts' portals and saved portals
     blockmoving=false;
     add_asparkle=0;
     add_bsparkle=0;
@@ -3385,6 +3390,7 @@ void game_loop()
                 if(!Quit)
                 {
                     Quit = qGAMEOVER;
+                    q30_savemenu_game_over();   // 2.55/3.0: the quest's game over save menu, if it has one
                 }
                 
                 return;

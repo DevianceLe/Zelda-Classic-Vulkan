@@ -137,6 +137,9 @@ static Zasm30SpriteState *z30_sprite_st(const Z30Sprite &r)
     if(r.kind == Z30S_NPC)
         return zasm30_npc_state(r.s);
 
+    if(r.kind == Z30S_ITEM)     // (its data's move flags first, as upstream's item gets them)
+        return zasm30_item_state((item *)r.s);
+
     return &zasm30_sprite_state(r.s->getUID());
 }
 
@@ -522,6 +525,13 @@ static mapscr *z30_mapdata(long ref)
 
     if(ref & Z30_MAPDATA_TMP)
     {
+        if(ref & 0x00FF0000)    // one screen of a scrolling region (q30_scripts_sys.h)
+        {
+            int pos;
+            bool current;
+            return q30_region_rpos_screen((int)(((ref >> 16) & 0xFF) - 1) * 176, (int)(ref & 0xFFFF), &pos, &current);
+        }
+
         const long layer = ref & 0xFFFF;
         if(layer == 0) return tmpscr;
         if(layer >= 1 && layer <= 6) return &tmpscr2[layer - 1];
@@ -538,7 +548,7 @@ static mapscr *z30_mapdata(long ref)
 // position across the region (q30_region_rpos_screen); any other mapdata is 0..175.
 static mapscr *z30_mapdata_combo(long ref, long &n)
 {
-    if(ref > 0 && (ref & Z30_MAPDATA_TMP) && q30_region_on())
+    if(ref > 0 && (ref & Z30_MAPDATA_TMP) && !(ref & 0x00FF0000) && q30_region_on())
     {
         int pos;
         bool current;
@@ -782,6 +792,8 @@ void q30_auto_rotate(sprite *s, Zasm30SpriteState *st);
 static bool zasm30_scrdata_set(const long arg, const long value);
 static bool zasm30_data_reg(const long arg, long &ret, const long value, const bool write);  // q30_scripts_data.h
 static bool zasm30_sub_set(const long arg, const long value);
+static bool zasm30_sys_get(const long arg, long &ret);       // q30_scripts_sys.h
+static bool zasm30_sys_set(const long arg, const long value);
 
 // ---- smaller 3.0 fields ------------------------------------------------------------------------
 
@@ -1880,6 +1892,9 @@ static bool zasm30_plain_reg(const long arg, long &ret, const long value, const 
 
 static bool zasm30_get_register_inner(const long arg, long &ret)
 {
+    if(zasm30_sys_get(arg, ret))
+        return true;
+
     if(zasm30_data_reg(arg, ret, 0, false) || zasm30_sub_get(arg, ret) || zasm30_scrdata_get(arg, ret) || zasm30_draw_get(arg, ret) || zasm30_trigger_reg(arg, ret, 0, false)
        || zasm30_plain_reg(arg, ret, 0, false) || zasm30_live_get(arg, ret))
         return true;
@@ -2841,7 +2856,7 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     // item-> and itemdata->
     case Z30R_ITEMSCRIPTTILE: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); ret = st ? st->script_tile * 10000 : -10000; return true; }
     case Z30R_ITEMSCRIPTFLIP: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); ret = st ? st->script_flip * 10000 : -10000; return true; }
-    case Z30R_ITEMMOVEFLAGS: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); ret = (st && z30_flag_get(st->move_flags, Z30_INDEX, 11)) ? 10000 : 0; return true; }
+    case Z30R_ITEMMOVEFLAGS: { item *it = z30_item_ref(); Zasm30SpriteState *st = it ? zasm30_item_state(it) : NULL; ret = (st && z30_flag_get(st->move_flags, Z30_INDEX, 11)) ? 10000 : 0; return true; }
     case Z30R_ITEMSHADOWSPR: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); ret = st ? st->shadow_spr * 10000 : 0; return true; }
     case Z30R_ITEMPSTRING: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); ret = st ? st->pstring * 10000 : -10000; return true; }
     case Z30R_ITEMSPRITESCRIPT: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); ret = st ? st->script * 10000 : -10000; return true; }
@@ -2906,6 +2921,9 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
 static bool zasm30_set_register_inner(const long arg, const long value)
 {
     long unused;
+
+    if(zasm30_sys_set(arg, value))
+        return true;
 
     if(zasm30_data_reg(arg, unused, value, true) || zasm30_sub_set(arg, value) || zasm30_scrdata_set(arg, value) || zasm30_draw_set(arg, value) || zasm30_trigger_reg(arg, unused, value, true)
        || zasm30_plain_reg(arg, unused, value, true) || zasm30_live_set(arg, value))
@@ -3892,7 +3910,7 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     // item-> and itemdata->
     case Z30R_ITEMSCRIPTTILE: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); if(st) st->script_tile = vbound(value / 10000, -1, NEWMAXTILES - 1); return true; }
     case Z30R_ITEMSCRIPTFLIP: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); if(st) st->script_flip = vbound(value / 10000, -1, 127); return true; }
-    case Z30R_ITEMMOVEFLAGS: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); if(st) z30_flag_set(st->move_flags, Z30_INDEX, 11, value != 0); return true; }
+    case Z30R_ITEMMOVEFLAGS: { item *it = z30_item_ref(); Zasm30SpriteState *st = it ? zasm30_item_state(it) : NULL; if(st) z30_flag_set(st->move_flags, Z30_INDEX, 11, value != 0); return true; }
     case Z30R_ITEMSHADOWSPR: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); if(st) st->shadow_spr = vbound(value / 10000, 0, 255); return true; }
     case Z30R_ITEMPSTRING: { Zasm30SpriteState *st = z30_state_of(z30_item_ref()); if(st) st->pstring = vbound(value / 10000, 0, msg_count - 1); return true; }
     case Z30R_ITEMSPRITESCRIPT:

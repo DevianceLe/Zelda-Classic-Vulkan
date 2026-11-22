@@ -2903,3 +2903,24 @@ void q30_scroll_end()
     g_vp_frame = -1;
     q30_scroll_reset();
 }
+
+// Region->TriggerSecrets(screen) for a screen of the region other than Link's (upstream's
+// do_triggersecrets(screen)): its secrets as if Link were there. A screen the region doesn't
+// have (not valid) has none.
+static void secrets_here()
+{
+    hidden_entrance(0, true, false, -4);
+}
+
+bool q30_region_trigger_secrets(int scr)
+{
+    if(!g_live || !g_reg.on || q30_region_screen_index(scr) < 0)
+        return false;
+
+    RegionScreen *rs = region_screen(scr);
+
+    if(!rs || !(rs->base.valid & mVALID))
+        return false;
+
+    return stand_in(scr, secrets_here);
+}

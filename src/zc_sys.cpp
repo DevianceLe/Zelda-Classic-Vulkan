@@ -1747,9 +1747,9 @@ int choose_opening_shape()
 
 extern bool q30_subscr_clk_hold;    // subscr.cpp
 
-void close_black_opening(int x, int y, bool wait)
+void close_black_opening(int x, int y, bool wait, int shape)
 {
-    black_opening_shape=choose_opening_shape();
+    black_opening_shape=shape>-1 ? shape : choose_opening_shape();
     
     int w=256, h=zc_view_h;
     int blockrows=h/8, blockcolumns=32;   // 28 rows, 29 with the 232-row picture
@@ -1793,9 +1793,9 @@ void close_black_opening(int x, int y, bool wait)
     }
 }
 
-void open_black_opening(int x, int y, bool wait)
+void open_black_opening(int x, int y, bool wait, int shape)
 {
-    black_opening_shape=choose_opening_shape();
+    black_opening_shape=shape>-1 ? shape : choose_opening_shape();
     
     int w=256, h=zc_view_h;
     int blockrows=h/8, blockcolumns=32;   // 28 rows, 29 with the 232-row picture
@@ -4412,7 +4412,8 @@ void syskeys()
         Advance=true;
     }
     
-    if(ReadKey(KEY_F6))    if(!get_bit(quest_rules, qr_NOCONTINUE)) f_Quit(qQUIT);
+    bool q30_try_quit();    // q30_scripts_sys.h: a 2.55/3.0 quest's F6 (upstream's onTryQuit); false for 2.53
+    if(ReadKey(KEY_F6))    if(!q30_try_quit() && !get_bit(quest_rules, qr_NOCONTINUE)) f_Quit(qQUIT);
     
 #ifndef ALLEGRO_MACOSX
     if(ReadKey(KEY_F9))    f_Quit(qRESET);
@@ -4770,6 +4771,9 @@ void advanceframe(bool allowwavy, bool sfxcleanup)
     //textprintf_ex(screen,font,0,72,254,BLACK,"%d %d", lastentrance, lastentrance_dmap);
     if(sfxcleanup)
         sfx_cleanup();
+
+    void q30_run_f6_engine();   // q30_scripts_sys.h: a 2.55/3.0 quest's F6 menu, once F6 asked for it
+    q30_run_f6_engine();
 }
 
 void zapout()
@@ -4974,14 +4978,14 @@ void blackscr(int fcnt,bool showsubscr)
     }
 }
 
-void openscreen()
+void openscreen(int shape)
 {
     reset_pal_cycling();
     black_opening_count=0;
     
-    if(COOLSCROLL)
+    if(COOLSCROLL || shape>-1)
     {
-        open_black_opening(LinkX()+8, (LinkY()-LinkZ())+8+playing_field_offset, true);
+        open_black_opening(LinkX()+8, (LinkY()-LinkZ())+8+playing_field_offset, true, shape);
         return;
     }
     else
@@ -5021,6 +5025,52 @@ void openscreen()
           case 3: --x; break;
           }
           */
+        syskeys();
+        advanceframe(true);
+        
+        if(Quit)
+        {
+            break;
+        }
+    }
+    
+    Link.setDontDraw(false);
+    show_subscreen_items=true;
+    show_subscreen_dmap_dots=true;
+}
+
+// openscreen backwards (upstream's closescreen, which only 2.55/3.0 scripts start here)
+void closescreen(int shape)
+{
+    reset_pal_cycling();
+    black_opening_count=0;
+    
+    if(COOLSCROLL || shape>-1)
+    {
+        close_black_opening(LinkX()+8, (LinkY()-LinkZ())+8+playing_field_offset, true, shape);
+        return;
+    }
+
+    Link.setDontDraw(true);
+    show_subscreen_dmap_dots=false;
+    show_subscreen_numbers=false;
+    show_subscreen_life=false;
+    
+    int x=128;
+    
+    q30_warp_script_check();
+
+    for(int i=79; i>=0; --i)
+    {
+        draw_screen(tmpscr);
+        x=128-(((i*128/80)/8)*8);
+        
+        if(x>0)
+        {
+            rectfill(framebuf,0,playing_field_offset,x,zc_field_h()-1+playing_field_offset,0);
+            rectfill(framebuf,256-x,playing_field_offset,255,zc_field_h()-1+playing_field_offset,0);
+        }
+        
         syskeys();
         advanceframe(true);
         

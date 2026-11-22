@@ -158,6 +158,11 @@ void loadpalset(int cset,int dataset)
     
     if(cset==6 && !get_bit(quest_rules,qr_NOLEVEL3FIX) && DMaps[currdmap].color==3)
         RAMpal[CSET(6)+2] = NESpal(0x37);
+
+    // which sprite palette csets 6 and 14 hold, for 2.55/3.0 scripts' paldata (q30_scripts_sys.h)
+    extern int q30_currspal6, q30_currspal14;
+    if(cset==6 || cset==14)
+        (cset==6 ? q30_currspal6 : q30_currspal14) = (dataset>=newerpoSPRITE && dataset<newerpoSPRITE+30) ? dataset-newerpoSPRITE : -1;
         
     if(q30_tint_palette_loaded_hook)
         q30_tint_palette_loaded_hook();

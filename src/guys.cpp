@@ -221,6 +221,51 @@ int count_layer_enemies()
     return cnt;
 }
 
+// npc->SummonLayeredMinions(limit) (upstream's enemy::summon_layered_enemies, counting as its
+// qr_OLD_SUMMONER_COUNTS does, as npc->SummonMinion does here): enemies from the layers of the
+// summoner's own screen, where the layer summoner puts them. The number made.
+int q30_summon_layered_enemies(enemy *e, int count, int limit, bool random_count)
+{
+    if(count <= 0)
+        return 0;
+
+    Q30LayerScr own_screen(e->getUID());
+
+    if(count_layer_enemies() == 0)
+        return 0;
+
+    int existing = guys.Count(), ret = 0;
+
+    if(limit > 0 && existing >= limit)
+        return 0;
+
+    const int n = random_count ? (rand() % count) + 1 : count;
+
+    for(int i = 0; i < n; ++i)
+    {
+        int id2 = vbound(random_layer_enemy(), eSTART, eMAXGUYS-1);
+
+        for(int k = 0; k < 20; ++k)
+        {
+            int x2 = 16*((rand()%12)+2) - q30_region_offset_x();
+            int y2 = 16*((rand()%7)+2) - q30_region_offset_y();
+
+            if((!e->m_walkflag(x2,y2,0)) && ((abs(x2-Link.getX())>=32) || (abs(y2-Link.getY())>=32)))
+            {
+                if(addenemy(x2,y2,get_bit(quest_rules,qr_ENEMIESZAXIS) ? 64 : 0,id2,-10))
+                {
+                    ((enemy*)guys.spr(guys.Count()-1))->count_enemy = false;
+                    ++existing;
+                    ++ret;
+                }
+                break;
+            }
+        }
+    }
+
+    return ret;
+}
+
 int link_on_wall()
 {
     int lx = Link.getX();

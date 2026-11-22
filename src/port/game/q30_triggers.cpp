@@ -6950,6 +6950,8 @@ void q30_trig_link_frame()
         return;
 
     mirror_portal_frame();
+    void q30_portals_frame();   // q30_scripts_sys.h: 2.55/3.0 scripts' portals
+    q30_portals_frame();
     bunny_frame();
 
     if(g_stun_clk > 0)
@@ -12880,12 +12882,26 @@ static void sw_swap_layer(int q, int target, int player, int lx, int ly)
 // enemy each frame, so the guide goes there too (upstream's movefairynew2 after the swap).
 static void sw_place_item(sprite *s)
 {
+    s->x = g_sw.ix;
+    s->y = g_sw.iy;
+
+    if(items.getByUID(s->getUID()) != s)    // an lweapon or eweapon a script switched with
+        return;
+
     item *it = (item *)s;
-    it->x = g_sw.ix;
-    it->y = g_sw.iy;
 
     if(itemsbuf[it->id].family == itype_fairy && itemsbuf[it->id].misc3)
         movefairy2(it->x, it->y, it->misc);
+}
+
+// The sprite being switched with: an item, or an lweapon or eweapon a script picked.
+static sprite *sw_item_sprite()
+{
+    if(sprite *s = items.getByUID(g_sw.item_uid))
+        return s;
+    if(sprite *s = Lwpns.getByUID(g_sw.item_uid))
+        return s;
+    return Ewpns.getByUID(g_sw.item_uid);
 }
 
 // After Link and an object changed places (Link came from tx, ty): the hook turns round so
@@ -12998,7 +13014,7 @@ static void sw_swap()
     }
     else if(g_sw.item_uid)
     {
-        sprite *it = items.getByUID(g_sw.item_uid);
+        sprite *it = sw_item_sprite();
 
         if(!it)
         {
@@ -13048,7 +13064,7 @@ void q30_switchhook_tick()
     if(g_sw.item_uid)
     {
         // the hooked item is held where it is
-        sprite *it = items.getByUID(g_sw.item_uid);
+        sprite *it = sw_item_sprite();
 
         if(it)
             sw_place_item(it);
@@ -13640,6 +13656,56 @@ bool q30_trig_screen_busy(const mapscr *base, const mapscr *layers)
 
         if(c && (!c->triggers.empty() || c->type == Q30C_SHOOTER))
             return true;
+    }
+
+    return false;
+}
+
+// Scripts' switches (upstream's SWITCHNPC, SWITCHITM, SWITCHLW, SWITCHEW and SWITCHCMB):
+// doSwitchHook with that object, no hookshot and no item. False if a switch is going on, or
+// a combo position finds nothing to switch with on any layer (upstream resets the hookshot then).
+bool q30_switchhook_script(int style, int pos, enemy *e, sprite *s)
+{
+    if(g_sw.active)
+        return false;
+
+    sw_start(style, -1, pos, e, s);
+
+    if(pos >= 0 && !g_sw.layerbits)
+    {
+        sw_end();
+        return false;
+    }
+
+    return true;
+}
+
+// The Magic Mirror's portal for scripts (upstream's mirror_portal and saved_mirror_portal):
+// portal->Remove() on it takes it off this screen, savedportal->Remove() forgets it.
+void q30_mirror_portal_remove(bool saved)
+{
+    g_portal_live = false;
+
+    if(saved)
+    {
+        g_portal = Q30_NO_PORTAL;
+        states_mark();
+    }
+}
+
+// A script portal's warp (upstream's handle_portal_collide): Link onto its spot, then to its
+// DMap and screen; one that lands where Link can't stand goes back (true then).
+bool q30_portal_warp(int x, int y, int dmap, int scr, int effect, int sound)
+{
+    const MirrorUndo undo = mirror_undo_point();
+    Link.setX(x);
+    Link.setY(y);
+    mirror_warp(dmap, scr, effect, sound);
+
+    if(mirror_bonk())
+    {
+        mirror_undo(undo, effect, sound);
+        return true;
     }
 
     return false;

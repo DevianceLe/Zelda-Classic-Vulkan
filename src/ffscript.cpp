@@ -10439,6 +10439,7 @@ int run_script(const byte type, const word script, const byte i)
         switch(scommand)
         {
         case QUIT:
+        case Z30C_QUIT_NO_DEALLOC:  // (3.0: nothing a script owns is freed as it quits here; the collector keeps what is held)
             scommand = 0xFFFF;
             break;
             
@@ -12420,6 +12421,7 @@ void FFScript::ZScriptConsolePrint(int attributes,const char *format,...)
 #include "port/game/q30_scripts_cmds.h"
 #include "port/game/q30_scripts_region.h"
 #include "port/game/q30_scripts_live.h"
+#include "port/game/q30_scripts_sys.h"
 
 std::string z30_printf_text(const std::string &format, const std::vector<long> &args)
 {

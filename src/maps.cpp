@@ -3465,6 +3465,8 @@ void draw_screen(mapscr* this_screen, bool showlink)
     }
 
     q30_draw_mirror_portal(framebuf);   // 2.55/3.0 (upstream draws it here)
+    void q30_draw_script_portals(BITMAP *dest);     // q30_scripts_sys.h: 2.55/3.0 scripts' portals
+    q30_draw_script_portals(framebuf);
 
     if(showlink && ((Link.getAction()!=climbcovertop)&& (Link.getAction()!=climbcoverbottom)))
     {

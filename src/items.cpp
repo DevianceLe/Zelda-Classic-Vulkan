@@ -215,6 +215,13 @@ void item::draw(BITMAP *dest)
 {
     if(pickup&ipNODRAW || tile==0)
         return;
+
+#ifdef ZC_PLAYER_BUILD
+    bool q30_item_force_grab(long uid);     // q30_scripts_sys.h: a 2.55/3.0 script's item->ForceGrab
+
+    if(q30_item_force_grab(getUID()))       // (Link takes it wherever it is; it isn't drawn)
+        return;
+#endif
         
     if(!(pickup&ipFADE) || fadeclk<0 || fadeclk&1)
     {

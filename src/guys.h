@@ -160,6 +160,7 @@ protected:
     // 2.55+ quests: the enemy's own move flags keep it off pitfalls (upstream's enemy::m_walkflag,
     // groundblocked and flyerblocked); nothing changes for 2.53 quests
     bool m_walkflag(int dx,int dy,int special, int x=-1000, int y=-1000);
+    friend int q30_summon_layered_enemies(enemy *e, int count, int limit, bool random_count);   // guys.cpp, for scripts
     bool flyerblocked(int dx, int dy, int special);
     bool q30_shadow_overpit();
     void q30_rock_shadow(BITMAP *dest, bool translucent);

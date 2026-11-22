@@ -60,6 +60,7 @@
 #include "q255.h"
 #include "q30.h"
 #include "q30_triggers.h"
+#include "q30_savemenu.h"
 #include "sfx.h"
 #include "zsys.h"
 
@@ -852,54 +853,104 @@ int q255_editor_command_args(int code, bool *runs_here)
 
 // p_getvar(script_config *): the script, the run args (p_getarr reads at most the
 // 8 the array has, whatever count the file gives) and the instance values.
-static void skip_script_config(Q255Section &s)
+static void read_script_config(Q255Section &s, Q30SaveMenuOption &o)
 {
-    s.skip(2);
+    o.script = s.igetw();
 
     word args = s.igetw();
-    s.skip((size_t)(args < 8 ? args : 8) * 4);
+    for(word q = 0; q < args && !s.failed; ++q)
+    {
+        long v = s.igetl_s();
+        if(q < 8)
+            o.initd[q] = v;
+    }
 
     word values = s.igetw();
     s.skip((size_t)values * (2 + 4));
 }
 
-static int skip_save_menus(Q255Section &s)
+// The menus (upstream's readmisc): kept for the player (q30_savemenu.h); ZQuest keeps the
+// section's own bytes.
+static int read_save_menus(Q255Section &s)
 {
     byte count = s.getc();
 
     if(count > Q255_MAX_SAVE_MENUS)
         return qe_invalid;
 
+#ifdef ZC_PLAYER_BUILD
+    if(s.keep)
+        q30_savemenus_clear();
+#endif
+
     for(int i = 0; i < count && !s.failed; ++i)
     {
         if(s.getc() != 0)           // this menu is empty
             continue;
 
-        s.getcstr();                // name
-        s.skip(2 + 4 + 1);          // flags, cursor tile and cset
-        s.skip(s.version < 19 ? 2 : 4);     // cursor and choose sfx
-        s.skip(7);                  // bg color, hspace, vspace, opt x, y, text aligns
-        s.skip(2 + 1);              // close frames, close flash rate
-        s.skip(2);                  // music: a midi number before v18
-        s.skip(4 + 3);              // bg tile, cset, tw, th
+        Q30SaveMenu m;
+        m.name = s.getcstr();
+        m.flags = s.igetw();
+        m.cursor_tile = s.igetl_s();
+        m.cursor_cset = s.getc();
+
+        if(s.version < 19)
+        {
+            m.cursor_sfx = s.getc();
+            m.choose_sfx = s.getc();
+        }
+        else
+        {
+            m.cursor_sfx = s.igetw();
+            m.choose_sfx = s.igetw();
+        }
+
+        m.bg_color = s.getc();
+        m.hspace = s.getc();
+        m.vspace = s.getc();
+        m.opt_x = s.getc();
+        m.opt_y = s.getc();
+        m.text_align = s.getc();
+        m.textbox_align = s.getc();
+        m.close_frames = s.igetw();
+        m.close_flash_rate = s.getc();
+        word music = s.igetw();     // a midi number before v18 (upstream makes a music for it; not here)
+        m.music = s.version < 18 ? 0 : music;
+        m.bg_tile = s.igetl_s();
+        m.bg_cset = s.getc();
+        m.bg_tw = s.getc();
+        m.bg_th = s.getc();
 
         if(s.version >= 23)
-            s.skip(2 + 2);          // selected option x and y offsets
+        {
+            m.opt_sel_x_offset = (short)s.igetw();
+            m.opt_sel_y_offset = (short)s.igetw();
+        }
 
         byte options = s.getc();
 
         for(int j = 0; j < options && !s.failed; ++j)
         {
-            s.getcstr();            // text
-            s.skip(2 + 1 + 1 + 4);  // flags, color, picked color, font
+            Q30SaveMenuOption o;
+            o.text = s.getcstr();
+            o.flags = s.igetw();
+            o.color = s.getc();
+            o.picked_color = s.getc();
+            o.font = s.igetl_s();
 
             if(s.version >= 22)
-                skip_script_config(s);
+                read_script_config(s, o);
             else
-                s.skip(2);          // script
+                o.script = s.igetw();
 
             if(s.version >= 23)
-                s.skip(3);          // shadow type, color, picked color
+            {
+                o.shadow_type = s.getc();
+                o.shadow_color = s.getc();
+                o.picked_shadow_color = s.getc();
+            }
+
+            m.options.push_back(o);
         }
 
         if(s.version >= 23)
@@ -908,13 +959,43 @@ static int skip_save_menus(Q255Section &s)
 
             for(int j = 0; j < texts && !s.failed; ++j)
             {
-                s.getcstr();        // text
-                s.skip(3 + 4 + 3);  // color, shadow, font, x, y, align
+                Q30SaveMenuMiscText mt;
+                mt.text = s.getcstr();
+                mt.color = s.getc();
+                mt.shadow_type = s.getc();
+                mt.shadow_color = s.getc();
+                mt.font = s.igetl_s();
+                mt.x = s.getc();
+                mt.y = s.getc();
+                mt.text_align = s.getc();
+                m.misc_texts.push_back(mt);
             }
         }
+
+#ifdef ZC_PLAYER_BUILD
+        if(s.keep && !s.failed)
+            if(Q30SaveMenu *slot = q30_savemenu_slot(i))
+                *slot = m;
+#endif
     }
 
-    s.skip(2);                      // savemenu_game_over, savemenu_f6
+    byte game_over = s.getc(), f6 = s.getc();     // savemenu_game_over, savemenu_f6
+#ifdef ZC_PLAYER_BUILD
+    if(s.keep && !s.failed)
+        q30_savemenu_set_special(game_over, f6);
+
+    if(s.keep && getenv("ZC_Q30_TRACE"))    // diagnostics only
+    {
+        int menus = 0;
+        for(int i = 0; i < count; ++i)
+            if(Q30SaveMenu *m = q30_savemenu_slot(i))
+                menus += !m->options.empty();
+        al_trace("q30 save menus: %d with options of %d, game over %d, F6 %d\n", menus, (int)count, (int)game_over, (int)f6);
+    }
+#else
+    (void)game_over;
+    (void)f6;
+#endif
 
     return s.failed ? qe_invalid : 0;
 }
@@ -1685,11 +1766,18 @@ int q255_read_misc(Q255Section &s)
 
     if(s.version >= 17)
     {
-        int ret = skip_save_menus(s);
+        int ret = read_save_menus(s);
 
         if(ret)
             return ret;
     }
+#ifdef ZC_PLAYER_BUILD
+    else if(keep)
+    {
+        q30_savemenus_clear();
+        q30_savemenu_set_special(0, 0);
+    }
+#endif
 
     if(s.failed)
         return qe_invalid;

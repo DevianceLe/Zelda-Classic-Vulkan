@@ -189,6 +189,7 @@ static int g_item_pstring = 0, g_item_psflags = 0;     // the player (q30_set_it
 static int g_cost_counter[2] = { -1, -1 };  // upstream's two item costs (counter, amount),
 static int g_cost_amount[2] = { 0, 0 };     // kept for the player (q30_set_item_cost)
 static long g_true_family = 0;   // the family as stored, which itemdata may not hold
+static long g_item_moveflags = 3;   // the item sprite's move flags (v62+; before, obeys gravity and can fall)
 static int g_item_usesound2 = 0; // the second use sound (the switch hook's switch sound)
 
 #ifdef ZC_PLAYER_BUILD
@@ -610,9 +611,11 @@ it.family = (byte)family;
         s.skip(2);              // pickup_litem_level
     }
 
+    g_item_moveflags = 3;       // move_obeys_grav | move_can_pitfall
+
     if(s.version >= 62)
     {
-        s.skip(4);              // moveflags
+        g_item_moveflags = s.igetl_s();     // moveflags (kept for scripts' item->Gravity)
 
         if(s.version < 63)
             s.skip(4);          // weapon moveflags
@@ -746,6 +749,14 @@ int q255_read_items(Q255Section &s)
 
         if(g_item_vp_suspend || g_item_vp_despawn)
             q30_vp_item_ranges(i, g_item_vp_suspend, g_item_vp_despawn);
+
+        if(s.keep)
+        {
+            void q30_set_item_moveflags(int id, long flags);    // q30_scripts_sys.h
+            if(i == 0)
+                q30_set_item_moveflags(-1, 0);
+            q30_set_item_moveflags(i, g_item_moveflags);
+        }
 
         if(g_item_wvp_suspend || g_item_wvp_despawn)
             q30_vp_item_weapon_ranges(i, g_item_wvp_suspend, g_item_wvp_despawn);

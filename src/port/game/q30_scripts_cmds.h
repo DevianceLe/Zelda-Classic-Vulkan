@@ -3026,6 +3026,7 @@ bool q30_msg_run_generic_frozen(int script, const long *initd, int count)
 
 static bool zasm30_live_command(word cmd);
 #include "q30_scripts_draw.h"
+static bool zasm30_sys_command(word cmd);   // q30_scripts_sys.h
 
 static bool zasm30_command(word cmd)
 {
@@ -3047,6 +3048,9 @@ static bool zasm30_command(word cmd)
         return true;
 
     if(zasm30_draw_command(cmd))
+        return true;
+
+    if(zasm30_sys_command(cmd))
         return true;
 
     switch(cmd)

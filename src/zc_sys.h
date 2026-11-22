@@ -150,9 +150,11 @@ void wavyout(bool showlink);
 void wavyin();
 void blackscr(int fcnt,bool showsubscr);
 void black_opening(BITMAP *dest,int x,int y,int a,int max_a);
-void close_black_opening(int x, int y, bool wait);
-void open_black_opening(int x, int y, bool wait);
-void openscreen();
+// shape: a wipe shape (bos*) a 2.55/3.0 script picked; -1 (2.53 always) picks one of the quest's
+void close_black_opening(int x, int y, bool wait, int shape = -1);
+void open_black_opening(int x, int y, bool wait, int shape = -1);
+void openscreen(int shape = -1);
+void closescreen(int shape = -1);   // 2.55/3.0 scripts' Screen->ClosingWipe
 int  TriforceCount();
 
 bool item_disabled(int item);

@@ -285,6 +285,11 @@ int read_sections(PACKFILE *f, zquestheader *header, miscQdata *misc, zctune *tu
     g_report.clear();
     g_tile_use.clear();
     q255_compat_rule_version = 0;   // an old rules section has none, and must not see the last quest's
+#ifdef ZC_PLAYER_BUILD
+    void q30_clear_itemclass_names();   // q30_scripts_sys.h
+    if(keepall)
+        q30_clear_itemclass_names();
+#endif
     dword id;
     int result = 0;
 
@@ -361,6 +366,27 @@ int read_sections(PACKFILE *f, zquestheader *header, miscQdata *misc, zctune *tu
 
         if(!kind)
         {
+#ifdef ZC_PLAYER_BUILD
+            // the item class names, for scripts' ZInfo->GetItemClass (upstream's readzinfo; the
+            // help texts and the rest are the editor's)
+            if(id == ID_ZINFO_255 && keepall && size)
+            {
+                void q30_set_itemclass_name(int q, const char *name);   // q30_scripts_sys.h
+                Q255Section z;
+                z.data = &body[0];
+                z.size = size;
+                z.version = version;
+                word count = version > 0 ? z.igetw() : 512;
+
+                for(int q = 0; q < count && q < 512 && !z.failed; ++q)
+                {
+                    std::string name = z.getcstr();
+                    z.skip(z.igetw());      // help text
+                    if(!z.failed && !name.empty())
+                        q30_set_itemclass_name(q, name.c_str());
+                }
+            }
+#endif
             note(id, version, (int)size, (int)size, id == ID_ZINFO_255 ? "skipped (editor names only)" : (id == ID_ADVMUSIC_30 ? "skipped (3.0 music objects)" : "UNKNOWN, skipped"));
             continue;
         }
