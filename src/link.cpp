@@ -481,6 +481,25 @@ bool is_moving()
 
 bool q30_shield_jinxed();            // q30_scripts_regs.h: a newer quest's script jinxed the shield
 bool q30_item_jinx_immune(int item); // q30_scripts_data.h: false for every 2.53 quest's item
+
+// Upstream's checkitem_jinx (2.55/3.0): an item immune to jinxes always works; one flagged "flip jinx"
+// is held back by the other jinx (a sword by the item jinx, other items by the sword jinx).
+// 2.53 quests: the sword by the sword jinx, the rest by the item jinx.
+static bool q30_item_jinx_ok(int item, bool sword)
+{
+    if(!q30_active())
+        return sword ? LinkSwordClk() == 0 : LinkItemClk() == 0;
+
+    if(q30_item_jinx_immune(item))
+        return true;
+
+    bool uses_sword = item >= 0 && itemsbuf[item & 0xFFF].family == itype_sword;
+
+    if(item >= 0 && q30_item_flag(item, 1u << 29))     // item_flip_jinx
+        uses_sword = !uses_sword;
+
+    return uses_sword ? LinkSwordClk() == 0 : LinkItemClk() == 0;
+}
 static int q30_sprite_index(sprite_list &list, int index, long uid);    // below
 void q30_shield_jinx_reset(bool all);
 
@@ -7477,7 +7496,7 @@ void LinkClass::movelink()
     }
     
     // (2.55/3.0: an item flagged immune to jinxes works through them, upstream's checkitem_jinx)
-    if(can_attack() && (directWpn>-1 ? itemsbuf[directWpn].family==itype_sword : current_item(itype_sword)) && (swordclk==0 || q30_item_jinx_immune(directWpn>-1 ? directWpn : current_item_id(itype_sword))) && btnwpn==itype_sword && charging==0)
+    if(can_attack() && (directWpn>-1 ? itemsbuf[directWpn].family==itype_sword : current_item(itype_sword)) && q30_item_jinx_ok(directWpn>-1 ? directWpn : current_item_id(itype_sword), true) && btnwpn==itype_sword && charging==0)
     {
         
         attackid=directWpn>-1 ? directWpn : current_item_id(itype_sword);
@@ -7528,7 +7547,7 @@ void LinkClass::movelink()
     
     WalkflagInfo info;
     
-    if(can_attack() && (itemclk==0 || (btnwpn>itype_sword && q30_item_jinx_immune(directWpn>-1 ? directWpn : current_item_id(btnwpn)))) && btnwpn>itype_sword && charging==0 && btnwpn!=itype_rupee) // This depends on item 0 being a rupee...
+    if(can_attack() && (btnwpn>itype_sword ? q30_item_jinx_ok(directWpn>-1 ? directWpn : current_item_id(btnwpn), false) : itemclk==0) && btnwpn>itype_sword && charging==0 && btnwpn!=itype_rupee) // This depends on item 0 being a rupee...
     {
         bool paidmagic = false;
         
@@ -13315,6 +13334,20 @@ void LinkClass::checkspecial(bool q30_other)
     }
 }
 
+// Upstream runs the generic Step-> triggers inside checkspecial2, after its early returns: not while
+// walking through walls, not off the 8-pixel grid with old-style warps, and not while Link stands on
+// the warp he just came out of (2.55/3.0; q30_trig_link_frame asks).
+bool LinkClass::q30_step_blocked()
+{
+    if(get_bit(quest_rules,qr_OLDSTYLEWARP) && !diagonalMovement && ((int(y)&7) || (int(x)&7)))
+        return true;
+
+    if(toogam)
+        return true;
+
+    return int(y)>=warpy-8 && int(y)<=warpy+7 && warpy!=-1 && int(x)>=warpx-8 && int(x)<=warpx+7 && warpx!=-1;
+}
+
 void LinkClass::checkspecial2(int *ls)
 {
     // 2.10 quests: the arrival spot only stays safe while Link stands exactly on it.
@@ -18567,9 +18600,13 @@ void q30_init_paged_buttons(bool firstplay)
 // With the newer subscreens a script's X or Y item holds until the subscreen sets the button
 // (upstream's forced_xwpn / forced_ywpn: the checks leave it alone), and the button takes the
 // slot holding it, on any page, none if no slot does (get_page_pos).
+// A script put item 0 on button A, B, X, Y (the buttons hold 0 when empty too; upstream's empty is -1).
+bool q30_btn_item0[4] = { false, false, false, false };
+
 void q30_set_button_item(bool x, int wpn)
 {
     (x ? Xwpn : Ywpn) = wpn;
+    q30_btn_item0[x ? 2 : 3] = wpn == 0;
     (x ? directItemX : directItemY) = wpn & 0xFFF;
 
     if(q30_paged_buttons())
@@ -18599,6 +18636,7 @@ void q30_set_ab_item(bool a, int val)
     }
 
     (a ? Awpn : Bwpn) = val < 0 ? 0 : val;
+    q30_btn_item0[a ? 0 : 1] = val == 0;
 
     // the subscreen slot that holds it, if one does (upstream's get_page_pos); with the newer
     // subscreens on any page, and none if no slot does

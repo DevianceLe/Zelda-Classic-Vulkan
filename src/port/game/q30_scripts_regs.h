@@ -1975,10 +1975,11 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     switch(arg)
     {
     // Hero
-    case Z30R_LINKITEMX: ret = Xwpn * 10000; return true;
-    case Z30R_LINKITEMY: ret = Ywpn * 10000; return true;
-    case Z30R_LINKITEMA: ret = Awpn * 10000; return true;
-    case Z30R_LINKITEMB: ret = Bwpn * 10000; return true;
+    // (an empty button holds 0 here and -1 in upstream 2.55/3.0, unless a script put item 0 there)
+    case Z30R_LINKITEMX: ret = (Xwpn || q30_btn_item0[2] ? Xwpn : -1) * 10000; return true;
+    case Z30R_LINKITEMY: ret = (Ywpn || q30_btn_item0[3] ? Ywpn : -1) * 10000; return true;
+    case Z30R_LINKITEMA: ret = (Awpn || q30_btn_item0[0] ? Awpn : -1) * 10000; return true;
+    case Z30R_LINKITEMB: ret = (Bwpn || q30_btn_item0[1] ? Bwpn : -1) * 10000; return true;
     case Z30R_LINKSTUN: ret = zasm30_store_get(arg, 0, 0); return true;
     case Z30R_HEROBUNNY: ret = q30_bunny_clock() * 10000; return true;
     // Hero->TileMod: what the items (and bunny form) add to the Hero's tile now (upstream's

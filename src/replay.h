@@ -30,6 +30,9 @@ void replay_init(int argc, char *argv[]);
 // logo, no screen saver.
 bool replay_active();
 
+// The replay frame being computed (frame dumps' numbers; upstream's replay frame).
+int replay_frame_number();
+
 // -unthrottled: advanceframe() skips the frame-rate throttle.
 bool replay_unthrottled();
 

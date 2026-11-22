@@ -269,6 +269,21 @@ bool q30_active();
 const Q30GuyData *q30_guy_data(int guy);     // q30_scripts_data.h: what the 2.55/3.0 reader kept, or NULL
 int q30_guy_defense(int guy, int slot);      // q30_triggers.cpp: a defence as the file stores it
 
+// Upstream's enemycanfall(id) || (moveflags & move_obeys_grav) (2.55/3.0): an enemy falls by its move flags,
+// not by whether its type flies; guys with attribute 10 = 1 or 2 always fall.
+static bool q30_enemy_obeys_gravity(enemy *e)
+{
+    if(q30_npc_moveflags(e) & 0x01)
+        return true;
+
+    const int id = e->id;
+
+    if(((unsigned)(id&0xFFF)) > MAXGUYS-1 || id <= 0 || guysbuf[id&0xFFF].family != eeGUY || id < eOCTO1S)
+        return false;
+
+    return guysbuf[id&0xFFF].misc10 == 1 || guysbuf[id&0xFFF].misc10 == 2;
+}
+
 int link_on_wall()
 {
     // the playing field: the screen, or a 3.0 scrolling region (upstream's world_w, world_h)
@@ -1045,10 +1060,28 @@ bool enemy::animate(int index)
     if(OUTOFBOUNDS)
         hp=-1000;
         
-    //fall down
-    if(canfall(id) && fading != fade_flicker && clk>=0)
+    //fall down (2.55/3.0: upstream's enemycanfall(id) || moveflags obeys gravity, at the screen's gravity)
+    if((q30_active() ? q30_enemy_obeys_gravity(this) : canfall(id)) && fading != fade_flicker && clk>=0)
     {
-        if(tmpscr->flags7&fSIDEVIEW)
+        if(q30_active() && !(tmpscr->flags7&fSIDEVIEW))
+        {
+            const int grav = q30_link_gravity(), termv = q30_link_terminalv();
+
+            if(!(q30_npc_moveflags(this) & 0x200))     // move_no_real_z
+            {
+                if(fall!=0)
+                    z-=(fall/100);
+
+                if(z<0)
+                    z = fall = 0;
+                else if(fall <= termv)
+                    fall += grav;
+
+                if(z<=0 && fall > 0 && !q30_quest_rule(316))     // qr_FLUCTUATING_ENEMY_JUMP
+                    fall = 0;
+            }
+        }
+        else if(tmpscr->flags7&fSIDEVIEW)
         {
             if(!ON_SIDEPLATFORM)
             {

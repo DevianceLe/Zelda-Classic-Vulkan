@@ -458,6 +458,7 @@ void reset_swordcharge();
     int getHeldItem();
     void setHeldItem(int newitem);
     bool isDiving();
+    bool q30_step_blocked();     // 2.55/3.0: checkspecial2's early returns that also stop generic step triggers
     bool isSwimming();
     void q30_side_swim_cast_tile();     // 2.55/3.0: the casting sprite while sideview swimming
     void setDontDraw(bool new_dontdraw);
@@ -520,6 +521,7 @@ bool q30_use_x_button();
 bool q30_use_y_button();
 void q30_set_button_item(bool x, int wpn);
 void q30_set_ab_item(bool a, int val);      // Hero->ItemA / ItemB (link.cpp)
+extern bool q30_btn_item0[4];               // A, B, X, Y: a script put item 0 there (not empty)
 extern int q30_forced_awpn, q30_forced_bwpn;
 // slot: with the newer subscreens, the button's slot by page (below); -1 for pos on the page shown
 void q30_set_button_slot(bool x, int wpn, int pos, int direct, int slot = -1);

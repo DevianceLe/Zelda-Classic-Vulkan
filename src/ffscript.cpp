@@ -2037,6 +2037,31 @@ struct Zasm30FfcBits
     void unset(int i) { w[i >> 5] &= ~(1u << (i & 31)); }
 };
 static Zasm30FfcBits zasm30_ffc_waitdraw;
+// ZC_Q30_ZTRACE=from,to,path (newer quests, test runs): every command run in those replay frames, with the
+// D registers before it, like upstream's -script-runtime-debug 2 -script-runtime-debug-frame.
+int replay_frame_number();
+extern long zasm30_ffscript_version;
+static FILE *zasm30_ztrace_file()
+{
+    static int from = -2, to = -1;
+    static FILE *f = NULL;
+
+    if(from == -2)
+    {
+        static char path[512];
+        const char *e = getenv("ZC_Q30_ZTRACE");
+        from = -1;
+
+        if(e && sscanf(e, "%d,%d,%511s", &from, &to, path) == 3)
+            f = fopen(path, "w");
+    }
+
+    if(!f || !zasm30_ffscript_version)
+        return NULL;
+
+    const int fr = replay_frame_number();
+    return (fr >= from && fr <= to) ? f : NULL;
+}
 // ZC_Q30_TRACE=1 logs the first time each script of each type runs, and draws.
 static bool zasm30_trace_on = false;
 static long zasm30_dbg_pc = 0;
@@ -10435,8 +10460,17 @@ int run_script(const byte type, const word script, const byte i)
     int tour_slices = 0;
     zasm30_stack_fault = false;
 
+    FILE *const ztrace = zasm30_ztrace_file();
+
+    if(ztrace)
+        fprintf(ztrace, "=== frame %d type %d script %d i %d pc %ld\n", replay_frame_number(), (int)type, (int)script, (int)i, (long)pc);
+
     while(scommand != 0xFFFF && scommand != WAITFRAME && scommand != WAITDRAW)
     {
+        if(ztrace)
+            fprintf(ztrace, "pc %ld %d %ld %ld | %ld %ld %ld %ld %ld %ld %ld %ld\n", (long)pc, (int)scommand, (long)sarg1, (long)sarg2,
+                    (long)ri->d[0], (long)ri->d[1], (long)ri->d[2], (long)ri->d[3], (long)ri->d[4], (long)ri->d[5], (long)ri->d[6], (long)ri->d[7]);
+
         if(zasm30_trace_on)
         {
             zasm30_dbg_pc = pc;

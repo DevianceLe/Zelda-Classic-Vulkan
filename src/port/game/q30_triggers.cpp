@@ -3531,7 +3531,7 @@ bool run_trigger_core(const H &h, size_t idx, int special, weapon *w)
     }
 
     if(g_trig_trace)
-        al_trace("q30 trig RUN cid %d idx %d type %d lyr %d pos %d ffc %d wpn %d special %d\n", cid, (int)idx, c->type, h.layer, h.pos, h.ffc, w ? w->id : -1, special);
+        al_trace("q30 trig RUN cid %d idx %d type %d lyr %d pos %d ffc %d wpn %d special %d swjinx %d timer %d prox %d\n", cid, (int)idx, c->type, h.layer, h.pos, h.ffc, w ? w->id : -1, special, (int)c->triggers[idx].trig_swjinxtime, (int)c->triggers[idx].trigtimer, (int)c->triggers[idx].trigprox);
 
     bool check_bit = w ? wpn_done(w, key) : false;
     bool used_bit = false;
@@ -7024,7 +7024,7 @@ if(g_pending_warp_type >= 0)
     }
 
     // step triggers
-    if(Link.getAction() != freeze && !msgstr_blocking_step())
+    if(Link.getAction() != freeze && !msgstr_blocking_step() && !Link.q30_step_blocked())
     {
         bool swim = Link.isSwimming();
         const int tx = x, ty = y;

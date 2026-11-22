@@ -1406,6 +1406,11 @@ bool replay_active()
     return g_mode != MODE_OFF;
 }
 
+int replay_frame_number()
+{
+    return g_frame;
+}
+
 bool replay_unthrottled()
 {
     return g_unthrottled;

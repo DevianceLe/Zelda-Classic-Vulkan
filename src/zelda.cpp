@@ -2087,8 +2087,8 @@ int init_game()
         }
 
         // (where upstream's test mode would put Link: the screen's return squares)
-        al_trace("test: Link at %d,%d; the screen's arrival square %d,%d, return squares %d,%d %d,%d %d,%d %d,%d\n",
-                 int(LinkX()), int(LinkY()), tmpscr->warparrivalx, tmpscr->warparrivaly, tmpscr->warpreturnx[0], tmpscr->warpreturny[0],
+        al_trace("test: Link at %d,%d dir %d (no arrival rule %d); the screen's arrival square %d,%d, return squares %d,%d %d,%d %d,%d %d,%d\n",
+                 int(LinkX()), int(LinkY()), Link.getDir(), get_bit(quest_rules,qr_NOARRIVALPOINT) ? 1 : 0, tmpscr->warparrivalx, tmpscr->warparrivaly, tmpscr->warpreturnx[0], tmpscr->warpreturny[0],
                  tmpscr->warpreturnx[1], tmpscr->warpreturny[1], tmpscr->warpreturnx[2], tmpscr->warpreturny[2],
                  tmpscr->warpreturnx[3], tmpscr->warpreturny[3]);
     }
