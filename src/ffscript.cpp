@@ -1998,6 +1998,8 @@ struct Zasm30Instance
 // Filled by the 3.0 script reader (src/port/game/q255_scripts.cpp).
 ffscript *zasm30_stream = NULL;
 std::map<const ffscript *, Zasm30Literal> zasm30_literals;
+// The command zasm30_command runs (its third argument is in zasm30_literals).
+static const ffscript *zasm30_cur_cmd = NULL;
 // How many commands a newer quest's scripts hold, end marker included: the stream's, and each
 // separately stored script's (0: not one the reader made). run_script ends a script whose position
 // leaves its commands. The reader (q255_scripts.cpp) keeps both.
@@ -12110,6 +12112,7 @@ int run_script(const byte type, const word script, const byte i)
             break;
 
         default:
+            zasm30_cur_cmd = &curscript[pc];
             if(!zasm30_command(scommand))
                 zasm30_log_once("command", scommand);
             break;

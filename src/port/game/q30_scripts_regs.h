@@ -1111,116 +1111,762 @@ static bool zasm30_draw_set(const long arg, const long value)
     return true;
 }
 
-// combodata->Trig*: the combo's first trigger (upstream's get_first_combo_trigger, which gives a
-// combo without one a new trigger; a read of such a combo here gives a new one's values without
-// adding it). The bounds are upstream's.
-static bool zasm30_trigger_reg(const long arg, long &ret, const long value, const bool write)
+// ---- combo triggers -----------------------------------------------------------------------------
+// combodata->Trig* and the combodata trigger arrays name the combo's first trigger (upstream's
+// get_first_combo_trigger, which gives a combo without one a new trigger, on reads too);
+// combotrigger-> names the trigger its reference holds, combo id | index << 24 (upstream's get_combo_trigger). The bounds
+// are upstream's (combodata.cpp and combotrigger.cpp: a few differ).
+
+// qr_OLD_SCRIPTS_INTERNAL_ARRAYS_BOUND_INDEX, qr_OLD_SCRIPTS_ARRAYS_NON_ZERO_DEFAULT_VALUE: upstream
+// sets both for compat rule versions before 91 (q30_types.cpp's table).
+enum { Z30_QR_OLD_ARRAY_INDEX = 487, Z30_QR_OLD_ARRAY_DEFAULT = 488 };
+
+// Upstream's internal arrays (zc/scripting/arrays.h resolveIndex): an index past the end fails; a
+// negative one counts from the end, unless Z30_QR_OLD_ARRAY_INDEX, which fails it too.
+static bool z30_array_index(long index, long size, long &out)
 {
-    enum { MAX_ITEMS_UP = 1024, MAX_SFX_UP = 1024, MAX_LEVELS_UP = 512, MAX_COUNTERS_UP = 107, SSC_MIN = -18,
-           IP_ALLOWED = ipHOLDUP | ipTIMER | 4096 | 8192, LI_ALL_UP = 0xFFFF };
-    static const Q30Trigger fresh;
-    const long cid = Z30_REF(COMBODATA);
-    const long v = value / 10000;
-    Q30Trigger *t = NULL;
-
-    switch(arg)
-    {
-    case Z30R_COMBODTRIGBOSSPAL: case Z30R_COMBODTRIGBUNNY: case Z30R_COMBODTRIGCSETCHANGE: case Z30R_COMBODTRIGDMAPLVL:
-    case Z30R_COMBODTRIGEXDOORDIR: case Z30R_COMBODTRIGEXDOORIND: case Z30R_COMBODTRIGEXSTATE: case Z30R_COMBODTRIGGERCHANGECMB:
-    case Z30R_COMBODTRIGGERCOOLDOWN: case Z30R_COMBODTRIGGERCOPYCAT: case Z30R_COMBODTRIGGERCTR: case Z30R_COMBODTRIGGERCTRAMNT:
-    case Z30R_COMBODTRIGGERGENSCRIPT: case Z30R_COMBODTRIGGERGROUP: case Z30R_COMBODTRIGGERGROUPVAL: case Z30R_COMBODTRIGGERGSTATE:
-    case Z30R_COMBODTRIGGERGTIMER: case Z30R_COMBODTRIGGERITEM: case Z30R_COMBODTRIGGERLEVEL: case Z30R_COMBODTRIGGERLIGHTBEAM:
-    case Z30R_COMBODTRIGGERLSTATE: case Z30R_COMBODTRIGGERPROX: case Z30R_COMBODTRIGGERSFX: case Z30R_COMBODTRIGGERTIMER:
-    case Z30R_COMBODTRIGITEMJINX: case Z30R_COMBODTRIGITEMPICKUP: case Z30R_COMBODTRIGLITEMS: case Z30R_COMBODTRIGLVLPAL:
-    case Z30R_COMBODTRIGPUSHTIME: case Z30R_COMBODTRIGQUAKETIME: case Z30R_COMBODTRIGSHIELDJINX: case Z30R_COMBODTRIGSPAWNENEMY:
-    case Z30R_COMBODTRIGSTUN: case Z30R_COMBODTRIGSWORDJINX: case Z30R_COMBODTRIGWAVYTIME:
-        break;
-    default:
-        return false;
-    }
-
-    if(cid < 0 || cid >= MAXCOMBOS)
-    {
-        ret = -10000;
-        return true;
-    }
-
-    if(write)
-    {
-        Q30Combo *cc = q30_combo_for_write((int)cid);
-
-        if(!cc)
-            return true;
-
-        if(cc->triggers.empty())
-            cc->triggers.push_back(Q30Trigger());
-
-        t = &cc->triggers[0];
-    }
+    if(index >= 0 && index < size)
+        out = index;
+    else if(index < 0 && size + index >= 0 && !q30_compat_rule(Z30_QR_OLD_ARRAY_INDEX))
+        out = size + index;
     else
     {
-        const Q30Combo *c = q30_combo((int)cid);
-        t = const_cast<Q30Trigger *>((c && !c->triggers.empty()) ? &c->triggers[0] : &fresh);
+        Z_scripterrlog("Invalid array index %ld for internal array of size %ld\n", index, size);
+        return false;
     }
-
-#define Z30_TRIG(reg, field, lo, hi) \
-    case reg: \
-        if(write) t->field = (decltype(t->field))vbound(v, (long)(lo), (long)(hi)); \
-        else ret = long(t->field) * 10000; \
-        return true;
-#define Z30_TRIG_MASK(reg, field, mask) \
-    case reg: \
-        if(write) t->field = (decltype(t->field))(v & (mask)); \
-        else ret = long(t->field) * 10000; \
-        return true;
-
-    switch(arg)
-    {
-    Z30_TRIG(Z30R_COMBODTRIGBOSSPAL, trigbosspalette, -1, 29)
-    Z30_TRIG(Z30R_COMBODTRIGBUNNY, trig_bunnytime, -2, 32767)
-    Z30_TRIG(Z30R_COMBODTRIGCSETCHANGE, trigcschange, -15, 15)
-    Z30_TRIG(Z30R_COMBODTRIGDMAPLVL, trigdmlevel, -1, MAX_LEVELS_UP - 1)
-    Z30_TRIG(Z30R_COMBODTRIGEXDOORDIR, exdoor_dir, -1, 3)
-    Z30_TRIG(Z30R_COMBODTRIGEXDOORIND, exdoor_ind, 0, 7)
-    Z30_TRIG(Z30R_COMBODTRIGEXSTATE, exstate, -1, 31)
-    Z30_TRIG(Z30R_COMBODTRIGGERCHANGECMB, trigchange, -65535, 65535)
-    Z30_TRIG(Z30R_COMBODTRIGGERCOOLDOWN, trigcooldown, 0, 255)
-    Z30_TRIG(Z30R_COMBODTRIGGERCOPYCAT, trigcopycat, 0, 255)
-    Z30_TRIG(Z30R_COMBODTRIGGERCTR, trigctr, SSC_MIN, MAX_COUNTERS_UP - 1)
-    Z30_TRIG(Z30R_COMBODTRIGGERCTRAMNT, trigctramnt, -65535, 65535)
-    Z30_TRIG(Z30R_COMBODTRIGGERGENSCRIPT, trig_genscr, 0, 65535)
-    Z30_TRIG(Z30R_COMBODTRIGGERGROUP, trig_group, 0, 255)
-    Z30_TRIG(Z30R_COMBODTRIGGERGROUPVAL, trig_group_val, 0, 65535)
-    Z30_TRIG(Z30R_COMBODTRIGGERGSTATE, trig_gstate, 0, 255)
-    Z30_TRIG(Z30R_COMBODTRIGGERGTIMER, trig_statetime, 0, 214748)
-    Z30_TRIG(Z30R_COMBODTRIGGERITEM, triggeritem, 0, MAX_ITEMS_UP - 1)
-    Z30_TRIG(Z30R_COMBODTRIGGERLEVEL, triggerlevel, 0, 214747)
-    Z30_TRIG(Z30R_COMBODTRIGGERLIGHTBEAM, triglbeam, 0, 32)
-    Z30_TRIG(Z30R_COMBODTRIGGERLSTATE, trig_lstate, 0, 31)
-    Z30_TRIG(Z30R_COMBODTRIGGERPROX, trigprox, 0, 65535)
-    Z30_TRIG(Z30R_COMBODTRIGGERSFX, trigsfx, 0, MAX_SFX_UP)
-    Z30_TRIG(Z30R_COMBODTRIGGERTIMER, trigtimer, 0, 65535)
-    Z30_TRIG(Z30R_COMBODTRIGITEMJINX, trig_itmjinxtime, -2, 32767)
-    Z30_TRIG_MASK(Z30R_COMBODTRIGITEMPICKUP, spawnip, IP_ALLOWED)
-    Z30_TRIG_MASK(Z30R_COMBODTRIGLITEMS, trig_levelitems, LI_ALL_UP)
-    Z30_TRIG(Z30R_COMBODTRIGLVLPAL, triglvlpalette, -1, 512)
-    Z30_TRIG(Z30R_COMBODTRIGPUSHTIME, trig_pushtime, 0, 255)
-    Z30_TRIG(Z30R_COMBODTRIGQUAKETIME, trigquaketime, -1, 32767)
-    Z30_TRIG(Z30R_COMBODTRIGSHIELDJINX, trig_shieldjinxtime, -2, 32767)
-    Z30_TRIG(Z30R_COMBODTRIGSPAWNENEMY, spawnenemy, 0, 511)
-    Z30_TRIG(Z30R_COMBODTRIGSTUN, trig_stuntime, -2, 32767)
-    Z30_TRIG(Z30R_COMBODTRIGSWORDJINX, trig_swjinxtime, -2, 32767)
-    Z30_TRIG(Z30R_COMBODTRIGWAVYTIME, trigwavytime, -1, 32767)
-    }
-#undef Z30_TRIG
-#undef Z30_TRIG_MASK
 
     return true;
 }
 
+// What a failed read of an internal array gives: 0, or the array's old value under
+// Z30_QR_OLD_ARRAY_DEFAULT (only some arrays have one other than 0).
+static long z30_array_default(long old_value)
+{
+    return q30_compat_rule(Z30_QR_OLD_ARRAY_DEFAULT) ? old_value : 0;
+}
+
+static void z30_bits_put(Q30Bits &bits, size_t i, bool on)
+{
+    if(on)
+        bits.set(i);
+    else if(i / 8 < bits.v.size())
+        bits.v[i / 8] &= (byte)~(1 << (i % 8));
+}
+
+// Scripts' colours are 0-255, or 0-63 under qr_SCRIPTS_6_BIT_COLOR (z30_color_max, q30_scripts_cmds.h);
+// a trigger's tint is kept 8-bit (upstream's scripting_write_pal_color: a 6-bit value is scaled up as
+// _rgb_scale_6 does, keeping its sign). Reads give the kept value as it is, as upstream's do.
+static short z30_trig_tint_from_script(long v)
+{
+    const int max = q30_quest_rule(480) ? 63 : 255;     // qr_SCRIPTS_6_BIT_COLOR
+    const int c = (int)vbound(v, (long)-max, (long)max);
+
+    if(max == 255)
+        return (short)c;
+
+    const int a = c < 0 ? -c : c;
+    const int scaled = (a << 2) | (a >> 4);
+    return (short)(c < 0 ? -scaled : scaled);
+}
+
+enum { Z30_MAX_ITEMS_UP = 1024, Z30_MAX_SFX_UP = 1024, Z30_MAX_LEVELS_UP = 512, Z30_MAX_COUNTERS_UP = 107, Z30_SSC_MIN = -18,
+       Z30_IP_ALLOWED = ipHOLDUP | ipTIMER | 4096 | 8192, Z30_LI_ALL_UP = 0xFFFF, Z30_MAX_COMBO_TRIGGERS = 255,
+       Z30_MUSIC_UPDATE_REGION = 4 };
+
+// X(combodata register, combotrigger register, field, combodata low, high, combotrigger low, high)
+#define Z30_TRIG_BOTH(X) \
+    X(Z30R_COMBODTRIGBOSSPAL, Z30R_CMBTRIGBOSSPAL, trigbosspalette, -1, 29, -1, 29) \
+    X(Z30R_COMBODTRIGBUNNY, Z30R_CMBTRIGBUNNY, trig_bunnytime, -2, 32767, -2, 32767) \
+    X(Z30R_COMBODTRIGCSETCHANGE, Z30R_CMBTRIGCSETCHANGE, trigcschange, -15, 15, -128, 127) \
+    X(Z30R_COMBODTRIGDMAPLVL, Z30R_CMBTRIGDMAPLVL, trigdmlevel, -1, Z30_MAX_LEVELS_UP - 1, -1, Z30_MAX_LEVELS_UP - 1) \
+    X(Z30R_COMBODTRIGEXDOORDIR, Z30R_CMBTRIGEXDOORDIR, exdoor_dir, -1, 3, -1, 3) \
+    X(Z30R_COMBODTRIGEXDOORIND, Z30R_CMBTRIGEXDOORIND, exdoor_ind, 0, 7, 0, 7) \
+    X(Z30R_COMBODTRIGEXSTATE, Z30R_CMBTRIGEXSTATE, exstate, -1, 31, -1, 31) \
+    X(Z30R_COMBODTRIGGERCHANGECMB, Z30R_CMBTRIGCHANGECMB, trigchange, -65535, 65535, -214748, 214748) \
+    X(Z30R_COMBODTRIGGERCOOLDOWN, Z30R_CMBTRIGCOOLDOWN, trigcooldown, 0, 255, 0, 255) \
+    X(Z30R_COMBODTRIGGERCOPYCAT, Z30R_CMBTRIGCOPYCAT, trigcopycat, 0, 255, 0, 255) \
+    X(Z30R_COMBODTRIGGERCTR, Z30R_CMBTRIGCTR, trigctr, Z30_SSC_MIN, Z30_MAX_COUNTERS_UP - 1, Z30_SSC_MIN, Z30_MAX_COUNTERS_UP - 1) \
+    X(Z30R_COMBODTRIGGERCTRAMNT, Z30R_CMBTRIGCTRAMNT, trigctramnt, -65535, 65535, -65535, 65535) \
+    X(Z30R_COMBODTRIGGERGENSCRIPT, Z30R_CMBTRIGGENSCRIPT, trig_genscr, 0, 65535, 0, 65535) \
+    X(Z30R_COMBODTRIGGERGROUP, Z30R_CMBTRIGGROUP, trig_group, 0, 255, 0, 255) \
+    X(Z30R_COMBODTRIGGERGROUPVAL, Z30R_CMBTRIGGROUPVAL, trig_group_val, 0, 65535, 0, 65535) \
+    X(Z30R_COMBODTRIGGERGSTATE, Z30R_CMBTRIGGSTATE, trig_gstate, 0, 255, 0, 255) \
+    X(Z30R_COMBODTRIGGERGTIMER, Z30R_CMBTRIGGTIMER, trig_statetime, 0, 214748, 0, 214748) \
+    X(Z30R_COMBODTRIGGERITEM, Z30R_CMBTRIGREQITEM, triggeritem, 0, Z30_MAX_ITEMS_UP - 1, 0, Z30_MAX_ITEMS_UP - 1) \
+    X(Z30R_COMBODTRIGGERLEVEL, Z30R_CMBTRIGWPNLEVEL, triggerlevel, 0, 214747, 0, 214748) \
+    X(Z30R_COMBODTRIGGERLIGHTBEAM, Z30R_CMBTRIGLIGHTBEAM, triglbeam, 0, 32, 0, 32) \
+    X(Z30R_COMBODTRIGGERLSTATE, Z30R_CMBTRIGLSTATE, trig_lstate, 0, 31, 0, 31) \
+    X(Z30R_COMBODTRIGGERPROX, Z30R_CMBTRIGPROX, trigprox, 0, 65535, 0, 65535) \
+    X(Z30R_COMBODTRIGGERSFX, Z30R_CMBTRIGSFX, trigsfx, 0, Z30_MAX_SFX_UP, 0, Z30_MAX_SFX_UP) \
+    X(Z30R_COMBODTRIGGERTIMER, Z30R_CMBTRIGTIMER, trigtimer, 0, 65535, 0, 65535) \
+    X(Z30R_COMBODTRIGITEMJINX, Z30R_CMBTRIGITEMJINX, trig_itmjinxtime, -2, 32767, -2, 32767) \
+    X(Z30R_COMBODTRIGLVLPAL, Z30R_CMBTRIGLVLPAL, triglvlpalette, -1, 512, -1, 512) \
+    X(Z30R_COMBODTRIGPUSHTIME, Z30R_CMBTRIGPUSHTIME, trig_pushtime, 0, 255, 0, 255) \
+    X(Z30R_COMBODTRIGQUAKETIME, Z30R_CMBTRIGQUAKETIME, trigquaketime, -1, 32767, -1, 32767) \
+    X(Z30R_COMBODTRIGSHIELDJINX, Z30R_CMBTRIGSHIELDJINX, trig_shieldjinxtime, -2, 32767, -2, 32767) \
+    X(Z30R_COMBODTRIGSPAWNENEMY, Z30R_CMBTRIGSPAWNENEMY, spawnenemy, 0, 511, 0, 511) \
+    X(Z30R_COMBODTRIGSPAWNITEM, Z30R_CMBTRIGSPAWNITEM, spawnitem, -(MAXITEMDROPSETS - 1), Z30_MAX_ITEMS_UP - 1, -(MAXITEMDROPSETS - 1), Z30_MAX_ITEMS_UP - 1) \
+    X(Z30R_COMBODTRIGSTUN, Z30R_CMBTRIGSTUN, trig_stuntime, -2, 32767, -2, 32767) \
+    X(Z30R_COMBODTRIGSWORDJINX, Z30R_CMBTRIGSWORDJINX, trig_swjinxtime, -2, 32767, -2, 32767) \
+    X(Z30R_COMBODTRIGWAVYTIME, Z30R_CMBTRIGWAVYTIME, trigwavytime, -1, 32767, -1, 32767)
+
+// M(combodata register, combotrigger register, field, mask)
+#define Z30_TRIG_BOTH_MASK(M) \
+    M(Z30R_COMBODTRIGITEMPICKUP, Z30R_CMBTRIGITEMPICKUP, spawnip, Z30_IP_ALLOWED) \
+    M(Z30R_COMBODTRIGLITEMS, Z30R_CMBTRIGLITEMS, trig_levelitems, Z30_LI_ALL_UP)
+
+// C(combotrigger register, field, low, high): combotrigger-> only
+#define Z30_TRIG_CT(C) \
+    C(Z30R_CMBTRIG_LARGECOMBO_COPYCAT, large_combo_copycat, 0, 255) \
+    C(Z30R_CMBTRIGPOSSTATE, combopos_state, 0, 7) \
+    C(Z30R_CMBTRIGGERFAILPROMPTCID, fail_prompt_cid, 0, MAXCOMBOS - 1) \
+    C(Z30R_CMBTRIGGERFAILSTR, fail_msgstr, 0, msg_count - 1) \
+    C(Z30R_CMBTRIGGERFORCEPLAYERDIR, dest_player_dir, -1, 3) \
+    C(Z30R_CMBTRIGGERICECOMBO, force_ice_combo, -1, MAXCOMBOS - 1) \
+    C(Z30R_CMBTRIGGERPROMPTCID, prompt_cid, 0, MAXCOMBOS - 1) \
+    C(Z30R_CMBTRIGGERPROMPTX, prompt_x, -32768, 32767) \
+    C(Z30R_CMBTRIGGERPROMPTY, prompt_y, -32768, 32767) \
+    C(Z30R_CMBTRIGGERTRIGSTR, trig_msgstr, 0, msg_count - 1) \
+    C(Z30R_CMBTRIGGER_VIEWPORT_RANGE, viewport_cond_range, -32768, 32767) \
+    C(Z30R_CMBTRIGGER_CHANCE_NUMERATOR, chance_numerator, 0, 214748) \
+    C(Z30R_CMBTRIGGER_CHANCE_DENOMINATOR, chance_denominator, 1, 214748) \
+    C(Z30R_CMBTRIGGER_SFX_PAN, sfx_pan, -1, 255) \
+    C(Z30R_CMBTRIGGER_SFX_VOLUME, sfx_volume, 0, 255) \
+    C(Z30R_CMBTRIGGER_SFX_FREQUENCY, sfx_frequency, -1, 214748) \
+    C(Z30R_CMBTRIGREQSTATEMAP, trigstatemap, 0, (map_count < 255 ? map_count : 255)) \
+    C(Z30R_CMBTRIGREQSTATESCREEN, trigstatescreen, 0, 127)
+
+// K(combotrigger register, field, mask)
+#define Z30_TRIG_CT_MASK(K) \
+    K(Z30R_CMBTRIGGERFAILPROMPTCS, fail_prompt_cs, 15) \
+    K(Z30R_CMBTRIGGERPROMPTCS, prompt_cs, 15)
+
+// F(combotrigger register, field): zfix values, kept as the script's own number
+#define Z30_TRIG_CT_FIX(F) \
+    F(Z30R_CMBTRIGGERDESTHEROX, dest_player_x) F(Z30R_CMBTRIGGERDESTHEROY, dest_player_y) \
+    F(Z30R_CMBTRIGGERDESTHEROZ, dest_player_z) F(Z30R_CMBTRIGGERICEVX, force_ice_vx) \
+    F(Z30R_CMBTRIGGERICEVY, force_ice_vy) F(Z30R_CMBTRIGGERPLAYERBOUNCE, player_bounce) \
+    F(Z30R_CMBTRIGGERREQPLAYERJUMP, req_player_jump) F(Z30R_CMBTRIGGERREQPLAYERX, req_player_x) \
+    F(Z30R_CMBTRIGGERREQPLAYERY, req_player_y) F(Z30R_CMBTRIGGERREQPLAYERZ, req_player_z) \
+    F(Z30R_CMBTRIGGER_GRAVITY, trig_gravity) F(Z30R_CMBTRIGGER_TERMINAL_VELOCITY, trig_terminal_v)
+
+enum { Z30TRIG_NONE, Z30TRIG_CD, Z30TRIG_CT };
+
+static int z30_trig_reg_kind(long arg)
+{
+#define Z30_K_BOTH(cd, ct, f, a, b, c, d) case cd: return Z30TRIG_CD; case ct: return Z30TRIG_CT;
+#define Z30_K_BOTHM(cd, ct, f, m) case cd: return Z30TRIG_CD; case ct: return Z30TRIG_CT;
+#define Z30_K_CT(ct, f, a, b) case ct: return Z30TRIG_CT;
+#define Z30_K_CTM(ct, f, m) case ct: return Z30TRIG_CT;
+#define Z30_K_FIX(ct, f) case ct: return Z30TRIG_CT;
+    switch(arg)
+    {
+    Z30_TRIG_BOTH(Z30_K_BOTH)
+    Z30_TRIG_BOTH_MASK(Z30_K_BOTHM)
+    Z30_TRIG_CT(Z30_K_CT)
+    Z30_TRIG_CT_MASK(Z30_K_CTM)
+    Z30_TRIG_CT_FIX(Z30_K_FIX)
+    case Z30R_COMBODTRIGTINTR: case Z30R_COMBODTRIGTINTG: case Z30R_COMBODTRIGTINTB:
+    case Z30R_COMBODTRIGGERBUTTON: case Z30R_COMBODTRIGGERFLAGS: case Z30R_COMBODTRIGGERFLAGS2: case Z30R_COMBODTRIGGERS:
+    case Z30R_COMBODNUMTRIGGERS: case Z30R_COMBODONLYGEN:
+        return Z30TRIG_CD;
+    case Z30R_CMBTRIGTINTR: case Z30R_CMBTRIGTINTG: case Z30R_CMBTRIGTINTB: case Z30R_CMBTRIG_MUSIC_REFRESH:
+    case Z30R_CMBTRIG_PLAY_MUSIC: case Z30R_CMBTRIG_REQ_SCREXDOOR: case Z30R_CMBTRIG_UNREQ_SCREXDOOR:
+    case Z30R_CMBTRIGBUTTON: case Z30R_CMBTRIGREQLVLSTATE: case Z30R_CMBTRIGUNREQLVLSTATE: case Z30R_CMBTRIGREQGLOBALSTATE:
+    case Z30R_CMBTRIGUNREQGLOBALSTATE: case Z30R_CMBTRIGREQSCRSTATE: case Z30R_CMBTRIGUNREQSCRSTATE:
+    case Z30R_CMBTRIGREQSCREXSTATE: case Z30R_CMBTRIGUNREQSCREXSTATE: case Z30R_CMBTRIGGERREQPLAYERDIR: case Z30R_CMBTRIGFLAGS:
+        return Z30TRIG_CT;
+    default:
+        return Z30TRIG_NONE;
+    }
+#undef Z30_K_BOTH
+#undef Z30_K_BOTHM
+#undef Z30_K_CT
+#undef Z30_K_CTM
+#undef Z30_K_FIX
+}
+
+// The trigger a combotrigger reference names (NULL: none such), and its combo.
+static Q30Trigger *z30_trigger_by_ref(long ref, Q30Combo **combo)
+{
+    const long cid = ref & 0x00FFFFFF;
+    const size_t idx = (size_t)((ref >> 24) & 0xFF);
+    const Q30Combo *c = (cid >= 0 && cid < MAXCOMBOS) ? q30_combo((int)cid) : NULL;
+
+    if(!c || idx >= c->triggers.size())
+    {
+        Z_scripterrlog("Invalid combotrigger ID: %d-%ld\n", (int)idx, cid);
+        return NULL;
+    }
+
+    if(combo)
+        *combo = const_cast<Q30Combo *>(c);
+    return const_cast<Q30Trigger *>(&c->triggers[idx]);
+}
+
+// A combo's first trigger for combodata->, given one if it has none, for reads too (as upstream's
+// get_first_combo_trigger): NULL for a combo id out of range.
+static Q30Trigger *z30_first_trigger(long cid, Q30Combo **combo)
+{
+    Q30Combo *cc = (cid >= 0 && cid < MAXCOMBOS) ? q30_combo_for_write((int)cid) : NULL;
+
+    if(!cc)
+        return NULL;
+
+    if(cc->triggers.empty())
+        cc->triggers.push_back(Q30Trigger());
+
+    if(combo)
+        *combo = cc;
+    return &cc->triggers[0];
+}
+
+// What upstream's combotrigger-> getters give for a zfix field: the zfix as a whole number (its
+// int conversion, rounding halves away from 0), not the script's own fixed number.
+static long z30_trig_fix_get(long raw)
+{
+    const long d = (raw % 10000) / 5000;
+    return raw / 10000 + (raw < 0 ? (d < -1 ? -1 : d > 0 ? 0 : d) : (d < 0 ? 0 : d > 1 ? 1 : d));
+}
+
+static bool zasm30_trigger_reg(const long arg, long &ret, const long value, const bool write)
+{
+    const int kind = z30_trig_reg_kind(arg);
+
+    if(kind == Z30TRIG_NONE)
+        return false;
+
+    const bool ct = kind == Z30TRIG_CT;
+    const long v = value / 10000;
+    const long cid = Z30_REF(COMBODATA);
+    Q30Combo *combo = NULL;
+
+    // -- combodata-> arrays, NumTriggers and OnlyGenTriggers -----------------------------------------
+    switch(arg)
+    {
+    case Z30R_COMBODNUMTRIGGERS:    // writing resizes Triggers[]
+    case Z30R_COMBODONLYGEN:
+    {
+        const bool num = arg == Z30R_COMBODNUMTRIGGERS;
+
+        if(cid < 0 || cid >= MAXCOMBOS)
+        {
+            if(!write)
+                ret = num ? -10000 : 0;
+            return true;
+        }
+
+        if(!write)
+        {
+            const Q30Combo *c = q30_combo((int)cid);
+            ret = num ? (c ? (long)c->triggers.size() * 10000 : 0) : (c && c->only_gentrig ? 10000 : 0);
+        }
+        else if(Q30Combo *cc = q30_combo_for_write((int)cid))
+        {
+            if(num)
+                cc->triggers.resize((size_t)vbound(v, 0L, (long)Z30_MAX_COMBO_TRIGGERS));
+            else
+                cc->only_gentrig = value != 0 ? 1 : 0;
+        }
+        return true;
+    }
+    case Z30R_COMBODTRIGGERS:   // combotrigger[] Triggers: references, read only
+    {
+        const Q30Combo *c = (cid >= 0 && cid < MAXCOMBOS) ? q30_combo((int)cid) : NULL;
+        const long size = c ? (long)(c->triggers.size() < (size_t)Z30_MAX_COMBO_TRIGGERS ? c->triggers.size() : Z30_MAX_COMBO_TRIGGERS) : 0;
+        long n;
+
+        if(write)
+            return true;
+
+        ret = z30_array_index(Z30_INDEX, size, n) ? (long)(dword(cid) | (dword(n) << 24)) : z30_array_default(-10000);
+        return true;
+    }
+    case Z30R_COMBODTRIGGERFLAGS:   // long[6] TriggerFlags: the old flag sets, 32 flags each
+    {
+        // (upstream gives a combo without a trigger one here, for reads too)
+        Q30Trigger *t = (cid >= 0 && cid < MAXCOMBOS) ? z30_first_trigger(cid, &combo) : NULL;
+        long n;
+
+        if(!t || !z30_array_index(Z30_INDEX, t ? 6 : 0, n))
+        {
+            if(!write)
+                ret = z30_array_default(-10000);
+            return true;
+        }
+
+        if(write)
+        {
+            const long bits = vbound(v, 0L, 214747L);
+
+            for(int q = 0; q < 32; ++q)
+                z30_bits_put(t->flags, n * 32 + q, (bits & (1L << q)) != 0);
+            if(n == 0)
+                combo->only_gentrig = t->flags.get(Q30TF_ONLYGENTRIG) ? 1 : 0;
+        }
+        else
+        {
+            dword bits = 0;
+
+            for(int q = 0; q < 32; ++q)
+                if(t->flags.get(n * 32 + q))
+                    bits |= 1u << q;
+            if(n == 0)
+            {
+                bits &= ~(1u << (Q30TF_ONLYGENTRIG % 32));
+                if(combo->only_gentrig)
+                    bits |= 1u << (Q30TF_ONLYGENTRIG % 32);
+            }
+            ret = (long)(int32_t)(bits * 10000u);     // (wraps, as upstream's int multiply does)
+        }
+        return true;
+    }
+    case Z30R_COMBODTRIGGERBUTTON:  // bool[8] TrigButton
+    case Z30R_COMBODTRIGGERFLAGS2:  // bool[] TrigFlags
+    {
+        Q30Trigger *t = z30_first_trigger(cid, &combo);
+        const long size = arg == Z30R_COMBODTRIGGERBUTTON ? 8 : 32 * 6;
+        long n;
+
+        if(!t)
+        {
+            if(!write)
+                ret = z30_array_default(0);
+            return true;
+        }
+
+        if(!z30_array_index(Z30_INDEX, size, n))
+        {
+            if(!write)
+                ret = z30_array_default(0);
+            return true;
+        }
+
+        if(arg == Z30R_COMBODTRIGGERBUTTON)
+        {
+            if(write)
+                t->triggerbtn = (byte)(value ? (t->triggerbtn | (1 << n)) : (t->triggerbtn & ~(1 << n)));
+            else
+                ret = (t->triggerbtn & (1 << n)) ? 10000 : 0;
+            return true;
+        }
+
+        const Q30Combo *c = q30_combo((int)cid);
+
+        if(write)
+        {
+            z30_bits_put(t->flags, n, value != 0);
+            if(n == Q30TF_ONLYGENTRIG)
+                combo->only_gentrig = value != 0;
+        }
+        else if(n == Q30TF_ONLYGENTRIG)
+            ret = (c && c->only_gentrig) ? 10000 : 0;
+        else
+            ret = t->flags.get(n) ? 10000 : 0;
+        return true;
+    }
+    default:
+        break;
+    }
+
+    // -- the trigger ---------------------------------------------------------------------------------
+    Q30Trigger *t = ct ? z30_trigger_by_ref(Z30_REF(COMBOTRIGGER), &combo) : z30_first_trigger(cid, &combo);
+
+    if(!t)
+    {
+        if(!write)
+        {
+            switch(arg)
+            {
+            // (upstream leaves these at 0 for no trigger)
+            case Z30R_COMBODTRIGTINTR: case Z30R_COMBODTRIGTINTG: case Z30R_COMBODTRIGTINTB:
+            case Z30R_CMBTRIG_MUSIC_REFRESH: case Z30R_CMBTRIG_REQ_SCREXDOOR: case Z30R_CMBTRIG_UNREQ_SCREXDOOR:
+                ret = 0;
+                break;
+            case Z30R_CMBTRIG_PLAY_MUSIC: ret = -2; break;
+            case Z30R_CMBTRIGBUTTON: case Z30R_CMBTRIGREQLVLSTATE: case Z30R_CMBTRIGUNREQLVLSTATE: case Z30R_CMBTRIGREQGLOBALSTATE:
+            case Z30R_CMBTRIGUNREQGLOBALSTATE: case Z30R_CMBTRIGREQSCRSTATE: case Z30R_CMBTRIGUNREQSCRSTATE:
+            case Z30R_CMBTRIGREQSCREXSTATE: case Z30R_CMBTRIGUNREQSCREXSTATE: case Z30R_CMBTRIGGERREQPLAYERDIR:
+            case Z30R_CMBTRIGFLAGS:
+                ret = 0;
+                break;
+            default: ret = -10000; break;
+            }
+        }
+        return true;
+    }
+
+#define Z30_V_BOTH(cd, ctr, f, a, b, c, d) \
+    case cd: case ctr: \
+        if(write) t->f = (decltype(t->f))(ct ? vbound(v, (long)(c), (long)(d)) : vbound(v, (long)(a), (long)(b))); \
+        else ret = long(t->f) * 10000; \
+        return true;
+#define Z30_V_BOTHM(cd, ctr, f, m) \
+    case cd: case ctr: \
+        if(write) t->f = (decltype(t->f))(v & (m)); \
+        else ret = long(t->f) * 10000; \
+        return true;
+#define Z30_V_CT(ctr, f, a, b) \
+    case ctr: \
+        if(write) t->f = (decltype(t->f))vbound(v, (long)(a), (long)(b)); \
+        else ret = long(t->f) * 10000; \
+        return true;
+#define Z30_V_CTM(ctr, f, m) \
+    case ctr: \
+        if(write) t->f = (decltype(t->f))(v & (m)); \
+        else ret = long(t->f) * 10000; \
+        return true;
+#define Z30_V_FIX(ctr, f) \
+    case ctr: \
+        if(write) t->f = value; \
+        else ret = z30_trig_fix_get(t->f); \
+        return true;
+
+    switch(arg)
+    {
+    Z30_TRIG_BOTH(Z30_V_BOTH)
+    Z30_TRIG_BOTH_MASK(Z30_V_BOTHM)
+    Z30_TRIG_CT(Z30_V_CT)
+    Z30_TRIG_CT_MASK(Z30_V_CTM)
+    Z30_TRIG_CT_FIX(Z30_V_FIX)
+
+    case Z30R_COMBODTRIGTINTR: case Z30R_CMBTRIGTINTR:
+    case Z30R_COMBODTRIGTINTG: case Z30R_CMBTRIGTINTG:
+    case Z30R_COMBODTRIGTINTB: case Z30R_CMBTRIGTINTB:
+    {
+        const int i = (arg == Z30R_COMBODTRIGTINTR || arg == Z30R_CMBTRIGTINTR) ? 0 : (arg == Z30R_COMBODTRIGTINTG || arg == Z30R_CMBTRIGTINTG) ? 1 : 2;
+
+        if(write)
+            t->trigtint[i] = z30_trig_tint_from_script(v);
+        else
+            ret = long(t->trigtint[i]) * 10000;
+        return true;
+    }
+    case Z30R_CMBTRIG_MUSIC_REFRESH:
+        if(!write)
+            ret = long(t->set_music_refresh) * 10000;
+        else if(v >= -1 && v <= Z30_MUSIC_UPDATE_REGION)
+            t->set_music_refresh = (signed char)v;
+        return true;
+    case Z30R_CMBTRIG_PLAY_MUSIC:    // a musicdata reference, or -2 (none), -1 (stop), 0 (the screen's)
+        if(!write)
+            ret = t->play_music;
+        else if(value == -2 || value == -1 || value == 0 || q30_music_exists(value))
+            t->play_music = value;
+        return true;
+    case Z30R_CMBTRIG_REQ_SCREXDOOR:    // (dir, index): the ex-door states it needs set, or set unset
+    case Z30R_CMBTRIG_UNREQ_SCREXDOOR:
+    {
+        const long dir = SH::read_stack(SPR + 1) / 10000, ind = SH::read_stack(SPR) / 10000;
+        Q30Bits *bits = arg == Z30R_CMBTRIG_REQ_SCREXDOOR ? t->req_screen_ex_door : t->unreq_screen_ex_door;
+
+        if(unsigned(dir) > 3)
+            Z_scripterrlog("Invalid dir '%ld'; must be 0-3\n", dir);
+        else if(unsigned(ind) > 7)
+            Z_scripterrlog("Invalid index '%ld'; must be 0-7\n", ind);
+        else if(write)
+            z30_bits_put(bits[dir], ind, value != 0);
+        else
+            ret = bits[dir].get(ind) ? 10000 : 0;
+        return true;
+    }
+
+    // combotrigger-> arrays: bits of the trigger
+    case Z30R_CMBTRIGBUTTON: case Z30R_CMBTRIGREQLVLSTATE: case Z30R_CMBTRIGUNREQLVLSTATE:
+    case Z30R_CMBTRIGGERREQPLAYERDIR:
+    {
+        const long size = arg == Z30R_CMBTRIGBUTTON ? 8 : arg == Z30R_CMBTRIGGERREQPLAYERDIR ? 4 : 32;
+        long n;
+
+        if(!z30_array_index(Z30_INDEX, size, n))
+        {
+            if(!write)
+                ret = z30_array_default(0);
+            return true;
+        }
+
+        dword bits = arg == Z30R_CMBTRIGBUTTON ? t->triggerbtn : arg == Z30R_CMBTRIGGERREQPLAYERDIR ? t->req_player_dir
+                     : arg == Z30R_CMBTRIGREQLVLSTATE ? t->req_level_state : t->unreq_level_state;
+
+        if(!write)
+        {
+            ret = (bits >> n) & 1 ? 10000 : 0;
+            return true;
+        }
+
+        bits = value ? (bits | (1u << n)) : (bits & ~(1u << n));
+
+        switch(arg)
+        {
+        case Z30R_CMBTRIGBUTTON: t->triggerbtn = (byte)bits; break;
+        case Z30R_CMBTRIGGERREQPLAYERDIR: t->req_player_dir = (byte)bits; break;
+        case Z30R_CMBTRIGREQLVLSTATE: t->req_level_state = bits; break;
+        default: t->unreq_level_state = bits; break;
+        }
+        return true;
+    }
+    case Z30R_CMBTRIGREQGLOBALSTATE: case Z30R_CMBTRIGUNREQGLOBALSTATE: case Z30R_CMBTRIGREQSCRSTATE:
+    case Z30R_CMBTRIGUNREQSCRSTATE: case Z30R_CMBTRIGREQSCREXSTATE: case Z30R_CMBTRIGUNREQSCREXSTATE:
+    case Z30R_CMBTRIGFLAGS:
+    {
+        Q30Bits &bits = arg == Z30R_CMBTRIGREQGLOBALSTATE ? t->req_global_state : arg == Z30R_CMBTRIGUNREQGLOBALSTATE ? t->unreq_global_state
+                        : arg == Z30R_CMBTRIGREQSCRSTATE ? t->req_screen_state : arg == Z30R_CMBTRIGUNREQSCRSTATE ? t->unreq_screen_state
+                        : arg == Z30R_CMBTRIGREQSCREXSTATE ? t->req_screen_ex_state : arg == Z30R_CMBTRIGUNREQSCREXSTATE ? t->unreq_screen_ex_state
+                        : t->flags;
+        long n;
+
+        if(!z30_array_index(Z30_INDEX, arg == Z30R_CMBTRIGFLAGS ? (long)Q30TF_MAX : 256, n))
+        {
+            if(!write)
+                ret = z30_array_default(0);
+            return true;
+        }
+
+        if(write)
+        {
+            z30_bits_put(bits, n, value != 0);
+            if(arg == Z30R_CMBTRIGFLAGS && n == Q30TF_ONLYGENTRIG && combo)
+                combo->only_gentrig = value != 0;
+        }
+        else if(arg == Z30R_CMBTRIGFLAGS && n == Q30TF_ONLYGENTRIG)
+            ret = (combo && combo->only_gentrig) ? 10000 : 0;
+        else
+            ret = bits.get(n) ? 10000 : 0;
+        return true;
+    }
+    default:
+        break;
+    }
+#undef Z30_V_BOTH
+#undef Z30_V_BOTHM
+#undef Z30_V_CT
+#undef Z30_V_CTM
+#undef Z30_V_FIX
+
+    return true;
+}
+
+// ---- r12: plain fields scripts in the pack use ----------------------------------------------------
+// Upstream's types/mapdata.cpp, screendata.cpp, shopdata.cpp, itemdata.cpp, lweapon.cpp and
+// combodata.cpp: values 2.53's structures already hold.
+static bool zasm30_plain_reg(const long arg, long &ret, const long value, const bool write)
+{
+    const long v = value / 10000;
+    long n;
+
+    switch(arg)
+    {
+    // mapdata-> bytes (no mapdata: -10000; writes 0-255)
+    case Z30R_MAPDATASTAIRX: case Z30R_MAPDATASTAIRY: case Z30R_MAPDATAEXITDIR: case Z30R_MAPDATAWARPARRIVALX:
+    case Z30R_MAPDATAWARPARRIVALY: case Z30R_MAPDATAITEMX: case Z30R_MAPDATAITEMY:
+    case Z30R_SCREENDATAITEMX: case Z30R_SCREENDATAITEMY:
+    {
+        mapscr *m = (arg == Z30R_SCREENDATAITEMX || arg == Z30R_SCREENDATAITEMY) ? tmpscr : z30_mapdata_now();
+
+        if(!m)
+        {
+            if(!write)
+                ret = -10000;
+            return true;
+        }
+
+        byte *f = arg == Z30R_MAPDATASTAIRX ? &m->stairx : arg == Z30R_MAPDATASTAIRY ? &m->stairy : arg == Z30R_MAPDATAEXITDIR ? &m->exitdir
+                  : arg == Z30R_MAPDATAWARPARRIVALX ? &m->warparrivalx : arg == Z30R_MAPDATAWARPARRIVALY ? &m->warparrivaly
+                  : (arg == Z30R_MAPDATAITEMX || arg == Z30R_SCREENDATAITEMX) ? &m->itemx : &m->itemy;
+
+        if(write)
+            *f = (byte)vbound(v, 0L, 255L);
+        else
+            ret = long(*f) * 10000;
+        return true;
+    }
+    case Z30R_SCREENDATACATCHALL:
+        if(write)
+            tmpscr->catchall = (word)vbound(v, -214747L, 214747L);
+        else
+            ret = long(tmpscr->catchall) * 10000;
+        return true;
+
+    // mapdata->Path[4], SecretCombo[128], SecretCSet[128], SecretFlags[128]; Screen->TileWarpType[4],
+    // TileWarpDMap[4], TileWarpScreen[4]. A write out of a byte's range is bound to it; a combo or
+    // DMap number out of range is refused.
+    case Z30R_MAPDATAPATH: case Z30R_MAPDATASECRETCOMBO: case Z30R_MAPDATASECRETCSET: case Z30R_MAPDATASECRETFLAG:
+    case Z30R_SCREENDATATILEWARPTYPE: case Z30R_SCREENDATATILEWARPDMAP: case Z30R_SCREENDATATILEWARPSCREEN:
+    {
+        const bool scr = arg == Z30R_SCREENDATATILEWARPTYPE || arg == Z30R_SCREENDATATILEWARPDMAP || arg == Z30R_SCREENDATATILEWARPSCREEN;
+        mapscr *m = scr ? tmpscr : z30_mapdata_now();
+        const long size = (arg == Z30R_MAPDATAPATH || scr) ? 4 : 128;
+
+        if(!m || !z30_array_index(Z30_INDEX, size, n))
+        {
+            if(!write)
+                ret = 0;
+            return true;
+        }
+
+        if(arg == Z30R_MAPDATASECRETCOMBO || arg == Z30R_SCREENDATATILEWARPDMAP)
+        {
+            word &f = arg == Z30R_MAPDATASECRETCOMBO ? m->secretcombo[n] : m->tilewarpdmap[n];
+            const long limit = arg == Z30R_MAPDATASECRETCOMBO ? MAXCOMBOS : MAXDMAPS;
+
+            if(!write)
+                ret = long(f) * 10000;
+            else if(v < 0 || v >= limit)
+                Z_scripterrlog("Invalid value %ld (must be 0 to %ld)\n", v, limit - 1);
+            else
+                f = (word)v;
+            return true;
+        }
+
+        byte &f = arg == Z30R_MAPDATAPATH ? m->path[n] : arg == Z30R_MAPDATASECRETCSET ? m->secretcset[n]
+                  : arg == Z30R_MAPDATASECRETFLAG ? m->secretflag[n] : arg == Z30R_SCREENDATATILEWARPTYPE ? m->tilewarptype[n]
+                  : m->tilewarpscr[n];
+
+        if(write)
+            f = (byte)vbound(v, 0L, 255L);
+        else
+            ret = long(f) * 10000;
+        return true;
+    }
+
+    // shopdata->Item[3], HasItem[3], Price[3] (an info shop has prices only), Type
+    case Z30R_SHOPDATAITEM: case Z30R_SHOPDATAHASITEM: case Z30R_SHOPDATAPRICE:
+    {
+        const long ref = Z30_REF(SHOPDATA);
+        const bool info = ref >= 256 && ref <= 511;
+
+        if(ref < 0 || ref > 511)
+            Z_scripterrlog("Invalid shopdata pointer: %ld\n", ref);
+
+        if(ref < 0 || ref > 511 || !z30_array_index(Z30_INDEX, 3, n))
+        {
+            if(!write)
+                ret = z30_array_default(-10000);
+            return true;
+        }
+
+        if(arg == Z30R_SHOPDATAPRICE)
+        {
+            word &f = info ? QMisc.info[ref - 256].price[n] : QMisc.shop[ref].price[n];
+
+            if(write)
+                f = (word)vbound(v, 0L, 65535L);
+            else
+                ret = long(f) * 10000;
+            return true;
+        }
+
+        if(info)
+        {
+            Z_scripterrlog("Attempted to load '%s' from an infoshop, using shop ID: %ld\n", arg == Z30R_SHOPDATAITEM ? "item" : "hasitem", ref);
+            if(!write)
+                ret = -10000;
+            return true;
+        }
+
+        byte &f = arg == Z30R_SHOPDATAITEM ? QMisc.shop[ref].item[n] : QMisc.shop[ref].hasitem[n];
+
+        if(!write)
+            ret = arg == Z30R_SHOPDATAITEM ? long(f) * 10000 : (f ? 10000 : 0);
+        else if(arg == Z30R_SHOPDATAHASITEM)
+            f = value ? 1 : 0;
+        else
+            f = (byte)vbound(v, 0L, 255L);
+        return true;
+    }
+    case Z30R_SHOPDATATYPE:     // 1 a shop, 2 an info shop (read only)
+    {
+        const long ref = Z30_REF(SHOPDATA);
+
+        if(!write)
+            ret = (ref > 511 || ref < 0) ? 0 : (ref <= 256 ? 10000 : 20000);
+        return true;
+    }
+
+    // itemdata->TileMod, Frames, ASpeed, Delay
+    case Z30R_IDATALTM: case Z30R_IDATAFRAMES: case Z30R_IDATAASPEED: case Z30R_IDATADELAY:
+    {
+        const long id = ri->idata;
+
+        if(id < 0 || id >= q30_items_end())
+        {
+            Z_scripterrlog("Invalid itemdata access: %ld\n", id);
+            if(!write)
+                ret = arg == Z30R_IDATALTM ? 0 : -10000;
+            return true;
+        }
+
+        itemdata &it = Q30_IDATA(id);
+
+        if(arg == Z30R_IDATALTM)
+        {
+            if(write) it.ltm = v;
+            else ret = it.ltm * 10000;
+            return true;
+        }
+
+        byte &f = arg == Z30R_IDATAFRAMES ? it.frames : arg == Z30R_IDATAASPEED ? it.speed : it.delay;
+
+        if(write)
+            f = (byte)vbound(v, 0L, 214748L);
+        else
+            ret = long(f) * 10000;
+        return true;
+    }
+
+    // lweapon->Parent (the item that made it), ->ScriptUID (read only)
+    case Z30R_LWPNPARENT:
+    case Z30R_LWEAPONSCRIPTUID:
+    {
+        weapon *w = z30_lwpn_ref();
+
+        if(!w)
+        {
+            if(!write)
+                ret = -10000;
+            return true;
+        }
+
+        if(arg == Z30R_LWEAPONSCRIPTUID)
+        {
+            if(!write)
+                ret = w->getUID();
+        }
+        else if(write)
+            w->parentitem = (int)vbound(v, -1L, (long)Z30_MAX_ITEMS_UP - 1);
+        else
+            ret = long(w->parentitem) * 10000;
+        return true;
+    }
+
+    // combodata->UserFlags: all of them as one number
+    case Z30R_COMBODUSRFLAGS:
+    {
+        const long cid = Z30_REF(COMBODATA);
+        Q30Combo *cc = (cid >= 0 && cid < MAXCOMBOS) ? q30_combo_for_write((int)cid) : NULL;
+
+        if(!cc)
+        {
+            if(!write)
+                ret = -10000;
+            return true;
+        }
+
+        if(write)
+            cc->usrflags = (dword)v;
+        else
+            ret = (long)(int32_t)(cc->usrflags * 10000u);     // (wraps, as upstream's int multiply does)
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
 static bool zasm30_get_register_inner(const long arg, long &ret)
 {
-    if(zasm30_sub_get(arg, ret) || zasm30_scrdata_get(arg, ret) || zasm30_draw_get(arg, ret) || zasm30_trigger_reg(arg, ret, 0, false))
+    if(zasm30_sub_get(arg, ret) || zasm30_scrdata_get(arg, ret) || zasm30_draw_get(arg, ret) || zasm30_trigger_reg(arg, ret, 0, false)
+       || zasm30_plain_reg(arg, ret, 0, false))
         return true;
 
     switch(arg)
@@ -1891,24 +2537,6 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_COMBODATTRISHORTS:
         ret = long(z30_combo_attr_get(Z30_REF(COMBODATA), 16 + Z30_INDEX) / 10000) * 10000;
         return true;
-    case Z30R_COMBODTRIGSPAWNITEM:
-    {
-        const Q30Combo *c = q30_combo(Z30_REF(COMBODATA));
-        ret = (c && !c->triggers.empty()) ? c->triggers[0].spawnitem * 10000 : -10000;
-        return true;
-    }
-    case Z30R_COMBODTRIGGERFLAGS2:
-    {
-        const Q30Combo *c = q30_combo(Z30_REF(COMBODATA));
-        const long n = Z30_INDEX;
-        ret = 0;
-        if(c && n >= 0 && n < 32 * 6)
-        {
-            if(n == Q30TF_ONLYGENTRIG) ret = c->only_gentrig ? 10000 : 0;
-            else if(!c->triggers.empty()) ret = c->triggers[0].flags.get(n) ? 10000 : 0;
-        }
-        return true;
-    }
 
     // mapdata->
     case Z30R_MAPDATACOMBOSD:
@@ -2262,7 +2890,8 @@ static bool zasm30_set_register_inner(const long arg, const long value)
 {
     long unused;
 
-    if(zasm30_sub_set(arg, value) || zasm30_scrdata_set(arg, value) || zasm30_draw_set(arg, value) || zasm30_trigger_reg(arg, unused, value, true))
+    if(zasm30_sub_set(arg, value) || zasm30_scrdata_set(arg, value) || zasm30_draw_set(arg, value) || zasm30_trigger_reg(arg, unused, value, true)
+       || zasm30_plain_reg(arg, unused, value, true))
         return true;
 
     switch(arg)
@@ -2969,34 +3598,6 @@ static bool zasm30_set_register_inner(const long arg, const long value)
         return true;
     }
     case Z30R_COMBODATTRISHORTS: z30_combo_attr_set(Z30_REF(COMBODATA), 16 + Z30_INDEX, (value / 10000) * 10000); return true;
-    case Z30R_COMBODTRIGSPAWNITEM:
-    {
-        const Q30Combo *c = q30_combo(Z30_REF(COMBODATA));
-        if(c && !c->triggers.empty())
-            const_cast<Q30Combo *>(c)->triggers[0].spawnitem = vbound(value / 10000, -(MAXITEMDROPSETS - 1), q30_items_end() - 1);
-        return true;
-    }
-    case Z30R_COMBODTRIGGERFLAGS2:
-    {
-        const Q30Combo *c = q30_combo(Z30_REF(COMBODATA));
-        const long n = Z30_INDEX;
-        if(c && n >= 0 && n < 32 * 6)
-        {
-            Q30Combo *cc = const_cast<Q30Combo *>(c);
-            if(n == Q30TF_ONLYGENTRIG)
-                cc->only_gentrig = value != 0;
-            else if(!cc->triggers.empty())
-            {
-                Q30Bits &bits = cc->triggers[0].flags;
-                if(value)
-                    bits.set(n);
-                else if(n / 8 < (long)bits.v.size())
-                    bits.v[n / 8] &= (byte)~(1 << (n % 8));
-            }
-        }
-        return true;
-    }
-
     // mapdata->
     case Z30R_MAPDATACOMBOSD:
     case Z30R_MAPDATACOMBOED:

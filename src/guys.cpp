@@ -12619,8 +12619,11 @@ void addfires()
     if(!get_bit(quest_rules,qr_NOGUYFIRES))
     {
         int bs = get_bit(quest_rules,qr_BSZELDA);
-        addguy(bs? 64: 72,64,gFIRE,-17,false);
-        addguy(bs?176:168,64,gFIRE,-18,false);
+        // (a 3.0 scrolling region: upstream puts them on the region's top-left screen, cur_screen,
+        // whichever screen's guy came out)
+        const int ox = q30_region_offset_x(), oy = q30_region_offset_y();
+        addguy((bs? 64: 72)-ox,64-oy,gFIRE,-17,false);
+        addguy((bs?176:168)-ox,64-oy,gFIRE,-18,false);
     }
 }
 

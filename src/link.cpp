@@ -8866,7 +8866,8 @@ bool LinkClass::q30_walk_solid(double wx, double wy, int d2)
 
     int ix = q30_round(wx), iy = q30_round(wy);
 
-    if(blockpath && iy < 80)
+    // (a 3.0 scrolling region: upstream's y is the region's, so only its top row of screens is blocked)
+    if(blockpath && iy + q30_region_offset_y() < 80)
         return true;
 
     if(blockmoving && mblock2.hit(ix, iy, 0, 1, 1, 1))
@@ -11166,7 +11167,7 @@ LinkClass::WalkflagInfo LinkClass::walkflag(int wx,int wy,int cnt,byte d2)
         return ret;
     }
 
-    if(blockpath && wy<(bigHitbox?80:88))
+    if(blockpath && wy + q30_region_offset_y() < (bigHitbox?80:88))   // (region y in a 3.0 scrolling region, as upstream)
     {
         ret.setUnwalkable(true);
         return ret;
@@ -20957,8 +20958,8 @@ void LinkClass::q30_region_handoff(int ndx, int ndy)
     q30_region_keep_current();      // the screen he leaves stays drawn as he left it
     q30_region_tag_sprites();       // its enemies, items and enemy weapons stay its own
     q30_region_save_screen_state();
-    clear_bitmap(pricesdisplaybuf);
-    set_clip_state(pricesdisplaybuf, 1);
+    // (a shop's prices stay up: upstream's update_current_screen leaves them, and they belong to the
+    // region's top-left screen whichever screen Link is on)
 
     // every sprite lives on (upstream keeps a region's sprites in region-wide coordinates):
     // moved into the next screen's coordinates

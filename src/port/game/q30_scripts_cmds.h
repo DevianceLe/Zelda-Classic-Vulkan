@@ -1667,6 +1667,55 @@ static void z30_bitmap_file(bool write)
         Z_scripterrlog("Failed to create file '%s'\n", path.c_str());
 }
 
+// Upstream's enemy::summon_enemy: count enemies (1 to count when random_count) where the summoner
+// is, not counted for the screen's enemies, belonging to the summoner's screen (addchild with its
+// screen_spawned; a 3.0 scrolling region's sprites carry their screen here). The limit counts the
+// enemies of that kind out (upstream's qr_OLD_SUMMONER_COUNTS: this engine keeps no summoner links).
+static int z30_summon_enemy(enemy *e, int id, int count, int limit, bool random_count)
+{
+    if(count <= 0)
+        return 0;
+
+    int existing = 0;
+
+    for(int i = 0; i < guys.Count(); ++i)
+        if(((enemy *)guys.spr(i))->id == id)
+            ++existing;
+
+    if(limit > 0 && existing >= limit)
+        return 0;
+
+    const int n = random_count ? (rand() % count) + 1 : count;
+    const int home = q30_region_sprite_screen(e->getUID());
+    int ret = 0;
+
+    for(int i = 0; i < n; ++i)
+    {
+        if(addenemy(int(e->x), int(e->y), id, -10))
+        {
+            enemy *m = (enemy *)guys.spr(guys.Count() - 1);
+            m->count_enemy = false;
+            if(home >= 0)
+                q30_region_sprite_set_screen(m->getUID(), home);
+            ++ret;
+        }
+    }
+
+    return ret;
+}
+
+// A command's third argument (v24+ quests keep it beside the command, in the literal table).
+static bool z30_sarg3(long &out)
+{
+    std::map<const ffscript *, Zasm30Literal>::const_iterator it = zasm30_literals.find(zasm30_cur_cmd);
+
+    if(!zasm30_cur_cmd || it == zasm30_literals.end() || it->second.vec.empty())
+        return false;
+
+    out = it->second.vec[0];
+    return true;
+}
+
 static void z30_arrayptr_to_string(long ptr, string &out)
 {
     ArrayH::getString(ptr / 10000, out, 4096);
@@ -4076,12 +4125,15 @@ static bool zasm30_command(word cmd)
     }
 
     case Z30C_SCRTRIGGERCOMBO:
+    case Z30C_SCRTRIGGERCOMBO2:     // (layer, pos, trigger index)
     {
         // (in a scrolling region pos is a combo position across it; only the current screen's
         // combos have triggers running here)
         const int layer = get_register(sarg1) / 10000;
         int pos = get_register(sarg2) / 10000;
         bool current = true;
+        long arg3 = 0;
+        const int idx = (cmd == Z30C_SCRTRIGGERCOMBO2 && z30_sarg3(arg3)) ? (int)(get_register(arg3) / 10000) : 0;
 
         if(q30_region_on() && (!q30_region_rpos_screen(pos, 0, &pos, &current) || !current))
         {
@@ -4089,7 +4141,7 @@ static bool zasm30_command(word cmd)
             return true;
         }
 
-        set_register(sarg1, q30_trigger_combo_at(layer, pos, 0) ? 10000 : 0);
+        set_register(sarg1, q30_trigger_combo_at(layer, pos, idx) ? 10000 : 0);
         return true;
     }
 
@@ -4582,6 +4634,66 @@ static bool zasm30_command(word cmd)
             if(z30_set_string(ptr, s) == SH::_Overflow)
                 Z_scripterrlog("Array supplied to 'itemdata->GetDisplayName' not large enough.\n");
         }
+        return true;
+    }
+
+    // -- npc->SummonMinion(id, limit): one enemy where the summoner is, belonging to its screen ---
+    case Z30C_NPC_SUMMON_MINION:
+    {
+        const long limit = get_register(sarg1) / 10000;
+        const long id = get_register(sarg2) / 10000;
+        enemy *e = z30_npc_ref();
+        long ret = 0;
+
+        if(id <= 0 || id >= MAXGUYS)
+            Z_scripterrlog("Invalid enemy ID passed to npc->SummonMinion: %ld\n", id);
+        else if(e && z30_summon_enemy(e, (int)id, 1, (int)limit, false))
+            ret = guys.spr(guys.Count() - 1)->getUID();
+
+        set_register(sarg1, ret);
+        return true;
+    }
+
+    // -- combodata->GetTrigger(label), combotrigger->GetLabel/SetLabel ----------------------------
+    case Z30C_COMBOD_GET_TRIGGER:   // the combo's first trigger with that label (0: none)
+    {
+        const long cid = Z30_REF(COMBODATA);
+
+        if(cid < 0 || cid >= MAXCOMBOS)
+        {
+            Z_scripterrlog("Invalid Combo ID passed to combodata->GetTrigger: %ld\n", cid);
+            return true;
+        }
+
+        std::string name;
+        ArrayH::getString(get_register(sarg1) / 10000, name, 256);
+        const Q30Combo *c = q30_combo((int)cid);
+        long ref = 0;
+
+        for(size_t i = 0; c && i < c->triggers.size(); ++i)
+            if(c->triggers[i].label == name)
+            {
+                ref = (long)(dword(cid) | (dword(i) << 24));
+                break;
+            }
+
+        set_register(sarg1, ref);
+        return true;
+    }
+    case Z30C_CMBTRIG_GET_LABEL:
+    case Z30C_CMBTRIG_SET_LABEL:
+    {
+        Q30Trigger *t = z30_trigger_by_ref(Z30_REF(COMBOTRIGGER), NULL);
+
+        if(!t)
+            return true;
+
+        const long ptr = get_register(sarg1) / 10000;
+
+        if(cmd == Z30C_CMBTRIG_SET_LABEL)
+            ArrayH::getString(ptr, t->label, 4096);
+        else
+            z30_set_string(ptr, t->label);
         return true;
     }
 
