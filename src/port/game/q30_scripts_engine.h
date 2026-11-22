@@ -1538,6 +1538,7 @@ void q30_scroll_generic(int timing)
 static void z30_reset_script_objects();
 static void zasm30_reset_register_state();
 static void z30_scrdata_game_init(bool first);     // q30_scripts_save.h
+static void zasm30_live_game_init();                // q30_scripts_live.h
 
 void q30_game_init(bool first)
 {
@@ -1546,6 +1547,7 @@ void q30_game_init(bool first)
     Lwpns.setMax(SLMAX);
     Ewpns.setMax(SLMAX);
     items.setMax(SLMAX);
+    zasm30_live_game_init();     // (q30_scripts_live.h: what a newer quest's script changed in Link's steps)
 
     if(!zasm30_ffscript_version)
         return;

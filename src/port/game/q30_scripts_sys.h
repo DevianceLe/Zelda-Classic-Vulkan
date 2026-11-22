@@ -20,6 +20,15 @@ int count_layer_enemies();
 int q30_summon_layered_enemies(enemy *e, int count, int limit, bool random_count);    // guys.cpp
 bool q30_switchhook_script(int style, int pos, enemy *e, sprite *s);   // q30_triggers.cpp
 void q30_mirror_portal_remove(bool saved);
+int *q30_mirror_portal_field(int field);    // q30_triggers.cpp: the Magic Mirror's portals' fields
+bool q30_mirror_portal_live();
+bool *q30_mirror_portal_prox();
+void q30_states_changed();                  // q30_triggers.cpp: the state array written again
+extern short ffposx[], ffposy[];            // maps.cpp: each FFC's last changer (upstream's changer_x/y)
+bool isblanktile(tiledata *buf, int i);     // tiles.cpp
+void master_volume(int dv, int mv);
+extern int digi_volume, midi_volume, sfx_volume, emusic_volume, pan_style;
+extern int DUkey, DDkey, DLkey, DRkey, Akey, Bkey, Skey, Lkey, Rkey, Pkey, Exkey1, Exkey2, Exkey3, Exkey4;
 bool q30_portal_warp(int x, int y, int dmap, int scr, int effect, int sound);
 bool q30_region_trigger_secrets(int scr);                               // q30_regions.cpp
 mapscr *q30_region_tmp_screen(int index, int layer);
@@ -528,7 +537,9 @@ struct Z30SavedPortal
     int sfx, warpfx, spr;
 };
 
-enum { Z30_MAX_SAVED_PORTALS = 10000, Z30_MIRROR_SAVED_UID = 1 };
+// (uids as upstream's replays show them: its static counter has handed out 1 and 2 before a game's
+// first saved portal, which is 3, and 1 is no portal of the game; the mirror's saved one is 2)
+enum { Z30_MAX_SAVED_PORTALS = 10000, Z30_MIRROR_SAVED_UID = 2 };
 static sprite_list zasm30_portals;
 static std::vector<Z30SavedPortal> zasm30_user_portals;
 static long zasm30_next_saved_portal = Z30_MIRROR_SAVED_UID + 1;
@@ -555,6 +566,10 @@ static Z30SavedPortal *z30_saved_portal(long uid, bool quiet = false)
     return NULL;
 }
 
+// q30_scripts_live.h: Game->NumSavedPortals and Game->SavedPortals[] (upstream's game->user_portals)
+static long zasm30_saved_portal_count() { return (long)zasm30_user_portals.size(); }
+static long zasm30_saved_portal_uid(long i) { return (i >= 0 && i < (long)zasm30_user_portals.size()) ? zasm30_user_portals[i].uid : 0; }
+
 // upstream's loadportal: a portal standing on the saved one's screen, if Link is there
 static Z30Portal *z30_load_portal(const Z30SavedPortal &s)
 {
@@ -578,12 +593,73 @@ void q30_portals_clear()        // ALLOFF: as upstream's portals.clear()
     zasm30_portals.clear();
 }
 
-void q30_portals_reset()        // a new game
+void q30_script_audio_restore();
+
+void q30_portals_reset()        // a new game (the saved portals come with its state array: states_sync)
 {
     zasm30_portals.clear();
+    q30_script_audio_restore();     // (and the player's own volumes come back, as upstream's)
+}
+
+// Saved portals go with the game, as upstream saves game->user_portals in the save file: in the
+// state array at the end of globalRAM (q30_triggers.cpp), kind 9, key index << 4 | field. Only
+// 2.55/3.0 scripts make saved portals, so 2.53 games never carry any.
+enum { Z30_SP_FIELDS = 10 };
+
+void q30_saved_portals_store(std::vector<long> &out)
+{
+    for(size_t i = 0; i < zasm30_user_portals.size(); ++i)
+    {
+        const Z30SavedPortal &p = zasm30_user_portals[i];
+        const long f[Z30_SP_FIELDS] = { p.uid, p.destdmap, p.srcdmap, p.srcscr, p.destscr, p.x, p.y, p.sfx, p.warpfx, p.spr };
+
+        for(int k = 0; k < Z30_SP_FIELDS; ++k)
+        {
+            out.push_back(9);
+            out.push_back(((long)i << 4) | k);
+            out.push_back(f[k]);
+        }
+    }
+}
+
+void q30_saved_portals_load(const std::vector<long> &kv)     // (key, value) pairs
+{
     zasm30_user_portals.clear();
     zasm30_next_saved_portal = Z30_MIRROR_SAVED_UID + 1;
+
+    for(size_t i = 0; i + 1 < kv.size(); i += 2)
+    {
+        const long idx = kv[i] >> 4, k = kv[i] & 15, v = kv[i + 1];
+
+        if(idx < 0 || idx >= Z30_MAX_SAVED_PORTALS || k >= Z30_SP_FIELDS)
+            continue;
+
+        if((size_t)idx >= zasm30_user_portals.size())
+        {
+            const Z30SavedPortal none = { 0, -1, -1, 0, 0, 0, 0, 0, 0, 0 };
+            zasm30_user_portals.resize(idx + 1, none);
+        }
+
+        Z30SavedPortal &p = zasm30_user_portals[idx];
+        int *const f[Z30_SP_FIELDS] = { NULL, &p.destdmap, &p.srcdmap, &p.srcscr, &p.destscr, NULL, NULL, &p.sfx, &p.warpfx, &p.spr };
+
+        if(k == 0) p.uid = v;
+        else if(k == 5) p.x = v;
+        else if(k == 6) p.y = v;
+        else *f[k] = (int)v;
+    }
+
+    for(size_t i = 0; i < zasm30_user_portals.size(); ++i)
+    {
+        if(zasm30_user_portals[i].uid <= Z30_MIRROR_SAVED_UID)
+            zasm30_user_portals[i].uid = zasm30_next_saved_portal;      // (a broken entry)
+
+        if(zasm30_user_portals[i].uid >= zasm30_next_saved_portal)
+            zasm30_next_saved_portal = zasm30_user_portals[i].uid + 1;
+    }
 }
+
+static void z30_saved_portals_changed() { q30_states_changed(); }
 
 void q30_draw_script_portals(BITMAP *dest)
 {
@@ -632,6 +708,7 @@ void q30_portals_frame()
                 if(zasm30_user_portals[k].uid == saved)
                 {
                     zasm30_user_portals.erase(zasm30_user_portals.begin() + k);
+                    z30_saved_portals_changed();
                     break;
                 }
         }
@@ -700,6 +777,7 @@ static bool z30_portal_command(word cmd)
         Z30SavedPortal s = { zasm30_next_saved_portal++, -1, -1, 0, 0, 0, 0, 0, 0, 0 };
         zasm30_user_portals.push_back(s);
         Z30_REF(SAVPORTAL) = ri->d[2] = s.uid;
+        z30_saved_portals_changed();
         return true;
     }
 
@@ -749,6 +827,7 @@ static bool z30_portal_command(word cmd)
                 if(zasm30_user_portals[k].uid == uid)
                 {
                     zasm30_user_portals.erase(zasm30_user_portals.begin() + k);
+                    z30_saved_portals_changed();
                     break;
                 }
         }
@@ -784,6 +863,227 @@ static bool z30_portal_command(word cmd)
     }
 
     return false;
+}
+
+// portal-> and savedportal-> registers (upstream's portal.cpp and savedportal.cpp). Portal ref -1
+// is the Magic Mirror's portal on this screen (upstream's mirror_portal: a cleared portal when it
+// isn't here), savedportal uid 2 the mirror's saved one; both live in q30_triggers.cpp.
+static int z30_mirror_ifield(int field)
+{
+    const int *f = q30_mirror_portal_field(field);
+    return f ? *f : 0;
+}
+
+static void z30_mirror_iset(int field, long v)
+{
+    if(int *f = q30_mirror_portal_field(field))
+    {
+        *f = (int)v;
+
+        if(field <= 8)
+            q30_states_changed();   // (the saved one)
+    }
+}
+
+static bool z30_portal_reg(const long arg, long &ret, const long value, const bool write)
+{
+    switch(arg)
+    {
+    case Z30R_PORTALACLK: case Z30R_PORTALAFRM: case Z30R_PORTALASPD: case Z30R_PORTALCLOSEDIS: case Z30R_PORTALDMAP:
+    case Z30R_PORTALFRAMES: case Z30R_PORTALOTILE: case Z30R_PORTALSAVED: case Z30R_PORTALSCREEN: case Z30R_PORTALWARPSFX:
+    case Z30R_PORTALWARPVFX: case Z30R_PORTALX: case Z30R_PORTALY:
+        break;
+    default:
+        return false;
+    }
+
+    const long ref = Z30_REF(PORTAL);
+    Z30Portal *p = ref == -1 ? NULL : z30_portal(ref);
+    // the mirror's portal while it stands here, else upstream's cleared mirror_portal
+    static Z30Portal mirror_cleared;
+    const bool mirror = ref == -1 && q30_mirror_portal_live();
+
+    if(ref == -1 && !mirror)
+    {
+        mirror_cleared = Z30Portal();
+        p = &mirror_cleared;
+    }
+
+    const long v = value / 10000;
+
+    if(!write)
+    {
+        const bool zero_default = arg == Z30R_PORTALCLOSEDIS || arg == Z30R_PORTALSAVED || arg == Z30R_PORTALWARPSFX ||
+                                  arg == Z30R_PORTALWARPVFX;
+        ret = zero_default ? 0 : -10000;
+
+        if(!p && !mirror)
+            return true;
+
+        const int destdmap = mirror ? z30_mirror_ifield(0) : p->destdmap;
+
+        switch(arg)
+        {
+        case Z30R_PORTALACLK: ret = (mirror ? z30_mirror_ifield(9) : p->aclk) * 10000; break;
+        case Z30R_PORTALAFRM: ret = (mirror ? z30_mirror_ifield(10) : p->aframe) * 10000; break;
+        case Z30R_PORTALASPD: ret = (mirror ? z30_mirror_ifield(11) : p->aspd) * 10000; break;
+        case Z30R_PORTALCLOSEDIS: ret = (mirror ? *q30_mirror_portal_prox() : p->prox_active) ? 0 : 10000; break;  // (inverted)
+        case Z30R_PORTALDMAP: ret = destdmap * 10000; break;
+        case Z30R_PORTALFRAMES: ret = (mirror ? z30_mirror_ifield(12) : p->frames) * 10000; break;
+        case Z30R_PORTALOTILE: ret = (mirror ? z30_mirror_ifield(13) : p->o_tile) * 10000; break;
+        case Z30R_PORTALSAVED: ret = mirror ? Z30_MIRROR_SAVED_UID : p->saved_data; break;
+        case Z30R_PORTALSCREEN:
+            ret = (mirror ? z30_mirror_ifield(3) + ((unsigned)destdmap < (unsigned)MAXDMAPS ? DMaps[destdmap].xoff : 0) : p->destscr) * 10000;
+            break;
+        // (upstream gives these two back as "is it unset")
+        case Z30R_PORTALWARPSFX: ret = (mirror ? z30_mirror_ifield(6) : p->wsfx) ? 0 : 10000; break;
+        case Z30R_PORTALWARPVFX: ret = (mirror ? z30_mirror_ifield(7) : p->weffect) ? 0 : 10000; break;
+        case Z30R_PORTALX: ret = mirror ? z30_mirror_ifield(4) * 10000L : long(p->x * 10000); break;
+        case Z30R_PORTALY: ret = mirror ? z30_mirror_ifield(5) * 10000L : long(p->y * 10000); break;
+        }
+
+        return true;
+    }
+
+    if(!p && !mirror)
+        return true;
+
+    switch(arg)
+    {
+    case Z30R_PORTALACLK: if(mirror) z30_mirror_iset(9, vbound(v, 0L, 9999L)); else p->aclk = vbound((int)v, 0, 9999); break;
+    case Z30R_PORTALAFRM: if(mirror) z30_mirror_iset(10, vbound(v, 0L, 9999L)); else p->aframe = vbound((int)v, 0, 9999); break;
+    case Z30R_PORTALASPD: if(mirror) z30_mirror_iset(11, vbound(v, 0L, 9999L)); else p->aspd = vbound((int)v, 0, 9999); break;
+    case Z30R_PORTALCLOSEDIS: if(mirror) *q30_mirror_portal_prox() = value == 0; else p->prox_active = value == 0; break;
+    case Z30R_PORTALDMAP: if(mirror) z30_mirror_iset(0, vbound(v, -1L, (long)MAXDMAPS - 1)); else p->destdmap = vbound((int)v, -1, MAXDMAPS - 1); break;
+    case Z30R_PORTALFRAMES: if(mirror) z30_mirror_iset(12, vbound(v, 0L, 9999L)); else p->frames = vbound((int)v, 0, 9999); break;
+    case Z30R_PORTALOTILE: if(mirror) z30_mirror_iset(13, vbound(v, 0L, (long)NEWMAXTILES - 1)); else p->o_tile = vbound((int)v, 0, NEWMAXTILES - 1); break;
+    case Z30R_PORTALSAVED:
+        if(ref < 0 || value < 0)
+            break;
+        if(!value)
+            p->saved_data = 0;
+        else if(value == Z30_MIRROR_SAVED_UID || z30_saved_portal(value))
+            p->saved_data = value;
+        break;
+    case Z30R_PORTALSCREEN:
+        if(mirror)
+        {
+            const int dm = z30_mirror_ifield(0);
+            z30_mirror_iset(3, vbound(v, 0L, 255L) - ((unsigned)dm < (unsigned)MAXDMAPS ? DMaps[dm].xoff : 0));
+        }
+        else
+            p->destscr = vbound((int)v, 0, 255);
+        break;
+    case Z30R_PORTALWARPSFX: if(mirror) z30_mirror_iset(6, vbound(v, 0L, 255L)); else p->wsfx = vbound((int)v, 0, 255); break;
+    case Z30R_PORTALWARPVFX: if(mirror) z30_mirror_iset(7, vbound(v, 0L, 255L)); else p->weffect = vbound((int)v, 0, 255); break;
+    case Z30R_PORTALX: if(mirror) z30_mirror_iset(4, v); else p->x = fix(value / 10000.0); break;
+    case Z30R_PORTALY: if(mirror) z30_mirror_iset(5, v); else p->y = fix(value / 10000.0); break;
+    }
+
+    return true;
+}
+
+// upstream's getPortalFromSaved: the portal standing for a saved one (-1 the mirror's), 0 none
+static long z30_portal_from_saved(long uid)
+{
+    if(uid == Z30_MIRROR_SAVED_UID)
+        return -1;
+
+    for(int i = 0; i < zasm30_portals.Count(); ++i)
+        if(((Z30Portal *)zasm30_portals.spr(i))->saved_data == uid)
+            return zasm30_portals.spr(i)->getUID();
+
+    return 0;
+}
+
+static bool z30_savedportal_reg(const long arg, long &ret, const long value, const bool write)
+{
+    // the field, in Q30Portal's order (q30_triggers.cpp): destdmap, srcdmap, srcscr, destscr, x, y, sfx, warpfx, spr
+    int field;
+    long lo = 0, hi = 255;
+
+    switch(arg)
+    {
+    case Z30R_SAVEDPORTALDESTDMAP: field = 0; lo = -1; hi = MAXDMAPS - 1; break;
+    case Z30R_SAVEDPORTALSRCDMAP: field = 1; lo = -1; hi = MAXDMAPS - 1; break;
+    case Z30R_SAVEDPORTALSRCSCREEN: field = 2; break;
+    case Z30R_SAVEDPORTALDSTSCREEN: field = 3; break;
+    case Z30R_SAVEDPORTALX: field = 4; break;
+    case Z30R_SAVEDPORTALY: field = 5; break;
+    case Z30R_SAVEDPORTALWARPSFX: field = 6; hi = Q30_MAX_SFX; break;
+    case Z30R_SAVEDPORTALWARPVFX: field = 7; break;
+    case Z30R_SAVEDPORTALSPRITE: field = 8; break;
+    case Z30R_SAVEDPORTALPORTAL: field = -1; break;
+    default:
+        return false;
+    }
+
+    const long uid = Z30_REF(SAVPORTAL);
+    const bool mirror = uid == Z30_MIRROR_SAVED_UID;
+    Z30SavedPortal *sp = mirror ? NULL : z30_saved_portal(uid);
+
+    if(!mirror && !sp)
+    {
+        ret = field < 0 ? 0 : -10000;
+        return true;
+    }
+
+    int *const f[9] = { mirror ? NULL : &sp->destdmap, mirror ? NULL : &sp->srcdmap, mirror ? NULL : &sp->srcscr,
+                        mirror ? NULL : &sp->destscr, NULL, NULL, mirror ? NULL : &sp->sfx, mirror ? NULL : &sp->warpfx,
+                        mirror ? NULL : &sp->spr };
+
+    if(!write)
+    {
+        if(field < 0)
+            ret = z30_portal_from_saved(uid);
+        else if(field == 4 || field == 5)       // (x and y are kept as zslongs)
+            ret = mirror ? z30_mirror_ifield(field) * 10000L : (field == 4 ? sp->x : sp->y);
+        else
+            ret = (mirror ? z30_mirror_ifield(field) : *f[field]) * 10000L;
+        return true;
+    }
+
+    if(field < 0)
+    {
+        if(uid < 0 || value < 0)
+            return true;
+
+        const long id = z30_portal_from_saved(uid);
+
+        if(id == value)
+            return true;
+
+        if(Z30Portal *p = z30_portal(value))
+        {
+            p->saved_data = uid;
+
+            if(id > 0)
+                if(Z30Portal *old = z30_portal(id))
+                    old->saved_data = 0;
+        }
+        return true;
+    }
+
+    if(field == 4 || field == 5)
+    {
+        if(mirror)
+            z30_mirror_iset(field, value / 10000);
+        else
+            (field == 4 ? sp->x : sp->y) = value;
+    }
+    else
+    {
+        const long v = vbound(value / 10000, lo, hi);
+
+        if(mirror)
+            z30_mirror_iset(field, v);
+        else
+            *f[field] = (int)v;
+    }
+
+    if(!mirror)
+        z30_saved_portals_changed();
+    return true;
 }
 
 // ==== websockets: as upstream's player behaves with no network to reach ========================
@@ -1333,6 +1633,616 @@ static bool z30_sub_trans_args(bool write, long &ret, long value)
     return true;
 }
 
+// subscreendata-> fields upstream's subscreendata.cpp has (its registers and internal arrays):
+// the page buttons and their animations, the selector, flags, and the subscreen's script, which
+// is kept here (upstream's scrconfig; the reader keeps none, so it starts at 0 as z3's does).
+struct Z30SubScrConfig { long script, initd[8]; };
+static std::map<long, Z30SubScrConfig> zasm30_sub_scrconfig;     // by subscreendata ref (page 0)
+
+static long z30_tr_arg_scale(int type, long idx)     // SubscrTransition::argScale (a slide's speed)
+{
+    return (type == 1 && idx == 1) ? 1 : 10000;
+}
+
+static bool z30_subdata_reg(const long arg, long &ret, const long value, const bool write)
+{
+    // size: the internal array's (0 a plain register); active: only for active and map subscreens
+    long size = 0;
+    bool active = true;
+
+    switch(arg)
+    {
+    case Z30R_SUBDATASCRIPT: case Z30R_SUBDATASELECTORDSTX: case Z30R_SUBDATASELECTORDSTY: case Z30R_SUBDATASELECTORDSTW:
+    case Z30R_SUBDATASELECTORDSTH: case Z30R_SUBDATATRANSLEFTTY: case Z30R_SUBDATATRANSLEFTSFX: case Z30R_SUBDATATRANSRIGHTTY:
+    case Z30R_SUBDATATRANSRIGHTSFX:
+        break;
+    case Z30R_SUBDATABTNLEFT: case Z30R_SUBDATABTNRIGHT: case Z30R_SUBDATAINITD:
+        size = 8;
+        break;
+    case Z30R_SUBDATAFLAGS:
+        size = -1;      // (by type)
+        active = false;
+        break;
+    case Z30R_SUBDATASELECTORASPD: case Z30R_SUBDATASELECTORCSET: case Z30R_SUBDATASELECTORFLASHCSET: case Z30R_SUBDATASELECTORDELAY:
+    case Z30R_SUBDATASELECTORFRM: case Z30R_SUBDATASELECTORWID: case Z30R_SUBDATASELECTORHEI: case Z30R_SUBDATASELECTORTILE:
+        size = 2;       // SUBSCR_SELECTOR_NUMTILEINFO
+        break;
+    case Z30R_SUBDATATRANSLEFTARGS: case Z30R_SUBDATATRANSRIGHTARGS:
+        size = 4;       // SUBSCR_TRANSITION_MAXARG
+        break;
+    case Z30R_SUBDATATRANSLEFTFLAGS: case Z30R_SUBDATATRANSRIGHTFLAGS:
+        size = 1;       // SUBSCR_TRANS_NUMFLAGS
+        break;
+    case Z30R_SUBDATATRANSFLAGS:
+    {
+        // the page change under way (upstream's subscr_pg_transition), current active subscreen only
+        ret = 0;
+        Z30Subscreen *s = z30_subdata(Z30_REF(SUBSCREENDATA));
+        int sub, ty, pg, ind;
+
+        if(!s || !z30_from_subref(Z30_REF(SUBSCREENDATA), sub, ty, pg, ind) || (ty != 0 && ty != 3))
+            return true;
+
+        if(s != z30_shown_active())
+        {
+            Z_scripterrlog("Only valid for the current active/map subscreen!\n");
+            return true;
+        }
+
+        long idx = 0;
+
+        if(!g_pg_anim.on || !z30_array_index(Z30_INDEX, 1, idx))
+            return true;
+
+        if(write)
+            g_pg_anim.tr.flags = value ? (g_pg_anim.tr.flags | 1) : (g_pg_anim.tr.flags & ~1);
+        else
+            ret = (g_pg_anim.tr.flags & 1) ? 10000 : 0;
+        return true;
+    }
+    default:
+        return false;
+    }
+
+    ret = 0;
+    const long ref = Z30_REF(SUBSCREENDATA);
+    Z30Subscreen *s = z30_subdata(ref);
+    int sub, ty, pg, ind;
+
+    if(!s || !z30_from_subref(ref, sub, ty, pg, ind))
+    {
+        Z_scripterrlog("Invalid subscreendata pointer: %ld\n", ref);
+        return true;
+    }
+
+    if(active && ty != 0 && ty != 3)
+    {
+        Z_scripterrlog("subscreendata: only valid for active and map subscreens\n");
+        return true;
+    }
+
+    if(size < 0)
+        size = (ty == 0 || ty == 3) ? 2 : 0;
+
+    long idx = 0;
+
+    if(size && !z30_array_index(Z30_INDEX, size, idx))
+        return true;
+
+    const long v = value / 10000;
+    Z30SubScrConfig &cfg = zasm30_sub_scrconfig[z30_subref(sub, ty, 0, 0)];
+    Q30SubTrans &tr = (arg == Z30R_SUBDATATRANSRIGHTTY || arg == Z30R_SUBDATATRANSRIGHTSFX || arg == Z30R_SUBDATATRANSRIGHTARGS ||
+                       arg == Z30R_SUBDATATRANSRIGHTFLAGS) ? s->tr_right : s->tr_left;
+
+    switch(arg)
+    {
+    case Z30R_SUBDATASCRIPT:
+        if(write) cfg.script = vbound(v, 0L, 255L);     // (NUMSCRIPTSSUBSCREEN - 1)
+        else ret = cfg.script * 10000;
+        break;
+    case Z30R_SUBDATAINITD:
+        if(write) cfg.initd[idx] = value;
+        else ret = cfg.initd[idx];
+        break;
+    case Z30R_SUBDATABTNLEFT:
+    case Z30R_SUBDATABTNRIGHT:
+    {
+        int &b = arg == Z30R_SUBDATABTNLEFT ? s->btn_left : s->btn_right;
+        if(write) b = value ? (b | (1 << idx)) : (b & ~(1 << idx));
+        else ret = ((b >> idx) & 1) ? 10000 : 0;
+        break;
+    }
+    case Z30R_SUBDATAFLAGS:
+        if(write) s->flags = value ? (s->flags | (1u << idx)) : (s->flags & ~(1u << idx));
+        else ret = (s->flags & (1u << idx)) ? 10000 : 0;
+        break;
+    case Z30R_SUBDATASELECTORDSTX: case Z30R_SUBDATASELECTORDSTY: case Z30R_SUBDATASELECTORDSTW: case Z30R_SUBDATASELECTORDSTH:
+    {
+        int &f = arg == Z30R_SUBDATASELECTORDSTX ? s->sel.x : arg == Z30R_SUBDATASELECTORDSTY ? s->sel.y :
+                 arg == Z30R_SUBDATASELECTORDSTW ? s->sel.w : s->sel.h;
+        if(write) f = (int)vbound(v, -32768L, 32767L);
+        else ret = f * 10000;
+        break;
+    }
+    case Z30R_SUBDATASELECTORWID: case Z30R_SUBDATASELECTORHEI:
+    {
+        int &f = arg == Z30R_SUBDATASELECTORWID ? s->sel.t[idx].sw : s->sel.t[idx].sh;
+        if(write) f = (int)vbound(v, 0L, 65535L);
+        else ret = f * 10000;
+        break;
+    }
+    case Z30R_SUBDATASELECTORTILE:
+        if(write) s->sel.t[idx].tile = vbound(v, 0L, (long)NEWMAXTILES - 1);
+        else ret = s->sel.t[idx].tile * 10000;
+        break;
+    case Z30R_SUBDATASELECTORCSET:
+        if(write) s->sel.t[idx].cset = (s->sel.t[idx].cset & 0xF0) | (int)vbound(v, 0L, 15L);
+        else ret = (s->sel.t[idx].cset & 0x0F) * 10000;
+        break;
+    case Z30R_SUBDATASELECTORFLASHCSET:
+        if(write) s->sel.t[idx].cset = (s->sel.t[idx].cset & 0x0F) | ((int)vbound(v, 0L, 15L) << 4);
+        else ret = ((s->sel.t[idx].cset & 0xF0) >> 4) * 10000;
+        break;
+    case Z30R_SUBDATASELECTORFRM:
+        if(write) s->sel.t[idx].frames = (int)vbound(v, 1L, 255L);
+        else ret = s->sel.t[idx].frames * 10000;
+        break;
+    case Z30R_SUBDATASELECTORASPD:
+        if(write) s->sel.t[idx].speed = (int)vbound(v, 1L, 255L);
+        else ret = s->sel.t[idx].speed * 10000;
+        break;
+    case Z30R_SUBDATASELECTORDELAY:
+        if(write) s->sel.t[idx].delay = (int)vbound(v, 0L, 255L);
+        else ret = s->sel.t[idx].delay * 10000;
+        break;
+    case Z30R_SUBDATATRANSLEFTTY: case Z30R_SUBDATATRANSRIGHTTY:
+        if(write) tr.type = (int)vbound(v, 0L, 2L);     // (sstrMAX - 1)
+        else ret = tr.type * 10000;
+        break;
+    case Z30R_SUBDATATRANSLEFTSFX: case Z30R_SUBDATATRANSRIGHTSFX:
+        if(write) tr.sfx = (int)vbound(v, 0L, (long)Q30_MAX_SFX);
+        else ret = tr.sfx * 10000;
+        break;
+    case Z30R_SUBDATATRANSLEFTFLAGS: case Z30R_SUBDATATRANSRIGHTFLAGS:
+        if(write) tr.flags = value ? (tr.flags | (1 << idx)) : (tr.flags & ~(1 << idx));
+        else ret = (tr.flags & (1 << idx)) ? 10000 : 0;
+        break;
+    case Z30R_SUBDATATRANSLEFTARGS: case Z30R_SUBDATATRANSRIGHTARGS:
+        if(write) tr.arg[idx] = value / z30_tr_arg_scale(tr.type, idx);
+        else ret = tr.arg[idx] * z30_tr_arg_scale(tr.type, idx);
+        break;
+    }
+
+    return true;
+}
+
+// subscreenwidget-> page change, press script, selector override and shown box (upstream's
+// subscreenwidget.cpp; the type-specific SUBWIDGTY_ fields are q30_scripts_subscr.h's)
+static bool z30_subwidg_reg(const long arg, long &ret, const long value, const bool write)
+{
+    long size = 0;
+    bool active = true;
+
+    switch(arg)
+    {
+    case Z30R_SUBWIDGPGMODE: case Z30R_SUBWIDGPGTARG: case Z30R_SUBWIDGPRESSSCRIPT: case Z30R_SUBWIDGSELECTORDSTX:
+    case Z30R_SUBWIDGSELECTORDSTY: case Z30R_SUBWIDGSELECTORDSTW: case Z30R_SUBWIDGSELECTORDSTH: case Z30R_SUBWIDGTRANSPGSFX:
+    case Z30R_SUBWIDGTRANSPGTY:
+        break;
+    case Z30R_SUBWIDG_DISPX: case Z30R_SUBWIDG_DISPY: case Z30R_SUBWIDG_DISPW: case Z30R_SUBWIDG_DISPH:
+        active = false;
+        break;
+    case Z30R_SUBWIDGBTNPG: case Z30R_SUBWIDGBTNPRESS: case Z30R_SUBWIDGPRESSINITD:
+        size = 8;
+        break;
+    case Z30R_SUBWIDGSELECTORASPD: case Z30R_SUBWIDGSELECTORCSET: case Z30R_SUBWIDGSELECTORFLASHCSET: case Z30R_SUBWIDGSELECTORDELAY:
+    case Z30R_SUBWIDGSELECTORFRM: case Z30R_SUBWIDGSELECTORWID: case Z30R_SUBWIDGSELECTORHEI: case Z30R_SUBWIDGSELECTORTILE:
+        size = 2;       // SUBSCR_SELECTOR_NUMTILEINFO
+        break;
+    case Z30R_SUBWIDGTRANSPGARGS:
+        size = 4;       // SUBSCR_TRANSITION_MAXARG
+        break;
+    case Z30R_SUBWIDGTRANSPGFLAGS:
+        size = 1;       // SUBSCR_TRANS_NUMFLAGS
+        break;
+    default:
+        return false;
+    }
+
+    ret = 0;
+    const long ref = Z30_REF(SUBSCREENWIDG);
+    subscreen_object *o = NULL;
+    Z30SubWidget *w = z30_subwidg(ref, &o);
+    int sub, ty, pg, ind;
+
+    if(!w || !z30_from_subref(ref, sub, ty, pg, ind))
+    {
+        Z_scripterrlog("Invalid subscreenwidget pointer: %ld\n", ref);
+        return true;
+    }
+
+    if(active && ty != 0 && ty != 3)
+    {
+        Z_scripterrlog("subscreenwidget: only valid for active and map subscreens\n");
+        return true;
+    }
+
+    long idx = 0;
+
+    if(size && !z30_array_index(Z30_INDEX, size, idx))
+        return true;
+
+    const long v = value / 10000;
+
+    switch(arg)
+    {
+    case Z30R_SUBWIDG_DISPX: case Z30R_SUBWIDG_DISPY: case Z30R_SUBWIDG_DISPW: case Z30R_SUBWIDG_DISPH:
+        // (read only) the box it is drawn in: upstream's getX()..getH(), 2.53's sso_x..sso_h of its object
+        if(!write)
+            ret = (arg == Z30R_SUBWIDG_DISPX ? (o ? sso_x(o) : w->x) : arg == Z30R_SUBWIDG_DISPY ? (o ? sso_y(o) : w->y) :
+                   arg == Z30R_SUBWIDG_DISPW ? (o ? sso_w(o) : w->w) : (o ? sso_h(o) : w->h)) * 10000;
+        break;
+    case Z30R_SUBWIDGPGMODE:
+        if(write) w->pg_mode = (int)vbound(v, 0L, 4L);      // (PGGOTO_MAX - 1)
+        else ret = w->pg_mode * 10000;
+        break;
+    case Z30R_SUBWIDGPGTARG:
+        if(write) w->pg_targ = (int)vbound(v, 0L, 254L);    // (MAX_SUBSCR_PAGES - 1)
+        else ret = w->pg_targ * 10000;
+        break;
+    case Z30R_SUBWIDGPRESSSCRIPT:
+        if(write) w->script = (int)vbound(v, 0L, 511L);     // (NUMSCRIPTSGENERIC - 1)
+        else ret = w->script * 10000;
+        break;
+    case Z30R_SUBWIDGPRESSINITD:
+        if(write) w->script_initd[idx] = value;
+        else ret = w->script_initd[idx];
+        break;
+    case Z30R_SUBWIDGBTNPG:
+    case Z30R_SUBWIDGBTNPRESS:
+    {
+        int &b = arg == Z30R_SUBWIDGBTNPG ? w->pg_btns : w->script_btns;
+        if(write) b = value ? (b | (1 << idx)) : (b & ~(1 << idx));
+        else ret = ((b >> idx) & 1) ? 10000 : 0;
+        break;
+    }
+    case Z30R_SUBWIDGSELECTORDSTX: case Z30R_SUBWIDGSELECTORDSTY: case Z30R_SUBWIDGSELECTORDSTW: case Z30R_SUBWIDGSELECTORDSTH:
+    {
+        int &f = arg == Z30R_SUBWIDGSELECTORDSTX ? w->sel.x : arg == Z30R_SUBWIDGSELECTORDSTY ? w->sel.y :
+                 arg == Z30R_SUBWIDGSELECTORDSTW ? w->sel.w : w->sel.h;
+        if(write) f = (int)vbound(v, -32768L, 32767L);
+        else ret = f * 10000;
+        break;
+    }
+    case Z30R_SUBWIDGSELECTORWID: case Z30R_SUBWIDGSELECTORHEI:
+    {
+        int &f = arg == Z30R_SUBWIDGSELECTORWID ? w->sel.t[idx].sw : w->sel.t[idx].sh;
+        if(write) f = (int)vbound(v, 0L, 65535L);
+        else ret = f * 10000;
+        break;
+    }
+    case Z30R_SUBWIDGSELECTORTILE:
+        if(write) w->sel.t[idx].tile = vbound(v, 0L, (long)NEWMAXTILES - 1);
+        else ret = w->sel.t[idx].tile * 10000;
+        break;
+    case Z30R_SUBWIDGSELECTORCSET:
+        if(write) w->sel.t[idx].cset = (w->sel.t[idx].cset & 0xF0) | (int)vbound(v, 0L, 15L);
+        else ret = (w->sel.t[idx].cset & 0x0F) * 10000;
+        break;
+    case Z30R_SUBWIDGSELECTORFLASHCSET:
+        if(write) w->sel.t[idx].cset = (w->sel.t[idx].cset & 0x0F) | ((int)vbound(v, 0L, 15L) << 4);
+        else ret = ((w->sel.t[idx].cset & 0xF0) >> 4) * 10000;
+        break;
+    case Z30R_SUBWIDGSELECTORFRM:
+        if(write) w->sel.t[idx].frames = (int)vbound(v, 1L, 255L);
+        else ret = w->sel.t[idx].frames * 10000;
+        break;
+    case Z30R_SUBWIDGSELECTORASPD:
+        if(write) w->sel.t[idx].speed = (int)vbound(v, 1L, 255L);
+        else ret = w->sel.t[idx].speed * 10000;
+        break;
+    case Z30R_SUBWIDGSELECTORDELAY:
+        if(write) w->sel.t[idx].delay = (int)vbound(v, 0L, 255L);
+        else ret = w->sel.t[idx].delay * 10000;
+        break;
+    case Z30R_SUBWIDGTRANSPGTY:
+        if(write) w->pg_tr.type = (int)vbound(v, 0L, 2L);   // (sstrMAX - 1)
+        else ret = w->pg_tr.type * 10000;
+        break;
+    case Z30R_SUBWIDGTRANSPGSFX:
+        if(write) w->pg_tr.sfx = (int)vbound(v, 0L, (long)Q30_MAX_SFX);
+        else ret = w->pg_tr.sfx * 10000;
+        break;
+    case Z30R_SUBWIDGTRANSPGARGS:   // (upstream bounds the raw value to a byte before scaling it)
+        if(write) w->pg_tr.arg[idx] = vbound(value, 0L, 255L) / z30_tr_arg_scale(w->pg_tr.type, idx);
+        else ret = w->pg_tr.arg[idx] * z30_tr_arg_scale(w->pg_tr.type, idx);
+        break;
+    case Z30R_SUBWIDGTRANSPGFLAGS:
+        if(write) w->pg_tr.flags = vbound(v, 0L, 255L) ? (w->pg_tr.flags | (1 << idx)) : (w->pg_tr.flags & ~(1 << idx));
+        else ret = (w->pg_tr.flags & (1 << idx)) ? 10000 : 0;
+        break;
+    }
+
+    return true;
+}
+
+// ==== plain commands and registers of upstream's ffscript.cpp and scripting/types ===============
+
+// Audio->Volume[] and Audio->PanStyle set by a script (upstream's FFCORE_SCRIPTED_*): the player's
+// own values come back when the next game starts or the settings are saved, as upstream's do.
+static bool zasm30_audio_scripted[5] = { false, false, false, false, false };
+static int zasm30_audio_user[5];
+
+static int *z30_audio_var(int i)    // midi, digi, enhanced music, sfx, pan
+{
+    int *const v[5] = { &midi_volume, &digi_volume, &emusic_volume, &sfx_volume, &pan_style };
+    return v[i];
+}
+
+static void z30_audio_apply(int i, int value)     // (upstream's do_setMIDI_volume and friends)
+{
+    if(i == 0)
+        master_volume(-1, value);
+    else if(i == 1)
+        master_volume(value, -1);
+    else
+        *z30_audio_var(i) = value;
+}
+
+static void z30_audio_script_set(int i, int value)
+{
+    if(!zasm30_audio_scripted[i])
+    {
+        zasm30_audio_user[i] = *z30_audio_var(i);
+        zasm30_audio_scripted[i] = true;
+    }
+
+    z30_audio_apply(i, value);
+}
+
+void q30_script_audio_restore()
+{
+    for(int i = 0; i < 5; ++i)
+        if(zasm30_audio_scripted[i])
+        {
+            z30_audio_apply(i, zasm30_audio_user[i]);
+            zasm30_audio_scripted[i] = false;
+        }
+}
+
+static long zasm30_sprite_draw_target = 0;      // Graphics->SpriteLayerTarget (upstream's sprite_draw_target_ref)
+static std::map<std::pair<long, long>, long> zasm30_shop_strings;    // shopdata->String[] (2.53's shops have none)
+
+static bool z30_misc_reg(const long arg, long &ret, const long value, const bool write)
+{
+    long n = 0;
+    const long v = value / 10000;
+
+    switch(arg)
+    {
+    case Z30R_AUDIOVOLUME:      // (sets only under qr_OLD_SCRIPT_VOLUME, as upstream)
+        if(!z30_array_index(Z30_INDEX, 4, n))
+        {
+            ret = 0;
+            return true;
+        }
+        if(!write)
+            ret = *z30_audio_var(n) * 10000;
+        else if(q30_quest_rule(560))
+            z30_audio_script_set(n, (int)(n == 3 ? v : vbound(v, 0L, 255L)));    // (qr_OLD_SCRIPT_VOLUME = 560)
+        return true;
+    case Z30R_AUDIOPAN:
+        if(write)
+            z30_audio_script_set(4, (int)vbound(v, 0L, 3L));
+        else
+            ret = pan_style * 10000;
+        return true;
+    case Z30R_MAXDRAWS:
+        if(!write) ret = 10000 * 10000L;   // upstream's MAX_SCRIPT_DRAWING_COMMANDS (script_drawing.h: 2.55/3.0 quests get it)
+        return true;
+    case Z30R_NUMDRAWS:
+        if(!write) ret = script_drawing_commands.Count() * 10000;
+        return true;
+    case Z30R_GRAPHICS_SPRITE_LAYER_TARGET:
+        if(write) zasm30_sprite_draw_target = value;
+        else ret = zasm30_sprite_draw_target;
+        return true;
+    case Z30R_IS8BITTILE:
+    case Z30R_ISBLANKTILE:
+        ret = 0;
+        if(write || !z30_array_index(Z30_INDEX, NEWMAXTILES, n))
+            return true;
+        if(arg == Z30R_IS8BITTILE)
+            ret = newtilebuf[n].format == tf8Bit ? 10000 : 0;
+        else
+            ret = isblanktile(newtilebuf, (int)n) ? 10000 : 0;
+        return true;
+    case Z30R_DROPSETNULLCHANCE:
+    {
+        const long ref = Z30_REF(DROPSETDATA);
+        if(unsigned(ref) >= (unsigned)MAXITEMDROPSETS)
+        {
+            Z_scripterrlog("Invalid dropset pointer %ld\n", ref);
+            if(!write) ret = -10000;
+            return true;
+        }
+        if(write) item_drop_sets[ref].chance[0] = (word)vbound(v, 0L, 32767L);
+        else ret = item_drop_sets[ref].chance[0] * 10000;
+        return true;
+    }
+    case Z30R_FFCINDEX:
+    case Z30R_FFCLASTCHANGERX:
+    case Z30R_FFCLASTCHANGERY:
+    {
+        const long ref = zasm30_selected_ffc_ref();
+        const int i = ref ? (int)((ref - Z30_FFC_BASE) % Q30_MAXFFCS) : -1;
+        ret = -10000;
+        if(i < 0)
+            return true;
+        if(arg == Z30R_FFCINDEX)
+        {
+            if(!write) ret = i * 10000;
+            return true;
+        }
+        short &c = arg == Z30R_FFCLASTCHANGERX ? ffposx[i] : ffposy[i];
+        if(write) c = (short)vbound(v, -32768L, 32767L);
+        else ret = c * 10000;
+        return true;
+    }
+    case Z30R_FFC_POSSTATE:     // ffc->PosState[8]: the FFC's position states (q30_triggers.cpp keeps them, key 1000 + slot)
+    {
+        const long ref = zasm30_selected_ffc_ref();
+        const int i = ref ? (int)((ref - Z30_FFC_BASE) % Q30_MAXFFCS) : -1;
+        ret = 0;
+        if(i < 0 || !z30_array_index(Z30_INDEX, 8, n))
+            return true;
+        byte &st = q30_pos_state(currmap * MAPSCRSNORMAL + homescr, 1000 + i);
+        if(!write)
+            ret = (st & (1 << n)) ? 10000 : 0;
+        else
+        {
+            st = value ? (byte)(st | (1 << n)) : (byte)(st & ~(1 << n));
+            q30_states_changed();
+        }
+        return true;
+    }
+    case Z30R_KEYBINDINGS:      // (read only: scripts can't change the player's keys)
+    {
+        const int keys[14] = { DUkey, DDkey, DLkey, DRkey, Akey, Bkey, Skey, Lkey, Rkey, Pkey, Exkey1, Exkey2, Exkey3, Exkey4 };
+        ret = 0;
+        if(!write && z30_array_index(Z30_INDEX, 14, n))
+            ret = keys[n] * 10000;
+        return true;
+    }
+    case Z30R_RAWKEY:
+        ret = 0;
+        if(!z30_array_index(Z30_INDEX, 127, n))
+            return true;
+        if(write) key[n] = value ? 1 : 0;
+        else ret = key[n] ? 10000 : 0;
+        return true;
+    case Z30R_SIMULATEKEYPRESS:
+        if(!write)
+        {
+            Z_scripterrlog("Not supported.\n");
+            ret = 0;
+        }
+        else if(v)
+            simulate_keypress((int)(ri->d[0] / 10000) << 8);
+        return true;
+    case Z30R_SHOPDATASTRING:
+    {
+        const long ref = Z30_REF(SHOPDATA);
+        ret = 0;
+        if(ref < 0 || ref > 511)
+        {
+            Z_scripterrlog("Invalid shopdata pointer: %ld\n", ref);
+            return true;
+        }
+        if(!z30_array_index(Z30_INDEX, 3, n))
+            return true;
+        if(write) zasm30_shop_strings[std::make_pair(ref, n)] = v;
+        else ret = zasm30_shop_strings[std::make_pair(ref, n)] * 10000;
+        return true;
+    }
+    case Z30R_SPRITEDATAFLAGS:
+    {
+        const long ref = Z30_REF(SPRITEDATA);
+        ret = 0;
+        if(unsigned(ref) >= (unsigned)MAXWPNS || !z30_array_index(Z30_INDEX, 4, n))
+            return true;
+        if(write) wpnsbuf[ref].misc = value ? (wpnsbuf[ref].misc | (1 << n)) : (wpnsbuf[ref].misc & ~(1 << n));
+        else ret = ((wpnsbuf[ref].misc >> n) & 1) ? 10000 : 0;
+        return true;
+    }
+    }
+
+    return false;
+}
+
+// upstream's do_internal_strcmp / stricmp: the result goes to the next conditional (cmp_strcache),
+// which here is the compare flags it reads
+static void z30_strcmp_flags(int r)
+{
+    ri->scriptflag &= ~(MOREFLAG | TRUEFLAG);
+
+    if(r > 0) ri->scriptflag |= MOREFLAG;
+    else if(r == 0) ri->scriptflag |= MOREFLAG | TRUEFLAG;
+}
+
+static bool z30_misc_command(word cmd)
+{
+    switch(cmd)
+    {
+    case Z30C_MODV2:        // do_mod(true, true): the literal % the register, into the register
+    {
+        long temp = get_register(sarg2);
+        const long temp2 = sarg1;
+
+        if(temp == 0)
+        {
+            Z_scripterrlog("Attempted to modulo by zero!\n");
+            temp = 1;
+        }
+
+        set_register(sarg2, temp == -1 ? 0 : temp2 % temp);
+        return true;
+    }
+    case Z30C_POWERV2:      // do_power(true, true)
+    {
+        const double temp = get_register(sarg2) / 10000.0, temp2 = sarg1 / 10000.0;
+
+        if(temp == 0 && temp2 == 0)
+            set_register(sarg2, 10000);
+        else
+            set_register(sarg2, (long)(int32_t)(pow(temp2, temp) * 10000.0));
+        return true;
+    }
+    case Z30C_XTOI2:        // the string at D0, as upstream's zc_xtoi (no "0x")
+    {
+        string a;
+        ArrayH::getString(ri->d[0] / 10000, a);
+        const char *p = a.c_str();
+        const bool neg = *p == '-';
+        int32_t val = 0;
+
+        if(neg)
+            ++p;
+
+        while(isxdigit((unsigned char)*p))
+        {
+            val <<= 4;
+            val += *p <= '9' ? *p - '0' : ((*p) | 0x20) - 'a' + 10;
+            ++p;
+        }
+
+        set_register(sarg1, (neg ? -val : val) * 10000);
+        return true;
+    }
+    case Z30C_STACKWRITEATRV:   // do_writeat(false, true)
+        SH::write_stack(SPR + sarg2, get_register(sarg1));
+        return true;
+    case Z30C_TOBYTE:       set_register(sarg1, (byte)(get_register(sarg1) / 10000) * 10000); return true;
+    case Z30C_TOSIGNEDBYTE: set_register(sarg1, (signed char)(get_register(sarg1) / 10000) * 10000); return true;
+    case Z30C_TOWORD:       set_register(sarg1, (word)(get_register(sarg1) / 10000) * 10000); return true;
+    case Z30C_TOSHORT:      set_register(sarg1, (short)(get_register(sarg1) / 10000) * 10000); return true;
+    case Z30C_TOINTEGER:    set_register(sarg1, (get_register(sarg1) / 10000) * 10000); return true;
+    case Z30C_GREYSCALER: case Z30C_GREYSCALEV: case Z30C_MONOCHROMER: case Z30C_MONOCHROMEV:
+        return true;        // (upstream removed them: they do nothing)
+    case Z30C_STRCMPR:
+    case Z30C_STRICMPR:
+    {
+        string a, b;
+        ArrayH::getString(get_register(sarg1) / 10000, a);
+        ArrayH::getString(get_register(sarg2) / 10000, b);
+        z30_strcmp_flags(cmd == Z30C_STRCMPR ? strcmp(a.c_str(), b.c_str()) : stricmp(a.c_str(), b.c_str()));
+        return true;
+    }
+    }
+
+    return false;
+}
+
 // ==== other commands ============================================================================
 
 // zinfo's default_itype_strings (the first 88; the rest come out as -zzNNN, as upstream's
@@ -1485,7 +2395,8 @@ long q30_dmap_intro_string(int dmap);
 
 static bool zasm30_sys_command(word cmd)
 {
-    if(z30_savemenu_command(cmd) || z30_portal_command(cmd) || z30_websocket_command(cmd) || z30_sub_sys_command(cmd))
+    if(z30_savemenu_command(cmd) || z30_portal_command(cmd) || z30_websocket_command(cmd) || z30_sub_sys_command(cmd) ||
+       z30_misc_command(cmd))
         return true;
 
     switch(cmd)
@@ -2102,7 +3013,9 @@ long q30_item_moveflags_of(int id)
 
 static bool zasm30_sys_reg(const long arg, long &ret, const long value, const bool write)
 {
-    if(z30_savemenu_reg(arg, ret, value, write))
+    if(z30_savemenu_reg(arg, ret, value, write) || z30_portal_reg(arg, ret, value, write) || z30_savedportal_reg(arg, ret, value, write) ||
+       z30_subdata_reg(arg, ret, value, write) || z30_misc_reg(arg, ret, value, write) ||
+       z30_subwidg_reg(arg, ret, value, write))
         return true;
 
     switch(arg)

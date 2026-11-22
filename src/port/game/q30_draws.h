@@ -558,8 +558,9 @@ static void z30d_bmp_poly3d(BITMAP *refbmp, int *sdci, std::vector<long> *vp, in
     {
         if(w < 1 || h < 1 || ((w - 1) & w) != 0 || ((h - 1) & h) != 0)
         {
-            Z_message(quad ? "Quad3d() : Args h, w, must be in powers of two! Power of 2 error with %i, %i."
-                           : "bitmap->Triangle3d() : Args h, w, must be in powers of two! Power of 2 error with %i, %i.", w, h);
+            // (each a line of its own, as upstream's console log has them)
+            Z_message(quad ? "Quad3d() : Args h, w, must be in powers of two! Power of 2 error with %i, %i.\n"
+                           : "bitmap->Triangle3d() : Args h, w, must be in powers of two! Power of 2 error with %i, %i.\n", w, h);
             return;
         }
     }

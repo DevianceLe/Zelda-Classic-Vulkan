@@ -519,6 +519,8 @@ void save_game_configs()
     
     set_config_int(cfg_sect,"epilepsy_flash_reduction",epilepsyFlashReduction);
     
+    void q30_script_audio_restore();    // q30_scripts_sys.h: volumes a 2.55/3.0 script set aren't the player's
+    q30_script_audio_restore();
     set_config_int(cfg_sect,"digi",digi_volume);
     set_config_int(cfg_sect,"midi",midi_volume);
     set_config_int(cfg_sect,"sfx",sfx_volume);

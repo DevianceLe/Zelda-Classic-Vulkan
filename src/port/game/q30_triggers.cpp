@@ -47,6 +47,10 @@ static bool msgstr_blocking_step()
     return msgstr != 0 && get_bit(quest_rules, qr_MSGFREEZE);
 }
 
+// 2.55/3.0 scripts' saved portals (q30_scripts_sys.h): kept in the state array below as kind 9
+void q30_saved_portals_store(std::vector<long> &out);
+void q30_saved_portals_load(const std::vector<long> &kv);
+
 // ---- data ----------------------------------------------------------------------------
 
 
@@ -1817,6 +1821,8 @@ void states_flush()
             out.push_back(g_saved_slot[i]);
         }
 
+    q30_saved_portals_store(out);   // kind 9
+
     ZScriptArray *a = state_array();
 
     if(!a)
@@ -1866,11 +1872,9 @@ void states_sync()
     g_states_dirty = false;
     q30_cutscene_clear();
     q30_lift_reset();
+    std::vector<long> portals;
 
-    if(!a)
-        return;
-
-    for(dword i = 2; i + 2 < a->Size(); i += 3)
+    for(dword i = 2; a && i + 2 < a->Size(); i += 3)
     {
         long kind = (*a)[i], key = (*a)[i + 1], val = (*a)[i + 2];
 
@@ -1927,8 +1931,15 @@ void states_sync()
         case 8:
             if(key >= 0 && key < 4) g_saved_slot[key] = (int)val;
             break;
+
+        case 9:
+            portals.push_back(key);
+            portals.push_back(val);
+            break;
         }
     }
+
+    q30_saved_portals_load(portals);
 }
 
 // ---- counters past 2.53's 32 ---------------------------------------------------------------
@@ -12389,6 +12400,54 @@ static int guy_defense(int guy, int slot)
     return (it == g_guy_defenses.end() || slot < 0 || slot >= FILE_DEF_SLOTS) ? 0 : it->second[slot];
 }
 
+int q30_guy_defense(int guy, int slot) { return guy_defense(guy, slot); }     // (npc->ScriptDefense[])
+
+// q30_scripts_live.h's Hero registers over the state this file keeps (upstream's HeroClass
+// members): 0 pit_pulldir, 1 pit_pullclk, 2 ice_combo, 3 script_ice_combo, 4 ice_vx and 5 ice_vy
+// (1/10000ths), 6 ice_entry_count, 7 ice_entry_mcount, 8 sliding, 9 liftclk, 10 tliftclk,
+// 11 liftheight (1/10000ths), 12 liftflags, 13 switchhookclk, 14 switchhookmaxtime,
+// 15 forced_respawn_point, 16-19 itembox_xofs, _yofs, _width, _height (the init data's, or
+// zinit's defaults; a write goes through q30_set_item_box). A write sets it; the value is returned.
+long q30_live_state(int what, bool write, long v)
+{
+    switch(what)
+    {
+    case 0:  if(write) g_pit_pulldir = (int)v; return g_pit_pulldir;
+    case 1:  if(write) g_pit_pullclk = (int)v; return g_pit_pullclk;
+    case 2:  if(write) g_ice_combo = (int)v; return g_ice_combo;
+    case 3:  if(write) g_script_ice = (int)v; return g_script_ice;
+    case 4:  if(write) g_ice_vx = v / 10000.0; return (long)(g_ice_vx * 10000.0);
+    case 5:  if(write) g_ice_vy = v / 10000.0; return (long)(g_ice_vy * 10000.0);
+    case 6:  if(write) g_ice_entry = (int)v; return g_ice_entry;
+    case 7:  if(write) g_ice_mentry = (int)v; return g_ice_mentry;
+    case 8:  if(write) g_sliding = (int)v; return g_sliding;
+    case 9:  if(write) g_lift_clk = (int)v; return g_lift_clk;
+    case 10: if(write) g_lift_tclk = (int)v; return g_lift_tclk;
+    case 11: if(write) g_lift_height = v / 10000.0; return (long)(g_lift_height * 10000.0);
+    case 12: if(write) g_lift_flags = (int)v; return g_lift_flags;
+    case 13: return g_sw.clk;
+    case 14: return g_sw.maxtime;
+    case 15: if(write) g_respawn_forced = v != 0; return g_respawn_forced ? 1 : 0;
+    case 16: case 17: case 18: case 19:
+    {
+        int b[4] = { 0, 8, 16, 8 };     // (upstream's zinit defaults)
+
+        if(g_item_box_set)
+            memcpy(b, g_item_box, sizeof(b));
+
+        if(write)
+        {
+            b[what - 16] = (int)v;
+            q30_set_item_box(b[0], b[1], b[2], b[3]);
+        }
+
+        return b[what - 16];
+    }
+    }
+
+    return 0;
+}
+
 // A wpnsbuf sprite played once at a spot: the switch poof (upstream's comboSprite), or a
 // push block dropping into a pit (hold_last: the last frame stays until the end).
 class q30_sprite_deco : public decoration
@@ -13691,6 +13750,27 @@ void q30_mirror_portal_remove(bool saved)
         g_portal = Q30_NO_PORTAL;
         states_mark();
     }
+}
+
+// Script registers on the Magic Mirror's portals: the saved one (savedportal uid 2, upstream's
+// saved_mirror_portal) by Q30Portal's fields 0-8, the one standing on this screen (portal ref -1,
+// upstream's mirror_portal) also by 9-13 (aclk, aframe, aspd, frames, o_tile). NULL: no such field.
+int *q30_mirror_portal_field(int field)
+{
+    int *const f[14] = { &g_portal.destdmap, &g_portal.srcdmap, &g_portal.srcscr, &g_portal.destscr, &g_portal.x, &g_portal.y,
+                         &g_portal.sfx, &g_portal.warpfx, &g_portal.spr, &g_portal_aclk, &g_portal_aframe, &g_portal_aspd,
+                         &g_portal_frames, &g_portal_tile };
+    return (field >= 0 && field < 14) ? f[field] : NULL;
+}
+
+bool q30_mirror_portal_live() { return g_portal_live && portal_here(); }
+bool *q30_mirror_portal_prox() { return &g_portal_prox; }
+
+// The state array again now (kind 9, a script changed the saved portals)
+void q30_states_changed()
+{
+    states_mark();
+    states_flush();
 }
 
 // A script portal's warp (upstream's handle_portal_collide): Link onto its spot, then to its

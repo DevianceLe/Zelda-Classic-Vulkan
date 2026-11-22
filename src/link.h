@@ -37,7 +37,7 @@
 extern movingblock mblock2;                                 //mblock[4]?
 extern sprite_list  guys, items, Ewpns, Lwpns, Sitems, chainlinks, decorations;
 
-extern const byte lsteps[8];
+extern byte lsteps[8];       // (2.55/3.0 scripts can change it: Hero->Steps[])
 
 enum { did_fairy=1, did_candle=2, did_whistle=4, did_magic=8, did_glove=16, did_all=32 };
 
@@ -358,6 +358,7 @@ public:
     void q30_keep_respawn_point();      // (2.55/3.0 quests with upstream's newer respawn points)
     int getEntryX() const { return int(entry_x); }   // for 3.0 scripts' Screen->EntryX/Y
     int getEntryY() const { return int(entry_y); }
+    void q30_set_respawn(fix nx, fix ny) { entry_x = nx; entry_y = ny; }  // (Hero->RespawnX/Y)
     LinkClass();
     void init();
     virtual void drawshadow(BITMAP* dest, bool translucent);

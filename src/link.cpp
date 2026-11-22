@@ -78,7 +78,8 @@ extern word g_doscript;
 
 void playLevelMusic();
 
-const byte lsteps[8] = { 1, 1, 2, 1, 1, 2, 1, 1 };
+byte lsteps[8] = { 1, 1, 2, 1, 1, 2, 1, 1 };     // (2.55/3.0 scripts can change it: Hero->Steps[])
+long q30_hero_shove = 65000;    // 2.55/3.0: Hero->ShoveOffset in 1/10000ths (upstream's shove_offset, 6.5 to start)
 
 
 // 2.55/3.0: upstream's _walkflag takes Link's position cut off to whole pixels (zfix_round's
@@ -9201,7 +9202,7 @@ bool LinkClass::q30_move_xy(double dx, double dy, bool shove)
         }
     }
 
-    const double shove_offset = 6.5;
+    const double shove_offset = q30_hero_shove / 10000.0;     // (Hero->ShoveOffset, upstream's 6.5 to start)
     bool sensitive = q30_quest_rule(Q30_QR_SENSITIVE_SOLID_DAMAGE);
     bool skipdmg = hclk || (z > 0 && !(tmpscr->flags2 & fAIRCOMBOS)) ||
                    q30_quest_rule(Q30_QR_LENIENT_SOLID_DAMAGE) || get_bit(quest_rules, qr_NOSOLIDDAMAGECOMBOS);

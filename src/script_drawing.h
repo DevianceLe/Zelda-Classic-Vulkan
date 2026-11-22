@@ -7,6 +7,9 @@
 
 
 #define MAX_SCRIPT_DRAWING_COMMANDS 1000
+// 2.55/3.0 quests' scripts may queue 10000 (upstream's MAX_SCRIPT_DRAWING_COMMANDS, Graphics->MaxDraws)
+extern long zasm30_ffscript_version;
+inline int script_drawing_max() { return zasm30_ffscript_version ? 10000 : MAX_SCRIPT_DRAWING_COMMANDS; }
 #define SCRIPT_DRAWING_COMMAND_VARIABLES 20
 
 
@@ -334,7 +337,7 @@ public:
     
     int GetNext()
     {
-        if(count>=MAX_SCRIPT_DRAWING_COMMANDS)
+        if(count>=script_drawing_max())
             return -1;
         
         const int next_index = count;
@@ -350,7 +353,7 @@ public:
             else
             {
                 //might as well just max it out
-                commands.resize(MAX_SCRIPT_DRAWING_COMMANDS);
+                commands.resize(script_drawing_max());
             }
         }
         

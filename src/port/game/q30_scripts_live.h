@@ -14,6 +14,15 @@
 int q30_pit_combo();                    // q30_triggers.cpp: the pit Link fell in (upstream's fallCombo)
 void q30_set_pit_combo(int cid);
 void q30_set_item_slot(int itm, int slot, int force);  // link.cpp: Hero->SetItemSlot()
+long q30_live_state(int what, bool write, long value);  // q30_triggers.cpp: the Hero state kept there (Z30LS_*)
+int q30_guy_defense(int guy, int slot);                // q30_triggers.cpp: an enemy's defense as stored, 0 if none
+bool joybtn(int b);                                    // zc_sys.cpp
+extern bool button_hold[18];                           // zc_sys.cpp
+extern byte lsteps[8];                                 // link.cpp: Link's steps through each 8 pixels (Hero->Steps[])
+extern long q30_hero_shove;                            // link.cpp: Hero->ShoveOffset (1/10000ths, upstream's 6.5 to start)
+extern long q30_init_shove;                            // q255_init.cpp: the quest's init data shove offset
+extern word q30_sprite_z_thresholds[5];                // q255_init.cpp: init data sprite Z thresholds (Game->LayerZThreshold[])
+extern long q30_zscript_last_compiled;                 // q255_basic.cpp: the ZScript version its scripts were compiled in
 
 // ---- state upstream's sprites and game keep that 2.53's have no room for --------------------------
 
@@ -30,8 +39,18 @@ static std::map<long, Zasm30ScriptKb> zasm30_script_kb;
 static std::map<long, long> zasm30_owned;
 static BITMAP *zasm30_custom_cursor = NULL;         // Game->SetCustomCursor(): kept (no pointer is shown in play here)
 static int zasm30_custom_cursor_fx = 0, zasm30_custom_cursor_fy = 0;
+// Fields of live objects 2.53's have no room for, by sprite uid, then register and index (r16, below)
+static std::map<long, std::map<long, long> > zasm30_live_fields;
 
 bool q30_skip_credits() { return zasm30_ffscript_version && zasm30_skip_credits; }
+
+// Every game start, any quest (q30_game_init): Link's steps as 2.53's, whatever a newer quest's
+// script wrote to Hero->Steps[] before
+static void zasm30_live_game_init()
+{
+    static const byte steps[8] = { 1, 1, 2, 1, 1, 2, 1, 1 };
+    memcpy(lsteps, steps, sizeof(steps));
+}
 void q30_clear_skip_credits() { zasm30_skip_credits = false; }
 
 static void zasm30_live_reset()
@@ -42,6 +61,8 @@ static void zasm30_live_reset()
     zasm30_ewpn_parent.clear();
     zasm30_script_kb.clear();
     zasm30_owned.clear();
+    zasm30_live_fields.clear();
+    q30_hero_shove = q30_init_shove;  // (upstream's HeroClass::init)
     q30_set_pit_combo(0);       // (upstream's HeroClass::init)
 
     if(zasm30_custom_cursor)
@@ -151,6 +172,8 @@ public:
     bool walkflag(int dx, int dy, int special) { return m_walkflag(dx, dy, special, -1000, -1000); }
     int get_sclk() { return sclk; }
     void set_sclk(int v) { sclk = v; }
+    int get_starting_hp() { return starting_hp; }
+    void set_starting_hp(int v) { starting_hp = v; }
 };
 
 static q30_live_enemy_access *z30_live_npc(const char *what)
@@ -327,6 +350,7 @@ void zasm30_live_sprite_released(long uid)
 {
     zasm30_script_kb.erase(uid);
     zasm30_ewpn_parent.erase(uid);
+    zasm30_live_fields.erase(uid);
 
     for(std::map<long, long>::iterator it = zasm30_owned.begin(); it != zasm30_owned.end(); )
     {
@@ -489,10 +513,723 @@ static long z30_hero_otile(long set, long dir)
     return t * 10000;
 }
 
+// ---- r16: the rest of the live objects' registers (upstream's eweapon.cpp, lweapon.cpp,
+// itemsprite.cpp, npc.cpp, hero.cpp, game.cpp and their arrays) --------------------------------------
+//
+// Fields upstream's weapons, items, enemies, Hero and game have and 2.53's don't: what a script
+// wrote, by sprite uid, register and index. A field never written reads upstream's starting value
+// (weapon::weapon, item::item, enemy::enemy, HeroClass::init, zinit).
+
+enum { Z30LF_HERO = -1, Z30LF_GAME = -2 };      // (keys of the Hero's and the game's own)
+
+static long z30_lf_get(long uid, long reg, long idx, long dflt)
+{
+    std::map<long, std::map<long, long> >::const_iterator s = zasm30_live_fields.find(uid);
+
+    if(s == zasm30_live_fields.end())
+        return dflt;
+
+    std::map<long, long>::const_iterator f = s->second.find(reg * 8192 + idx);
+    return f == s->second.end() ? dflt : f->second;
+}
+
+static void z30_lf_set(long uid, long reg, long idx, long v)
+{
+    zasm30_live_fields[uid][reg * 8192 + idx] = v;
+}
+
+// The playing field's top for draw offsets (qr_OLD_DRAWOFFSET, 319)
+static int z30_pfo() { return q30_quest_rule(319) ? playing_field_offset : original_playing_field_offset; }
+
+// what the switch hook's Rise style lifts a sprite being switched (upstream's TotalDyOffs part)
+static int z30_hook_rise(sprite *s) { return (s && q30_switch_hooked(s, -1)) ? -q30_switchhook_rise() : 0; }
+
+// An array register's index in [0, size), or false (the read gives 0, the write does nothing).
+static bool z30_live_idx(long size, long &n)
+{
+    n = Z30_INDEX;
+    return n >= 0 && n < size;
+}
+
+// an item's FallClk / Drowning write (upstream's: its tile and CSet come back as it ends)
+static void z30_item_clk_write(item *it, long &clk, long value)
+{
+    if(clk != 0 && value == 0)
+    {
+        it->cs = it->o_cset;
+        it->tile = it->o_tile;
+    }
+    else if(clk == 0 && value != 0)
+        it->o_cset = it->cs;
+
+    clk = vbound(value / 10000, 0, 70);
+}
+
+// lweapon-> and eweapon-> (the same field of each, upstream's weapon members)
+enum
+{
+    Z30W_DROPSET, Z30W_IPICKUP, Z30W_DITEM, Z30W_DSFX, Z30W_DSPR, Z30W_DROWNCMB, Z30W_FALLCMB, Z30W_LIFTH,
+    Z30W_LIFTL, Z30W_LIFTT, Z30W_PIERCE, Z30W_SPRITES, Z30W_LRAD, Z30W_LOFS, Z30W_DY, Z30W_BMULT, Z30W_BADD,
+    Z30W_NOTRIG, Z30W_HOOKED, Z30W_SPECIAL, Z30W_DROWNCLK, Z30W_VX, Z30W_VY
+};
+
+static bool z30_live_wpn(const long arg, bool write, long value, long &ret)
+{
+    static const long tab[][3] =
+    {
+        { Z30R_LWPNDEATHDROPSET, Z30R_EWPNDEATHDROPSET, Z30W_DROPSET }, { Z30R_LWPNDEATHIPICKUP, Z30R_EWPNDEATHIPICKUP, Z30W_IPICKUP },
+        { Z30R_LWPNDEATHITEM, Z30R_EWPNDEATHITEM, Z30W_DITEM }, { Z30R_LWPNDEATHSFX, Z30R_EWPNDEATHSFX, Z30W_DSFX },
+        { Z30R_LWPNDEATHSPRITE, Z30R_EWPNDEATHSPRITE, Z30W_DSPR }, { Z30R_LWPNDROWNCMB, Z30R_EWPNDROWNCMB, Z30W_DROWNCMB },
+        { Z30R_LWPNFALLCMB, Z30R_EWPNFALLCMB, Z30W_FALLCMB }, { -1, Z30R_EWPNLIFTHEIGHT, Z30W_LIFTH },
+        { -1, Z30R_EWPNLIFTLEVEL, Z30W_LIFTL }, { -1, Z30R_EWPNLIFTTIME, Z30W_LIFTT },
+        { Z30R_LWPNPIERCE, Z30R_EWPNPIERCE, Z30W_PIERCE }, { Z30R_LWPNSPRITES, Z30R_EWPNSPRITES, Z30W_SPRITES },
+        { Z30R_LWPNBURNLIGHTRADIUS, Z30R_EWPNBURNLIGHTRADIUS, Z30W_LRAD }, { Z30R_LWPNBURNLIGHTOFFSET, Z30R_EWPNBURNLIGHTOFFSET, Z30W_LOFS },
+        { Z30R_LWPNTOTALDYOFFS, Z30R_EWPNTOTALDYOFFS, Z30W_DY }, { Z30R_LWPN_BOUNCE_MULT, Z30R_EWPN_BOUNCE_MULT, Z30W_BMULT },
+        { Z30R_LWPN_BOUNCE_ADD, Z30R_EWPN_BOUNCE_ADD, Z30W_BADD }, { Z30R_LWPN_NO_TRIGGERS, Z30R_EWPN_NO_TRIGGERS, Z30W_NOTRIG },
+        { Z30R_LWSWHOOKED, Z30R_EWSWHOOKED, Z30W_HOOKED }, { Z30R_LWPNSPECIAL, -1, Z30W_SPECIAL },
+        { -1, Z30R_EWPNDROWNCLK, Z30W_DROWNCLK }, { -1, Z30R_EWPNVX, Z30W_VX }, { -1, Z30R_EWPNVY, Z30W_VY },
+    };
+
+    int field = -1;
+    bool lw = false;
+
+    for(size_t i = 0; i < sizeof(tab) / sizeof(tab[0]) && field < 0; ++i)
+        if(tab[i][0] == arg || tab[i][1] == arg)
+        {
+            field = (int)tab[i][2];
+            lw = tab[i][0] == arg;
+        }
+
+    if(field < 0)
+        return false;
+
+    weapon *w = lw ? z30_lwpn_ref() : z30_ewpn_ref();
+    ret = 0;
+
+    if(!w)
+        return true;
+
+    const long uid = w->getUID(), reg = 1 + field;  // (the same field of an lweapon and an eweapon)
+    long n = 0;
+
+    switch(field)
+    {
+    case Z30W_DROPSET: case Z30W_DITEM: case Z30W_DSPR:
+        if(write)
+            z30_lf_set(uid, reg, 0, field == Z30W_DROPSET ? vbound(value / 10000, -1, MAXITEMDROPSETS - 1)
+                       : field == Z30W_DITEM ? vbound(value / 10000, -1, Q30_MAX_ITEMS - 1) : vbound(value / 10000, -255, 8191));
+        else
+            ret = z30_lf_get(uid, reg, 0, -1) * 10000;
+        return true;
+    case Z30W_IPICKUP: case Z30W_SPECIAL:
+        if(write) z30_lf_set(uid, reg, 0, value / 10000);
+        else ret = z30_lf_get(uid, reg, 0, 0) * 10000;
+        return true;
+    case Z30W_DSFX:
+        if(write) z30_lf_set(uid, reg, 0, vbound(value / 10000, 0, 1024));
+        else ret = z30_lf_get(uid, reg, 0, 0) * 10000;
+        return true;
+    case Z30W_DROWNCMB: case Z30W_FALLCMB:
+        if(write) z30_lf_set(uid, reg, 0, vbound(value / 10000, 0, MAXCOMBOS - 1));
+        else ret = z30_lf_get(uid, reg, 0, 0) * 10000;
+        return true;
+    case Z30W_LIFTH:        // (a zfix, as written)
+        if(write) z30_lf_set(uid, reg, 0, value);
+        else ret = z30_lf_get(uid, reg, 0, 8 * 10000);
+        return true;
+    case Z30W_LIFTL: case Z30W_LIFTT:
+        if(write) z30_lf_set(uid, reg, 0, vbound(value / 10000, 0, 255));
+        else ret = z30_lf_get(uid, reg, 0, field == Z30W_LIFTT ? 16 : 0) * 10000;
+        return true;
+    case Z30W_PIERCE:
+        if(write) z30_lf_set(uid, reg, 0, vbound(value / 10000, -1, 32767));
+        else ret = z30_lf_get(uid, reg, 0, -1) * 10000;
+        return true;
+    case Z30W_SPRITES: case Z30W_LRAD: case Z30W_LOFS:      // WPNSPR_BASE .. WPNSPR_IGNITE_DIVINE
+    {
+        if(!z30_live_idx(5, n))
+            return true;
+
+        // light_rads[WPNSPR_BASE] starts as the weapon's glow radius
+        const Zasm30SpriteState *st = zasm30_sprite_state_if(uid);
+        const long dflt = (field == Z30W_LRAD && n == 0 && st) ? st->glow_rad : 0;
+
+        if(write)
+            z30_lf_set(uid, reg, n, field == Z30W_SPRITES ? vbound(value / 10000, 0, 8191)
+                       : field == Z30W_LRAD ? vbound(value / 10000, 0, 255) : value / 10000);
+        else
+            ret = z30_lf_get(uid, reg, n, dflt) * 10000;
+        return true;
+    }
+    case Z30W_DY:           // read-only (the eweapon's adds the pixels unscaled, as upstream's does)
+        if(!write)
+        {
+            const long dy = (long)(int)(w->yofs - z30_pfo());
+            ret = lw ? (dy + z30_hook_rise(w)) * 10000 : dy + z30_hook_rise(w) * 10000;
+        }
+        return true;
+    case Z30W_BMULT:
+        if(write) z30_lf_set(uid, reg, 0, zc_max(0L, value));
+        else ret = z30_lf_get(uid, reg, 0, 0);
+        return true;
+    case Z30W_BADD:
+        if(write) z30_lf_set(uid, reg, 0, value);
+        else ret = z30_lf_get(uid, reg, 0, 0);
+        return true;
+    case Z30W_NOTRIG:
+        if(write) z30_lf_set(uid, reg, 0, value != 0);
+        else ret = z30_lf_get(uid, reg, 0, 0) ? 10000 : 0;
+        return true;
+    case Z30W_HOOKED:       // read-only
+        if(!write)
+            ret = q30_switch_hooked(w, -1) ? 10000 : 0;
+        return true;
+    case Z30W_DROWNCLK:
+        if(write) z30_wpn_clk_write(w, z30_state_of(w)->drown_clk, value);
+        else ret = z30_state_of(w)->drown_clk * 10000;
+        return true;
+    case Z30W_VX: case Z30W_VY:
+        if(write) z30_wpn_set_v(w, field == Z30W_VX, value);
+        else ret = z30_wpn_v(w, field == Z30W_VX);
+        return true;
+    }
+
+    return true;
+}
+
+// itemsprite->
+static bool z30_live_item(const long arg, bool write, long value, long &ret)
+{
+    switch(arg)
+    {
+    case Z30R_ITEMFORCEGRAB: case Z30R_ITEMGRAVITY: case Z30R_ITEMACLK: case Z30R_ITEMDIR: case Z30R_ITEMDROPPEDBY:
+    case Z30R_ITEMDROWNCLK: case Z30R_ITEMDROWNCMB: case Z30R_ITEMENGINEANIMATE: case Z30R_ITEMFAKEJUMP: case Z30R_ITEMFAKEZ:
+    case Z30R_ITEMFALLCLK: case Z30R_ITEMFALLCMB: case Z30R_ITEMLEVEL: case Z30R_ITEMNOHOLDSOUND: case Z30R_ITEMNOSOUND:
+    case Z30R_ITEMPICKUPEXSTATE: case Z30R_ITEMPSTRINGFLAGS: case Z30R_ITEMSCRIPTUID: case Z30R_ITEMTYPE: case Z30R_ITMSWHOOKED:
+        break;
+    default:
+        return false;
+    }
+
+    item *it = z30_item_ref();
+    ret = 0;
+
+    if(!it)
+        return true;
+
+    const long uid = it->getUID();
+    const int id = vbound(it->id & 0xFFF, 0, Q30_MAX_ITEMS - 1);
+    Zasm30SpriteState *st = zasm30_item_state(it);
+
+    switch(arg)
+    {
+    case Z30R_ITEMFORCEGRAB: case Z30R_ITEMNOSOUND: case Z30R_ITEMNOHOLDSOUND:
+        if(write) z30_lf_set(uid, arg, 0, value != 0);
+        else ret = z30_lf_get(uid, arg, 0, 0) ? 10000 : 0;
+        return true;
+    case Z30R_ITEMGRAVITY:
+        if(write) z30_flag_set(st->move_flags, 0, 11, value != 0);
+        else ret = (st->move_flags & 1) ? 10000 : 0;
+        return true;
+    case Z30R_ITEMACLK:
+        if(write) it->aclk = value / 10000;
+        else ret = it->aclk * 10000;
+        return true;
+    case Z30R_ITEMDIR:
+        if(write) it->dir = value / 10000;
+        else ret = it->dir * 10000;
+        return true;
+    case Z30R_ITEMDROPPEDBY:
+        if(write) z30_lf_set(uid, arg, 0, vbound(value / 10000, -1, 255));
+        else ret = z30_lf_get(uid, arg, 0, -1) * 10000;
+        return true;
+    case Z30R_ITEMPICKUPEXSTATE:
+        if(write) z30_lf_set(uid, arg, 0, vbound(value / 10000, -1, 31));
+        else ret = z30_lf_get(uid, arg, 0, -1) * 10000;
+        return true;
+    case Z30R_ITEMDROWNCLK:
+        if(write) z30_item_clk_write(it, st->drown_clk, value);
+        else ret = st->drown_clk * 10000;
+        return true;
+    case Z30R_ITEMFALLCLK:
+        if(write) z30_item_clk_write(it, st->fall_clk, value);
+        else ret = st->fall_clk * 10000;
+        return true;
+    case Z30R_ITEMDROWNCMB: case Z30R_ITEMFALLCMB:
+        if(write) z30_lf_set(uid, arg, 0, vbound(value / 10000, 0, MAXCOMBOS - 1));
+        else ret = z30_lf_get(uid, arg, 0, 0) * 10000;
+        return true;
+    case Z30R_ITEMENGINEANIMATE:
+        if(write) st->engine_animate = value != 0;
+        else ret = st->engine_animate ? 10000 : 0;
+        return true;
+    case Z30R_ITEMFAKEJUMP:
+        if(write) st->fakefall = z30_fake_jump_write(value);
+        else ret = z30_fake_jump_read(st->fakefall);
+        return true;
+    case Z30R_ITEMFAKEZ:    // (whole pixels, as upstream's item setter)
+        if(write) st->fakez = zc_max(0L, (value / 10000) * 10000);
+        else ret = q30_quest_rule(644) ? st->fakez : (st->fakez / 10000) * 10000;     // qr_SPRITEXY_IS_FLOAT
+        return true;
+    case Z30R_ITEMTYPE:     // (upstream's item::type and lvl start as the item's data)
+        if(write) z30_lf_set(uid, arg, 0, value / 10000);
+        else ret = z30_lf_get(uid, arg, 0, itemsbuf[id].family) * 10000;
+        return true;
+    case Z30R_ITEMLEVEL:
+        if(write) z30_lf_set(uid, arg, 0, value / 10000);
+        else ret = z30_lf_get(uid, arg, 0, itemsbuf[id].fam_type) * 10000;
+        return true;
+    case Z30R_ITEMPSTRINGFLAGS:
+    {
+        long pickup = 0;
+        int mode = 0, pstring = 0, psflags = 0;
+        q30_item_pickup_info(id, &pickup, &mode, &pstring, &psflags);
+
+        if(write) z30_lf_set(uid, arg, 0, vbound(value / 10000, 0, 214748));
+        else ret = z30_lf_get(uid, arg, 0, psflags) * 10000;
+        return true;
+    }
+    case Z30R_ITEMSCRIPTUID:
+        if(!write) ret = uid;
+        return true;
+    case Z30R_ITMSWHOOKED:
+        if(!write) ret = q30_switch_hooked(it, -1) ? 10000 : 0;
+        return true;
+    }
+
+    return true;
+}
+
+// npc->
+static bool z30_live_npc_reg(const long arg, bool write, long value, long &ret)
+{
+    long dflt_none = -10000;    // what upstream's GET_NPC_VAR_INT gives for no enemy
+
+    switch(arg)
+    {
+    case Z30R_NPCCANFLICKER: case Z30R_NPCDROWNCMB: case Z30R_NPCFALLCMB: case Z30R_NPCSWHOOKED: case Z30R_NPC_SUMMONER_PARENT:
+    case Z30R_NPC_WEAPONDATA: case Z30R_NPCPARENTUID: case Z30R_NPCHASITEM: case Z30R_NPCSCRDEFENSED:
+        dflt_none = 0;
+        break;
+    case Z30R_NPCDEATHEXSTATE: case Z30R_NPCFADING: case Z30R_NPCFIRESFXSECONDARY: case Z30R_NPCFLICKERCOLOR:
+    case Z30R_NPCFLICKERTRANSP: case Z30R_NPCFROZEN: case Z30R_NPCFROZENCSET: case Z30R_NPCFROZENTILE: case Z30R_NPCGRAVITY:
+    case Z30R_NPCMOVESTATUS: case Z30R_NPCORIGINALHP: case Z30R_NPCSLIDECLK: case Z30R_NPCSUPERMAN: case Z30R_NPCTOTALDYOFFS:
+        break;
+    default:
+        return false;
+    }
+
+    q30_live_enemy_access *e = (q30_live_enemy_access *)z30_npc_ref();
+    ret = dflt_none;
+
+    if(!e)
+        return true;
+
+    const long uid = e->getUID();
+    ret = 0;
+
+    switch(arg)
+    {
+    case Z30R_NPCCANFLICKER:
+        if(write) z30_lf_set(uid, arg, 0, value != 0);
+        else ret = z30_lf_get(uid, arg, 0, 1) ? 10000 : 0;
+        return true;
+    case Z30R_NPCDROWNCMB: case Z30R_NPCFALLCMB:
+        if(write) z30_lf_set(uid, arg, 0, vbound(value / 10000, 0, MAXCOMBOS - 1));
+        else ret = z30_lf_get(uid, arg, 0, 0) * 10000;
+        return true;
+    case Z30R_NPCSWHOOKED:
+        if(!write) ret = q30_switch_hooked(e, -1) ? 10000 : 0;
+        return true;
+    case Z30R_NPCPARENTUID:     // (a uid, not *10000; a sprite that's gone reads 0)
+    case Z30R_NPC_SUMMONER_PARENT:
+        if(write)
+        {
+            const bool ok = value && (arg == Z30R_NPCPARENTUID ? z30_sprite(value).s != NULL : guys.getByUID(value) != NULL);
+            z30_lf_set(uid, arg, 0, ok ? value : 0);
+        }
+        else
+        {
+            const long p = z30_lf_get(uid, arg, 0, 0);
+            ret = (p && (arg == Z30R_NPCPARENTUID ? z30_sprite(p).s != NULL : guys.getByUID(p) != NULL)) ? p : 0;
+        }
+        return true;
+    case Z30R_NPC_WEAPONDATA:   // (upstream gives a weapondata object of the enemy's own; not kept here)
+        return true;
+    case Z30R_NPCHASITEM:
+        if(write) e->itemguy = (value / 10000) != 0;
+        else ret = e->itemguy ? 10000 : 0;
+        return true;
+    case Z30R_NPCSCRDEFENSED:   // edefSCRIPT01 .. edefSCRIPT10: the enemy's data, as stored
+    {
+        long n;
+
+        if(!z30_live_idx(10, n))
+            return true;
+
+        if(write)
+            z30_lf_set(uid, arg, n, (byte)(value / 10000));
+        else
+            ret = z30_lf_get(uid, arg, n, q30_guy_defense(e->id & 0xFFF, 20 + (int)n)) * 10000;
+        return true;
+    }
+    case Z30R_NPCDEATHEXSTATE:
+        if(write) z30_lf_set(uid, arg, 0, vbound(value / 10000, -1, 31));
+        else ret = z30_lf_get(uid, arg, 0, -1) * 10000;
+        return true;
+    case Z30R_NPCFADING:
+        if(write) e->fading = vbound(value / 10000, 0, 4);
+        else ret = e->fading * 10000;
+        return true;
+    case Z30R_NPCFIRESFXSECONDARY:
+        if(write) z30_lf_set(uid, arg, 0, vbound(value / 10000, 0, 255));
+        else ret = z30_lf_get(uid, arg, 0, 0) * 10000;
+        return true;
+    case Z30R_NPCFLICKERCOLOR: case Z30R_NPCFLICKERTRANSP:
+        if(write) z30_lf_set(uid, arg, 0, vbound(value / 10000, -1, 255));
+        else ret = z30_lf_get(uid, arg, 0, -1) * 10000;
+        return true;
+    case Z30R_NPCFROZEN: case Z30R_NPCFROZENCSET: case Z30R_NPCFROZENTILE:
+        if(write) z30_lf_set(uid, arg, 0, value / 10000);
+        else ret = z30_lf_get(uid, arg, 0, 0) * 10000;
+        return true;
+    case Z30R_NPCGRAVITY:
+    {
+        Zasm30SpriteState *st = zasm30_npc_state(e);
+        if(write) z30_flag_set(st->move_flags, 0, 16, value != 0);
+        else ret = (st->move_flags & 1) ? 10000 : 0;
+        return true;
+    }
+    case Z30R_NPCMOVESTATUS:
+        if(write) z30_lf_set(uid, arg, 0, vbound(value / 10000, 0, 3));
+        else ret = z30_lf_get(uid, arg, 0, 0) * 10000;
+        return true;
+    case Z30R_NPCORIGINALHP:
+        if(write) e->set_starting_hp(value / 10000);
+        else ret = e->get_starting_hp() * 10000;
+        return true;
+    case Z30R_NPCSLIDECLK:
+        if(write) e->set_sclk(value / 10000);
+        else ret = e->get_sclk() * 10000;
+        return true;
+    case Z30R_NPCSUPERMAN:
+        if(write) e->superman = value / 10000;
+        else ret = e->superman * 10000;
+        return true;
+    case Z30R_NPCTOTALDYOFFS:   // read-only
+        if(!write) ret = ((long)(int)(e->yofs - z30_pfo()) + z30_hook_rise(e)) * 10000;
+        return true;
+    }
+
+    return true;
+}
+
+// Hero-> (the state q30_triggers.cpp keeps: q30_live_state)
+enum
+{
+    Z30LS_PULLDIR, Z30LS_PULLCLK, Z30LS_ICECMB, Z30LS_SCRICECMB, Z30LS_ICEVX, Z30LS_ICEVY, Z30LS_ICEENTRY, Z30LS_ICEMENTRY,
+    Z30LS_SLIDING, Z30LS_LIFTCLK, Z30LS_LIFTTCLK, Z30LS_LIFTHEIGHT, Z30LS_LIFTFLAGS, Z30LS_SWCLK, Z30LS_SWMAX, Z30LS_FORCEDRESPAWN
+};
+
+
+// upstream's HeroClass::getFlashingCSet (the Hero's CSet as he flashes)
+static long z30_hero_flashing_cset()
+{
+    long cs = zasm30_hero_script_cset > -1 ? zasm30_hero_script_cset : 6;
+
+    if(!get_bit(quest_rules, qr_LINKFLICKER) && Link.getHClk())
+        cs += (Link.getHClk() >> 1) & 3;
+
+    return cs;
+}
+
+// upstream's HeroClass::getHammerState: 1 to 3 as the hammer comes down, 0 with no hammer out
+static long z30_hero_hammer_state()
+{
+    if(Lwpns.idFirst(wHammer) < 0)
+        return 0;
+
+    const int clk = Link.getAttackClk();
+    return clk >= 15 ? 3 : clk >= 13 ? 2 : 1;
+}
+
+static bool z30_live_hero(const long arg, bool write, long value, long &ret)
+{
+    long n = 0;
+    ret = 0;
+
+    switch(arg)
+    {
+    case Z30R_CLOCKCLK:
+        if(write) clockclk = vbound(value / 10000, 0, 214748);
+        else ret = clockclk * 10000;
+        return true;
+    case Z30R_HEROCOYOTETIME:   // (no coyote time here: kept for the script)
+        if(write)
+        {
+            long v = value / 10000;
+            z30_lf_set(Z30LF_HERO, arg, 0, (v < 0 || v > 65535) ? 65535 : v);
+        }
+        else ret = z30_lf_get(Z30LF_HERO, arg, 0, 0) * 10000;
+        return true;
+    case Z30R_HERODROWNCMB:
+        if(write) z30_lf_set(Z30LF_HERO, arg, 0, vbound(value / 10000, 0, MAXCOMBOS - 1));
+        else ret = z30_lf_get(Z30LF_HERO, arg, 0, 0) * 10000;
+        return true;
+    case Z30R_HEROFLASHINGCSET:
+        if(!write) ret = z30_hero_flashing_cset() * 10000;
+        return true;
+    case Z30R_HEROFLICKERCOLOR: case Z30R_HEROFLICKERTRANSP:
+        if(write) z30_lf_set(Z30LF_HERO, arg, 0, value / 10000);
+        else ret = z30_lf_get(Z30LF_HERO, arg, 0, -1) * 10000;
+        return true;
+    case Z30R_HEROFORCEDRESPAWN:
+        if(write) q30_live_state(Z30LS_FORCEDRESPAWN, true, value != 0);
+        else ret = q30_live_state(Z30LS_FORCEDRESPAWN, false, 0) ? 10000 : 0;
+        return true;
+    case Z30R_HEROHAMMERSTATE: case Z30R_HERO_HAMMER_POS:   // read-only
+        if(!write) ret = z30_hero_hammer_state() * 10000;
+        return true;
+    case Z30R_HEROHEALTHBEEP:
+        if(write)
+        {
+            heart_beep_timer = vbound(value / 10000, -4, 255);
+
+            if(heart_beep_timer > -1)
+                cont_sfx(WAV_ER);
+            else
+                stop_sfx(WAV_ER);
+        }
+        else ret = heart_beep ? heart_beep_timer * 10000 : 0;
+        return true;
+    case Z30R_HEROICECMB: case Z30R_HEROSLIDING: case Z30R_HEROSWITCHTIMER: case Z30R_HEROSWITCHMAXTIMER:  // read-only
+        if(!write)
+            ret = q30_live_state(arg == Z30R_HEROICECMB ? Z30LS_ICECMB : arg == Z30R_HEROSLIDING ? Z30LS_SLIDING
+                                 : arg == Z30R_HEROSWITCHTIMER ? Z30LS_SWCLK : Z30LS_SWMAX, false, 0) * 10000;
+        return true;
+    case Z30R_HEROICEENTRYFRAMES: case Z30R_HEROICEENTRYMAXFRAMES:
+    {
+        const int w = arg == Z30R_HEROICEENTRYFRAMES ? Z30LS_ICEENTRY : Z30LS_ICEMENTRY;
+        if(write) q30_live_state(w, true, vbound(value / 10000, 0, 255));
+        else ret = q30_live_state(w, false, 0) * 10000;
+        return true;
+    }
+    case Z30R_HEROICEVX: case Z30R_HEROICEVY:   // (zfix, as written)
+        ret = q30_live_state(arg == Z30R_HEROICEVX ? Z30LS_ICEVX : Z30LS_ICEVY, write, value);
+        return true;
+    case Z30R_HEROSCRICECMB:
+        if(write) q30_live_state(Z30LS_SCRICECMB, true, vbound(value / 10000, -1, MAXCOMBOS));
+        else ret = q30_live_state(Z30LS_SCRICECMB, false, 0) * 10000;
+        return true;
+    case Z30R_HEROJUMPCOUNT:    // (no extra jumps here: kept for the script)
+        if(write) z30_lf_set(Z30LF_HERO, arg, 0, value / 10000);
+        else ret = z30_lf_get(Z30LF_HERO, arg, 0, 0) * 10000;
+        return true;
+    case Z30R_HEROLIFTHEIGHT:
+        ret = q30_live_state(Z30LS_LIFTHEIGHT, write, value);
+        return true;
+    case Z30R_HEROLIFTMAXTIMER: case Z30R_HEROLIFTTIMER:
+    {
+        const int w = arg == Z30R_HEROLIFTTIMER ? Z30LS_LIFTCLK : Z30LS_LIFTTCLK;
+        if(write) q30_live_state(w, true, value / 10000);
+        else ret = q30_live_state(w, false, 0) * 10000;
+        return true;
+    }
+    case Z30R_HEROLIFTFLAGS:    // NUM_LIFTFL (4) bits
+    {
+        if(!z30_live_idx(4, n))
+            return true;
+
+        long bits = q30_live_state(Z30LS_LIFTFLAGS, false, 0);
+
+        if(write)
+        {
+            z30_flag_set(bits, n, 4, value != 0);
+            q30_live_state(Z30LS_LIFTFLAGS, true, bits);
+        }
+        else ret = z30_flag_get(bits, n, 4) ? 10000 : 0;
+        return true;
+    }
+    case Z30R_HERONOSTEPFORWARD:
+        if(write) z30_lf_set(Z30LF_HERO, arg, 0, value != 0);
+        else ret = z30_lf_get(Z30LF_HERO, arg, 0, 0) ? 10000 : 0;
+        return true;
+    case Z30R_HEROPULLCLK:
+        if(write) q30_live_state(Z30LS_PULLCLK, true, value / 10000);
+        else ret = q30_live_state(Z30LS_PULLCLK, false, 0) * 10000;
+        return true;
+    case Z30R_HEROPULLDIR:      // read-only
+        if(!write) ret = q30_live_state(Z30LS_PULLDIR, false, 0) * 10000;
+        return true;
+    // The respawn point: here always on this screen (upstream's respawn_dmap and _scr follow it)
+    case Z30R_HERORESPAWNDMAP: case Z30R_HERORESPAWNSCR:
+        if(!write) ret = (arg == Z30R_HERORESPAWNDMAP ? currdmap : currscr) * 10000;
+        return true;
+    case Z30R_HERORESPAWNDMSCR:
+        if(!write) ret = (currscr - DMaps[currdmap].xoff) * 10000;
+        return true;
+    case Z30R_HERORESPAWNX: case Z30R_HERORESPAWNY:
+        if(write)
+            Link.q30_set_respawn(arg == Z30R_HERORESPAWNX ? fix(value / 10000.0) : fix(Link.getEntryX()),
+                                 arg == Z30R_HERORESPAWNY ? fix(value / 10000.0) : fix(Link.getEntryY()));
+        else ret = (arg == Z30R_HERORESPAWNX ? Link.getEntryX() : Link.getEntryY()) * 10000;
+        return true;
+    case Z30R_HEROSHOVEOFFSET:
+        if(write) q30_hero_shove = vbound(value, 0L, 16L * 10000);
+        else ret = q30_hero_shove;
+        return true;
+    case Z30R_HEROSTEPS:        // lsteps[8]
+        if(z30_live_idx(8, n))
+        {
+            if(write) lsteps[n] = (byte)(value / 10000);
+            else ret = lsteps[n] * 10000;
+        }
+        return true;
+    case Z30R_HEROTOTALDYOFFS:  // read-only
+        if(!write) ret = 10000 * ((long)(int)(Link.getYOfs() - z30_pfo()) + z30_hook_rise(&Link));
+        return true;
+    case Z30R_HERO_ITEMBOX_HEIGHT: case Z30R_HERO_ITEMBOX_WIDTH: case Z30R_HERO_ITEMBOX_XOFF: case Z30R_HERO_ITEMBOX_YOFF:
+    {
+        const int i = arg == Z30R_HERO_ITEMBOX_XOFF ? 0 : arg == Z30R_HERO_ITEMBOX_YOFF ? 1 : arg == Z30R_HERO_ITEMBOX_WIDTH ? 2 : 3;
+
+        if(write) q30_live_state(16 + i, true, i < 2 ? vbound(value / 10000, -128, 127) : vbound(value / 10000, 0, 255));
+        else ret = q30_live_state(16 + i, false, 0) * 10000;
+        return true;
+    }
+    case Z30R_LINKDEFENCE:      // (the Hero's defences: kept for the script)
+    case Z30R_HEROITEMCOOLDOWN:
+        if(z30_live_idx(arg == Z30R_LINKDEFENCE ? 256 : Q30_MAX_ITEMS, n))
+        {
+            if(write) z30_lf_set(Z30LF_HERO, arg, n, value / 10000);
+            else ret = z30_lf_get(Z30LF_HERO, arg, n, 0) * 10000;
+        }
+        return true;
+    case Z30R_LINKENGINEANIMATE:
+        if(write) z30_lf_set(Z30LF_HERO, arg, 0, value != 0);
+        else ret = z30_lf_get(Z30LF_HERO, arg, 0, 1) ? 10000 : 0;
+        return true;
+    case Z30R_LINKGRAVITY:
+        if(write) z30_flag_set(zasm30_hero_move_flags, 0, 11, value != 0);
+        else ret = (zasm30_hero_move_flags & 1) ? 10000 : 0;
+        return true;
+    }
+
+    return false;
+}
+
+static long zasm30_saved_portal_count();        // q30_scripts_sys.h
+static long zasm30_saved_portal_uid(long i);
+
+// Game->
+static bool z30_live_game(const long arg, bool write, long value, long &ret)
+{
+    long n = 0;
+    ret = 0;
+
+    switch(arg)
+    {
+    // upstream's own version (3.0, as this engine plays it)
+    case Z30R_ZELDABUILD: if(!write) ret = 61 * 10000; return true;
+    case Z30R_ZELDABETA: if(!write) ret = 120 * 10000; return true;
+    case Z30R_ZELDABETATYPE: if(!write) ret = 3 * 10000; return true;   // (release)
+    case Z30R_ZSCRIPTVERSION: if(!write) ret = q30_zscript_last_compiled * 10000; return true;
+    case Z30R_GAMEMAXMAPS: if(!write) ret = map_count * 10000; return true;
+    case Z30R_GAMENUMMESSAGES: if(!write) ret = (msg_count - 1) * 10000; return true;
+    case Z30R_GAMENUMASUB: case Z30R_GAMENUMPSUB: case Z30R_GAMENUMOSUB: case Z30R_GAMENUMMSUB:
+        if(!write)
+            ret = (long)zasm30_subs[arg == Z30R_GAMENUMASUB ? 0 : arg == Z30R_GAMENUMPSUB ? 1 : arg == Z30R_GAMENUMOSUB ? 2 : 3].size() * 10000;
+        return true;
+    case Z30R_GAMEASUBOPEN: case Z30R_GAMEMSUBOPEN:     // (scripts don't run here while a subscreen is open)
+        return true;
+    case Z30R_GAMEMAXCHEAT:
+        if(write) z30_lf_set(Z30LF_GAME, arg, 0, vbound(value / 10000, 0, 4));
+        else ret = zc_max(z30_lf_get(Z30LF_GAME, arg, 0, (long)game->get_cheat()), (long)cheat) * 10000;
+        return true;
+    case Z30R_GAMEMOUSECURSOR:  // (no game cursor is shown here: kept for the script)
+        if(write) z30_lf_set(Z30LF_GAME, arg, 0, value / 10000);
+        else ret = z30_lf_get(Z30LF_GAME, arg, 0, 1) * 10000;     // ZCM_BLANK
+        return true;
+    case Z30R_TYPINGMODE: case Z30R_GAME_SAVEMENU_F6: case Z30R_GAME_SAVEMENU_GAMEOVER:
+        if(write) z30_lf_set(Z30LF_GAME, arg, 0, arg == Z30R_TYPINGMODE ? (value != 0) : value / 10000);
+        else ret = z30_lf_get(Z30LF_GAME, arg, 0, 0) * (arg == Z30R_TYPINGMODE ? 10000 : 10000);
+        return true;
+    case Z30R_DISABLEDITEM:     // (game->items_off, MAXITEMS of them)
+        if(z30_live_idx(Q30_MAX_ITEMS, n))
+        {
+            if(n >= MAXITEMS)
+            {
+                if(write) z30_lf_set(Z30LF_GAME, arg, n, value != 0);
+                else ret = z30_lf_get(Z30LF_GAME, arg, n, 0) ? 10000 : 0;
+            }
+            else if(write)
+            {
+                game->items_off[n] = value != 0;
+                removeFromItemCache(itemsbuf[n].family);
+            }
+            else ret = game->items_off[n] ? 10000 : 0;
+        }
+        return true;
+    case Z30R_JOYPADPRESS:      // read-only
+        if(!write && z30_live_idx(32, n))
+            ret = joybtn((int)n) ? 10000 : 0;
+        return true;
+    case Z30R_BUTTONHELD:       // (raw values, as upstream's)
+        if(z30_live_idx(18, n))
+        {
+            if(write) button_hold[n] = value != 0;
+            else ret = button_hold[n] ? 1 : 0;
+        }
+        return true;
+    case Z30R_GAMEMISCSPR:
+        if(z30_live_idx(256, n))
+        {
+            if(write) q30_set_misc_sprite((int)n, vbound(value / 10000, 0, 8191));
+            else ret = q30_misc_sprite((int)n) * 10000;
+        }
+        return true;
+    case Z30R_GAMEOVERRIDEITEMS:    // by item type (itype_max); -2 none
+        if(z30_live_idx(512, n))
+        {
+            if(write)
+            {
+                const long v = value / 10000;
+                z30_lf_set(Z30LF_GAME, arg, n, (v < -1 || v >= Q30_MAX_ITEMS) ? -2 : v);
+            }
+            else ret = z30_lf_get(Z30LF_GAME, arg, n, -2) * 10000;
+        }
+        return true;
+    case Z30R_SAVEDPORTALCOUNT:     // read-only
+        if(!write) ret = zasm30_saved_portal_count() * 10000;
+        return true;
+    case Z30R_GAME_SAVED_PORTALS:   // read-only, the uids themselves
+        if(!write && z30_live_idx(zasm30_saved_portal_count(), n))
+            ret = zasm30_saved_portal_uid(n);
+        return true;
+    case Z30R_GAMELAYERZTHRESHOLDS:     // zinit.sprite_z_thresholds
+        if(z30_live_idx(5, n))
+        {
+            if(write) q30_sprite_z_thresholds[n] = (word)(value / 10000);
+            else ret = q30_sprite_z_thresholds[n] * 10000;
+        }
+        return true;
+    }
+
+    return false;
+}
+
+static bool zasm30_live_more(const long arg, bool write, long value, long &ret)
+{
+    return z30_live_wpn(arg, write, value, ret) || z30_live_item(arg, write, value, ret) || z30_live_npc_reg(arg, write, value, ret)
+           || z30_live_hero(arg, write, value, ret) || z30_live_game(arg, write, value, ret);
+}
+
 // ---- registers ---------------------------------------------------------------------------------
 
 static bool zasm30_live_get(const long arg, long &ret)
 {
+    if(zasm30_live_more(arg, false, 0, ret))
+        return true;
+
     switch(arg)
     {
     // Hero
@@ -632,6 +1369,11 @@ static bool zasm30_live_get(const long arg, long &ret)
 
 static bool zasm30_live_set(const long arg, const long value)
 {
+    long unused;
+
+    if(zasm30_live_more(arg, true, value, unused))
+        return true;
+
     switch(arg)
     {
     // Hero

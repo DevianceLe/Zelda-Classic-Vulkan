@@ -74,6 +74,7 @@ extern byte extra_rules[EXTRARULES_SIZE];
 
 // bytes of quest rules from rules version 15 on
 static const size_t Q255_RULES_SIZE = 100;
+long q30_zscript_last_compiled = 0;     // misc v11+ (Game->ZScriptVersion, q30_scripts_live.h)
 
 // Rule bits past the 2.53 ones, numbered as engine/src/core/qrs.h numbers them.
 static const int Q255_QR_SHORTDGNWALK = 193;
@@ -1688,8 +1689,7 @@ int q255_read_misc(Q255Section &s)
     if(s.version >= 9)
         s.skip(32 * 4 + 32 * 128);          // quest misc, retired string labels
 
-    if(s.version >= 11)
-        s.skip(4);                          // last compiled zscript version
+    q30_zscript_last_compiled = s.version >= 11 ? s.igetl_s() : 0;    // last compiled zscript version (Game->ZScriptVersion)
 
     // misc sprites (falling, drowning, switch poof...), kept for 2.55+ game code
     for(int i = 0; i < 256; ++i)

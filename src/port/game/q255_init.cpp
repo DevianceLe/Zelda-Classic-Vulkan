@@ -98,6 +98,11 @@ static byte clamp_byte(long v)
 // ---- upstream container layouts -------------------------------------------------
 
 // count items of each bytes, checked against what's left so a bad count can't wrap.
+// Kept for 2.55/3.0 scripts (q30_scripts_live.h): the shove offset Link starts with (1/10000ths) and
+// the sprite Z thresholds
+long q30_init_shove = 65000;
+word q30_sprite_z_thresholds[5] = { 0, 0, 0, 0, 0 };
+
 static void walk_items(Q255Section &s, size_t count, size_t each)
 {
     if(each && count > s.left() / each)
@@ -578,7 +583,11 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
     byte drain = s.getc();
     set_bit(temp.misc, idM_DOUBLEMAGIC, drain <= 1 ? 1 : 0);
 
-    s.skip(4);  // shove offset
+    {
+        const long shove = s.igetl_s();     // shove offset (Hero->ShoveOffset to start)
+        if(s.keep && !s.failed)
+            q30_init_shove = shove;
+    }
     // Generic scripts: which run at game start and their exit, reload and event states.
     {
         byte run_flags[Q30_GENERIC_SLOTS / 8 + 1];
@@ -722,8 +731,12 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
         skip_bounded_w(s, 4);   // level switch states
     if(v >= 45)
         s.skip(7);      // item flicker and timeout
-    if(v >= 46)
-        s.skip(5 * 2);  // sprite Z thresholds
+    for(int i = 0; i < 5; ++i)  // sprite Z thresholds (Game->LayerZThreshold[]), v46+
+    {
+        const word t = v >= 46 ? s.igetw() : 0;
+        if(s.keep && !s.failed)
+            q30_sprite_z_thresholds[i] = t;
+    }
     if(v >= 48)
     {
         // Link's item box (signed offsets, then size), used by 3.0 quests' item pickups
@@ -1052,8 +1065,11 @@ int q255_read_initdata(Q255Section &s)
         }
     }
 
-    if(v > 35)
-        s.skip(4);  // shove offset
+    {
+        const long shove = v > 35 ? s.igetl_s() : 65000;  // shove offset (Hero->ShoveOffset to start)
+        if(s.keep && !s.failed)
+            q30_init_shove = shove;
+    }
 
     if(s.failed)
         return qe_invalid;
