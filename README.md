@@ -12,6 +12,22 @@ Zelda Classic is a game engine and quest editor for making and playing custom ad
 | `zplayer` | The game. Plays 2.53, 2.55 and 3.0 Nightly quests. | Windows 10/11 (32-bit, 64-bit, ARM64), Linux (64-bit x86_64, ARM64), macOS 11+ (Apple Silicon and Intel), Nintendo Switch (homebrew), Android 8.0+ (in progress) |
 | `zqeditor` | ZQuest, the quest editor. Opens quests of every version, saves each in its own version, and saves older quests as 2.55.18 or 3.0 Nightly. Compiles 2.55 and 3.0 Nightly quests' ZScript with those versions' own compilers (`zscript255`, `zscript30`). | Windows 10/11 (32-bit, 64-bit, ARM64), Linux (64-bit x86_64, ARM64), macOS 11+ (Apple Silicon and Intel) |
 
+## Screenshots
+
+**zplayer**
+
+| | | |
+|:-:|:-:|:-:|
+| ![Mystical Harps in zplayer](docs/screenshots/player-mystical-harps.png) | ![Soldier's Test in zplayer](docs/screenshots/player-soldiers-test.png) | ![Link's Rise 2 DX in zplayer](docs/screenshots/player-links-rise-2-dx.png) |
+| Mystical Harps | Soldier's Test | Link's Rise 2 DX |
+
+**ZQuest**
+
+| | | |
+|:-:|:-:|:-:|
+| ![ZQuest's screen editor](docs/screenshots/zquest-screen-editor.png) | ![ZQuest's subscreen editor](docs/screenshots/zquest-subscreen-editor.png) | ![ZQuest's scrolling regions dialog](docs/screenshots/zquest-scrolling-regions.png) |
+| Screen editor | Subscreen editor (3.0 Nightly) | Scrolling regions (3.0 Nightly) |
+
 ## Downloads
 
 Get the latest Windows zips (x86, x64, ARM64), Linux `.tar.gz` (x86_64, aarch64), macOS `.tar.gz` (one program for Apple Silicon and Intel), Switch zip and Android APK from the [Releases page](https://github.com/DevianceLe/Zelda-Classic-Vulkan/releases/latest). Earlier builds are in [`downloads/`](downloads/).
