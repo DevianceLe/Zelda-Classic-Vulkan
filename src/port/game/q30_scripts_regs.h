@@ -396,8 +396,15 @@ static bool zasm30_sprite_write(const long arg, const long value, const Z30Sprit
         if(r.kind == Z30S_HERO) zasm30_hero_script_tile = vbound(value / 10000, -1, NEWMAXTILES - 1);
         else if(st) st->script_tile = value / 10000;
         return true;
-    case Z30R_SPRITE_TILE_W: if(s) s->txsz = vbound(value / 10000, 1, 20); return true;
-    case Z30R_SPRITE_TILE_H: if(s) s->tysz = vbound(value / 10000, 1, 20); return true;
+    // (an FFC's tile size is 1-4, upstream's vbound; it's kept in the top 2 bits of ffwidth/ffheight)
+    case Z30R_SPRITE_TILE_W:
+        if(isffc) tmpscr->ffwidth[f] = (byte)((tmpscr->ffwidth[f] & 0x3F) | ((vbound(value / 10000, 1, 4) - 1) << 6));
+        else if(s) s->txsz = vbound(value / 10000, 1, 20);
+        return true;
+    case Z30R_SPRITE_TILE_H:
+        if(isffc) tmpscr->ffheight[f] = (byte)((tmpscr->ffheight[f] & 0x3F) | ((vbound(value / 10000, 1, 4) - 1) << 6));
+        else if(s) s->tysz = vbound(value / 10000, 1, 20);
+        return true;
     case Z30R_SPRITE_CSET:
         if(isffc) tmpscr->ffcset[f] = (value / 10000) & 0xF;
         else if(r.kind == Z30S_ITEM)
@@ -427,8 +434,15 @@ static bool zasm30_sprite_write(const long arg, const long value, const Z30Sprit
         return true;
     case Z30R_SPRITE_ENGINE_ANIMATE: if(st) st->engine_animate = value != 0; return true;
     case Z30R_SPRITE_EXTEND: if(s) s->extend = value / 10000; return true;
-    case Z30R_SPRITE_HIT_WIDTH: if(s) s->hxsz = value / 10000; return true;
-    case Z30R_SPRITE_HIT_HEIGHT: if(s) s->hysz = value / 10000; return true;
+    // (an FFC's hit size: the low 6 bits of ffwidth/ffheight hold 1-64 pixels)
+    case Z30R_SPRITE_HIT_WIDTH:
+        if(isffc) tmpscr->ffwidth[f] = (byte)((tmpscr->ffwidth[f] & ~0x3F) | ((vbound(value / 10000, 1, 64) - 1) & 0x3F));
+        else if(s) s->hxsz = value / 10000;
+        return true;
+    case Z30R_SPRITE_HIT_HEIGHT:
+        if(isffc) tmpscr->ffheight[f] = (byte)((tmpscr->ffheight[f] & ~0x3F) | ((vbound(value / 10000, 1, 64) - 1) & 0x3F));
+        else if(s) s->hysz = value / 10000;
+        return true;
     case Z30R_SPRITE_HIT_ZHEIGHT: if(s) s->hzsz = value / 10000; return true;
     case Z30R_SPRITE_HIT_OFFSET_X: if(s) s->hxofs = value / 10000; return true;
     case Z30R_SPRITE_HIT_OFFSET_Y: if(s) s->hyofs = value / 10000; return true;

@@ -18716,7 +18716,24 @@ void q30_verify_extra_buttons()
     }
 }
 
-void q30_load_extra_buttons()
+bool q30_old_subscreens();      // q255_basic.cpp
+int q30_old_init_button_pos(int start, int f1, int f2, int f3);    // q30_scripts_subscr.h
+bool q30_dmap_has_active_subscreen();
+
+// Whether init_game sets the buttons as upstream's does under qr_OLD_SUBSCR with the X or Y button
+// in use: a 2.55/3.0 quest with that rule, the newer subscreens, and an active subscreen on the
+// dmap (upstream sets no button at all without one).
+bool q30_old_init_buttons()
+{
+    return q30_old_subscreens() && q30_sub_new_format() && q30_dmap_has_active_subscreen()
+           && (q30_use_x_button() || q30_use_y_button());
+}
+
+// init_game: the X and Y buttons (2.55/3.0, the quest rules that use them) take the save's slots.
+// Under q30_old_init_buttons (upstream's init_game with qr_OLD_SUBSCR): each takes its saved slot
+// (a new game none) or the next slot right of it that holds an item and that A, B (and X) don't
+// hold (movepos_legacy).
+void q30_load_extra_buttons(bool usesaved, int apos, int bpos)
 {
     q30_forced_awpn = q30_forced_bwpn = -1;
     Xwpn = Ywpn = 0;
@@ -18728,7 +18745,29 @@ void q30_load_extra_buttons()
 
     q30_xpos = (game->get_generic(Q30_GEN_XPOS) + 255) & 0xFF;
     q30_ypos = (game->get_generic(Q30_GEN_YPOS) + 255) & 0xFF;
+
+    if(q30_old_init_buttons())
+    {
+        const int sx = usesaved ? q30_xpos : 0xFF, sy = usesaved ? q30_ypos : 0xFF;
+        const int fa = get_bit(quest_rules, qr_SELECTAWPN) ? apos : 0xFF;
+        q30_xpos = q30_ypos = Q30_NO_POS;
+
+        if(q30_use_x_button())
+            q30_xpos = q30_old_init_button_pos(sx, fa, bpos, 0xFF);
+
+        if(q30_use_y_button())
+            q30_ypos = q30_old_init_button_pos(sy, fa, bpos, q30_xpos);
+
+        q30_store_extra_buttons();
+    }
+
+    if(getenv("ZC_Q30_BTNSEL"))     // diagnostics only
+        al_trace("q30 btnsel: init X/Y: old init %d (dmap %d active subscreen %d), X pos %d, Y pos %d\n", q30_old_init_buttons() ? 1 : 0,
+                 get_currdmap(), (int)DMaps[get_currdmap()].active_subscreen, q30_xpos, q30_ypos);
+
+    const int keep = directItem;    // (init_game reads B's directItem after this)
     q30_verify_extra_buttons();
+    directItem = keep;
 }
 
 void q30_select_next_button_item(bool x, int type)

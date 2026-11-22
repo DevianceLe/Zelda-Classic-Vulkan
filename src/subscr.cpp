@@ -4356,6 +4356,18 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
 }
 
 
+#ifdef ZC_PLAYER_BUILD
+// 2.55/3.0 (upstream's SW_ButtonItem::draw): an arrow on a button is drawn alone, the bow behind
+// it only for replays older than version 19.
+static bool btn_bow_behind_arrow()
+{
+    extern word quest_header_zelda_version;
+    return quest_header_zelda_version < 0x255;
+}
+#else
+static bool btn_bow_behind_arrow() { return true; }
+#endif
+
 void buttonitem(BITMAP *dest, int button, int x, int y)
 {
     switch(button)
@@ -4373,7 +4385,8 @@ void buttonitem(BITMAP *dest, int button, int x, int y)
                 {
                     if(current_item_id(itype_bow)>-1)
                     {
-                        subscreenitem(dest, x, y, itype_bow);
+                        if(btn_bow_behind_arrow())
+                            subscreenitem(dest, x, y, itype_bow);
                         
                         if(((get_bit(quest_rules,qr_TRUEARROWS)&&!game->get_arrows())
                                 ||(!get_bit(quest_rules,qr_TRUEARROWS)&&!game->get_rupies()&&!current_item_power(itype_wallet)))
@@ -4405,7 +4418,8 @@ void buttonitem(BITMAP *dest, int button, int x, int y)
                 {
                     if(current_item_id(itype_bow)>-1)
                     {
-                        subscreenitem(dest, x, y, itype_bow);
+                        if(btn_bow_behind_arrow())
+                            subscreenitem(dest, x, y, itype_bow);
                         
                         if(((get_bit(quest_rules,qr_TRUEARROWS)&&(game != NULL && !game->get_arrows()))
                                 ||(!get_bit(quest_rules,qr_TRUEARROWS)&&(game != NULL && !game->get_rupies())&&!current_item_power(itype_wallet)))
@@ -4437,7 +4451,8 @@ void buttonitem(BITMAP *dest, int button, int x, int y)
 
             if(itemsbuf[it->id].family == itype_arrow && it->dummy_bool[0] && current_item_id(itype_bow)>-1)
             {
-                subscreenitem(dest, x, y, itype_bow);
+                if(btn_bow_behind_arrow())
+                    subscreenitem(dest, x, y, itype_bow);
 
                 if(((get_bit(quest_rules,qr_TRUEARROWS)&&(game != NULL && !game->get_arrows()))
                         ||(!get_bit(quest_rules,qr_TRUEARROWS)&&(game != NULL && !game->get_rupies())))

@@ -1666,6 +1666,41 @@ bool q30_sub_move_cursor(int dir, int &pos)
     }
 }
 
+// init_game under qr_OLD_SUBSCR (upstream's zelda.cpp): the slot an X or Y button starts on, on the
+// shown page of the current active subscreen (movepos_legacy, SEL_VERIFY_RIGHT). start and f1-f3 are
+// slot positions, 0xFF for none; returns a position, 0xFF for none.
+int q30_old_init_button_pos(int start, int f1, int f2, int f3)
+{
+    Z30Subscreen *s = z30_shown_active();
+
+    if(!s || s->curpage < 0 || s->curpage >= (int)s->pages.size())
+        return 0xFF;
+
+    // Under qr_NO_BUTTON_VERIFY an empty button stays empty ("empty is valid"; upstream's play shows
+    // it so, e.g. Lana Again's new game)
+    if((start < 0 || start >= 0xFF) && q30_quest_rule(424))
+        return 0xFF;
+
+    const int pg = s->curpage;
+    const int w[4] = { start, f1, f2, f3 };
+    int ws[4];
+
+    for(int i = 0; i < 4; ++i)
+        ws[i] = (w[i] < 0 || w[i] >= 0xFF) ? 0xFF : ((w[i] << 8) | pg);
+
+    const int r = z30_btn_movepos(*s, pg, SEL_VERIFY_RIGHT, ws[0], ws[1], ws[2], ws[3], true, true);
+    return (r & 0xFF) == 0xFF ? 0xFF : (r >> 8) & 0xFF;
+}
+
+// Whether the current dmap has an active subscreen as upstream sees it (update_subscreens: its
+// index within the quest's active subscreens; else new_subscreen_active is null). 2.53's search
+// here falls back to the last one.
+bool q30_dmap_has_active_subscreen()
+{
+    const int idx = DMaps[get_currdmap()].active_subscreen;
+    return idx >= 0 && idx < (int)zasm30_subs[0].size();
+}
+
 // With qr_OLD_SUBSCR, L and R move the cursor as upstream's movepos_legacy (items only, on this
 // page), unless qr_NO_L_R_BUTTON_INVENTORY_SWAP; false when the subscreen isn't a newer one.
 bool q30_sub_move_legacy(int dir, int &pos)
