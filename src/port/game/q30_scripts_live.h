@@ -939,10 +939,13 @@ static bool z30_live_npc_reg(const long arg, bool write, long value, long &ret)
         if(write) z30_lf_set(uid, arg, 0, vbound(value / 10000, -1, 255));
         else ret = z30_lf_get(uid, arg, 0, -1) * 10000;
         return true;
-    case Z30R_NPCFROZEN: case Z30R_NPCFROZENCSET: case Z30R_NPCFROZENTILE:
-        if(write) z30_lf_set(uid, arg, 0, value / 10000);
-        else ret = z30_lf_get(uid, arg, 0, 0) * 10000;
+    case Z30R_NPCFROZEN: case Z30R_NPCFROZENCSET: case Z30R_NPCFROZENTILE:     // (the enemy's own, guys.cpp)
+    {
+        int &v = arg == Z30R_NPCFROZEN ? e->q30_frozenclock : arg == Z30R_NPCFROZENCSET ? e->q30_frozencset : e->q30_frozentile;
+        if(write) v = value / 10000;
+        else ret = v * 10000L;
         return true;
+    }
     case Z30R_NPCGRAVITY:
     {
         Zasm30SpriteState *st = zasm30_npc_state(e);

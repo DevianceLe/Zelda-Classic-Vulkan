@@ -414,6 +414,20 @@ static void guy_data_fixes(int v, const guydata &g, Q30GuyData &x)
             x.firesfx_secondary = 0;
     }
 
+    // upstream's readguys before v49: what a bubble jinxes (attribute 8) becomes bit flags, 1 the
+    // sword, 2 items (2.53's guydata keeps 0 sword, 1 item, 2 both, which play uses)
+    if(v < 49 && g.family == eeWALK
+            && (x.attributes[6] == e7tPERMJINX || x.attributes[6] == e7tTEMPJINX || x.attributes[6] == e7tUNJINX))
+    {
+        switch(x.attributes[7])
+        {
+        case 0: x.attributes[7] = 1; break;
+        case 1: x.attributes[7] = 2; break;
+        case 2: x.attributes[7] = 1 | 2; break;
+        default: x.attributes[7] = 0; break;     // (any other number jinxes nothing)
+        }
+    }
+
     Q30WeaponData &d = x.weap;
 
     if(v < 52)      // guy_update_weaponflags

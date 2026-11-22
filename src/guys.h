@@ -120,6 +120,13 @@ public:
     bool q30_fall_blocked() const { return fading != 0 || q30_spawning; }  // (upstream's can_pitfall)
     bool q30_spawning;          // upstream's isspawning: the last draw showed the spawn animation
     int q30_death_clk, q30_death_frm;   // upstream's spr_death_anim_clk / _frm (the death sprite's frame)
+    // 2.55/3.0 (guys.cpp): the enemy editor's size tab as upstream applies it (SIZEflags, its
+    // init_size_flags), the frozen state (npc->Frozen, the Freeze defence) and the shadow sprite
+    long q30_sizeflags;
+    int q30_frozenclock, q30_frozentile, q30_frozencset;
+    int q30_spr_shadow;
+    void q30_init_size_flags();
+    int q30_shadow_tile(int dflt_sprite);   // the shadow sprite's tile (2.53 quests: dflt_sprite's)
 protected:
     int  clk2,sclk;
     int  starting_hp;
@@ -165,6 +172,8 @@ protected:
     bool q30_shadow_overpit();
     void q30_rock_shadow(BITMAP *dest, bool translucent);
     bool canmove(int ndir,fix s,int special,int dx1,int dy1,int dx2,int dy2);
+    bool q30_canmove(int ndir,fix s,int special,int dx1,int dy1,int dx2,int dy2);
+    void q30_move_box(int &dx2, int &dy2);
     bool canmove(int ndir,fix s,int special);
     bool canmove(int ndir,int special);
     bool canmove(int ndir);

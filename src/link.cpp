@@ -4135,7 +4135,7 @@ if(q30_hit < 0 && NayrusLoveShieldClk<=0)
         }
         
         hitdir = q30_hdir;
-        ((weapon*)Lwpns.spr(hit2))->onhit(false);
+        ((weapon*)Lwpns.spr(hit2))->q30_hit_pierce(true);  // (2.53: onhit)
         
         if(action==swimming || hopclk==0xFF || q30_is_side_swim())
             action=swimhit;
@@ -4187,7 +4187,7 @@ if(q30_hit < 0 && NayrusLoveShieldClk<=0)
         }
         
         hitdir = q30_hdir;
-        ((weapon*)Ewpns.spr(hit2))->onhit(false);
+        ((weapon*)Ewpns.spr(hit2))->q30_hit_pierce(true);  // (2.53: onhit)
         
         if(action==swimming || hopclk==0xFF || q30_is_side_swim())
             action=swimhit;

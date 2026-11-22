@@ -59,6 +59,9 @@ public:
     bool q30_dying_frame;           // upstream's weapon_dying_frame (qr_WEAPONS_EXTRA_DEATH_FRAME)
     virtual void onhit(bool clipped);
     virtual void onhit(bool clipped, int special, int linkdir);
+    void q30_kill_special();            // 2.55/3.0 upstream kill_weapon_special
+    void q30_hit_pierce(bool old_hit);  // 2.55/3.0 upstream hit_pierce (2.53: onhit)
+    void q30_pierced_hit();
     // override hit detection to check for invicibility, etc
     virtual bool hit(sprite *s);
     virtual bool hit(int tx,int ty,int tz,int txsz,int tysz,int tzsz);

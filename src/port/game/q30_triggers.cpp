@@ -56,6 +56,10 @@ void q30_saved_portals_load(const std::vector<long> &kv);
 
 extern int (*zc_cs2_cset)(int cset, int cofs);     // tiles.cpp
 
+int q30_weapon_data_burn(long uid);         // q30_weapon_fx.h: the levels a weapon's flags burn with
+int q30_wpn_trigger_burn(long uid);         // below: the levels combo triggers lit it with
+int q30_weapon_lift_data(weapon *w, int *time, long *height);  // q30_weapon_fx.h: its LiftLevel, LiftTime, LiftHeight
+
 namespace
 {
 
@@ -6785,18 +6789,14 @@ if(!q30_active() || screenscrolling || (w->dead != -1 && w->dead != 0 && w->id !
     int layercount= rule(qr30_CUSTOMCOMBOS_EVERY_LAYER) ? 7 : (rule(qr30_CUSTOMCOMBOSLAYERS1AND2) ? 3 : 1);
     int wx = int(w->x), wy = int(w->y);
 
-    if(!g_wpn_burn.empty())
+    // (a burning weapon: lit by a trigger, or its weapon flags)
+    if(const int burn = q30_wpn_trigger_burn(w->getUID()) | q30_weapon_data_burn(w->getUID()))
     {
-        std::map<long, int>::iterator burn = g_wpn_burn.find(w->getUID());
-
-        if(burn != g_wpn_burn.end() && burn->second)
-        {
-            if(burn->second & 1) findentrance(wx, wy, mfBCANDLE, true);
-            if(burn->second & 2) findentrance(wx, wy, mfRCANDLE, true);
-            if(burn->second & 4) findentrance(wx, wy, mfWANDFIRE, true);
-            if(burn->second & 8) findentrance(wx, wy, mfDINSFIRE, true);
-            q30_trig_fire(w, wx, wy, burn->second);
-        }
+        if(burn & 1) findentrance(wx, wy, mfBCANDLE, true);
+        if(burn & 2) findentrance(wx, wy, mfRCANDLE, true);
+        if(burn & 4) findentrance(wx, wy, mfWANDFIRE, true);
+        if(burn & 8) findentrance(wx, wy, mfDINSFIRE, true);
+        q30_trig_fire(w, wx, wy, burn);
     }
 int hw = zc_max(1, w->hxsz), hh = zc_max(1, w->hysz);
 
@@ -9720,6 +9720,43 @@ static bool lift_combo(const H &base, int glove)
     return true;
 }
 
+// upstream HeroClass::do_liftglove: an lweapon in front of Link whose LiftLevel the glove's level
+// reaches (a bomb, a thrown object that landed) is lifted first, before any combo
+static bool lift_weapon(int glove)
+{
+    const int lx = int(Link.getX()), ly = int(Link.getY());
+    int hx = lx, hy = ly, hw = 16, hh = 16;
+
+    switch(Link.getDir())
+    {
+    case up: hy = ly - 8; hh = Link.getBigHitbox() ? 8 : 16; break;
+    case down: hy = ly + 16; hh = 8; break;
+    case left: hx = lx - 8; hw = 8; break;
+    case right: hx = lx + 16; hw = 8; break;
+    }
+
+    for(int q = 0; q < Lwpns.Count(); ++q)
+    {
+        weapon *w = (weapon *)Lwpns.spr(q);
+        int time = 0;
+        long height = 0;
+        const int level = q30_weapon_lift_data(w, &time, &height);
+
+        if(!level || level > itemsbuf[glove].fam_type || !w->hit(hx, hy, 0, hw, hh, 1))
+            continue;
+
+        if(itemsbuf[glove].usesound)
+            sfx(itemsbuf[glove].usesound, pan(lx));
+
+        q30_set_lifted_weapon(w);
+        g_lift_clk = g_lift_tclk = time;
+        g_lift_height = height < 0 ? 0 : height / 10000.0;
+        return true;
+    }
+
+    return false;
+}
+
 void q30_do_liftglove(int liftid, bool passive)
 {
     if(!g_lift_wpn)
@@ -9770,7 +9807,7 @@ void q30_do_liftglove(int liftid, bool passive)
 
     int bx, by, bx2, by2;
     push_points(Link.getDir(), int(Link.getX()), int(Link.getY()), bx, by, bx2, by2);
-    bool lifted = false;
+    bool lifted = lift_weapon(liftid);
 
     for(int lyr = 6; lyr >= 0 && !lifted; --lyr)
     {
@@ -13851,4 +13888,11 @@ bool q30_portal_warp(int x, int y, int dmap, int scr, int effect, int sound)
     }
 
     return false;
+}
+
+// the fire levels combo triggers lit a weapon with (q30_weapon_fx.h's burn state)
+int q30_wpn_trigger_burn(long uid)
+{
+    std::map<long, int>::const_iterator it = g_wpn_burn.find(uid);
+    return it == g_wpn_burn.end() ? 0 : it->second;
 }

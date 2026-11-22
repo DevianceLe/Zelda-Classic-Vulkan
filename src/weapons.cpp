@@ -90,6 +90,16 @@ byte bszboomflip[4] = {0,2,3,1};
 void q30_lighting(bool existslight, bool stay);    // pal.cpp
 void q30_enemy_weapon_made(weapon *w);     // q30_scripts_data.h: an enemy's weapon data for the weapon it fires
 void q30_weapon_death_fx(weapon *w);       // q30_scripts_live.h: a weapon's death item, dropset, sprite, sound
+bool q30_weapon_timeout_tick(weapon *w);   // q30_weapon_fx.h: the weapon data's timeout, counted down; true as it runs out
+void q30_weapon_timeout_clear(weapon *w);
+int q30_weapon_pierce(weapon *w, int set); // its PierceCount (set >= -1 writes it)
+void q30_weapon_clear_lift(weapon *w);
+void q30_weapon_burn_frame(weapon *w);     // the burning sprite for the fire it burns with
+void q30_weapon_clear_script(weapon *w);   // its script ends (qr_BOMB_BOOMS_CLEAR_SCRIPTS)
+
+// 2.55/3.0 without qr_BROKEN_HORIZONTAL_WEAPON_ANIM (236): a weapon facing sideways animates from
+// its sideways tile (upstream's _handle_loadsprite: o_tile = tile after each update_weapon_frame)
+static bool q30_horiz_base() { return q30_active() && !q30_quest_rule(236); }
 
 //light up the screen if there is at least one "lit" weapon
 //otherwise darken the screen
@@ -547,7 +557,7 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
             flip=1;
             
         case right: /*tile=o_tile+((frames>1)?frames:1)*/
-            update_weapon_frame(((frames>1)?frames:1),o_tile);
+            update_weapon_frame(((frames>1)?frames:1),o_tile); if(q30_horiz_base()) o_tile=tile;
             hxofs=2;
             hxsz=12;
             yofs = playing_field_offset+(BSZ ? 3 : 1);
@@ -589,7 +599,7 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
             flip=1;
             
         case right: /*tile=o_tile+((frames>1)?frames:1)*/
-            update_weapon_frame(((frames>1)?frames:1),o_tile);
+            update_weapon_frame(((frames>1)?frames:1),o_tile); if(q30_horiz_base()) o_tile=tile;
             yofs=playing_field_offset + 1;
             hyofs=2;
             hysz=14;
@@ -761,7 +771,7 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
             flip=1;
             
         case right: /*tile=o_tile+((frames>1)?frames:1)*/
-            update_weapon_frame(((frames>1)?frames:1),o_tile);
+            update_weapon_frame(((frames>1)?frames:1),o_tile); if(q30_horiz_base()) o_tile=tile;
             hxofs=2;
             hxsz=12;
             break;
@@ -824,7 +834,7 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
             break;
             
         case left:
-            flip=1; /*tile=o_tile+((frames>1)?frames:1)*/update_weapon_frame(((frames>1)?frames:1),o_tile);
+            flip=1; /*tile=o_tile+((frames>1)?frames:1)*/update_weapon_frame(((frames>1)?frames:1),o_tile); if(q30_horiz_base()) o_tile=tile;
             xofs+=2;
             yofs=playing_field_offset+4;
             hxofs=2;
@@ -832,7 +842,7 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
             break;
             
         case right: /*tile=o_tile+((frames>1)?frames:1)*/
-            update_weapon_frame(((frames>1)?frames:1),o_tile);
+            update_weapon_frame(((frames>1)?frames:1),o_tile); if(q30_horiz_base()) o_tile=tile;
             xofs-=2;
             yofs=playing_field_offset+4;
             hxofs=2;
@@ -875,7 +885,7 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
             break;
             
         case left:
-            flip=1; /*tile=o_tile+((frames>1)?frames:1)*/update_weapon_frame(((frames>1)?frames:1),o_tile);
+            flip=1; /*tile=o_tile+((frames>1)?frames:1)*/update_weapon_frame(((frames>1)?frames:1),o_tile); if(q30_horiz_base()) o_tile=tile;
             xofs+=2;
             yofs=playing_field_offset+4;
             hxofs=2;
@@ -883,7 +893,7 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
             break;
             
         case right: /*tile=o_tile+((frames>1)?frames:1)*/
-            update_weapon_frame(((frames>1)?frames:1),o_tile);
+            update_weapon_frame(((frames>1)?frames:1),o_tile); if(q30_horiz_base()) o_tile=tile;
             xofs-=2;
             yofs=playing_field_offset+4;
             hxofs=2;
@@ -967,7 +977,7 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
             flip=1;
             
         case right: /*tile=o_tile+((frames>1)?frames:1)*/
-            update_weapon_frame(((frames>1)?frames:1),o_tile);
+            update_weapon_frame(((frames>1)?frames:1),o_tile); if(q30_horiz_base()) o_tile=tile;
             break;
         }
         
@@ -1004,7 +1014,7 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
             flip=1;
             
         case right: /*tile=o_tile+((frames>1)?frames:1)*/
-            update_weapon_frame(((frames>1)?frames:1),o_tile);
+            update_weapon_frame(((frames>1)?frames:1),o_tile); if(q30_horiz_base()) o_tile=tile;
             break;
         }
         
@@ -1068,7 +1078,7 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
             flip=1;
             
         case right: /*tile=o_tile+((frames>1)?frames:1)*/
-            update_weapon_frame(((frames>1)?frames:1),o_tile);
+            update_weapon_frame(((frames>1)?frames:1),o_tile); if(q30_horiz_base()) o_tile=tile;
             yofs=playing_field_offset+1;
             break;
         }
@@ -1097,7 +1107,7 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
             flip=1;
             
         case right: /*tile=o_tile+((frames>1)?frames:1)*/
-            update_weapon_frame(((frames>1)?frames:1),o_tile);
+            update_weapon_frame(((frames>1)?frames:1),o_tile); if(q30_horiz_base()) o_tile=tile;
             yofs=playing_field_offset+1;
             break;
         }
@@ -1126,7 +1136,7 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
             flip=1;
             
         case right: /*tile=o_tile+((frames>1)?frames:1)*/
-            update_weapon_frame(((frames>1)?frames:1),o_tile);
+            update_weapon_frame(((frames>1)?frames:1),o_tile); if(q30_horiz_base()) o_tile=tile;
             yofs=playing_field_offset+1;
             break;
         }
@@ -1612,6 +1622,9 @@ bool weapon::animate(int index)
 
 bool weapon::animate_body(int)
 {
+    if(q30_active())
+        q30_weapon_burn_frame(this);    // (upstream: WFLAG_UPDATE_IGNITE_SPRITE)
+
     // do special timing stuff
     bool hooked=false;
     
@@ -2179,10 +2192,28 @@ bool weapon::animate_body(int)
         }*/
         if(clk==(misc-2) && step==0)
         {
+            const bool q30_lw = id < wEnemyWeapons;
             id = (id>wEnemyWeapons ? (id==ewLitSBomb||id==ewSBomb ? ewSBomb : ewBomb)
                       : parentitem>-1 ? ((itemsbuf[parentitem].family==itype_sbomb) ? wSBomb:wBomb)
                       : (id==wLitSBomb||id==wSBomb ? wSBomb : wBomb));
             hxofs=2000;
+
+            // 2.55/3.0: the blast has no timeout; an lweapon's can't be lifted and leaves what a
+            // script set it to as it dies (upstream's rundeath: weapon::do_death_fx this frame)
+            if(q30_active())
+            {
+                q30_weapon_timeout_clear(this);
+
+                if(q30_lw)
+                {
+                    q30_weapon_clear_lift(this);
+
+                    if(q30_quest_rule(454))     // qr_BOMB_BOOMS_CLEAR_SCRIPTS
+                        q30_weapon_clear_script(this);
+
+                    q30_weapon_death_fx(this);
+                }
+            }
         }
         
         if(clk==(misc-1) && step==0)
@@ -3505,7 +3536,95 @@ mirrors:
         --dead;
     }
 
+    // 2.55/3.0: the weapon data's timeout (upstream weapon::animate)
+    if(q30_active() && q30_weapon_timeout_tick(this))
+        q30_kill_special();
+
     return dead==0;
+}
+
+// 2.55/3.0 upstream weapon::kill_weapon_special: a lit bomb stops and goes off at once (its fuse
+// set to run out), anything else dies
+void weapon::q30_kill_special()
+{
+    switch(id)
+    {
+    case wLitBomb: case wLitSBomb: case ewLitBomb: case ewLitSBomb:
+        step = 0;
+
+        if(misc != 50 || clk < misc - 3 || clk > misc)     // (not again if it's already been)
+        {
+            misc = 50;
+            clk = misc - 3;
+            q30_weapon_timeout_clear(this);
+        }
+        break;
+
+    default:
+        dead = 0;
+    }
+}
+
+// 2.55/3.0 upstream weapon::hit_pierce: a weapon that hit (an enemy, or Link) uses up one of its
+// pierces; with none left it hits as ever. PierceCount -1 is the old way (it hits at once), 0
+// pierces forever. A bomb doesn't pierce: its blast does.
+void weapon::q30_hit_pierce(bool old_hit)
+{
+    const int pc = q30_active() ? q30_weapon_pierce(this, -2) : -1;
+
+    if(pc < 0)
+    {
+        if(old_hit)
+            onhit(false);
+        return;
+    }
+
+    if((scriptcoldet&1) == 0)
+        return;
+
+    switch(id)
+    {
+    case ewLitBomb: case ewLitSBomb: case wLitBomb: case wLitSBomb:
+        q30_pierced_hit();
+        return;
+    }
+
+    if(pc > 0)
+    {
+        q30_weapon_pierce(this, pc - 1);
+
+        if(pc == 1)
+            q30_pierced_hit();
+    }
+}
+
+// upstream onhit(..., was_pierced): a blast that ran out of pierces stays but touches nothing,
+// fire, bait and the whistle's wind die, a lit enemy bomb's hit counts against its blast
+void weapon::q30_pierced_hit()
+{
+    switch(id)
+    {
+    case ewBomb: case ewSBomb: case wBomb: case wSBomb:
+        onhit(false);
+        scriptcoldet &= ~1;
+        return;
+
+    case ewLitBomb: case ewLitSBomb:
+    {
+        const int pc = q30_weapon_pierce(this, -2);
+
+        if(pc > 0)
+            q30_weapon_pierce(this, pc - 1);
+        break;
+    }
+
+    case wWhistle: case wBait: case wFire:
+        onhit(false);
+        dead = 0;
+        return;
+    }
+
+    onhit(false);
 }
 
 void weapon::onhit(bool clipped)

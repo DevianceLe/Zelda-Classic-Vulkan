@@ -12429,6 +12429,7 @@ void FFScript::ZScriptConsolePrint(int attributes,const char *format,...)
 #include "port/game/q30_scripts_cmds.h"
 #include "port/game/q30_scripts_region.h"
 #include "port/game/q30_scripts_live.h"
+#include "port/game/q30_weapon_fx.h"
 #include "port/game/q30_scripts_sys.h"
 
 std::string z30_printf_text(const std::string &format, const std::vector<long> &args)

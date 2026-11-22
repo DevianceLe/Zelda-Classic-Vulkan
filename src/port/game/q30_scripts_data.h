@@ -1739,6 +1739,8 @@ static bool z30d_weapdata_reg(const long arg, long &ret, const long value, const
     return true;
 }
 
+void q30_weapon_seed_data(weapon *w, const Q30WeaponData &d, bool lw);    // q30_weapon_fx.h: pierce, bounce, lifting, burning sprites
+
 // upstream weapon::load_weap_data, for what this engine's weapons have
 static void z30d_apply_weapdata(const Q30WeaponData &d, long uid, bool lweapon)
 {
@@ -1797,6 +1799,7 @@ static void z30d_apply_weapdata(const Q30WeaponData &d, long uid, bool lweapon)
     st.weapon_flags = d.wflags;
     st.script = d.script;
     memcpy(st.initd, d.initd, sizeof(st.initd));
+    q30_weapon_seed_data(w, d, lweapon);
 }
 
 static bool z30d_weapdata_command(word cmd)
@@ -2662,6 +2665,13 @@ void q30_set_guy_data(int guy, const Q30GuyData &d)
     zasm30_guy_data[guy] = d;
 }
 
+// the enemy's 2.55/3.0 data (guys.cpp's enemy constructor), NULL when the reader kept none
+const Q30GuyData *q30_guy_data(int guy)
+{
+    std::map<int, Q30GuyData>::const_iterator it = zasm30_guy_data.find(guy);
+    return it == zasm30_guy_data.end() ? NULL : &it->second;
+}
+
 static Q30GuyData &z30d_guy(long id)
 {
     std::map<int, Q30GuyData>::iterator it = zasm30_guy_data.find((int)id);
@@ -2753,13 +2763,28 @@ void q30_enemy_weapon_made(weapon *w)
         if(d.override_flags & O_DRAW_Y) w->yofs = (int)d.yofs + (q30_quest_rule(319) ? playing_field_offset : original_playing_field_offset);   // qr_OLD_DRAWOFFSET
     }
 
-    // (an enemy's fire keeps the speed its firing code gives it: upstream doubles or slows it there)
-    if((d.flags & Z30D_WD_SET_STEP) && id != ewFlame && id != ewFlame2)
-        w->step = d.step / 10000.0;
+    // (an enemy's fire: a fast Gleeok's (misc 3 = 1) or Ghoma's (misc 1 = 2) goes twice the
+    // data's step, a Patra's keeps its own, others' the data's slowed for a diagonal only, as upstream)
+    if(d.flags & Z30D_WD_SET_STEP)
+    {
+        if(id == ewFlame || id == ewFlame2)
+        {
+            switch(e->family)
+            {
+            case eeGLEEOK: if(e->dmisc3 == 1) w->step = d.step * 2 / 10000.0; break;
+            case eeGHOMA: if(e->dmisc1 == 2) w->step = d.step * 2 / 10000.0; break;
+            case eePATRA: break;
+            default: if(w->dir > right) w->step = d.step * .707 / 10000.0; break;
+            }
+        }
+        else
+            w->step = d.step / 10000.0;
+    }
 
     st.unblockable = d.unblockable;
     st.weap_timeout = d.timeout;
     st.weapon_flags = d.wflags;
+    q30_weapon_seed_data(w, d, false);
 }
 
 // npcdata-> registers of the data above (upstream npcdata.cpp, its GET/SET_NPCDATA_VAR_* and
@@ -2851,7 +2876,13 @@ static bool z30d_npcdata_ex_reg(const long arg, long &ret, const long value, con
         switch(n)       // (2.53's misc fields the enemies use)
         {
         case 0: g.misc1 = v; break; case 1: g.misc2 = v; break; case 2: g.misc3 = v; break; case 3: g.misc4 = v; break;
-        case 4: g.misc5 = v; break; case 5: g.misc6 = v; break; case 6: g.misc7 = v; break; case 7: g.misc8 = v; break;
+        case 4: g.misc5 = v; break; case 5: g.misc6 = v; break; case 6: g.misc7 = v; break;
+        case 7:     // (a bubble's jinx targets are bit flags: 2.53's guydata keeps its own numbers)
+            if(g.family == eeWALK && (g.misc7 == e7tTEMPJINX || g.misc7 == e7tPERMJINX || g.misc7 == e7tUNJINX))
+                g.misc8 = (v & 3) == 1 ? e8tSWORD : (v & 3) == 2 ? e8tITEM : (v & 3) == 3 ? e8tALL : e8tLAST;
+            else
+                g.misc8 = v;
+            break;
         case 8: g.misc9 = v; break; case 9: g.misc10 = v; break; case 10: g.misc11 = v; break; case 11: g.misc12 = v; break;
         case 12: g.misc13 = v; break; case 13: g.misc14 = v; break; case 14: g.misc15 = v; break;
         }
@@ -3355,11 +3386,8 @@ static bool z30d_item30_reg(const long arg, long &ret, const long value, const b
 
 // upstream's weapon::load_weap_data, from the weapon constructor (get_weapon_data_for_id): a
 // weapon an item makes takes on the item's weapon data, for what this engine's weapons have
-// (pierce, bounce and lifting are 3.0 weapon behaviours 2.53's weapons don't have; burning
-// sprites neither). Magic takes the Book of Magic's, sparkles their item's only under
-// qr_SPARKLES_INHERIT_PROPERTIES.
-static void z30_lf_set(long uid, long reg, long idx, long v);     // q30_scripts_live.h's weapon fields:
-enum { Z30D_LF_PIERCE = 1 + 10, Z30D_LF_BOUNCE_MULT = 1 + 15, Z30D_LF_BOUNCE_ADD = 1 + 16 };   // 1 + Z30W_PIERCE, _BMULT, _BADD
+// (pierce, bounce, lifting and the burning sprites: q30_weapon_fx.h). Magic takes the Book of
+// Magic's, sparkles their item's only under qr_SPARKLES_INHERIT_PROPERTIES.
 
 void q30_weapon_load_item_data(weapon *w)
 {
@@ -3459,20 +3487,13 @@ void q30_weapon_load_item_data(weapon *w)
         zasm30_store_set(Z30R_LWPNUSEDEFENCE, w->getUID(), 0, d.default_defense);
     }
 
-    // lifting, piercing and bouncing: kept for scripts (lweapon->LiftLevel, Pierce, BounceMult ...)
-    zasm30_store_set(Z30R_LWPNLIFTLEVEL, w->getUID(), 0, d.lift_level * 10000);
-    zasm30_store_set(Z30R_LWPNLIFTTIME, w->getUID(), 0, d.lift_time * 10000);
-    zasm30_store_set(Z30R_LWPNLIFTHEIGHT, w->getUID(), 0, d.lift_height);
-    z30_lf_set(w->getUID(), Z30D_LF_PIERCE, 0, d.pierce_count);
-    z30_lf_set(w->getUID(), Z30D_LF_BOUNCE_MULT, 0, d.bounce_mult);
-    z30_lf_set(w->getUID(), Z30D_LF_BOUNCE_ADD, 0, d.bounce_add);
     st.unblockable = d.unblockable;
-    st.weap_timeout = d.timeout;
-    zasm30_store_set(Z30R_LWPNTIMEOUT, w->getUID(), 0, d.timeout * 10000);   // (read by lweapon->Timeout; not counted down here yet)
+    st.weap_timeout = d.timeout;    // (counted down by weapon::animate_body, q30_weapon_fx.h)
     st.weapon_flags = d.wflags;
     st.script = d.script;
     memcpy(st.initd, d.initd, sizeof(st.initd));
     st.script_started = true;   // (zasm30_lweapon_state: the script is the item's, as made)
+    q30_weapon_seed_data(w, d, true);   // lifting, piercing, bouncing, burning sprites
 }
 
 static bool zasm30_data_reg(const long arg, long &ret, const long value, const bool write)

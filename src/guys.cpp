@@ -266,6 +266,8 @@ int q30_summon_layered_enemies(enemy *e, int count, int limit, bool random_count
     return ret;
 }
 bool q30_active();
+const Q30GuyData *q30_guy_data(int guy);     // q30_scripts_data.h: what the 2.55/3.0 reader kept, or NULL
+int q30_guy_defense(int guy, int slot);      // q30_triggers.cpp: a defence as the file stores it
 
 int link_on_wall()
 {
@@ -588,12 +590,61 @@ enemy::enemy(fix X,fix Y,int Id,int Clk) : sprite()
         if(q30_active())
             q30_npc_weapdata_made(this);
     }
+    q30_sizeflags = 0;
+    q30_frozenclock = q30_frozentile = q30_frozencset = 0;
+    q30_spr_shadow = -1;
+
+    if(q30_active())
+    {
+        // upstream's enemy constructor: the frozen data, the shadow sprite and the size tab
+        if(const Q30GuyData *x = q30_guy_data(id & 0xFFF))
+        {
+            q30_frozentile = x->frozentile;
+            q30_frozencset = x->frozencset;
+            q30_spr_shadow = x->spr_shadow;
+            q30_sizeflags = x->sizeflags;
+            q30_init_size_flags();
+        }
+    }
     canfreeze = count_enemy = true;
     mainguy = !(flags & guy_doesntcount);
     dir = rand()&3;
     
     if((wpn==ewBomb || wpn==ewSBomb) && family!=eeOTHER && family!=eeFIRE && (family!=eeWALK || dmisc2 != e2tBOMBCHU))
         wpn = 0;
+}
+
+// Upstream's enemy::init_size_flags: the enemy editor's tile size, hit size and offsets, each
+// only when its SIZEflags bit is on (2.55/3.0 quests; q30_sizeflags stays 0 for 2.53 quests).
+void enemy::q30_init_size_flags()
+{
+    const long f = q30_sizeflags;
+    const Q30GuyData *x = f ? q30_guy_data(id & 0xFFF) : NULL;
+
+    if(!x)
+        return;
+
+    if((f & 0x001) && x->txsz > 0) { txsz = x->txsz; if(txsz > 1) extend = 3; }    // OVERRIDE_TILE_WIDTH
+    if((f & 0x002) && x->tysz > 0) { tysz = x->tysz; if(tysz > 1) extend = 3; }    // OVERRIDE_TILE_HEIGHT
+    if((f & 0x004) && x->hxsz >= 0) hxsz = x->hxsz;     // OVERRIDE_HIT_WIDTH
+    if((f & 0x008) && x->hysz >= 0) hysz = x->hysz;     // OVERRIDE_HIT_HEIGHT
+    if((f & 0x010) && x->hzsz >= 0) hzsz = x->hzsz;     // OVERRIDE_HIT_Z_HEIGHT
+    if(f & 0x020) hxofs = x->hxofs;     // OVERRIDE_HIT_X_OFFSET
+    if(f & 0x040) hyofs = x->hyofs;     // OVERRIDE_HIT_Y_OFFSET
+    if(f & 0x080) xofs = (int)x->xofs;  // OVERRIDE_DRAW_X_OFFSET
+    if(f & 0x100)                       // OVERRIDE_DRAW_Y_OFFSET (qr_OLD_DRAWOFFSET 319)
+        yofs = (int)x->yofs + (q30_quest_rule(319) ? playing_field_offset : original_playing_field_offset);
+    if(f & 0x200) zofs = (int)x->zofs;  // OVERRIDE_DRAW_Z_OFFSET
+}
+
+// Upstream draws an enemy's shadow from its shadow sprite (spr_shadow); 2.53's from iwShadow
+// (or iwLargeShadow).
+int enemy::q30_shadow_tile(int dflt_sprite)
+{
+    if(q30_spr_shadow >= 0 && q30_spr_shadow < MAXWPNS)
+        return wpnsbuf[q30_spr_shadow].tile;
+
+    return wpnsbuf[dflt_sprite].tile;
 }
 
 enemy::~enemy() {}
@@ -1038,6 +1089,9 @@ bool enemy::animate(int index)
         
     if(stunclk>0)
         --stunclk;
+
+    if(q30_frozenclock>0)   // (2.55/3.0: a script's npc->Frozen counts down; the Freeze defence's -1 stays)
+        --q30_frozenclock;
         
     if(ceiling && z<=0)
         ceiling = false;
@@ -1537,6 +1591,15 @@ int enemy::defend(int wpnId, int *power, int edef)
         }
         
         sfx(WAV_CHINK,pan(int(x)));
+        return 1;
+    }
+
+    // 2.55/3.0: the Freeze outcome (the reader's edSTUNONLY for it) freezes the enemy for good,
+    // as upstream's edFREEZE: it stops moving and shows its frozen tile
+    if(q30_active() && defense[edef] == edSTUNONLY
+            && q30_guy_defense(id & 0xFFF, edef == edefQUAKE ? 19 : edef) == 21)     // FILE_edFREEZE
+    {
+        q30_frozenclock = -1;
         return 1;
     }
     
@@ -2231,7 +2294,17 @@ void enemy::draw(BITMAP *dest)
                 sprite::draw(dest);
         }
         else
+        {
+            if(q30_frozenclock < 0)     // (2.55/3.0) frozen: the frozen tile, and its CSet in the boss slot
+            {
+                if(q30_frozentile > 0)
+                    tile = q30_frozentile;
+
+                loadpalset(csBOSS, q30_frozencset);
+            }
+
             sprite::draw(dest);
+        }
     }
     
     cs=cshold;
@@ -2353,7 +2426,7 @@ void enemy::drawshadow(BITMAP *dest, bool translucent)
     else
     {
         /*   if (canfall(id) && z>0)
-             shadowtile = wpnsbuf[iwShadow].tile;
+             shadowtile = q30_shadow_tile(iwShadow);
            sprite::drawshadow(dest,translucent);
            if (z==0)
              shadowtile = 0;*/
@@ -2367,7 +2440,7 @@ void enemy::drawshadow(BITMAP *dest, bool translucent)
         const bool falls = q30_active() ? q30_enemy_can_fall(id) : canfall(id);
 
         if(falls && shadowtile == 0)
-            shadowtile = wpnsbuf[iwShadow].tile;
+            shadowtile = q30_shadow_tile(iwShadow);
             
         if((z>0 || !falls) && !q30_shadow_overpit())
             sprite::drawshadow(dest,translucent);
@@ -2437,8 +2510,11 @@ void enemy::fix_coords(bool bound)
     {
         int rl, rt, rr, rb;     // the screen, or a 3.0 scrolling region
         q30_region_bounds(&rl, &rt, &rr, &rb);
-        x=vbound(x, rl, rr-16);
-        y=vbound(y, rt, rb-16);
+        // (2.55/3.0, upstream's fix_coords: a walker with the size tab's tile width or height
+        // keeps its tiles in, by its tile width both ways)
+        const bool walker = q30_sizeflags && !isflier(id);
+        x=vbound(x, rl, (walker && (q30_sizeflags & 0x001)) ? rr-((txsz-1)*16) : rr-16);
+        y=vbound(y, rt, (walker && (q30_sizeflags & 0x002)) ? rb-((txsz-1)*16) : rb-16);
     }
     
     if(!OUTOFBOUNDS)
@@ -2458,8 +2534,100 @@ bool enemy::cannotpenetrate()
 }
 
 // returns true if next step is ok, false if there is something there
+// 2.55/3.0 (upstream's canmove): an enemy with the size tab's hit size or offset looks at every
+// 16 pixels across its hit box (and its last pixel), from its hit offset
+bool enemy::q30_canmove(int ndir,fix s,int special,int dx1,int dy1,int dx2,int dy2)
+{
+    const int xo = (q30_sizeflags & 0x020) ? hxofs : 0, yo = (q30_sizeflags & 0x040) ? hyofs : 0;
+    const int w = zc_max(16, (q30_sizeflags & 0x004) ? hxsz : 16);
+    const int h = zc_max(16, (q30_sizeflags & 0x008) ? hysz : 16);
+    const int sv = (tmpscr->flags7&fSIDEVIEW) ? 7 : 8;
+    const int ex = int(x) + xo, ey = int(y) + yo;
+    s += 0.5;
+
+    // free across the width at y+dy / down the height at x+dx
+    struct Box
+    {
+        enemy *e; int ex, ey, w, h, sv;
+        bool blocked(int px, int py, int fy, int sp) { return e->m_walkflag(px, py, sp, e->x, e->y) || e->flyerblocked(px, fy, sp); }
+        bool row(int dy, int sp)
+        {
+            for(int t = 0; t < w; t += 16)
+                if(blocked(ex+t, ey+dy, ey+dy, sp))
+                    return false;
+            return !(w % 16) || !blocked(ex+w-1, ey+dy, ey+dy, sp);
+        }
+        bool col(int dx, int sp)
+        {
+            for(int t = 0; t < h; t += 16)
+                if(blocked(ex+dx, ey+t+sv, ey+t+8, sp))
+                    return false;
+            return !(h % 16) || !blocked(ex+dx, ey+h-1+sv, ey+h-1+8, sp);
+        }
+    } b = { this, ex, ey, w, h, sv };
+
+    const int up_y = dy1-s, down_y = dy2+s, left_x = dx1-s, right_x = dx2+s;
+
+    switch(ndir)
+    {
+    case 8:
+    case up:
+        if(canfall(id) && tmpscr->flags7&fSIDEVIEW)
+            return false;
+
+        return b.row(up_y, (special==spw_clipbottomright)?spw_none:special);
+
+    case 12:
+    case down:
+        if(canfall(id) && tmpscr->flags7&fSIDEVIEW)
+            return false;
+
+        return b.row(down_y, special);
+
+    case 14:
+    case left:
+        return b.col(left_x, (special==spw_clipbottomright||special==spw_clipright)?spw_none:special);
+
+    case 10:
+    case right:
+        return b.col(right_x, special);
+
+    case 9:
+    case r_up:
+        return b.row(up_y, special) && b.col(right_x, special);
+
+    case 11:
+    case r_down:     // (dx takes dy2 and dy stays 0, as in 2.53 and upstream)
+        return b.row(0, special) && b.col(down_y, special);
+
+    case 13:
+    case l_down:
+        return b.row(down_y, special) && b.col(left_x, special);
+
+    case 15:
+    case l_up:
+        return b.row(up_y, special) && b.col(left_x, special);
+
+    default:
+        db=99;
+        return true;
+    }
+}
+
+// upstream's canmove forms without a box: the hit size, rounded up to whole tiles
+void enemy::q30_move_box(int &dx2, int &dy2)
+{
+    if(q30_sizeflags & 0x004)
+        dx2 = ((hxsz % 16) ? hxsz + 16 - (hxsz % 16) : hxsz) - 1;
+    if(q30_sizeflags & 0x008)
+        dy2 = ((hysz % 16) ? hysz + 16 - (hysz % 16) : hysz) - 1;
+}
+
 bool enemy::canmove(int ndir,fix s,int special,int dx1,int dy1,int dx2,int dy2)
 {
+    if(q30_sizeflags & (0x004 | 0x008 | 0x020 | 0x040))    // (2.55/3.0: a hit size or offset of its own)
+        return q30_canmove(ndir,s,special,dx1,dy1,dx2,dy2);
+
     bool ok;
     int dx = 0, dy = 0;
     int sv = 8;
@@ -2546,7 +2714,9 @@ bool enemy::canmove(int ndir,fix s,int special,int dx1,int dy1,int dx2,int dy2)
 
 bool enemy::canmove(int ndir,fix s,int special)
 {
-    return canmove(ndir,s,special,0,-8,15,15);
+    int dx2 = 15, dy2 = 15;
+    q30_move_box(dx2, dy2);
+    return canmove(ndir,s,special,0,-8,dx2,dy2);
 }
 
 bool enemy::canmove(int ndir,int special)
@@ -2558,7 +2728,9 @@ bool enemy::canmove(int ndir,int special)
         dodongo_move=canmove(ndir,(fix)1,special,0,-8,31,15);
     }
     
-    return canmove(ndir,(fix)1,special,0,-8,15,15)&&dodongo_move;
+    int dx2 = 15, dy2 = 15;
+    q30_move_box(dx2, dy2);
+    return canmove(ndir,(fix)1,special,0,-8,dx2,dy2)&&dodongo_move;
 }
 
 bool enemy::canmove(int ndir)
@@ -3021,7 +3193,7 @@ void enemy::constant_walk(int newrate,int newhoming,int special)
     if(slide())
         return;
         
-    if(clk<0 || dying || stunclk || watch || ceiling)
+    if(clk<0 || dying || stunclk || watch || ceiling || q30_frozenclock)
         return;
         
     if(clk3<=0)
@@ -3060,7 +3232,7 @@ void enemy::variable_walk(int newrate,int newhoming,int special)
     if(slide())
         return;
         
-    if(clk<0 || dying || stunclk || watch || step == 0 || ceiling)
+    if(clk<0 || dying || stunclk || watch || step == 0 || ceiling || q30_frozenclock)
         return;
         
     fix dx = (fix)0;
@@ -3132,7 +3304,7 @@ void enemy::halting_walk(int newrate,int newhoming,int special,int newhrate, int
         clk3=0;
     }
     
-    if(slide() || clk<0 || dying || stunclk || watch || ceiling)
+    if(slide() || clk<0 || dying || stunclk || watch || ceiling || q30_frozenclock)
     {
         return;
     }
@@ -3173,7 +3345,7 @@ void enemy::halting_walk(int newrate,int newhoming,int special,int newhrate, int
 // 8-directional movement, aligns to 8 pixels
 void enemy::constant_walk_8(int newrate,int newhoming,int special)
 {
-    if(clk<0 || dying || stunclk || watch || ceiling)
+    if(clk<0 || dying || stunclk || watch || ceiling || q30_frozenclock)
         return;
         
     if(clk3<=0)
@@ -3188,7 +3360,7 @@ void enemy::constant_walk_8(int newrate,int newhoming,int special)
 
 void enemy::halting_walk_8(int newrate,int newhoming, int newclk,int special,int newhrate, int haltcnt)
 {
-    if(clk<0 || dying || stunclk || watch)
+    if(clk<0 || dying || stunclk || watch || q30_frozenclock)
         return;
         
     if(!canmove(dir,step,special))
@@ -3224,7 +3396,7 @@ void enemy::halting_walk_8(int newrate,int newhoming, int newclk,int special,int
 // 8-directional movement, no alignment
 void enemy::variable_walk_8(int newrate,int newhoming, int newclk,int special)
 {
-    if(clk<0 || dying || stunclk || watch || ceiling)
+    if(clk<0 || dying || stunclk || watch || ceiling || q30_frozenclock)
         return;
         
     if(!canmove(dir,step,special))
@@ -3243,7 +3415,7 @@ void enemy::variable_walk_8(int newrate,int newhoming, int newclk,int special)
 // same as above but with variable enemy size
 void enemy::variable_walk_8(int newrate,int newhoming, int newclk,int special,int dx1,int dy1,int dx2,int dy2)
 {
-    if(clk<0 || dying || stunclk || watch || ceiling)
+    if(clk<0 || dying || stunclk || watch || ceiling || q30_frozenclock)
         return;
         
     if(!canmove(dir,step,special,dx1,dy1,dx2,dy2))
@@ -5146,7 +5318,7 @@ bool eTektite::animate(int index)
         y=floor_y;
     }
     
-    if(clk>=0 && !stunclk && (!watch || misc==0))
+    if(clk>=0 && !stunclk && !q30_frozenclock && (!watch || misc==0))
     {
         switch(misc)
         {
@@ -5321,7 +5493,7 @@ void eTektite::drawshadow(BITMAP *dest,bool translucent)
     int f2=get_bit(quest_rules,qr_NEWENEMYTILES)?
            efrate:((clk>=(frate>>1))?1:0);
     flip = 0;
-    shadowtile = wpnsbuf[iwShadow].tile;
+    shadowtile = q30_shadow_tile(iwShadow);
     
     if(get_bit(quest_rules,qr_NEWENEMYTILES))
     {
@@ -5456,7 +5628,7 @@ void ePeahat::drawshadow(BITMAP *dest, bool translucent)
 {
     int tempy=yofs;
     flip = 0;
-    shadowtile = wpnsbuf[iwShadow].tile+posframe;
+    shadowtile = q30_shadow_tile(iwShadow)+posframe;
     
     if(!get_bit(quest_rules,qr_ENEMIESZAXIS))
     {
@@ -5613,7 +5785,7 @@ bool eLeever::animate(int index)
                 
 //        case 3: if(stunclk) break; if(scored) dir^=1; if(!canmove(dir)) misc=4; else move((fix)(d->step/100.0)); break;
             case 3:
-                if(stunclk) break;
+                if(stunclk || q30_frozenclock) break;
                 
                 if(scored) dir^=1;
                 
@@ -5865,7 +6037,7 @@ void eWallM::wallm_crawl()
     }
     
     //  if(dying || watch || (!haslink && stunclk))
-    if(dying || (!haslink && stunclk))
+    if(dying || (!haslink && (stunclk || q30_frozenclock)))
     {
         return;
     }
@@ -6493,7 +6665,7 @@ void eRock::drawshadow(BITMAP *dest, bool translucent)
         int efrate = fdiv == 0 ? 0 : clk/fdiv;
         int f2=get_bit(quest_rules,qr_NEWENEMYTILES)?
                efrate:((clk>=(frate>>1))?1:0);
-        shadowtile = wpnsbuf[iwShadow].tile+f2;
+        shadowtile = q30_shadow_tile(iwShadow)+f2;
         
         yofs+=8;
         yofs+=zc_max(0,zc_min(29-clk3,clk3));
@@ -6610,7 +6782,7 @@ void eBoulder::drawshadow(BITMAP *dest, bool translucent)
         int tempy=yofs;
         flip = 0;
         int f2=((clk<<2)/frate)<<1;
-        shadowtile = wpnsbuf[iwLargeShadow].tile+f2;
+        shadowtile = q30_shadow_tile(iwLargeShadow)+f2;
         yofs+=zc_max(0,zc_min(29-clk3,clk3));
         
         yofs+=8;
@@ -6953,7 +7125,7 @@ void eSpinTile::draw(BITMAP *dest)
 void eSpinTile::drawshadow(BITMAP *dest, bool translucent)
 {
     flip = 0;
-    shadowtile = wpnsbuf[iwShadow].tile+(clk%4);
+    shadowtile = q30_shadow_tile(iwShadow)+(clk%4);
     yofs+=4;
     enemy::drawshadow(dest, translucent);
     yofs-=4;
@@ -7328,7 +7500,7 @@ bool eStalfos::animate(int index)
                 }
                 else if(dmisc9==e9tROPE) //Rope charge
                 {
-                    if(!fired && dashing && !stunclk && !watch)
+                    if(!fired && dashing && !stunclk && !watch && !q30_frozenclock)
                     {
                         if(dmisc2==e2tBOMBCHU && LinkInRange(16) && wpn+dmisc3 > wEnemyWeapons) //Bombchu
                         {
@@ -7739,7 +7911,7 @@ void eStalfos::drawshadow(BITMAP *dest, bool translucent)
         flip = 0;
         int f2=get_bit(quest_rules,qr_NEWENEMYTILES)?
           (clk/(frate/4)):((clk>=(frate>>1))?1:0);
-        shadowtile = wpnsbuf[iwShadow].tile+f2;
+        shadowtile = q30_shadow_tile(iwShadow)+f2;
         yofs+=q30_tile16((int)y+17)-y;
         yofs+=8;
       }
@@ -7752,7 +7924,7 @@ void eStalfos::drawshadow(BITMAP *dest, bool translucent)
         
         int f2=get_bit(quest_rules,qr_NEWENEMYTILES)?
                efrate:((clk>=(frate>>1))?1:0);
-        shadowtile = wpnsbuf[iwShadow].tile;
+        shadowtile = q30_shadow_tile(iwShadow);
         
         if(get_bit(quest_rules,qr_NEWENEMYTILES))
         {
@@ -8078,7 +8250,7 @@ void eKeese::drawshadow(BITMAP *dest, bool translucent)
 {
     int tempy=yofs;
     flip = 0;
-    shadowtile = wpnsbuf[iwShadow].tile+posframe;
+    shadowtile = q30_shadow_tile(iwShadow)+posframe;
     yofs+=8;
     
     if(!get_bit(quest_rules,qr_ENEMIESZAXIS))
@@ -12182,7 +12354,8 @@ int GuyHit(int tx,int ty,int tz,int txsz,int tysz,int tzsz)
     {
         if(guys.spr(i)->hit(tx,ty,tz,txsz,tysz,tzsz))
         {
-	    if(((enemy*)guys.spr(i))->stunclk==0 && (!get_bit(quest_rules, qr_SAFEENEMYFADE) || ((enemy*)guys.spr(i))->fading != fade_flicker)
+	    if(((enemy*)guys.spr(i))->stunclk==0 && ((enemy*)guys.spr(i))->q30_frozenclock==0     // (2.55/3.0: nor frozen)
+                    && (!get_bit(quest_rules, qr_SAFEENEMYFADE) || ((enemy*)guys.spr(i))->fading != fade_flicker)
                     &&(((enemy*)guys.spr(i))->d->family != eeGUY || ((enemy*)guys.spr(i))->dmisc1))
             {
                 return i;
@@ -12547,6 +12720,20 @@ int addenemy(int x,int y,int z,int id,int clk)
     }
     
     ((enemy*)e)->ceiling = (z && canfall(id));
+
+    // 2.55/3.0: upstream's class constructors apply the size tab again over their own sizes
+    // (init_size_flags), all but Ganon's, Moldorm's, Lanmola's, Gleeok's and Patra's
+    if(((enemy*)e)->q30_sizeflags)
+    {
+        switch(guysbuf[id&0xFFF].family)
+        {
+        case eeGANON: case eeMOLD: case eeLANM: case eeGLEEOK: case eePATRA:
+            break;
+
+        default:
+            ((enemy*)e)->q30_init_size_flags();
+        }
+    }
     
     if(!guys.add(e))
     {
@@ -12625,7 +12812,10 @@ int addenemy(int x,int y,int z,int id,int clk)
         
         for(int i=0; i<((!(guysbuf[id].misc2))?4:8); i++)
         {
-            if(!guys.add(new esManhandla((fix)x,(fix)y,id+0x1000,i)))
+            enemy *head = new esManhandla((fix)x,(fix)y,id+0x1000,i);
+            head->q30_init_size_flags();    // (2.55/3.0: as upstream's esManhandla constructor)
+
+            if(!guys.add(head))
             {
                 al_trace("Manhandla head %d could not be created!\n",i+1);
                 
@@ -14952,7 +15142,11 @@ void check_collisions()
                     w->ignoreLink=false;
                     }
                     else*/
-                    if(h)
+                    if(h < 0 && q30_active())
+                    {
+                        w->q30_hit_pierce(true);    // (2.55/3.0: the weapon's pierces)
+                    }
+                    else if(h)
                     {
                         w->onhit(false);
                     }

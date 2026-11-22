@@ -2049,9 +2049,9 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
         ret = (st && Z30_INDEX >= 0 && Z30_INDEX < 8) ? st->initd[Z30_INDEX] : 0;
         return true;
     }
-    case Z30R_LWPNFLAGS:
+    case Z30R_LWPNTIMEOUT: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); ret = st ? st->weap_timeout * 10000 : -10000; return true; }
+    case Z30R_LWPNFLAGS: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); ret = (st && z30_flag_get(st->weapon_flags, Z30_INDEX, 32)) ? 10000 : 0; return true; }
     case Z30R_LWPNMOVEFLAGS:
-    case Z30R_LWPNTIMEOUT:
     case Z30R_LWPNLIFTLEVEL:
     case Z30R_LWPNLIFTTIME:
     case Z30R_LWPNLIFTHEIGHT:
@@ -3087,9 +3087,9 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     case Z30R_EWPNINITD:
         if(Z30_INDEX >= 0 && Z30_INDEX < 8) zasm30_sprite_state(ri->ewpn).initd[Z30_INDEX] = value;
         return true;
-    case Z30R_LWPNFLAGS:
+    case Z30R_LWPNTIMEOUT: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); if(st) st->weap_timeout = vbound(value / 10000, 0, 214748); return true; }
+    case Z30R_LWPNFLAGS: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); if(st) z30_flag_set(st->weapon_flags, Z30_INDEX, 32, value != 0); return true; }
     case Z30R_LWPNMOVEFLAGS:
-    case Z30R_LWPNTIMEOUT:
     case Z30R_LWPNLIFTLEVEL:
     case Z30R_LWPNLIFTTIME:
     case Z30R_LWPNLIFTHEIGHT:
