@@ -775,6 +775,10 @@ static bool zasm30_paldata_get(const long arg, long &ret);
 static bool zasm30_paldata_set(const long arg, const long value);
 static bool zasm30_sub_get(const long arg, long &ret);       // q30_scripts_subscr.h
 static bool zasm30_scrdata_get(const long arg, long &ret);   // q30_scripts_save.h
+static bool zasm30_live_get(const long arg, long &ret);      // q30_scripts_live.h
+static bool zasm30_live_set(const long arg, const long value);
+static void zasm30_live_reset();
+void q30_auto_rotate(sprite *s, Zasm30SpriteState *st);
 static bool zasm30_scrdata_set(const long arg, const long value);
 static bool zasm30_sub_set(const long arg, const long value);
 
@@ -1876,7 +1880,7 @@ static bool zasm30_plain_reg(const long arg, long &ret, const long value, const 
 static bool zasm30_get_register_inner(const long arg, long &ret)
 {
     if(zasm30_sub_get(arg, ret) || zasm30_scrdata_get(arg, ret) || zasm30_draw_get(arg, ret) || zasm30_trigger_reg(arg, ret, 0, false)
-       || zasm30_plain_reg(arg, ret, 0, false))
+       || zasm30_plain_reg(arg, ret, 0, false) || zasm30_live_get(arg, ret))
         return true;
 
     switch(arg)
@@ -2903,7 +2907,7 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     long unused;
 
     if(zasm30_sub_set(arg, value) || zasm30_scrdata_set(arg, value) || zasm30_draw_set(arg, value) || zasm30_trigger_reg(arg, unused, value, true)
-       || zasm30_plain_reg(arg, unused, value, true))
+       || zasm30_plain_reg(arg, unused, value, true) || zasm30_live_set(arg, value))
         return true;
 
     switch(arg)
@@ -4080,6 +4084,7 @@ void q30_sprite_values(sprite *s, int *v)
 
     if(Zasm30SpriteState *st = zasm30_sprite_state_if(s->getUID()))
     {
+        q30_auto_rotate(s, st);     // (q30_scripts_live.h)
         v[0] = (int)st->rotation;
         v[1] = (int)st->scale;
 
@@ -4111,6 +4116,7 @@ static void zasm30_reset_register_state()
     z30_gameover_reset();
     zasm30_viewport_mode = 0;
     zasm30_shield_jinx = 0;
+    zasm30_live_reset();         // (q30_scripts_live.h)
 }
 
 // The start of each frame of a newer quest.

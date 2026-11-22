@@ -18553,6 +18553,44 @@ void q30_set_ab_item(bool a, int val)
     (a ? directItemA : directItemB) = val;
 }
 
+// Hero->SetItemSlot(item, slot, force) in 2.55/3.0 scripts (upstream's SETITEMSLOT): the item goes
+// on button slot (0 B, 1 A, 2 X, 3 Y) forced, the button keeping no subscreen slot. force is
+// upstream's flags: 1 only an item Link has, 2 A only under qr_SELECTAWPN; others do nothing.
+// (As upstream, Y's unconditional form sets the X button's direct item.)
+void q30_set_item_slot(int itm, int slot, int force)
+{
+    if(force < 0 || force > 3)
+        return;
+
+    if((force & 1) && !(itm >= 0 && game->get_item(itm)))
+        return;
+
+    if(slot == 1 && (force & 2) && !get_bit(quest_rules, qr_SELECTAWPN))
+        return;
+
+    if(itm > -1 && itm < MAXITEMS)  // (items_off holds 2.53's 256)
+        game->items_off[itm] = 0;
+
+    static const int btn[4] = { Q30_BTN_B, Q30_BTN_A, Q30_BTN_X, Q30_BTN_Y };
+
+    if(slot < 0 || slot > 3)
+        return;
+
+    if(q30_paged_buttons())
+        q30_btn_put(btn[slot], 255);
+
+    switch(slot)
+    {
+    case 0: Bwpn = itm < 0 ? 0 : itm; game->bwpn = 255; q30_forced_bwpn = itm; directItemB = itm; break;
+    case 1: Awpn = itm < 0 ? 0 : itm; game->awpn = 255; q30_forced_awpn = itm; directItemA = itm; break;
+    case 2: Xwpn = itm; q30_xpos = 255; q30_store_extra_buttons(); q30_forced_xwpn = itm; directItemX = itm; break;
+    case 3:
+        Ywpn = itm; q30_ypos = 255; q30_store_extra_buttons(); q30_forced_ywpn = itm;
+        (force == 0 ? directItemX : directItemY) = itm;
+        break;
+    }
+}
+
 // A script's Hero->Equipment (upstream's LINKEQUIP), with the newer subscreens: the two items go
 // on A and B forced, as Hero->ItemA and ItemB put them, and neither button keeps a slot. False
 // for other quests, which keep 2.53's (each item id taken as a slot too).

@@ -687,6 +687,7 @@ void q30_set_bottle_type(int i, const Q30BottleType &t);
 void q30_set_bottle_shop(int i, const Q30BottleShop &s);
 void q30_set_init_bottle_slots(const byte *slots, int count);
 void q30_set_misc_sfx(int i, int sfx);      // upstream's QMisc.miscsfx
+int q30_misc_sfx(int i);
 void q30_note_room(int screen_index, int room);     // room types 2.53 has no number for
 // game
 bool q30_bottle_shop_here(int *shop);       // the screen Link is on is a bottle shop

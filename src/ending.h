@@ -18,5 +18,6 @@ void putendmsg(const char *s,int x,int y,int speed,void(proc)());
 void brick(int x,int y);
 void endingpal();
 void ending();
+void q30_ending_scripted();  // a 2.55/3.0 script's Game->IncrementQuest()
 #endif
  

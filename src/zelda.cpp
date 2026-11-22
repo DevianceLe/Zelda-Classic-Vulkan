@@ -4834,6 +4834,21 @@ int main(int argc, char* argv[])
         }
         break;
         
+        case qINCQST:   // a 2.55/3.0 script's Game->IncrementQuest() (upstream's)
+        {
+            Link.setDontDraw(true);     // (upstream: invis_timer -1)
+            show_subscreen_dmap_dots=true;
+            show_subscreen_numbers=true;
+            show_subscreen_items=true;
+            show_subscreen_life=true;
+            
+            initZScriptGlobalRAM();
+            ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_END);
+            q30_ending_scripted();
+            Link.setDontDraw(false);
+        }
+        break;
+        
         }
         
         kill_sfx();

@@ -627,6 +627,8 @@ void q30_clear_engine()
     q30_sprite_appearance_hook = q30_sprite_appearance;
 }
 
+void zasm30_live_sprite_released(long uid);    // q30_scripts_live.h
+
 void q30_sprite_destroyed(long uid)
 {
     if(zasm30_ffscript_version == 0 && zasm30_instances.empty())
@@ -641,6 +643,7 @@ void q30_sprite_destroyed(long uid)
         zasm30_drop_instance(kinds[i], uid);
 
     zasm30_sprite_released(uid);    // the objects it owned (sprite->OwnObject)
+    zasm30_live_sprite_released(uid);   // and its other owned objects, its knockback (q30_scripts_live.h)
 }
 
 static int zasm30_run(byte type, word script, long key, bool)

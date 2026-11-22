@@ -179,6 +179,9 @@ void endingpal()
     refreshpal = true;
 }
 
+bool q30_skip_credits();        // q30_scripts_live.h: a 2.55/3.0 script's Game->SkipCredits
+void q30_clear_skip_credits();
+
 void ending()
 {
     /*
@@ -265,6 +268,17 @@ void ending()
         
         if(Quit) return;
     }
+    
+    // (declared before the jump past the rest that a 2.55/3.0 script's Game->SkipCredits makes)
+    int len=600*2;
+    int creditsLine=0;
+    int endTextLine=0;
+    int numEndTextLines=0;
+    int deathsYPos=-1;
+    int timeYPos=-1;
+    
+    if(q30_skip_credits())
+        goto credits_skip;
     
     clear_bitmap(msgdisplaybuf);
 
@@ -427,20 +441,12 @@ void ending()
     // draw the brick
     puttile16(scrollbuf,3,256,0,csBOSS,0);
     
-    int len=600*2;
-    
     if(game->get_quest()>1)
     {
         len=720*2;
     }
     
-    int creditsLine=0;
-    int endTextLine=0;
-    
     const EndingTextLine* endText;
-    int numEndTextLines=0;
-    int deathsYPos=-1;
-    int timeYPos=-1;
     
     switch(game->get_quest())
     {
@@ -577,6 +583,9 @@ void ending()
         load_control_state();
     }
     while(!rSbtn());
+    
+credits_skip:
+    q30_clear_skip_credits();
     
     if(game->get_quest()>0 && game->get_quest()<=5)
     {
@@ -728,3 +737,79 @@ void inc_quest()
 	load_game_icon(game,false,currgame);
 }
 
+// Game->IncrementQuest() in a 2.55/3.0 script (upstream's qINCQST, ending_scripted): the screen
+// closes in from the sides, the quest's ring colour comes back, and the save starts the quest
+// over from its beginning (the quest itself stays the same: upstream never sets a new one).
+void q30_ending_scripted()
+{
+    items.clear();
+    Ewpns.clear();
+    Lwpns.clear();
+    guys.clear();
+    Sitems.clear();
+    chainlinks.clear();
+    decorations.clear();
+    dismissmsg();
+    ALLOFF(true, true);
+    kill_sfx();
+    Quit=0;
+    
+    draw_screen_clip_rect_x1=0;
+    draw_screen_clip_rect_x2=255;
+    draw_screen_clip_rect_y1=0;
+    draw_screen_clip_rect_y2=231;
+    
+    for(int f=0; f<77; f++)
+    {
+        if(f%5 == 0)
+        {
+            draw_screen_clip_rect_x1+=8;
+            draw_screen_clip_rect_x2-=8;
+        }
+        
+        draw_screen(tmpscr);
+        advanceframe(true);
+        
+        if(Quit) return;
+    }
+    
+    clear_bitmap(msgdisplaybuf);
+
+    if(q30_msg_engine())
+        q30_msg_clear_display();
+
+    draw_screen(tmpscr);
+    advanceframe(true);
+    
+    draw_screen_clip_rect_x1=0;
+    draw_screen_clip_rect_x2=255;
+    endingpal();
+    
+    removeItemsOfFamily(game, itemsbuf, itype_ring);
+    int maxring = getHighestLevelOfFamily(&zinit,itemsbuf,itype_ring);
+    
+    if(maxring != -1)
+        getitem(maxring,true);
+    
+    ringcolor(false);
+    stop_midi();
+    
+    if(zcmusic != NULL)
+    {
+        zcmusic_stop(zcmusic);
+        zcmusic_unload_file(zcmusic);
+        zcmusic = NULL;
+    }
+    
+    q30_clear_skip_credits();
+    load_quest(game);
+    game->set_continue_dmap(zinit.start_dmap);
+    game->set_continue_scrn(0xFF);
+    game->set_cont_hearts(zinit.cont_heart);
+    game->set_hasplayed(false);
+    saves[currgame] = *game;
+    load_game_icon_to_buffer(false,currgame);
+    load_game_icon(game,false,currgame);
+    show_saving(scrollbuf);
+    save_savedgames();
+}

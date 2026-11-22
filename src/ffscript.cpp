@@ -3274,6 +3274,8 @@ public:
     }
 };
 
+bool zasm30_live_array_owned(long ptr);     // q30_scripts_live.h
+
 // Called when leaving a screen; deallocate arrays created by FFCs that aren't carried over
 void deallocateArray(const long ptrval)
 {
@@ -3281,6 +3283,9 @@ void deallocateArray(const long ptrval)
     // reference counting (ZScript version 28) free each local array at the end of its scope.
     if(zasm30_ffscript_version && zasm30_heap_slot(ptrval))
     {
+        if(zasm30_live_array_owned(ptrval))
+            return;     // a living sprite owns it (sprite->OwnArray(), q30_scripts_live.h)
+
         if(zasm30_array_live(ptrval))
             zasm30_free_array(ptrval);
         else
@@ -11267,6 +11272,13 @@ int run_script(const byte type, const word script, const byte i)
             scommand = 0xFFFF;
             break;
 
+        // Game->Exit() (newer quests): the program quits, as upstream's qEXIT.
+        case Z30C_GAMEEXIT:
+            Quit = qEXIT;
+            skipcont = 1;
+            scommand = 0xFFFF;
+            break;
+
         // 2.53's game loop has no reload state: the title screen is the closest way back to a save.
         case Z30C_GAMERELOAD:
             Quit = qQUIT;
@@ -12407,6 +12419,7 @@ void FFScript::ZScriptConsolePrint(int attributes,const char *format,...)
 #include "port/game/q30_scripts_regs.h"
 #include "port/game/q30_scripts_cmds.h"
 #include "port/game/q30_scripts_region.h"
+#include "port/game/q30_scripts_live.h"
 
 std::string z30_printf_text(const std::string &format, const std::vector<long> &args)
 {

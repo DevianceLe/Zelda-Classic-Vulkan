@@ -374,6 +374,7 @@ public:
     void unfreeze();
     void finishedmsg();
     void Drown(int clk = 64);      // (2.55/3.0 pits: a 70-frame fall, as upstream's)
+    int q30_drown_clk() const { return drownclk; }     // (2.55/3.0 scripts: Hero->Drowning, FallClk)
     int getEaten();
     void setEaten(int i);
     fix  getX();

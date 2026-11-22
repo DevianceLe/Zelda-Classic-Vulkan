@@ -7451,6 +7451,10 @@ bool q30_pit_falling()
     return q30_active() && g_pit_drown && Link.getAction() == drowning;
 }
 
+// Hero->FallCombo (upstream's fallCombo): the pit of the last fall, which its end looks at
+int q30_pit_combo() { return g_pit_combo; }
+void q30_set_pit_combo(int cid) { g_pit_combo = cid; }
+
 bool q30_lava_drowning()
 {
     if(!q30_active() || g_pit_drown || Link.getAction() != drowning)
@@ -10198,6 +10202,11 @@ void q30_set_misc_sfx(int i, int s)
 {
     if(i >= 0 && i < MSFX_MAX)
         g_misc_sfx[i] = s;
+}
+
+int q30_misc_sfx(int i)
+{
+    return (i >= 0 && i < MSFX_MAX) ? g_misc_sfx[i] : 0;
 }
 
 void q30_note_room(int screen_index, int room)

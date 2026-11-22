@@ -64,7 +64,7 @@ int onFullscreen();
 /******** Enums & Structs ********/
 /*********************************/
 
-enum { qQUIT=1, qRESET, qEXIT, qGAMEOVER, qCONT, qWON, qERROR };
+enum { qQUIT=1, qRESET, qEXIT, qGAMEOVER, qCONT, qWON, qERROR, qINCQST };    // (qINCQST: 2.55/3.0 scripts only)
 
 // "special" walk flags
 enum

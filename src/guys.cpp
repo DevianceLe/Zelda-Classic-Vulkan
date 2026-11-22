@@ -653,6 +653,8 @@ bool enemy::Dead(int index)
     return false;
 }
 
+void q30_npc_run_knockback(enemy *e);     // q30_scripts_live.h
+
 // Basic animation code that all derived classes should call.
 // The one with an index is the one that is called by
 // the guys sprite list; index is the enemy's index in the list.
@@ -947,6 +949,8 @@ bool enemy::animate(int index)
                 fall += zinit.gravity;
         }
     }
+    
+    q30_npc_run_knockback(this);    // a 2.55/3.0 script's npc->Knockback() (upstream's runKnockback)
     
     // clk is incremented here
     if(++clk >= frate)

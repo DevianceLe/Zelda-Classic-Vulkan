@@ -850,6 +850,8 @@ static void zasm30_mark_stacks(std::vector<long> &work)
             zasm30_mark(it->second[n], work);
 }
 
+void zasm30_mark_owned(std::vector<long> &work);
+
 // What else a 3.0 script can store a reference in, for the collector (zasm30_collect): sprites'
 // Misc[] and InitD[], generic scripts' Data[] and InitD[], and the 3.0 fields kept in zasm30_store.
 static void zasm30_mark_engine(std::vector<long> &work)
@@ -882,6 +884,7 @@ static void zasm30_mark_engine(std::vector<long> &work)
 
     for(std::map<std::pair<std::pair<long,long>,long>, long>::iterator it = zasm30_store.begin(); it != zasm30_store.end(); ++it)
         zasm30_mark(it->second, work);
+    zasm30_mark_owned(work);     // objects living sprites own (q30_scripts_live.h)
 }
 
 // The sprite OBJ_OWN_CLASS gives an object to (upstream's get_own_sprite): the script type
@@ -3020,6 +3023,8 @@ bool q30_msg_run_generic_frozen(int script, const long *initd, int count)
     return ok;
 }
 
+static bool zasm30_live_command(word cmd);
+
 static bool zasm30_command(word cmd)
 {
     // diagnostics (ZC_Q30_TRACE): the first time each file, directory or stack command runs
@@ -3036,7 +3041,7 @@ static bool zasm30_command(word cmd)
                      (int)currscr, (int)frame);
     }
 
-    if(zasm30_sub_command(cmd))
+    if(zasm30_sub_command(cmd) || zasm30_live_command(cmd))   // (q30_scripts_live.h)
         return true;
 
     switch(cmd)
