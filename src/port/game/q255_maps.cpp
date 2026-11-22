@@ -159,6 +159,10 @@ void q255_resolve_high_screen_sfx()
 
 // Where in TheMaps the screen being read goes, -1 when it isn't kept.
 static int g_screen_index = -1;
+#ifdef ZC_PLAYER_BUILD
+// the high bits of noreset / nocarry and the exstate carry-overs, for scripts (q30_scripts_data.h)
+void q30_set_screen_carry(int index, dword noreset, dword nocarry, dword exreset, dword excarry);
+#endif
 
 static void read_words(Q255Section &s, word *dst, int n)
 {
@@ -764,9 +768,14 @@ static void read_screen_new(Q255Section &s, mapscr *t, int screen, const word *a
         }
         else
         {
-            t->noreset = (word)s.igetl();
-            t->nocarry = (word)s.igetl();
-            s.skip(8);  // exstate_reset, exstate_carry
+            const dword noreset = (dword)s.igetl(), nocarry = (dword)s.igetl();
+            const dword exreset = (dword)s.igetl(), excarry = (dword)s.igetl();
+            t->noreset = (word)noreset;
+            t->nocarry = (word)nocarry;
+#ifdef ZC_PLAYER_BUILD
+            if(s.keep && g_screen_index >= 0)
+                q30_set_screen_carry(g_screen_index, noreset, nocarry, exreset, excarry);
+#endif
         }
 
         t->nextmap = s.getc();
@@ -1055,6 +1064,10 @@ int q255_read_maps(Q255Section &s)
     }
 
     mapscr scratch;
+#ifdef ZC_PLAYER_BUILD
+    if(s.keep)
+        q30_set_screen_carry(-1, 0, 0, 0, 0);
+#endif
 
     for(int i = 0; i < count; ++i)
     {

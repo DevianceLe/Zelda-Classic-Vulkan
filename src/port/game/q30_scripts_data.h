@@ -12,6 +12,8 @@
 extern char *guy_string[];
 FONT *get_zc_font(int index);       // script_drawing.cpp
 void update_subscreens(int dmap);
+extern word animated_combo_table4[MAXCOMBOS][2];   // tiles.cpp: [0] combo, [1] clock
+extern word animated_combos;
 
 // ---- internal arrays (upstream's zc/scripting/arrays.h) ----------------------------------------
 
@@ -1310,8 +1312,13 @@ enum { Z30D_WD_GLOW_RAD = 0x1, Z30D_WD_SET_STEP = 0x2 };    // upstream wdata_gl
 static std::map<long, Q30WeaponData> zasm30_weapdatas;
 static long zasm30_next_weapdata = 1;
 
+static Q30WeaponData *z30d_weapdata_view_data(long ref);   // (below: a combo's weapon data)
+
 static Q30WeaponData *z30d_weapdata(long ref, bool log)
 {
+    if(Q30WeaponData *view = z30d_weapdata_view_data(ref))
+        return view;
+
     std::map<long, Q30WeaponData>::iterator it = zasm30_weapdatas.find(ref);
 
     if(it != zasm30_weapdatas.end())
@@ -1554,6 +1561,514 @@ static bool z30d_weapdata_command(word cmd)
     }
 }
 
+// ---- r16: combodata lift and animation fields, mapdata / Screen-> plain fields, npcdata --------
+
+// A combo's 3.0 data for a read (the combo's defaults when the quest gave it none).
+static const Q30Combo &z30d_combo_rd(long id)
+{
+    static const Q30Combo blank;
+    const Q30Combo *c = q30_combo((int)id);
+    return c ? *c : blank;
+}
+
+// combodata->AClk: the clock of an animated combo (2.53's animated_combo_table4), 0 for others
+static word *z30d_combo_aclk(long id)
+{
+    for(word x = 0; x < animated_combos; ++x)
+        if(animated_combo_table4[x][0] == id)
+            return &animated_combo_table4[x][1];
+
+    return NULL;
+}
+
+// weapondata objects that are views of a combo's weapon data (upstream's wdata_type): one ref
+// per (type, index), as upstream's make_new_user_weapondata reuses them
+enum { Z30D_WDV_COMBO_MISC = 1, Z30D_WDV_COMBO_LIFT };
+static std::map<std::pair<int, long>, long> zasm30_weapdata_view_refs;
+static std::map<long, std::pair<int, long> > zasm30_weapdata_views;
+
+static long z30d_weapdata_view(int type, long index)
+{
+    std::map<std::pair<int, long>, long>::iterator it = zasm30_weapdata_view_refs.find(std::make_pair(type, index));
+
+    if(it != zasm30_weapdata_view_refs.end())
+        return it->second;
+
+    const long ref = zasm30_next_weapdata++;
+    zasm30_weapdata_view_refs[std::make_pair(type, index)] = ref;
+    zasm30_weapdata_views[ref] = std::make_pair(type, index);
+    return ref;
+}
+
+static Q30WeaponData *z30d_weapdata_view_data(long ref)
+{
+    std::map<long, std::pair<int, long> >::iterator it = zasm30_weapdata_views.find(ref);
+
+    if(it == zasm30_weapdata_views.end())
+        return NULL;
+
+    Q30Combo *c = q30_combo_for_write((int)it->second.second);
+
+    if(!c)
+        return NULL;
+
+    return it->second.first == Z30D_WDV_COMBO_MISC ? &c->misc_weap : &c->lift_weap;
+}
+
+static bool z30d_combo_lift_reg(const long arg, long &ret, const long value, const bool write)
+{
+    switch(arg)
+    {
+    case Z30R_COMBODACLK: case Z30R_COMBODATA_CSET2_FLASH_DURATION: case Z30R_COMBODATA_DELAY:
+    case Z30R_COMBODATA_LIFT_WEAPONDATA: case Z30R_COMBODATA_MISC_WEAPONDATA: case Z30R_COMBODCSET2FLAGS:
+    case Z30R_COMBODLIFTBREAKSFX: case Z30R_COMBODLIFTBREAKSPRITE: case Z30R_COMBODLIFTDAMAGE: case Z30R_COMBODLIFTFLAGS:
+    case Z30R_COMBODLIFTGFXCCSET: case Z30R_COMBODLIFTGFXCOMBO: case Z30R_COMBODLIFTGFXSPRITE: case Z30R_COMBODLIFTGFXTYPE:
+    case Z30R_COMBODLIFTHEIGHT: case Z30R_COMBODLIFTITEM: case Z30R_COMBODLIFTLEVEL: case Z30R_COMBODLIFTLIGHTRAD:
+    case Z30R_COMBODLIFTLIGHTSHAPE: case Z30R_COMBODLIFTSFX: case Z30R_COMBODLIFTTIME: case Z30R_COMBODLIFTUNDERCMB:
+    case Z30R_COMBODLIFTUNDERCS: case Z30R_COMBODLIFTWEAPONITEM: case Z30R_COMBOD_LARGECOMBO_DIRS:
+        break;
+    default:
+        return false;
+    }
+
+    const long id = Z30_REF(COMBODATA);
+
+    if(id < 0 || id >= MAXCOMBOS)   // checkComboRef
+    {
+        Z_scripterrlog("Invalid combodata ID: %ld\n", id);
+        if(!write)
+            ret = (arg == Z30R_COMBODCSET2FLAGS || arg == Z30R_COMBODATA_LIFT_WEAPONDATA || arg == Z30R_COMBODATA_MISC_WEAPONDATA
+                   || arg == Z30R_COMBODLIFTFLAGS || arg == Z30R_COMBOD_LARGECOMBO_DIRS) ? 0 : -10000;
+        return true;
+    }
+
+    const long v = value / 10000;
+    long n;
+
+    if(!write)
+    {
+        const Q30Combo &c = z30d_combo_rd(id);
+
+        switch(arg)
+        {
+        case Z30R_COMBODACLK: { word *clk = z30d_combo_aclk(id); ret = (clk ? *clk : 0) * 10000; break; }
+        case Z30R_COMBODATA_CSET2_FLASH_DURATION: ret = c.cs2_flash_duration * 10000; break;
+        case Z30R_COMBODATA_DELAY: ret = c.delay * 10000; break;
+        case Z30R_COMBODATA_LIFT_WEAPONDATA: ret = Z30_REF(WEAPDATA) = z30d_weapdata_view(Z30D_WDV_COMBO_LIFT, id); break;
+        case Z30R_COMBODATA_MISC_WEAPONDATA: ret = Z30_REF(WEAPDATA) = z30d_weapdata_view(Z30D_WDV_COMBO_MISC, id); break;
+        case Z30R_COMBODCSET2FLAGS: ret = ((combobuf[id].csets & 0xF0) >> 4) * 10000; break;
+        case Z30R_COMBODLIFTBREAKSFX: ret = c.liftbreaksfx * 10000; break;
+        case Z30R_COMBODLIFTBREAKSPRITE: ret = c.liftbreaksprite * 10000; break;
+        case Z30R_COMBODLIFTDAMAGE: ret = c.liftdmg * 10000; break;
+        case Z30R_COMBODLIFTGFXCCSET: ret = c.liftcs * 10000; break;
+        case Z30R_COMBODLIFTGFXCOMBO: ret = c.liftcmb * 10000; break;
+        case Z30R_COMBODLIFTGFXSPRITE: ret = c.liftsprite * 10000; break;
+        case Z30R_COMBODLIFTGFXTYPE: ret = c.liftgfx * 10000; break;
+        case Z30R_COMBODLIFTHEIGHT: ret = c.lifthei * 10000; break;
+        case Z30R_COMBODLIFTITEM: ret = c.liftitm * 10000; break;
+        case Z30R_COMBODLIFTLEVEL: ret = c.liftlvl * 10000; break;
+        case Z30R_COMBODLIFTLIGHTRAD: ret = c.lift_weap.light_rads[0] * 10000; break;
+        case Z30R_COMBODLIFTLIGHTSHAPE: ret = c.lift_weap.glow_shape * 10000; break;
+        case Z30R_COMBODLIFTSFX: ret = c.liftsfx * 10000; break;
+        case Z30R_COMBODLIFTTIME: ret = c.lifttime * 10000; break;
+        case Z30R_COMBODLIFTUNDERCMB: ret = c.liftundercmb * 10000; break;
+        case Z30R_COMBODLIFTUNDERCS: ret = c.liftundercs * 10000; break;
+        case Z30R_COMBODLIFTWEAPONITEM: ret = c.lift_parent_item * 10000; break;
+        case Z30R_COMBODLIFTFLAGS:      // LiftFlags[8]: the flag's bit (x10000); LF_BREAKONSOLID is the weapon's
+            if(!z30d_index(Z30_INDEX, 8, false, n)) { ret = 0; break; }
+            ret = ((1L << n) == 0x40 ? (long)(c.lift_weap.wflags & 0x4) : (long)(c.liftflags & (1 << n))) * 10000;
+            break;
+        default:                        // LargeComboDirs[4]
+            if(!z30d_index(Z30_INDEX, 4, false, n)) { ret = 0; break; }
+            ret = (c.large_combo_dirs & (1 << n)) ? 10000 : 0;
+            break;
+        }
+        return true;
+    }
+
+    if(arg == Z30R_COMBODATA_LIFT_WEAPONDATA || arg == Z30R_COMBODATA_MISC_WEAPONDATA)
+        return true;        // read only
+
+    if(arg == Z30R_COMBODACLK)
+    {
+        if(word *clk = z30d_combo_aclk(id))
+            *clk = (word)z30d_bound(v, 0, 255);
+        return true;
+    }
+
+    if(arg == Z30R_COMBODCSET2FLAGS)    // (upstream takes the raw value here)
+    {
+        combobuf[id].csets = (byte)((combobuf[id].csets & 0xF) | ((value & 0xF) << 4));
+        return true;
+    }
+
+    Q30Combo *c = q30_combo_for_write((int)id);
+
+    if(!c)
+        return true;
+
+    switch(arg)
+    {
+    case Z30R_COMBODATA_CSET2_FLASH_DURATION: c->cs2_flash_duration = (byte)z30d_bound(v, 0, 255); break;
+    case Z30R_COMBODATA_DELAY: c->delay = (word)z30d_bound(v, 0, 65535); break;
+    case Z30R_COMBODLIFTBREAKSFX: c->liftbreaksfx = (byte)z30d_bound(v, 0, 255); break;
+    case Z30R_COMBODLIFTBREAKSPRITE: c->liftbreaksprite = (short)z30d_bound(v, -4, 255); break;
+    case Z30R_COMBODLIFTDAMAGE: c->liftdmg = (byte)z30d_bound(v, 0, 255); break;
+    case Z30R_COMBODLIFTGFXCCSET: c->liftcs = (byte)z30d_bound(v, 0, 13); break;
+    case Z30R_COMBODLIFTGFXCOMBO: c->liftcmb = (word)z30d_bound(v, 0, MAXCOMBOS - 1); break;
+    case Z30R_COMBODLIFTGFXSPRITE: c->liftsprite = (word)z30d_bound(v, 0, 255); break;
+    case Z30R_COMBODLIFTGFXTYPE: c->liftgfx = (byte)z30d_bound(v, 0, 2); break;
+    case Z30R_COMBODLIFTHEIGHT: c->lifthei = (byte)z30d_bound(v, 0, 255); break;
+    case Z30R_COMBODLIFTITEM: c->liftitm = (byte)z30d_bound(v, 0, 255); break;
+    case Z30R_COMBODLIFTLEVEL: c->liftlvl = (byte)z30d_bound(v, 0, 255); break;
+    case Z30R_COMBODLIFTLIGHTRAD: c->lift_weap.light_rads[0] = (byte)z30d_bound(v, 0, 255); break;
+    case Z30R_COMBODLIFTLIGHTSHAPE: c->lift_weap.glow_shape = (byte)z30d_bound(v, 0, 2); break;
+    case Z30R_COMBODLIFTSFX: c->liftsfx = (word)z30d_bound(v, 0, Z30_MAX_SFX_UP); break;
+    case Z30R_COMBODLIFTTIME: c->lifttime = (byte)z30d_bound(v, 0, 255); break;
+    case Z30R_COMBODLIFTUNDERCMB: c->liftundercmb = (word)z30d_bound(v, 0, MAXCOMBOS - 1); break;
+    case Z30R_COMBODLIFTUNDERCS: c->liftundercs = (byte)z30d_bound(v, 0, 13); break;
+    case Z30R_COMBODLIFTWEAPONITEM: c->lift_parent_item = (word)z30d_bound(v, 0, Z30_MAX_ITEMS_UP - 1); break;
+    case Z30R_COMBODLIFTFLAGS:
+        if(!z30d_index(Z30_INDEX, 8, false, n)) break;
+        if((1L << n) == 0x40)
+            c->lift_weap.wflags = (word)(value ? (c->lift_weap.wflags | 0x4) : (c->lift_weap.wflags & ~0x4));
+        else
+            c->liftflags = (byte)(value ? (c->liftflags | (1 << n)) : (c->liftflags & ~(1 << n)));
+        break;
+    default:
+        if(!z30d_index(Z30_INDEX, 4, false, n)) break;
+        c->large_combo_dirs = (byte)(value ? (c->large_combo_dirs | (1 << n)) : (c->large_combo_dirs & ~(1 << n)));
+        break;
+    }
+
+    return true;
+}
+
+// The high 16 bits of a screen's noreset / nocarry and its exstate_reset / exstate_carry (MAP
+// v34+), which 2.53's mapscr has no room for; index map*MAPSCRS+screen.
+struct Z30dCarry { dword noreset_hi, nocarry_hi, exreset, excarry; };
+static std::map<int, Z30dCarry> zasm30_screen_carry;
+
+void q30_set_screen_carry(int index, dword noreset, dword nocarry, dword exreset, dword excarry)
+{
+    if(index < 0)
+    {
+        zasm30_screen_carry.clear();
+        return;
+    }
+
+    Z30dCarry c = { noreset >> 16, nocarry >> 16, exreset, excarry };
+    zasm30_screen_carry[index] = c;
+}
+
+// the map screen index (map*MAPSCRS+screen) of a mapdata ref or of the current screen; -1 for
+// one screen of a scrolling region
+static int z30d_screen_index(long ref, bool screen)
+{
+    if(screen)
+        return currmap * MAPSCRS + currscr;
+
+    if(ref > 0 && !(ref & Z30_MAPDATA_TMP))
+        return (int)(ref - 1);
+
+    return (ref & Z30_MAPDATA_TMP) && !(ref & 0x00FF0000) ? currmap * MAPSCRS + currscr : -1;
+}
+
+// mapdata-> and Screen-> fields 2.53's mapscr holds (upstream's GET/SET_MAPDATA_VAR_* and the
+// screendata ones): the mapdata's screen, or the current one.
+static bool z30d_scr_reg(const long arg, long &ret, const long value, const bool write)
+{
+    enum { F_NONE, F_VALID, F_CSENS, F_HOLDUP, F_SECRET, F_BOSS, F_MAP, F_SCREEN, F_MIDI, F_MUSIC, F_NORESET, F_NOCARRY,
+           F_NORESETARR, F_NOCARRYARR, F_EXRESET, F_EXCARRY, F_UNIMPL, F_COLOUR, F_DOORCSET, F_ENEMYFLAGS,
+           F_EXITDIR, F_GUY, F_LENSLAYER, F_NEXTMAP, F_NEXTSCR, F_ROOM, F_SIDEWARPIDX, F_STAIRX, F_STAIRY, F_TWTICS,
+           F_UNDERCMB, F_UNDERCS, F_ARRX, F_ARRY, F_WARPRETC, F_DOOR, F_PATH, F_LAYEROPAC, F_SWDMAP, F_SWSCR, F_SWTYPE,
+           F_SWOVFLAGS, F_TWOVFLAGS, F_HASITEM, F_ZERO, F_GUYCOUNT };
+    int f = F_NONE;
+    bool screen = false;
+
+    switch(arg)
+    {
+    case Z30R_MAPDATAVALID: f = F_VALID; break;                 case Z30R_SCREENDATAVALID: f = F_VALID; screen = true; break;
+    case Z30R_MAPDATACSENSITIVE: f = F_CSENS; break;            case Z30R_SCREENDATACSENSITIVE: f = F_CSENS; screen = true; break;
+    case Z30R_MAPDATAHOLDUPSFX: f = F_HOLDUP; break;            case Z30R_SCREENDATAHOLDUPSFX: f = F_HOLDUP; screen = true; break;
+    case Z30R_MAPDATASECRETSFX: f = F_SECRET; break;
+    case Z30R_SCREENDATABOSSSFX: f = F_BOSS; screen = true; break;
+    case Z30R_MAPDATAMAP: f = F_MAP; break;
+    case Z30R_MAPDATASCREEN: f = F_SCREEN; break;               case Z30R_SCREEN_INDEX: f = F_SCREEN; screen = true; break;
+    case Z30R_MAPDATASCREENMIDI: f = F_MIDI; break;             case Z30R_SCREENDATASCREENMIDI: f = F_MIDI; screen = true; break;
+    case Z30R_MAPDATA_MUSIC: f = F_MUSIC; break;
+    case Z30R_MAPDATANORESET: f = F_NORESET; break;             case Z30R_SCREENDATANORESET: f = F_NORESET; screen = true; break;
+    case Z30R_MAPDATANOCARRY: f = F_NOCARRY; break;             case Z30R_SCREENDATANOCARRY: f = F_NOCARRY; screen = true; break;
+    case Z30R_MAPDATANORESETARR: f = F_NORESETARR; break;       case Z30R_SCREENDATANORESETARR: f = F_NORESETARR; screen = true; break;
+    case Z30R_MAPDATANOCARRYARR: f = F_NOCARRYARR; break;       case Z30R_SCREENDATANOCARRYARR: f = F_NOCARRYARR; screen = true; break;
+    case Z30R_MAPDATAEXRESET: f = F_EXRESET; break;             case Z30R_SCREENDATAEXRESET: f = F_EXRESET; screen = true; break;
+    case Z30R_MAPDATAEXCARRY: f = F_EXCARRY; break;             case Z30R_SCREENDATAEXCARRY: f = F_EXCARRY; screen = true; break;
+    case Z30R_MAPDATASCRIPTENTRY: case Z30R_MAPDATASCRIPTEXIT: case Z30R_MAPDATASCRIPTOCCUPANCY: f = F_UNIMPL; break;
+    case Z30R_SCREENDATACOLOUR: f = F_COLOUR; screen = true; break;
+    case Z30R_MAPDATADOORCOMBOSET: f = F_DOORCSET; break;       case Z30R_SCREENDATADOORCOMBOSET: f = F_DOORCSET; screen = true; break;
+    case Z30R_MAPDATAENEMYFLAGS: f = F_ENEMYFLAGS; break;       case Z30R_SCREENDATAENEMYFLAGS: f = F_ENEMYFLAGS; screen = true; break;
+    case Z30R_SCREENDATAEXITDIR: f = F_EXITDIR; screen = true; break;
+    case Z30R_SCREENDATAGUY: f = F_GUY; screen = true; break;
+    case Z30R_SCREENDATALENSLAYER: f = F_LENSLAYER; screen = true; break;
+    case Z30R_MAPDATANEXTMAP: f = F_NEXTMAP; break;             case Z30R_SCREENDATANEXTMAP: f = F_NEXTMAP; screen = true; break;
+    case Z30R_MAPDATANEXTSCREEN: f = F_NEXTSCR; break;          case Z30R_SCREENDATANEXTSCREEN: f = F_NEXTSCR; screen = true; break;
+    case Z30R_SCREENDATAROOM: f = F_ROOM; screen = true; break;
+    case Z30R_MAPDATASIDEWARPINDEX: f = F_SIDEWARPIDX; break;   case Z30R_SCREENDATASIDEWARPINDEX: f = F_SIDEWARPIDX; screen = true; break;
+    case Z30R_SCREENDATASTAIRX: f = F_STAIRX; screen = true; break;
+    case Z30R_SCREENDATASTAIRY: f = F_STAIRY; screen = true; break;
+    case Z30R_MAPDATATIMEDWARPTICS: f = F_TWTICS; break;        case Z30R_SCREENDATATIMEDWARPTICS: f = F_TWTICS; screen = true; break;
+    case Z30R_MAPDATAUNDERCOMBO: f = F_UNDERCMB; break;
+    case Z30R_MAPDATAUNDERCSET: f = F_UNDERCS; break;
+    case Z30R_SCREENDATAWARPARRIVALX: f = F_ARRX; screen = true; break;
+    case Z30R_SCREENDATAWARPARRIVALY: f = F_ARRY; screen = true; break;
+    case Z30R_MAPDATAWARPRETURNC: f = F_WARPRETC; break;        case Z30R_SCREENDATAWARPRETURNC: f = F_WARPRETC; screen = true; break;
+    case Z30R_SCREENDATADOOR: f = F_DOOR; screen = true; break;
+    case Z30R_SCREENDATAPATH: f = F_PATH; screen = true; break;
+    case Z30R_SCREENDATALAYEROPACITY: f = F_LAYEROPAC; screen = true; break;
+    case Z30R_SCREENDATASIDEWARPDMAP: f = F_SWDMAP; screen = true; break;
+    case Z30R_SCREENDATASIDEWARPSC: f = F_SWSCR; screen = true; break;
+    case Z30R_SCREENDATASIDEWARPTYPE: f = F_SWTYPE; screen = true; break;
+    case Z30R_SCREENDATASIDEWARPOVFLAGS: f = F_SWOVFLAGS; screen = true; break;
+    case Z30R_SCREENDATATILEWARPOVFLAGS: f = F_TWOVFLAGS; screen = true; break;
+    case Z30R_MAPDATAHASITEM: f = F_HASITEM; break;
+    case Z30R_MAPDATALENSLAYER: f = F_LENSLAYER; break;
+    case Z30R_MAPDATAVIEWX: case Z30R_MAPDATAVIEWY: case Z30R_MAPDATASCREENWIDTH: case Z30R_MAPDATASCREENHEIGHT:
+        if(!write)
+            ret = 0;     // (upstream reads nothing here)
+        return true;
+    case Z30R_MAPDATAGUYCOUNT: f = F_GUYCOUNT; break;          case Z30R_SCREENDATAGUYCOUNT: f = F_GUYCOUNT; screen = true; break;
+    default:
+        return false;
+    }
+
+    if(f == F_GUYCOUNT)     // game->guys[] of the screen (screens 0x80 and up have none)
+    {
+        const int mi = screen ? (currscr < MAPSCRSNORMAL ? currmap * MAPSCRSNORMAL + currscr : -1)
+                       : (z30_mapdata(Z30_REF(MAPDATA)) ? z30_mapdata_mi(Z30_REF(MAPDATA)) : -1);
+
+        if(!write)
+            ret = mi < 0 ? -10000 : game->guys[mi] * 10000;
+        else if(mi >= 0)
+            game->guys[mi] = (byte)z30d_bound(value / 10000, 0, 10);
+        return true;
+    }
+
+    if(f == F_UNIMPL)
+    {
+        if(!write)
+        {
+            Z_scripterrlog("Unimplemented: %s\n", arg == Z30R_MAPDATASCRIPTENTRY ? "ScriptEntry" : arg == Z30R_MAPDATASCRIPTEXIT ? "ExitScript" : "ScriptOccupancy");
+            ret = -10000;
+        }
+        return true;
+    }
+
+    const long ref = Z30_REF(MAPDATA);
+    mapscr *m = screen ? tmpscr : z30_mapdata(ref);
+
+    if(!m)
+    {
+        if(!write)
+            ret = (f == F_MUSIC) ? -1 : (f == F_NORESETARR || f == F_NOCARRYARR || f == F_EXRESET || f == F_EXCARRY) ? 0 : -10000;
+        return true;
+    }
+
+    const int index = z30d_screen_index(ref, screen);
+    const long v = value / 10000;
+    long n = 0;
+
+    // the arrays: their index first
+    long size = 0;
+
+    switch(f)
+    {
+    case F_NORESETARR: case F_NOCARRYARR: size = 17; break;    // mMAXIND
+    case F_EXRESET: case F_EXCARRY: size = 32; break;
+    case F_DOOR: case F_PATH: case F_SWDMAP: case F_SWSCR: case F_SWTYPE: size = 4; break;
+    case F_LAYEROPAC: size = 7; break;
+    default: break;
+    }
+
+    if(size && !z30d_index(Z30_INDEX, size, false, n))
+    {
+        if(!write)
+            ret = 0;
+        return true;
+    }
+
+    static Z30dCarry none;
+    memset(&none, 0, sizeof(none));
+    Z30dCarry &cr = index >= 0 ? zasm30_screen_carry[index] : none;
+    const dword noreset = (cr.noreset_hi << 16) | m->noreset, nocarry = (cr.nocarry_hi << 16) | m->nocarry;
+
+    if(!write)
+    {
+        switch(f)
+        {
+        case F_VALID: ret = m->valid * 10000; break;
+        case F_CSENS: ret = m->csensitive * 10000; break;
+        case F_HOLDUP: ret = m->holdupsfx * 10000; break;
+        case F_SECRET: ret = m->secretsfx * 10000; break;
+        case F_BOSS: ret = m->bosssfx * 10000; break;
+        case F_MAP: ret = (index >= 0 ? index / MAPSCRS + 1 : currmap + 1) * 10000; break;
+        case F_SCREEN: ret = (index >= 0 ? index % MAPSCRS : currscr) * 10000; break;
+        case F_MIDI: ret = m->screen_midi < 0 ? -40000 : m->screen_midi * 10000; break;    // -4: the DMap's
+        case F_MUSIC: ret = m->screen_midi < 0 ? -1 : m->screen_midi; break;
+        case F_NORESET: ret = (long)noreset * 10000; break;
+        case F_NOCARRY: ret = (long)nocarry * 10000; break;
+        case F_NORESETARR: ret = (noreset & (1u << n)) ? 10000 : 0; break;
+        case F_NOCARRYARR: ret = (nocarry & (1u << n)) ? 10000 : 0; break;
+        case F_EXRESET: ret = (cr.exreset & (1u << n)) ? 10000 : 0; break;
+        case F_EXCARRY: ret = (cr.excarry & (1u << n)) ? 10000 : 0; break;
+        case F_COLOUR: ret = m->color * 10000; break;
+        case F_DOORCSET: ret = m->door_combo_set * 10000; break;
+        case F_ENEMYFLAGS: ret = m->enemyflags * 10000; break;
+        case F_EXITDIR: ret = m->exitdir * 10000; break;
+        case F_GUY: ret = m->guy * 10000; break;
+        case F_LENSLAYER: ret = m->lens_layer * 10000; break;
+        case F_NEXTMAP: ret = m->nextmap * 10000; break;
+        case F_NEXTSCR: ret = m->nextscr * 10000; break;
+        case F_ROOM: ret = m->room * 10000; break;
+        case F_SIDEWARPIDX: ret = m->sidewarpindex * 10000; break;
+        case F_STAIRX: ret = m->stairx * 10000; break;
+        case F_STAIRY: ret = m->stairy * 10000; break;
+        case F_TWTICS: ret = m->timedwarptics * 10000; break;
+        case F_UNDERCMB: ret = m->undercombo * 10000; break;
+        case F_UNDERCS: ret = m->undercset * 10000; break;
+        case F_ARRX: ret = m->warparrivalx * 10000; break;
+        case F_ARRY: ret = m->warparrivaly * 10000; break;
+        case F_WARPRETC: ret = m->warpreturnc * 10000; break;
+        case F_DOOR: ret = m->door[n] * 10000; break;
+        case F_PATH: ret = m->path[n] * 10000; break;
+        case F_LAYEROPAC: ret = (n == 0 ? 255 : m->layeropacity[n - 1]) * 10000; break;
+        case F_SWDMAP: ret = m->sidewarpdmap[n] * 10000; break;
+        case F_SWSCR: ret = m->sidewarpscr[n] * 10000; break;
+        case F_SWTYPE: ret = m->sidewarptype[n] * 10000; break;
+        case F_SWOVFLAGS: ret = m->sidewarpoverlayflags * 10000; break;
+        case F_TWOVFLAGS: ret = m->tilewarpoverlayflags * 10000; break;
+        case F_HASITEM: ret = m->hasitem * 10000; break;
+        default: break;
+        }
+        return true;
+    }
+
+    switch(f)
+    {
+    case F_VALID: m->valid = (byte)z30d_bound(v, 0, 255); break;
+    case F_CSENS: m->csensitive = (byte)z30d_bound(v, 0, 255); break;
+    case F_HOLDUP: m->holdupsfx = (byte)z30d_bound(v, 0, 255); break;
+    case F_SECRET: m->secretsfx = (byte)z30d_bound(v, 0, 255); break;
+    case F_BOSS: m->bosssfx = (byte)z30d_bound(v, 0, 255); break;
+    case F_MIDI: m->screen_midi = (short)(v < -3 ? -1 : v); break;
+    case F_MUSIC: m->screen_midi = (short)(value < 0 ? -1 : value); break;
+    case F_NORESET: case F_NOCARRY: case F_NORESETARR: case F_NOCARRYARR:
+    {
+        const bool reset = f == F_NORESET || f == F_NORESETARR;
+        dword bits = reset ? noreset : nocarry;
+
+        if(f == F_NORESET || f == F_NOCARRY)
+            bits = (dword)z30d_bound(v, -214747, 214747);
+        else
+            bits = value ? (bits | (1u << n)) : (bits & ~(1u << n));
+
+        if(reset)
+        {
+            m->noreset = (word)bits;
+            cr.noreset_hi = bits >> 16;
+        }
+        else
+        {
+            m->nocarry = (word)bits;
+            cr.nocarry_hi = bits >> 16;
+        }
+        break;
+    }
+    case F_EXRESET: cr.exreset = value ? (cr.exreset | (1u << n)) : (cr.exreset & ~(1u << n)); break;
+    case F_EXCARRY: cr.excarry = value ? (cr.excarry | (1u << n)) : (cr.excarry & ~(1u << n)); break;
+    case F_COLOUR: m->color = (word)z30d_bound(v, -214747, 214747); break;
+    case F_DOORCSET: m->door_combo_set = (word)z30d_bound(v, -214747, 214747); break;
+    case F_ENEMYFLAGS: m->enemyflags = (byte)z30d_bound(v, 0, 255); break;
+    case F_EXITDIR: m->exitdir = (byte)z30d_bound(v, 0, 255); break;
+    case F_GUY: m->guy = (byte)z30d_bound(v, 0, 255); break;
+    case F_LENSLAYER: m->lens_layer = (byte)z30d_bound(v, 0, 255); break;
+    case F_NEXTMAP: m->nextmap = (byte)z30d_bound(v, 0, 255); break;
+    case F_NEXTSCR: m->nextscr = (byte)z30d_bound(v, 0, 255); break;
+    case F_ROOM: m->room = (byte)z30d_bound(v, 0, 255); break;
+    case F_SIDEWARPIDX: m->sidewarpindex = (byte)z30d_bound(v, 0, 255); break;
+    case F_STAIRX: m->stairx = (byte)z30d_bound(v, 0, 255); break;
+    case F_STAIRY: m->stairy = (byte)z30d_bound(v, 0, 255); break;
+    case F_TWTICS: m->timedwarptics = (word)z30d_bound(v, -214747, 214747); break;
+    case F_UNDERCMB: m->undercombo = (word)z30d_bound(v, -214747, 214747); break;
+    case F_UNDERCS: m->undercset = (byte)z30d_bound(v, 0, 255); break;
+    case F_ARRX: m->warparrivalx = (byte)z30d_bound(v, 0, 255); break;
+    case F_ARRY: m->warparrivaly = (byte)z30d_bound(v, 0, 255); break;
+    case F_WARPRETC: m->warpreturnc = (word)z30d_bound(v, -214747, 214747); break;
+    case F_DOOR: m->door[n] = (byte)z30d_bound(v, 0, 255); break;
+    case F_PATH: m->path[n] = (byte)z30d_bound(v, 0, 255); break;
+    case F_LAYEROPAC: if(n > 0) m->layeropacity[n - 1] = (byte)z30d_bound(v, 0, 255); break;
+    case F_SWDMAP: m->sidewarpdmap[n] = (word)z30d_bound(v, 0, MAXDMAPS - 1); break;
+    case F_SWSCR: m->sidewarpscr[n] = (byte)z30d_bound(v, 0, 255); break;
+    case F_SWTYPE: m->sidewarptype[n] = (byte)z30d_bound(v, 0, 255); break;
+    case F_SWOVFLAGS: m->sidewarpoverlayflags = (byte)z30d_bound(v, 0, 255); break;
+    case F_TWOVFLAGS: m->tilewarpoverlayflags = (byte)z30d_bound(v, 0, 255); break;
+    case F_HASITEM: m->hasitem = (byte)z30d_bound(v, 0, 255); break;
+    default: break;     // Map, Screen: read only
+    }
+
+    return true;
+}
+
+// npcdata-> fields 2.53's guydata holds (upstream's GET/SET_NPCDATA_VAR_*)
+static bool z30d_npcdata_plain_reg(const long arg, long &ret, const long value, const bool write)
+{
+    short guydata::*s16 = NULL;
+    byte guydata::*b8 = NULL;
+
+    switch(arg)
+    {
+    case Z30R_NPCDATABGSFX: s16 = &guydata::bgsfx; break;
+    case Z30R_NPCDATADROPSET: s16 = &guydata::item_set; break;
+    case Z30R_NPCDATAEFRAMERATE: s16 = &guydata::e_frate; break;
+    case Z30R_NPCDATAFRAMERATE: s16 = &guydata::frate; break;
+    case Z30R_NPCDATAHALT: s16 = &guydata::hrate; break;
+    case Z30R_NPCDATAHUNGER: s16 = &guydata::grumble; break;
+    case Z30R_NPCDATARANDOM: s16 = &guydata::rate; break;
+    case Z30R_NPCDATATYPE: s16 = &guydata::family; break;
+    case Z30R_NPCDATAEHEIGHT: b8 = &guydata::e_height; break;
+    case Z30R_NPCDATAEWIDTH: b8 = &guydata::e_width; break;
+    case Z30R_NPCDATAHEIGHT: b8 = &guydata::height; break;
+    case Z30R_NPCDATAWIDTH: b8 = &guydata::width; break;
+    case Z30R_NPCDATASHEIGHT: b8 = &guydata::s_height; break;
+    case Z30R_NPCDATASWIDTH: b8 = &guydata::s_width; break;
+    default:
+        return false;
+    }
+
+    const long id = Z30_REF(NPCDATA);
+
+    if(unsigned(id) >= MAXGUYS)
+    {
+        Z_scripterrlog("Invalid npcdata ID: %ld\n", id);
+        if(!write)
+            ret = -10000;
+        return true;
+    }
+
+    guydata &g = guysbuf[id];
+    const long v = value / 10000;
+
+    if(s16)
+    {
+        if(write) g.*s16 = (short)z30d_bound(v, 0, 32767); else ret = g.*s16 * 10000;
+    }
+    else
+    {
+        if(write) g.*b8 = (byte)z30d_bound(v, 0, 255); else ret = g.*b8 * 10000;
+    }
+
+    return true;
+}
+
 // ---- the entry points -------------------------------------------------------------------------
 
 static bool zasm30_data_reg(const long arg, long &ret, const long value, const bool write)
@@ -1563,7 +2078,8 @@ static bool zasm30_data_reg(const long arg, long &ret, const long value, const b
 
     return z30d_ffc_reg(arg, ret, value, write) || z30d_mapdata_reg(arg, ret, value, write) || z30d_item_reg(arg, ret, value, write)
            || z30d_msg_reg(arg, ret, value, write) || z30d_npcdata_reg(arg, ret, value, write) || z30d_dmap_reg(arg, ret, value, write)
-           || z30d_bottle_reg(arg, ret, value, write) || z30d_weapdata_reg(arg, ret, value, write);
+           || z30d_bottle_reg(arg, ret, value, write) || z30d_weapdata_reg(arg, ret, value, write)
+           || z30d_combo_lift_reg(arg, ret, value, write) || z30d_scr_reg(arg, ret, value, write) || z30d_npcdata_plain_reg(arg, ret, value, write);
 }
 
 static bool zasm30_data_command(word cmd)
