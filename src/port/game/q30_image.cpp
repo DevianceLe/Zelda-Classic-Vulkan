@@ -93,3 +93,48 @@ BITMAP *q30_load_image(const char *path)
 
     return bmp;
 }
+
+// paldata->LoadBitmapPalette() (q30_scripts_draw.h): the image file's own palette, 6-bit as
+// upstream's Allegro readers give it. `indexed` false: the image has none (true colour), pal
+// untouched. False: no such image.
+bool q30_load_image_palette(const char *path, RGB *pal, bool *indexed)
+{
+    *indexed = false;
+
+#ifdef Q30_IMAGE_SDL
+    SDL_Surface *s = NULL;
+
+    if(q30_image_ext(path, ".png"))
+        s = SDL_LoadPNG(path);
+    else if(q30_image_ext(path, ".bmp"))
+        s = SDL_LoadBMP(path);
+
+    if(s)
+    {
+        if(SDL_Palette *p = SDL_GetSurfacePalette(s))
+        {
+            *indexed = true;
+
+            for(int i = 0; i < 256; ++i)
+            {
+                const bool has = i < p->ncolors;
+                pal[i].r = has ? (unsigned char)(p->colors[i].r >> 2) : 0;
+                pal[i].g = has ? (unsigned char)(p->colors[i].g >> 2) : 0;
+                pal[i].b = has ? (unsigned char)(p->colors[i].b >> 2) : 0;
+            }
+        }
+
+        SDL_DestroySurface(s);
+        return true;
+    }
+#endif
+
+    BITMAP *bmp = load_bitmap(path, pal);
+
+    if(!bmp)
+        return false;
+
+    *indexed = bitmap_color_depth(bmp) == 8;
+    destroy_bitmap(bmp);
+    return true;
+}

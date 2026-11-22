@@ -826,5 +826,7 @@ struct triangle3Dstruct
 // A 3.0 script's bitmap->Blit(layer, RT_SCREEN, ...): the source rectangle as it was at the call,
 // drawn onto the layer with the others; zasm30_do_screen_blit (q30_scripts_cmds.h).
 #define ZASM30_DRAW_SCREEN_BLIT 0x7F11
+// 2.55/3.0 drawing commands 2.53 has none of: their 3.0 number plus this; q30_draws.h draws them.
+#define ZASM30_DRAW_BASE 0x8000
 
 #endif

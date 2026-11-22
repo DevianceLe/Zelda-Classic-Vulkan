@@ -2366,6 +2366,7 @@ void do_drawscreenr(BITMAP *bmp, int *sdci, int xoffset, int yoffset, bool isOff
 void zasm30_do_polygon(BITMAP *bmp, int i, int *sdci, int xoffset, int yoffset);   // q30_scripts_cmds.h
 void zasm30_do_screen_blit(BITMAP *bmp, int i, int *sdci, int xoffset, int yoffset);   // q30_scripts_cmds.h
 bool zasm30_draw_origin_offset(int origin, int target, int xoff, int yoff, int &x, int &y);    // q30_scripts_cmds.h
+bool zasm30_draw_cmd(BITMAP *bmp, int *sdci, std::vector<long> *v, int xoffset, int yoffset, bool offscreen);   // q30_draws.h
 
 void do_primitives(BITMAP *targetBitmap, int type, mapscr *, int xoff, int yoff)
 {
@@ -2594,6 +2595,10 @@ void do_primitives(BITMAP *targetBitmap, int type, mapscr *, int xoff, int yoff)
             do_drawscreenr(bmp, sdci, xoffset, yoffset, cmdOffScreen);
         }
         break;
+
+        default:    // 2.55/3.0 drawing commands 2.53 has none of (q30_draws.h)
+            zasm30_draw_cmd(bmp, sdci, (std::vector<long> *)script_drawing_commands[i].GetPtr(), xoffset, yoffset, cmdOffScreen);
+            break;
         
         }
     }
@@ -2639,3 +2644,5 @@ void doScriptMenuDraws()
     for(int k = 0; k < 8; ++k)
         do_primitives(framebuf, k, tmpscr, 0, playing_field_offset);
 }
+
+#include "port/game/q30_draws.h"

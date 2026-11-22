@@ -36,11 +36,11 @@ static std::set<long> zasm30_bitmap_unsized;
 
 static BITMAP *z30_bitmap(long ref)
 {
-    if(ref >= 10 && ref < 17)
-    {
-        const int rt = ref - 10;
-        return rt == 0 ? scrollbuf : zscriptDrawingRenderTarget->GetBitmapPtr(rt - 1);
-    }
+    // Game->LoadBitmapID(RT_SCREEN .. RT_BITMAP6) gives 9..16. 3.0 (upstream GetScriptBitmap):
+    // 10..16 the render targets 0..6, 9 the screen, which only drawing time has (Blit puts it
+    // with the screen's drawing). 2.55.18 reads them all as render targets 9..16: none.
+    if(ref >= 9 && ref < 17)
+        return (zasm30_ffscript_version >= 23 && ref >= 10) ? zscriptDrawingRenderTarget->GetBitmapPtr(ref - 10) : NULL;
 
     std::map<long, BITMAP *>::iterator it = zasm30_bitmaps.find(ref);
     return it == zasm30_bitmaps.end() ? NULL : it->second;
@@ -3024,6 +3024,7 @@ bool q30_msg_run_generic_frozen(int script, const long *initd, int count)
 }
 
 static bool zasm30_live_command(word cmd);
+#include "q30_scripts_draw.h"
 
 static bool zasm30_command(word cmd)
 {
@@ -3042,6 +3043,9 @@ static bool zasm30_command(word cmd)
     }
 
     if(zasm30_sub_command(cmd) || zasm30_live_command(cmd))   // (q30_scripts_live.h)
+        return true;
+
+    if(zasm30_draw_command(cmd))
         return true;
 
     switch(cmd)
@@ -3670,7 +3674,9 @@ static bool zasm30_command(word cmd)
         bool masked = SH::read_stack(SPR) != 0;
 
         // RT_SCREEN (-1), or RT_CURRENT (-2) with no render target set: onto the screen's layer
-        const long dst_rt = dst_ref <= -10000 ? dst_ref / 10000 : dst_ref;     // RT_* as a number or raw
+        // RT_* as a number or raw; 3.0: LoadBitmapID's RT_SCREEN / RT_CURRENT pointers (9, 8) too
+        const long dst_rt = dst_ref <= -10000 ? dst_ref / 10000
+                            : (zasm30_ffscript_version >= 23 && (dst_ref == 8 || dst_ref == 9)) ? dst_ref - 10 : dst_ref;
 
         if(dst_rt == -1 || (dst_rt == -2 && zscriptDrawingRenderTarget->GetCurrentRenderTarget() < 0))
         {
