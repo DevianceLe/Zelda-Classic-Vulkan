@@ -2285,8 +2285,8 @@ void for_all_positions(void (*fn)(const H &, void *), void *ctx, bool include_ff
 // is this combo position's ffc at the given point?
 bool ffc_at(int i, int x, int y)
 {
-    int fx = (int)(tmpscr[0].ffx[i] / 10000);
-    int fy = (int)(tmpscr[0].ffy[i] / 10000);
+    int fx = q30_zfix_int(tmpscr[0].ffx[i]);    // (upstream's ffcIsAt: getInt)
+    int fy = q30_zfix_int(tmpscr[0].ffy[i]);
     return !(x < fx || x > fx + (tmpscr[0].ffwidth[i] & 63) || y < fy || y > fy + (tmpscr[0].ffheight[i] & 63))
         && !(tmpscr[0].ffflags[i] & (ffCHANGER | ffETHEREAL));
 }
@@ -10105,6 +10105,61 @@ bool q30_item_has_size(int item)
     return q30_active() && g_item_sizes.count(item) != 0;
 }
 
+// The same nine values of every item, flags or not, for scripts' itemdata (upstream keeps them
+// in itemsbuf): what the reader gave, and what scripts wrote since, which also reaches the sizes
+// above when the item has them.
+static std::map<int, std::vector<long> > g_item_size_values;
+
+void q30_keep_item_size_values(int item, const long *v)
+{
+    if(item < 0)
+        g_item_size_values.clear();
+    else
+        g_item_size_values[item].assign(v, v + 9);
+}
+
+long q30_item_size_value(int item, int which)
+{
+    std::map<int, std::vector<long> >::const_iterator it = g_item_size_values.find(item);
+    return (it == g_item_size_values.end() || which < 0 || which >= 9) ? 0 : it->second[which];
+}
+
+void q30_set_item_size_value(int item, int which, long v)
+{
+    if(item < 0 || which < 0 || which >= 9)
+        return;
+
+    std::vector<long> &all = g_item_size_values[item];
+
+    if(all.size() != 9)
+        all.assign(9, 0);
+
+    all[which] = v;
+    std::map<int, Q30ItemSize>::iterator it = g_item_sizes.find(item);
+
+    if(it != g_item_sizes.end())
+        it->second.v[which] = v;
+}
+
+// An item's weapon's imitate_weapon and default_defense (upstream's weap_data), for scripts.
+static std::map<int, std::pair<int, int> > g_item_weapon_use;
+
+void q30_set_item_weapon_use(int item, int weapon, int defense)
+{
+    if(item < 0)
+        g_item_weapon_use.clear();
+    else if(weapon || defense)
+        g_item_weapon_use[item] = std::make_pair(weapon, defense);
+    else
+        g_item_weapon_use.erase(item);
+}
+
+int q30_item_weapon_use(int item, bool defense)
+{
+    std::map<int, std::pair<int, int> >::const_iterator it = g_item_weapon_use.find(item);
+    return it == g_item_weapon_use.end() ? 0 : (defense ? it->second.second : it->second.first);
+}
+
 // upstream's item::item (and putitem, in_place: drawn where it's put, with no playing field
 // offset): an item with size flags is drawn and hit at the sizes they pick.
 void q30_item_apply_size(sprite *s, int item, bool in_place)
@@ -10233,6 +10288,17 @@ bool q30_bottle_shop_here(int *shop)
 }
 
 const Q30BottleShop *q30_bottle_shop(int i)
+{
+    return (i >= 0 && i < 256) ? &g_bottle_shops[i] : NULL;
+}
+
+// scripts' bottledata and bottleshopdata (q30_scripts_data.h)
+Q30BottleType *q30_bottle_type_edit(int i)
+{
+    return (i >= 0 && i < BOTTLE_TYPES) ? &g_bottle_types[i] : NULL;
+}
+
+Q30BottleShop *q30_bottle_shop_edit(int i)
 {
     return (i >= 0 && i < 256) ? &g_bottle_shops[i] : NULL;
 }
@@ -10574,8 +10640,8 @@ static void torch_light(const Q30Combo *c, int cx, int cy)
 // an FFC's centre on its screen (upstream's ffc x + ffEffectWidth / 2)
 static void dark_ffc_centre(const mapscr *s, int i, int &x, int &y)
 {
-    x = (int)(s->ffx[i] / 10000) + ((s->ffwidth[i] & 63) + 1) / 2;
-    y = (int)(s->ffy[i] / 10000) + ((s->ffheight[i] & 63) + 1) / 2;
+    x = q30_zfix_int(s->ffx[i]) + ((s->ffwidth[i] & 63) + 1) / 2;     // (upstream: x.getInt())
+    y = q30_zfix_int(s->ffy[i]) + ((s->ffheight[i] & 63) + 1) / 2;
 }
 
 // The new dark room over the playing field (upstream's draw_screen darkness and draw_darkroom, and
@@ -11056,6 +11122,11 @@ static int item_usesound2(int item)
 {
     std::map<int, int>::const_iterator it = g_item_usesound2.find(item);
     return it == g_item_usesound2.end() ? 0 : it->second;
+}
+
+int q30_item_usesound2(int item)
+{
+    return item_usesound2(item);
 }
 
 // ---- the Magic Mirror (upstream HeroClass::doMirror, mirrorBonk, the mirror portal) ----------
@@ -11610,6 +11681,18 @@ int q30_item_cost_counter(int item, int which)
         return -1;      // crNONE: no such cost
 
     return g_item_cost[item * 4 + which * 2];
+}
+
+// The four cost values as stored (slot: counter 0, amount 0, counter 1, amount 1), for scripts.
+int q30_item_cost_value(int item, int slot)
+{
+    return (item < 0 || item >= Q30_MAX_ITEMS || slot < 0 || slot > 3) ? 0 : g_item_cost[item * 4 + slot];
+}
+
+void q30_set_item_cost_value(int item, int slot, int v)
+{
+    if(item >= 0 && item < Q30_MAX_ITEMS && slot >= 0 && slot <= 3)
+        g_item_cost[item * 4 + slot] = v;
 }
 
 // upstream's checkCost (zc/zelda.cpp): whether Link can pay amnt from counter ctr, which the

@@ -126,6 +126,11 @@ static word read_script_config(Q255Section &s, long *args)
     return script;
 }
 
+#ifdef ZC_PLAYER_BUILD
+// the item's weapon's imitate_weapon and default_defense, kept for scripts (q30_set_item_weapon_use)
+static int g_item_use_weapon = 0, g_item_use_defense = 0;
+#endif
+
 // read_weap_data
 static void skip_weapon_data(Q255Section &s)
 {
@@ -146,7 +151,12 @@ static void skip_weapon_data(Q255Section &s)
     s.skip(4);                  // step
     s.skip(1);                  // unblockable
     s.skip(4);                  // timeout
+#ifdef ZC_PLAYER_BUILD
+    g_item_use_weapon = s.getc();   // imitate_weapon, default_defense
+    g_item_use_defense = s.getc();
+#else
     s.skip(2);                  // imitate_weapon, default_defense
+#endif
     s.skip(2 + 4);              // lift level, time, height
 
     if(v < 5)
@@ -464,7 +474,14 @@ it.family = (byte)family;
     if(s.version >= 26)
     {
         if(s.version < 63)
+        {
+#ifdef ZC_PLAYER_BUILD
+            g_item_use_weapon = s.getc();   // imitate_weapon, default_defense
+            g_item_use_defense = s.getc();
+#else
             s.skip(2);          // imitate_weapon, default_defense
+#endif
+        }
 
         s.skip(4 + 4);          // weaprange, weapduration
         s.skip(10 * 4);         // weap_pattern
@@ -628,6 +645,8 @@ int q255_read_items(Q255Section &s)
         q30_set_item_cost(-1, 0, 0, 0, 0);
 #ifdef ZC_PLAYER_BUILD
         q30_set_item_size(-1, 0, NULL);
+        q30_keep_item_size_values(-1, NULL);
+        q30_set_item_weapon_use(-1, 0, 0);
 #endif
     }
 
@@ -712,6 +731,9 @@ int q255_read_items(Q255Section &s)
         memset(g_item_weapon_initd, 0, sizeof(g_item_weapon_initd));
         g_item_vp_suspend = g_item_vp_despawn = 0;
         g_item_wvp_suspend = g_item_wvp_despawn = 0;
+#ifdef ZC_PLAYER_BUILD
+        g_item_use_weapon = g_item_use_defense = 0;
+#endif
         read_item(s, tempitem);
 
         if(s.failed)
@@ -764,6 +786,8 @@ int q255_read_items(Q255Section &s)
             q30_set_item_override_flags(i, (int)g_item_override_flags);
 #ifdef ZC_PLAYER_BUILD
             q30_set_item_size(i, g_item_override_flags, g_item_size);
+            q30_keep_item_size_values(i, g_item_size);
+            q30_set_item_weapon_use(i, g_item_use_weapon, g_item_use_defense);
 
             if(g_item_override_flags && getenv("ZC_Q30_ITEMDUMP"))
                 al_trace("q30 itemdump: item %d size flags 0x%lx hit %ld,%ld %ldx%ldx%ld draw %ld,%ld tiles %ldx%ld\n", i,

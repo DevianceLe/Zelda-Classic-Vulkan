@@ -306,6 +306,13 @@ const char *q30_item_name(int id);
 void q30_set_item_size(int item, dword flags, const long *v);
 void q30_item_apply_size(sprite *s, int item, bool in_place);
 void q30_item_hit_box(int item, int &hxofs, int &hyofs, int &hxsz, int &hysz);    // just its hit box
+// the nine values of every item (the reader keeps them; item -1 clears), read and written by scripts
+void q30_keep_item_size_values(int item, const long *v);
+long q30_item_size_value(int item, int which);
+void q30_set_item_size_value(int item, int which, long v);
+// an item's weapon's imitate_weapon and default_defense (upstream weap_data; item -1 clears)
+void q30_set_item_weapon_use(int item, int weapon, int defense);
+int q30_item_weapon_use(int item, bool defense);
 // A DMap's disabled items past 255 (the DMap reader; dmap -1 clears them all), and whether the
 // current DMap disables such an item (item_disabled).
 void q30_set_dmap_item_disabled(int dmap, int item);
@@ -423,6 +430,8 @@ bool q30_item_flag(int item, dword bit);    // q30_item_flags(item) & bit, false
 // button counters read the counter of a cost that has an amount (-1 none)
 void q30_set_item_cost(int item, int ctr0, int amt0, int ctr1, int amt1);  // -1 clears
 int q30_item_cost_counter(int item, int which);
+int q30_item_cost_value(int item, int slot);    // slot: counter 0, amount 0, counter 1, amount 1 (scripts)
+void q30_set_item_cost_value(int item, int slot, int v);
 // whether Link can pay both of the item's costs, from any counter (upstream's checkmagiccost
 // without its timers; the player only)
 bool q30_item_costs_payable(int item);
@@ -460,6 +469,11 @@ bool q30_item_returns();                    // the screen's item comes back thou
 bool q30_below_returns(int tmp = 0);        // its special item does too (fBELOWRETURN), tmpscr[tmp]
 void q30_trig_push();                       // Link is pushing: fires push triggers
 bool q30_active();                          // true for 2.55+ quests
+// A position (times 10000) as the whole pixel upstream's zfix::getInt gives: rounded half away
+// from zero. Where upstream takes an FFC's x or y that way (drawing it, ffcIsAt, changers, dark
+// room lights), 2.55/3.0 quests round; 2.53 quests keep truncating (q30_ffc_px).
+inline int q30_zfix_int(long v) { return (int)(v / 10000L + (v % 10000L) / 5000L); }
+inline int q30_ffc_px(long v) { return q30_active() ? q30_zfix_int(v) : (int)(v / 10000L); }
 // dosubscr, while the active subscreen is open (q30_scripts_subscr.h): L and R don't move the
 // selector in a 2.55/3.0 quest with the newer subscreens (upstream: only with qr_OLD_SUBSCR);
 // q30_subscreen_pages runs the page buttons (btns: A 1, B 2, L 4, R 8, Ex1-4 16-128, pressed
@@ -498,6 +512,7 @@ void q30_switchhook_tick();                 // Link.animate, each frame the hook
 bool q30_switchhook_hide_link();            // the Flicker style's off frames
 int q30_switchhook_rise();                  // the Rise style's lift, in pixels
 void q30_set_item_usesound2(int item, int sfx);     // readers
+int q30_item_usesound2(int item);
 void q30_set_init_switch_style(int style);
 void q30_set_guy_defenses(int guy, const byte *defs);  // the 41 stored slots; NULL clears (guy < 0: all)
 int q30_misc_sprite(int i);                 // upstream's QMisc.sprites
@@ -692,6 +707,8 @@ void q30_note_room(int screen_index, int room);     // room types 2.53 has no nu
 // game
 bool q30_bottle_shop_here(int *shop);       // the screen Link is on is a bottle shop
 const Q30BottleShop *q30_bottle_shop(int i);
+Q30BottleType *q30_bottle_type_edit(int i);   // scripts' bottledata (0-63) and bottleshopdata (0-255)
+Q30BottleShop *q30_bottle_shop_edit(int i);
 int q30_bottle_slot(int slot);
 void q30_set_bottle_slot(int slot, int type);
 bool q30_has_bottle(int type);              // an owned bottle holds this (0: an empty one)

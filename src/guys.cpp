@@ -12815,7 +12815,8 @@ void loadguys()
     {
         Guy=tmpscr->guy;
         
-        if(DMaps[currdmap].flags&dmfVIEWMAP)
+        // (2.55/3.0: upstream's mark_visited marks every screen unless qr_ONLY_MARK_SCREENS_VISITED_IF_MAP_VIEWABLE)
+        if((DMaps[currdmap].flags&dmfVIEWMAP) || (q30_active() && !q30_compat_rule(475)))
             game->maps[(currmap*MAPSCRSNORMAL)+currscr] |= mVISITED;          // mark as visited
     }
     

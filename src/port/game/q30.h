@@ -141,6 +141,7 @@ void q30_msg_clear_strings();
 // reader set them for older quests
 void q30_msg_set_rules(bool old_frame, bool old_margins);
 void q30_msg_set_string(int str, const Q30MsgStr &s);
+Q30MsgStr *q30_msg_string_edit(int str);    // scripts' messagedata fields; NULL past the last string
 void q30_msg_set_text(int str, const std::string &text, bool ascii);    // a script set the text
 // The game's side (zelda.cpp): true for newer quests, whose strings run here.
 bool q30_msg_engine();

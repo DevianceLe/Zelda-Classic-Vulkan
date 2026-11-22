@@ -145,6 +145,7 @@ dword q30_compat_rule_since(int id)
     case Q30_QR_BROKEN_PUSHBLOCK_FLAG_CLONING: return 72;
     case 433: return 61;        // qr_BROKEN_BOMB_AMMO_COSTS
     case 450: return 79;        // qr_BROKEN_SYSTEM_COLORS
+    case 475: return 95;        // qr_ONLY_MARK_SCREENS_VISITED_IF_MAP_VIEWABLE
     case 487: return 91;        // qr_OLD_SCRIPTS_INTERNAL_ARRAYS_BOUND_INDEX
     case 488: return 91;        // qr_OLD_SCRIPTS_ARRAYS_NON_ZERO_DEFAULT_VALUE
     case 561: return 58;        // qr_OLD_DMAP_INTRO_STRINGS

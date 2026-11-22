@@ -780,6 +780,7 @@ static bool zasm30_live_set(const long arg, const long value);
 static void zasm30_live_reset();
 void q30_auto_rotate(sprite *s, Zasm30SpriteState *st);
 static bool zasm30_scrdata_set(const long arg, const long value);
+static bool zasm30_data_reg(const long arg, long &ret, const long value, const bool write);  // q30_scripts_data.h
 static bool zasm30_sub_set(const long arg, const long value);
 
 // ---- smaller 3.0 fields ------------------------------------------------------------------------
@@ -1879,7 +1880,7 @@ static bool zasm30_plain_reg(const long arg, long &ret, const long value, const 
 
 static bool zasm30_get_register_inner(const long arg, long &ret)
 {
-    if(zasm30_sub_get(arg, ret) || zasm30_scrdata_get(arg, ret) || zasm30_draw_get(arg, ret) || zasm30_trigger_reg(arg, ret, 0, false)
+    if(zasm30_data_reg(arg, ret, 0, false) || zasm30_sub_get(arg, ret) || zasm30_scrdata_get(arg, ret) || zasm30_draw_get(arg, ret) || zasm30_trigger_reg(arg, ret, 0, false)
        || zasm30_plain_reg(arg, ret, 0, false) || zasm30_live_get(arg, ret))
         return true;
 
@@ -2906,7 +2907,7 @@ static bool zasm30_set_register_inner(const long arg, const long value)
 {
     long unused;
 
-    if(zasm30_sub_set(arg, value) || zasm30_scrdata_set(arg, value) || zasm30_draw_set(arg, value) || zasm30_trigger_reg(arg, unused, value, true)
+    if(zasm30_data_reg(arg, unused, value, true) || zasm30_sub_set(arg, value) || zasm30_scrdata_set(arg, value) || zasm30_draw_set(arg, value) || zasm30_trigger_reg(arg, unused, value, true)
        || zasm30_plain_reg(arg, unused, value, true) || zasm30_live_set(arg, value))
         return true;
 

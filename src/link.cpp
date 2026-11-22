@@ -479,6 +479,7 @@ bool is_moving()
 }
 
 bool q30_shield_jinxed();            // q30_scripts_regs.h: a newer quest's script jinxed the shield
+bool q30_item_jinx_immune(int item); // q30_scripts_data.h: false for every 2.53 quest's item
 static int q30_sprite_index(sprite_list &list, int index, long uid);    // below
 void q30_shield_jinx_reset(bool all);
 
@@ -7468,7 +7469,8 @@ void LinkClass::movelink()
             btnwpn=-1;
     }
     
-    if(can_attack() && (directWpn>-1 ? itemsbuf[directWpn].family==itype_sword : current_item(itype_sword)) && swordclk==0 && btnwpn==itype_sword && charging==0)
+    // (2.55/3.0: an item flagged immune to jinxes works through them, upstream's checkitem_jinx)
+    if(can_attack() && (directWpn>-1 ? itemsbuf[directWpn].family==itype_sword : current_item(itype_sword)) && (swordclk==0 || q30_item_jinx_immune(directWpn>-1 ? directWpn : current_item_id(itype_sword))) && btnwpn==itype_sword && charging==0)
     {
         
         attackid=directWpn>-1 ? directWpn : current_item_id(itype_sword);
@@ -7519,7 +7521,7 @@ void LinkClass::movelink()
     
     WalkflagInfo info;
     
-    if(can_attack() && itemclk==0 && btnwpn>itype_sword && charging==0 && btnwpn!=itype_rupee) // This depends on item 0 being a rupee...
+    if(can_attack() && (itemclk==0 || (btnwpn>itype_sword && q30_item_jinx_immune(directWpn>-1 ? directWpn : current_item_id(btnwpn)))) && btnwpn>itype_sword && charging==0 && btnwpn!=itype_rupee) // This depends on item 0 being a rupee...
     {
         bool paidmagic = false;
         

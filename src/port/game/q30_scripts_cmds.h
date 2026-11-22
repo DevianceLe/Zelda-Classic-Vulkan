@@ -24,6 +24,7 @@ extern ffscript *zasm30_stream;
 #include "subscr.h"
 #include "q30_scripts_subscr.h"
 #include "q30_scripts_save.h"
+#include "q30_scripts_data.h"
 
 // ---- bitmaps ------------------------------------------------------------------------------------
 // A script bitmap reference: 0 none; 10..17 the render targets; 1000+ a bitmap the script made.
@@ -3042,7 +3043,7 @@ static bool zasm30_command(word cmd)
                      (int)currscr, (int)frame);
     }
 
-    if(zasm30_sub_command(cmd) || zasm30_live_command(cmd))   // (q30_scripts_live.h)
+    if(zasm30_data_command(cmd) || zasm30_sub_command(cmd) || zasm30_live_command(cmd))   // (q30_scripts_data.h, q30_scripts_live.h)
         return true;
 
     if(zasm30_draw_command(cmd))

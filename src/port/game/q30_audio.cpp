@@ -1503,6 +1503,17 @@ void q30_musicdata_set_path(long ref, const char *path)
     }
 }
 
+// dmapdata->SetMusic: upstream sets the object's path and nothing else (no restart); the DMaps
+// naming it get the new file name for the 2.53 code that looks at it.
+void q30_musicdata_set_path_quiet(long ref, const char *path)
+{
+    if(!q30_music_exists(ref))
+        return;
+
+    g_music[(size_t)ref - 1].enhanced.path = path;
+    q30_finish_music_tables();
+}
+
 const char *q30_musicdata_name(long ref)
 {
     return q30_music_exists(ref) ? g_music[(size_t)ref - 1].name.c_str() : "";

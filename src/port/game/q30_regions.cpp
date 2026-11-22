@@ -2436,7 +2436,7 @@ int q30_region_ffcombo_at(int x, int y)
         // (maps.cpp's ffcIsAt on that screen's FFCs, in its coordinates)
         for(int i = 0; i < m.ffc_count(); ++i)
         {
-            const int fx = m.ffx[i] / 10000, fy = m.ffy[i] / 10000;
+            const int fx = q30_zfix_int(m.ffx[i]), fy = q30_zfix_int(m.ffy[i]);   // (rounded, as upstream's ffcIsAt)
 
             if(px >= fx && px <= fx + (m.ffwidth[i] & 63) && py >= fy && py <= fy + (m.ffheight[i] & 63)
                && !(m.ffflags[i] & (ffCHANGER | ffETHEREAL)))

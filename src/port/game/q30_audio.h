@@ -131,6 +131,7 @@ void q30_musicdata_set(long ref, int field, long value);
 // MUSICDATA_GETPATH/SETPATH/GETNAME/SETNAME. Empty string for ref 0 or an invalid ref.
 const char *q30_musicdata_path(long ref);
 void q30_musicdata_set_path(long ref, const char *path);
+void q30_musicdata_set_path_quiet(long ref, const char *path);  // dmapdata->SetMusic: no restart
 const char *q30_musicdata_name(long ref);
 void q30_musicdata_set_name(long ref, const char *name);
 

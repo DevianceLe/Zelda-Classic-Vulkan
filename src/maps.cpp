@@ -184,11 +184,11 @@ int MAPCOMBO(int x,int y)
 // Used by MAPFFCOMBO(), MAPFFCOMBOFLAG, and getFFCAt().
 inline bool ffcIsAt(int index, int x, int y)
 {
-    int fx=tmpscr->ffx[index]/10000;
+    int fx=q30_ffc_px(tmpscr->ffx[index]);   // (2.55/3.0: rounded, upstream's getInt)
     if(x<fx || x>fx+(tmpscr->ffwidth[index]&63)) // FFC sizes are weird.
         return false;
     
-    int fy=tmpscr->ffy[index]/10000;
+    int fy=q30_ffc_px(tmpscr->ffy[index]);
     if(y<fy || y>fy+(tmpscr->ffheight[index]&63))
         return false;
     
@@ -1901,7 +1901,7 @@ static void update_ffc_movement(int)
                     continue;
                     
                 // Ignore this changer? (ffposx and ffposy are last changer position)
-                if(tmpscr->ffx[j]/10000==ffposx[i]&&tmpscr->ffy[j]/10000==ffposy[i])
+                if(q30_ffc_px(tmpscr->ffx[j])==ffposx[i]&&q30_ffc_px(tmpscr->ffy[j])==ffposy[i])
                     continue;
                     
                 // 2.55/3.0 FFC flags (upstream's ffc_ignorechanger and ffc_imprecisionchanger): the
@@ -1947,8 +1947,8 @@ static void update_ffc_movement(int)
                         tmpscr->ffflags[i]=tmpscr->ffflags[j];
                         
                     tmpscr->ffflags[i]&=~ffCHANGER;
-                    ffposx[i]=(short)(tmpscr->ffx[j]/10000);
-                    ffposy[i]=(short)(tmpscr->ffy[j]/10000);
+                    ffposx[i]=(short)q30_ffc_px(tmpscr->ffx[j]);
+                    ffposy[i]=(short)q30_ffc_px(tmpscr->ffy[j]);
                     
                     if(combobuf[tmpscr->ffdata[j]].flag>15 && combobuf[tmpscr->ffdata[j]].flag<32)
                         tmpscr->ffdata[j]=tmpscr->secretcombo[combobuf[tmpscr->ffdata[j]].flag-16+4];
@@ -2263,8 +2263,9 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
                     
                     if(!!(layer->ffflags[i]&ffOVERLAY) == (type==-4)) //what exactly is this supposed to mean?
                     {
-                        int tx=((layer->ffx[i]/10000));
-                        int ty=((layer->ffy[i]/10000))+playing_field_offset;
+                        // (2.55/3.0: upstream's draw_ffc takes the rounded pixel)
+                        int tx=q30_ffc_px(layer->ffx[i]);
+                        int ty=q30_ffc_px(layer->ffy[i])+playing_field_offset;
                         
                         if(layer->ffflags[i]&ffTRANS)
                         {

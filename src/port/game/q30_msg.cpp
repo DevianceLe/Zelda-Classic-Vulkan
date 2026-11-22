@@ -2958,6 +2958,12 @@ void q30_msg_set_string(int str, const Q30MsgStr &s)
     g_parsed.erase(str);
 }
 
+// A string's data for scripts' messagedata fields (q30_scripts_data.h); NULL past the last.
+Q30MsgStr *q30_msg_string_edit(int str)
+{
+    return (str >= 0 && (size_t)str < g_strings.size()) ? &g_strings[str] : NULL;
+}
+
 // A script set the text (messagedata->Set, Game->SetMessage).
 void q30_msg_set_text(int str, const std::string &text, bool ascii)
 {
