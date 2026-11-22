@@ -630,9 +630,17 @@ static void q30_pit_trace(enemy *e)
 struct Q30EnemyFall
 {
     int clk, combo;
+    bool dying;     // upstream's try_death ran: one more frame, then it goes
 };
 
 static std::map<long, Q30EnemyFall> g_q30_falls;   // by enemy uid
+
+// npc->FallClk (upstream's fallclk): 70 when the fall starts, down to 1 on its last frame
+int q30_enemy_fall_clk(long uid)
+{
+    std::map<long, Q30EnemyFall>::const_iterator it = g_q30_falls.find(uid);
+    return it == g_q30_falls.end() ? 0 : it->second.clk;
+}
 
 // upstream's check_pits under qr_OLD_SPRITE_FALL_DROWN (462; quests before 2.55.11): an enemy
 // partly over a pit is drawn in a pixel at a time towards it, falling once all of it is over the
@@ -730,7 +738,7 @@ static int q30_enemy_fall_hook(sprite_list *list, int index, int phase)
 
         if(pit)
         {
-            Q30EnemyFall f = { 70, pit };
+            Q30EnemyFall f = { 70, pit, false };
             g_q30_falls[e->getUID()] = f;
             e->q30_stop_knockback();
 
@@ -755,7 +763,12 @@ static int q30_enemy_fall_hook(sprite_list *list, int index, int phase)
             sfx(s, pan(int(e->x)));
     }
 
-    if(--f.clk <= 0)    // (upstream try_death: it dies where it fell, with its item)
+    if(--f.clk <= 0 && !f.dying)    // (upstream: try_death, then one more frame of falling)
+    {
+        f.dying = true;
+        f.clk = 1;
+    }
+    else if(f.clk <= 0)     // (upstream try_death: it dies where it fell, with its item)
     {
         g_q30_falls.erase(it);
 

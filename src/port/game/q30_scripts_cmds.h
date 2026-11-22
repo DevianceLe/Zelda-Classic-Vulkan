@@ -3442,7 +3442,7 @@ static bool zasm30_command(word cmd)
     case Z30C_LOADLWEAPONBYSUID:
     {
         long uid = get_register(sarg1);
-        ri->lwpn = Lwpns.getByUID(uid) ? uid : 0;
+        ri->lwpn = (Lwpns.getByUID(uid) || q30_lifted_weapon(uid)) ? uid : 0;
         return true;
     }
     case Z30C_LOADWEAPONCBYSUID:

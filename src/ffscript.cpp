@@ -2939,6 +2939,9 @@ public:
         tempweapon = (weapon *) Lwpns.getByUID(wid);
         
         if(tempweapon == NULL)
+            tempweapon = q30_lifted_weapon(wid);    // (2.55/3.0: the one Link holds up)
+            
+        if(tempweapon == NULL)
         {
             Z_scripterrlog("Invalid lweapon with UID %ld passed to %s\nLWeapons on screen have UIDs ", wid, funcvar);
             
@@ -8550,7 +8553,7 @@ void do_isvalidlwpn()
             return;
         }
         
-    set_register(sarg1, 0);
+    set_register(sarg1, q30_lifted_weapon(WID) ? 10000 : 0);     // (2.55/3.0: the one Link holds)
 }
 
 void do_isvalidewpn()

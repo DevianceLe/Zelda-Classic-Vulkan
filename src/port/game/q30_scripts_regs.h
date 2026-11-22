@@ -93,6 +93,7 @@ static Z30Sprite z30_sprite(long uid)
 
     if((r.s = guys.getByUID(uid)) != NULL) { r.kind = Z30S_NPC; return r; }
     if((r.s = Lwpns.getByUID(uid)) != NULL) { r.kind = Z30S_LWPN; return r; }
+    if((r.s = q30_lifted_weapon(uid)) != NULL) { r.kind = Z30S_LWPN; return r; }  // (held over Link's head)
     if((r.s = Ewpns.getByUID(uid)) != NULL) { r.kind = Z30S_EWPN; return r; }
     if((r.s = items.getByUID(uid)) != NULL) { r.kind = Z30S_ITEM; return r; }
     return r;
@@ -119,6 +120,21 @@ static long z30_fake_jump_write(long value) { return (long)(int64_t(value) * -10
 
 // ---- SPRITE_* ----------------------------------------------------------------------------------
 
+static long &z30_hero_moveflags();
+
+// The script state of the sprite r names. An enemy's is filled in from its data first (its move
+// flags), so a sprite field written before anything else asked about it isn't lost.
+static Zasm30SpriteState *z30_sprite_st(const Z30Sprite &r)
+{
+    if(!r.s)
+        return NULL;
+
+    if(r.kind == Z30S_NPC)
+        return zasm30_npc_state(r.s);
+
+    return &zasm30_sprite_state(r.s->getUID());
+}
+
 static bool zasm30_sprite_read(const long arg, long &ret, const Z30Sprite &r)
 {
     sprite *s = r.s;
@@ -127,7 +143,7 @@ static bool zasm30_sprite_read(const long arg, long &ret, const Z30Sprite &r)
     const bool isfloat = isffc;   // 2.53 sprites have no sub-pixel position to report
     const int f = r.ffc;
 
-    Zasm30SpriteState *st = s ? &zasm30_sprite_state(s->getUID()) : NULL;
+    Zasm30SpriteState *st = z30_sprite_st(r);
 
     switch(arg)
     {
@@ -201,7 +217,10 @@ static bool zasm30_sprite_read(const long arg, long &ret, const Z30Sprite &r)
         ret = s ? z30_fl(s->fall) / -100 : 0;
         return true;
     case Z30R_SPRITE_FAKE_JUMP: ret = st ? z30_fake_jump_read(st->fakefall) : 0; return true;
-    case Z30R_SPRITE_GRAVITY: ret = (st && st->gravity_strength >= 0) ? 10000 : 10000; return true;
+    case Z30R_SPRITE_GRAVITY:   // (upstream: the move_obeys_grav move flag)
+        if(r.kind == Z30S_HERO) ret = (z30_hero_moveflags() & 1) ? 10000 : 0;
+        else ret = (st && (st->move_flags & 1)) ? 10000 : 0;
+        return true;
     case Z30R_SPRITE_GRAVITY_STRENGTH: ret = st ? st->gravity_strength : 0; return true;
     case Z30R_SPRITE_TERMINAL_VELOCITY: ret = st ? st->terminal_v : 0; return true;
     case Z30R_SPRITE_CUSTOM_GRAVITY_STRENGTH: ret = st ? st->gravity_strength : 0; return true;
@@ -221,7 +240,13 @@ static bool zasm30_sprite_read(const long arg, long &ret, const Z30Sprite &r)
     case Z30R_SPRITE_HIT_ZHEIGHT: ret = s ? s->hzsz * 10000 : 0; return true;
     case Z30R_SPRITE_HIT_OFFSET_X: ret = s ? s->hxofs * 10000 : 0; return true;
     case Z30R_SPRITE_HIT_OFFSET_Y: ret = s ? s->hyofs * 10000 : 0; return true;
-    case Z30R_SPRITE_FALL_CLK: ret = st ? st->fall_clk * 10000 : 0; return true;
+    case Z30R_SPRITE_FALL_CLK:
+        if(r.kind == Z30S_NPC)  // (an enemy falling into a pit: guys.cpp's fall)
+        {
+            ret = q30_enemy_fall_clk(s->getUID()) * 10000;
+        }
+        else ret = st ? st->fall_clk * 10000 : 0;
+        return true;
     case Z30R_SPRITE_DROWN_CLK: ret = st ? st->drown_clk * 10000 : 0; return true;
     case Z30R_SPRITE_FALL_CMB:
     case Z30R_SPRITE_DROWN_CMB:
@@ -230,7 +255,7 @@ static bool zasm30_sprite_read(const long arg, long &ret, const Z30Sprite &r)
     case Z30R_SPRITE_LIGHT_SHAPE: ret = st ? st->glow_shape * 10000 : 0; return true;
     case Z30R_SPRITE_LIGHT_OFFSET: ret = st ? st->glow_ofs * 10000 : 0; return true;
     case Z30R_SPRITE_NOCOLL_CLK: ret = st ? st->no_colldet * 10000 : 0; return true;
-    case Z30R_SPRITE_SWHOOKED: ret = 0; return true;
+    case Z30R_SPRITE_SWHOOKED: ret = q30_switch_hooked(s, isffc ? f : -1) ? 10000 : 0; return true;
     case Z30R_SPRITE_SHADOW_SPR: ret = st ? st->shadow_spr * 10000 : 0; return true;
     case Z30R_SPRITE_SHADOW_XOFS: ret = st ? st->shadow_xofs * 10000 : 0; return true;
     case Z30R_SPRITE_SHADOW_YOFS: ret = st ? st->shadow_yofs * 10000 : 0; return true;
@@ -313,7 +338,7 @@ static bool zasm30_sprite_write(const long arg, const long value, const Z30Sprit
     const bool isffc = r.kind == Z30S_FFC;
     const bool ishero = r.kind == Z30S_HERO;
     const int f = r.ffc;
-    Zasm30SpriteState *st = s ? &zasm30_sprite_state(s->getUID()) : NULL;
+    Zasm30SpriteState *st = z30_sprite_st(r);
 
     switch(arg)
     {
@@ -378,7 +403,10 @@ static bool zasm30_sprite_write(const long arg, const long value, const Z30Sprit
         else if(s) s->fall = fix(-(value / 10000.0) * 100);
         return true;
     case Z30R_SPRITE_FAKE_JUMP: if(st) st->fakefall = z30_fake_jump_write(value); return true;
-    case Z30R_SPRITE_GRAVITY: return true;
+    case Z30R_SPRITE_GRAVITY:
+        if(ishero) z30_hero_moveflags() = value ? (z30_hero_moveflags() | 1) : (z30_hero_moveflags() & ~1L);
+        else if(st) st->move_flags = value ? (st->move_flags | 1) : (st->move_flags & ~1L);
+        return true;
     case Z30R_SPRITE_CUSTOM_GRAVITY_STRENGTH: if(st) st->gravity_strength = value; return true;
     case Z30R_SPRITE_CUSTOM_TERMINAL_VELOCITY: if(st) st->terminal_v = value; return true;
     case Z30R_SPRITE_FLIP: if(s) s->flip = value / 10000; return true;
@@ -589,6 +617,7 @@ static bool z30_hitby_is_uid(long n)
 // Hero->ScriptTile and friends. Hero->ScriptTile is 0 when unset; the others are -1.
 static long zasm30_hero_script_tile = 0, zasm30_hero_script_flip = -1, zasm30_hero_script_cset = -1;
 static long zasm30_hero_move_flags = 0;
+static long &z30_hero_moveflags() { return zasm30_hero_move_flags; }
 static long zasm30_hero_immortal = 0, zasm30_hero_hurt_sfx = 0;     // 0: not set
 static bool zasm30_no_active_subscreen = false;
 static bool zasm30_key_input[127], zasm30_key_press[127], zasm30_key_disabled[127], zasm30_key_was_down[127];
@@ -622,7 +651,11 @@ void q30_enemy_set_hitdir(enemy *e, int dir);
 int q30_enemy_lined_up(enemy *e, int range, bool dir8);
 
 static enemy *z30_npc_ref() { return (enemy *)guys.getByUID(ri->guyref); }
-static weapon *z30_lwpn_ref() { return (weapon *)Lwpns.getByUID(ri->lwpn); }
+static weapon *z30_lwpn_ref()
+{
+    weapon *w = (weapon *)Lwpns.getByUID(ri->lwpn);
+    return w ? w : q30_lifted_weapon(ri->lwpn);     // (the one Link holds up is an lweapon too)
+}
 static weapon *z30_ewpn_ref() { return (weapon *)Ewpns.getByUID(ri->ewpn); }
 static item *z30_item_ref() { return (item *)items.getByUID(ri->itemref); }
 
@@ -1078,9 +1111,116 @@ static bool zasm30_draw_set(const long arg, const long value)
     return true;
 }
 
+// combodata->Trig*: the combo's first trigger (upstream's get_first_combo_trigger, which gives a
+// combo without one a new trigger; a read of such a combo here gives a new one's values without
+// adding it). The bounds are upstream's.
+static bool zasm30_trigger_reg(const long arg, long &ret, const long value, const bool write)
+{
+    enum { MAX_ITEMS_UP = 1024, MAX_SFX_UP = 1024, MAX_LEVELS_UP = 512, MAX_COUNTERS_UP = 107, SSC_MIN = -18,
+           IP_ALLOWED = ipHOLDUP | ipTIMER | 4096 | 8192, LI_ALL_UP = 0xFFFF };
+    static const Q30Trigger fresh;
+    const long cid = Z30_REF(COMBODATA);
+    const long v = value / 10000;
+    Q30Trigger *t = NULL;
+
+    switch(arg)
+    {
+    case Z30R_COMBODTRIGBOSSPAL: case Z30R_COMBODTRIGBUNNY: case Z30R_COMBODTRIGCSETCHANGE: case Z30R_COMBODTRIGDMAPLVL:
+    case Z30R_COMBODTRIGEXDOORDIR: case Z30R_COMBODTRIGEXDOORIND: case Z30R_COMBODTRIGEXSTATE: case Z30R_COMBODTRIGGERCHANGECMB:
+    case Z30R_COMBODTRIGGERCOOLDOWN: case Z30R_COMBODTRIGGERCOPYCAT: case Z30R_COMBODTRIGGERCTR: case Z30R_COMBODTRIGGERCTRAMNT:
+    case Z30R_COMBODTRIGGERGENSCRIPT: case Z30R_COMBODTRIGGERGROUP: case Z30R_COMBODTRIGGERGROUPVAL: case Z30R_COMBODTRIGGERGSTATE:
+    case Z30R_COMBODTRIGGERGTIMER: case Z30R_COMBODTRIGGERITEM: case Z30R_COMBODTRIGGERLEVEL: case Z30R_COMBODTRIGGERLIGHTBEAM:
+    case Z30R_COMBODTRIGGERLSTATE: case Z30R_COMBODTRIGGERPROX: case Z30R_COMBODTRIGGERSFX: case Z30R_COMBODTRIGGERTIMER:
+    case Z30R_COMBODTRIGITEMJINX: case Z30R_COMBODTRIGITEMPICKUP: case Z30R_COMBODTRIGLITEMS: case Z30R_COMBODTRIGLVLPAL:
+    case Z30R_COMBODTRIGPUSHTIME: case Z30R_COMBODTRIGQUAKETIME: case Z30R_COMBODTRIGSHIELDJINX: case Z30R_COMBODTRIGSPAWNENEMY:
+    case Z30R_COMBODTRIGSTUN: case Z30R_COMBODTRIGSWORDJINX: case Z30R_COMBODTRIGWAVYTIME:
+        break;
+    default:
+        return false;
+    }
+
+    if(cid < 0 || cid >= MAXCOMBOS)
+    {
+        ret = -10000;
+        return true;
+    }
+
+    if(write)
+    {
+        Q30Combo *cc = q30_combo_for_write((int)cid);
+
+        if(!cc)
+            return true;
+
+        if(cc->triggers.empty())
+            cc->triggers.push_back(Q30Trigger());
+
+        t = &cc->triggers[0];
+    }
+    else
+    {
+        const Q30Combo *c = q30_combo((int)cid);
+        t = const_cast<Q30Trigger *>((c && !c->triggers.empty()) ? &c->triggers[0] : &fresh);
+    }
+
+#define Z30_TRIG(reg, field, lo, hi) \
+    case reg: \
+        if(write) t->field = (decltype(t->field))vbound(v, (long)(lo), (long)(hi)); \
+        else ret = long(t->field) * 10000; \
+        return true;
+#define Z30_TRIG_MASK(reg, field, mask) \
+    case reg: \
+        if(write) t->field = (decltype(t->field))(v & (mask)); \
+        else ret = long(t->field) * 10000; \
+        return true;
+
+    switch(arg)
+    {
+    Z30_TRIG(Z30R_COMBODTRIGBOSSPAL, trigbosspalette, -1, 29)
+    Z30_TRIG(Z30R_COMBODTRIGBUNNY, trig_bunnytime, -2, 32767)
+    Z30_TRIG(Z30R_COMBODTRIGCSETCHANGE, trigcschange, -15, 15)
+    Z30_TRIG(Z30R_COMBODTRIGDMAPLVL, trigdmlevel, -1, MAX_LEVELS_UP - 1)
+    Z30_TRIG(Z30R_COMBODTRIGEXDOORDIR, exdoor_dir, -1, 3)
+    Z30_TRIG(Z30R_COMBODTRIGEXDOORIND, exdoor_ind, 0, 7)
+    Z30_TRIG(Z30R_COMBODTRIGEXSTATE, exstate, -1, 31)
+    Z30_TRIG(Z30R_COMBODTRIGGERCHANGECMB, trigchange, -65535, 65535)
+    Z30_TRIG(Z30R_COMBODTRIGGERCOOLDOWN, trigcooldown, 0, 255)
+    Z30_TRIG(Z30R_COMBODTRIGGERCOPYCAT, trigcopycat, 0, 255)
+    Z30_TRIG(Z30R_COMBODTRIGGERCTR, trigctr, SSC_MIN, MAX_COUNTERS_UP - 1)
+    Z30_TRIG(Z30R_COMBODTRIGGERCTRAMNT, trigctramnt, -65535, 65535)
+    Z30_TRIG(Z30R_COMBODTRIGGERGENSCRIPT, trig_genscr, 0, 65535)
+    Z30_TRIG(Z30R_COMBODTRIGGERGROUP, trig_group, 0, 255)
+    Z30_TRIG(Z30R_COMBODTRIGGERGROUPVAL, trig_group_val, 0, 65535)
+    Z30_TRIG(Z30R_COMBODTRIGGERGSTATE, trig_gstate, 0, 255)
+    Z30_TRIG(Z30R_COMBODTRIGGERGTIMER, trig_statetime, 0, 214748)
+    Z30_TRIG(Z30R_COMBODTRIGGERITEM, triggeritem, 0, MAX_ITEMS_UP - 1)
+    Z30_TRIG(Z30R_COMBODTRIGGERLEVEL, triggerlevel, 0, 214747)
+    Z30_TRIG(Z30R_COMBODTRIGGERLIGHTBEAM, triglbeam, 0, 32)
+    Z30_TRIG(Z30R_COMBODTRIGGERLSTATE, trig_lstate, 0, 31)
+    Z30_TRIG(Z30R_COMBODTRIGGERPROX, trigprox, 0, 65535)
+    Z30_TRIG(Z30R_COMBODTRIGGERSFX, trigsfx, 0, MAX_SFX_UP)
+    Z30_TRIG(Z30R_COMBODTRIGGERTIMER, trigtimer, 0, 65535)
+    Z30_TRIG(Z30R_COMBODTRIGITEMJINX, trig_itmjinxtime, -2, 32767)
+    Z30_TRIG_MASK(Z30R_COMBODTRIGITEMPICKUP, spawnip, IP_ALLOWED)
+    Z30_TRIG_MASK(Z30R_COMBODTRIGLITEMS, trig_levelitems, LI_ALL_UP)
+    Z30_TRIG(Z30R_COMBODTRIGLVLPAL, triglvlpalette, -1, 512)
+    Z30_TRIG(Z30R_COMBODTRIGPUSHTIME, trig_pushtime, 0, 255)
+    Z30_TRIG(Z30R_COMBODTRIGQUAKETIME, trigquaketime, -1, 32767)
+    Z30_TRIG(Z30R_COMBODTRIGSHIELDJINX, trig_shieldjinxtime, -2, 32767)
+    Z30_TRIG(Z30R_COMBODTRIGSPAWNENEMY, spawnenemy, 0, 511)
+    Z30_TRIG(Z30R_COMBODTRIGSTUN, trig_stuntime, -2, 32767)
+    Z30_TRIG(Z30R_COMBODTRIGSWORDJINX, trig_swjinxtime, -2, 32767)
+    Z30_TRIG(Z30R_COMBODTRIGWAVYTIME, trigwavytime, -1, 32767)
+    }
+#undef Z30_TRIG
+#undef Z30_TRIG_MASK
+
+    return true;
+}
+
 static bool zasm30_get_register_inner(const long arg, long &ret)
 {
-    if(zasm30_sub_get(arg, ret) || zasm30_scrdata_get(arg, ret) || zasm30_draw_get(arg, ret))
+    if(zasm30_sub_get(arg, ret) || zasm30_scrdata_get(arg, ret) || zasm30_draw_get(arg, ret) || zasm30_trigger_reg(arg, ret, 0, false))
         return true;
 
     switch(arg)
@@ -1129,7 +1269,12 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_LINKINVFRAME: ret = Link.getHClk() * 10000; return true;
     case Z30R_HEROSTEPRATE: ret = q30_hero_step_rate() * 10000; return true;
     case Z30R_HERO_TMP_STEPBOOST: ret = q30_hero_step_boost() * 10000; return true;
-    case Z30R_HEROLIFTEDWPN: ret = 0; return true;
+    case Z30R_HEROLIFTEDWPN:    // (upstream: the held weapon's UID, 0 for none)
+    {
+        weapon *w = q30_lifted_weapon();
+        ret = w ? w->getUID() : 0;
+        return true;
+    }
     case Z30R_HEROSTANDING: ret = Link.q30_is_standing() ? 10000 : 0; return true;
     case Z30R_HERO_SCREEN: ret = currscr * 10000; return true;
     // Game->CurScreen / CurDMapScreen: upstream's cur_screen, which in a scrolling region is the
@@ -1277,15 +1422,6 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     {
         const Q30ScriptRef *r = q30_combo_script(Z30_REF(COMBODATA));
         ret = r ? r->script * 10000 : 0;
-        return true;
-    }
-    case Z30R_COMBODTRIGGERGSTATE:
-    case Z30R_COMBODTRIGGERCHANGECMB:
-    {
-        const Q30Combo *c = q30_combo(Z30_REF(COMBODATA));
-        ret = -10000;
-        if(c && !c->triggers.empty())
-            ret = (arg == Z30R_COMBODTRIGGERGSTATE ? (long)c->triggers[0].trig_gstate : c->triggers[0].trigchange) * 10000;
         return true;
     }
 
@@ -1660,11 +1796,16 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
 
     // Hero
     case Z30R_HEROFALLCLK:
-    case Z30R_NPCFALLCLK:
-        ret = 0;                // pits act at once in this engine: nothing is ever mid-fall
+        ret = 0;                // pits act at once on Link in this engine: he is never mid-fall
         return true;
-    case Z30R_LINKCLIMBING:
-        ret = 0;                // this engine has no ladder climbing state on the Hero
+    case Z30R_NPCFALLCLK:       // (an enemy falling into a pit: guys.cpp's fall, 70 down to 1)
+    {
+        enemy *e = z30_npc_ref();
+        ret = e ? q30_enemy_fall_clk(e->getUID()) * 10000 : 0;
+        return true;
+    }
+    case Z30R_LINKCLIMBING:     // (upstream: on a sideview ladder)
+        ret = Link.q30_sv_ladder() ? 10000 : 0;
         return true;
     case Z30R_LINKHITBY:
     {
@@ -2119,7 +2260,9 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
 
 static bool zasm30_set_register_inner(const long arg, const long value)
 {
-    if(zasm30_sub_set(arg, value) || zasm30_scrdata_set(arg, value) || zasm30_draw_set(arg, value))
+    long unused;
+
+    if(zasm30_sub_set(arg, value) || zasm30_scrdata_set(arg, value) || zasm30_draw_set(arg, value) || zasm30_trigger_reg(arg, unused, value, true))
         return true;
 
     switch(arg)
@@ -2163,6 +2306,9 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     case Z30R_HEROSTEPRATE: q30_set_hero_step_rate(value / 10000); return true;     // Hero->Step
     case Z30R_HERO_TMP_STEPBOOST: q30_set_hero_step_boost(value / 10000); return true;
     case Z30R_HEROLIFTEDWPN:
+        q30_set_lifted_weapon(value ? (weapon *)Lwpns.getByUID(value) : NULL);
+        return true;
+    case Z30R_LINKCLIMBING: Link.q30_set_sv_ladder(value != 0); return true;
     case Z30R_HEROSTANDING:
         return true;
     case Z30R_LINKDIAG: set_bit(quest_rules, qr_LTTPWALK, value ? 1 : 0); return true;
@@ -2330,9 +2476,6 @@ static bool zasm30_set_register_inner(const long arg, const long value)
         q30_set_combo_script((int)cid, ref.script, ref.initd);
         return true;
     }
-    case Z30R_COMBODTRIGGERGSTATE:
-    case Z30R_COMBODTRIGGERCHANGECMB:
-        return true;
 
     // Screen->
     case Z30R_SCREENDATAITEM:

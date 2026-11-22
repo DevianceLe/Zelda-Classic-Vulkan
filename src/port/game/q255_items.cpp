@@ -540,6 +540,22 @@ it.family = (byte)family;
         g_cost_amount[1] = g_cost_counter[1] >= 0 ? 1 : 0;
     }
 
+#ifdef ZC_PLAYER_BUILD
+    // upstream's dive settings for older flippers: 50 frames under, 30 before the next, on A
+    // (the player only: ZQuest keeps the values as stored, so its re-saves stay exact)
+    if(g_true_family == itype_flippers)
+    {
+        if(s.version < 45)
+        {
+            it.misc1 = 50;
+            it.misc2 = 30;
+        }
+
+        if(s.version < 54)
+            it.misc3 = 1;       // INT_BTN_A
+    }
+#endif
+
     if(s.version >= 71)
     {
         long collect_args[8];

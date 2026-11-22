@@ -441,6 +441,14 @@ void reset_swordcharge();
     void q30_set_script_action(int a);
     bool q30_is_standing();             // Hero->Standing for 2.55/3.0 scripts (upstream's isStanding)
     void q30_keep_diving();             // a "dive under" combo above him (q30_triggers.cpp)
+    void q30_set_dive(int d);           // 2.55/3.0: upstream's set_dive (d > 0 diving, < 0 cool-down)
+    void q30_tick_diving();             // 2.55/3.0: upstream's tick_diving (the flippers' button)
+    bool q30_sv_ladder();               // 2.55/3.0: on a sideview ladder (Hero->Climbing)
+    void q30_set_sv_ladder(bool on);    // upstream's setOnSideviewLadder
+    bool q30_can_sv_ladder(bool down = false);                 // upstream's canSideviewLadder
+    bool q30_can_sv_ladder_at(int wx, int wy, bool down = false);   // ... canSideviewLadderRemote
+    void q30_try_sv_ladder();           // upstream's trySideviewLadder (after warps and scrolling)
+    void q30_check_sv_ladder();         // off the ladder once he can't hold it
     int getHeldItem();
     void setHeldItem(int newitem);
     bool isDiving();

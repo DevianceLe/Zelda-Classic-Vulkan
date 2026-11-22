@@ -434,6 +434,8 @@ bool q30_old_subscreens();                  // q255_basic.cpp: a 2.55/3.0 quest 
 // rules that became item flags in 2.55: the item's flag for 2.55/3.0 quests, the rule for 2.53
 bool q30_slash_flip(int itemid);            // qr_SLASHFLIPFIX
 bool q30_quick_sword(int itemid);           // qr_QUICKSWORD (the sword or wand in use)
+bool q30_btn_pressed(byte mask);            // a button of these bits (A 1, B 2, L 4, R 8, Ex1-4 16-128) pressed now
+void q30_btn_take(byte mask);               // ... and used up
 bool q30_no_diving();                       // qr_NODIVING (the flippers Link has)
 bool q30_slow_charging(int itemid);         // qr_SLOWCHARGINGWALK (the sword in use)
 bool q30_lens_does(int what);               // 0 qr_LENSHINTS, 1 qr_RAFTLENS, 2 qr_LENSSEESENEMIES
@@ -511,6 +513,11 @@ void q30_set_item_family(int item, long family);   // families 2.53 can't hold; 
 int q30_current_item(long family);          // owned item of such a family, or -1
 bool q30_lifting();
 bool q30_lift_busy();
+weapon *q30_lifted_weapon(long uid = 0);   // Link's lifted weapon (with a uid: only if it is that one)
+void q30_set_lifted_weapon(weapon *w);     // Hero->LiftedWeapon written: w (out of Lwpns) or none
+bool q30_switch_hooked(sprite *s, int ffc); // sprite->SwitchHooked (ffc: an FFC's slot, else -1)
+bool q30_sideview_ladder_at(int x, int y);  // a sideview ladder flag there, layers 0-2
+int q30_enemy_fall_clk(long uid);           // guys.cpp: an enemy's pit fall, 70 down to 1 (0: not falling)
 void q30_lift_reset();
 void q30_drop_lift();
 void q30_lift_on_hit();

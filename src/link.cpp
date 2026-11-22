@@ -183,6 +183,9 @@ static int q30_ss_dir = right;          // upstream's sideswimdir
 // The init data's steps (1/100 pixel a frame), jump out of the water and swim gravity (1/10000).
 static long q30_ss_up = 150, q30_ss_side = 100, q30_ss_down = 75;
 static long q30_ss_jump = 0, q30_ss_grav = 5;
+// 2.55/3.0: Link is on a sideview ladder (upstream's on_sideview_ladder; only ever set where a
+// sideview ladder flag is, so never in a 2.53 quest)
+static bool q30_on_svladder = false;
 
 // Game->Generic[] for a 2.55/3.0 script, the sideview swimming part (upstream's genWATER_GRAV,
 // genSIDESWIM_UP/SIDE/DOWN, genSIDESWIM_JUMP at 17-21): the value in the init data's units.
@@ -783,7 +786,11 @@ void LinkClass::setZfix(fix new_z)
 void LinkClass::setFall(fix new_fall)
 {
     fall=new_fall;
-    jumping=-1;
+
+    // 2.55/3.0 (upstream's setFall): under qr_BETTER_PLAYER_JUMP_ANIM (427) only a fall set from
+    // rest starts a jump; a 0 written (Hero->Jump = 0) leaves him as he was, on a ladder too
+    if(!q30_active() || (!jumping && new_fall != 0) || !q30_quest_rule(427))
+        jumping=-1;
 }
 void LinkClass::setClimbCoverX(int new_x)
 {
@@ -992,7 +999,15 @@ void LinkClass::setAction(actiontype new_action) // Used by ZScript
         
     case isdiving:
         if(action==swimming && diveclk==0)
-            diveclk = 80; // Who cares about qr_NODIVING? It's the questmaker's business.
+        {
+            if(q30_active())        // 2.55/3.0: the flippers' dive length (50 without them)
+            {
+                const int fid = current_item_id(itype_flippers);
+                q30_set_dive(fid >= 0 ? itemsbuf[fid].misc1 : 50);
+            }
+            else
+                diveclk = 80; // Who cares about qr_NODIVING? It's the questmaker's business.
+        }
         return;
         
     case drowning:
@@ -1185,6 +1200,7 @@ void LinkClass::init()
     q30_standing_reset();
     q30_ss = q30_ss_drown = false;
     q30_ss_dir = right;
+    q30_on_svladder = false;
 
     hookshot_used=false;
     hookshot_frozen=false;
@@ -1235,6 +1251,7 @@ void LinkClass::init()
     scriptcoldet=1;
     blowcnt=whirlwind=specialcave=0;
     hopclk=diveclk=0;
+    q30_set_dive(0);
     hopdir=-1;
     conveyor_flags=0;
     drunkclk=0;
@@ -4593,6 +4610,8 @@ bool LinkClass::animate(int)
     if(stomping)
         stomping = false;
         
+    q30_check_sv_ladder();      // 2.55/3.0: off a sideview ladder he can no longer hold
+
     q30_handle_termv();
 
     if(isSideview())  // Sideview gravity
@@ -4600,7 +4619,8 @@ bool LinkClass::animate(int)
         q30_slope_fall_through();
 
         // Fall, unless on a ladder, rafting, using the hookshot, drowning or cheating.
-        if(!(toogam && Up()) && !drownclk && action!=rafting && !pull_link && !((ladderx || laddery) && fall>0) && !q30_is_side_swim())
+        if(!(toogam && Up()) && !drownclk && action!=rafting && !pull_link && !((ladderx || laddery) && fall>0) && !q30_is_side_swim()
+           && !q30_on_svladder)     // (2.55/3.0: or on a sideview ladder)
         {
             int ydiff = fall/(spins && fall<0 ? 200:100);
             falling_oldy = y; // Stomp Boots-related variable
@@ -4627,12 +4647,12 @@ bool LinkClass::animate(int)
             q30_side_swim_float();
 
         // Stop hovering/falling if you land on something.
-        if(ON_SIDEPLATFORM && !(pull_link && dir==down) && action!=rafting && !q30_platformfell)
+        if((ON_SIDEPLATFORM || q30_on_svladder) && !(pull_link && dir==down) && action!=rafting && !q30_platformfell)
         {
             stop_item_sfx(itype_hoverboots);
             fall = hoverclk = jumping = 0;
 
-            if(!q30_slope_under(0, false))  // a slope keeps Link where it holds him
+            if(!q30_slope_under(0, false) && !q30_on_svladder)  // a slope or a ladder keeps Link where it holds him
                 y-=(int)y%8; //fix position
             
             if(y>=160 && currscr>=0x70 && !(tmpscr->flags2&wfDOWN))  // Landed on the bottommost screen.
@@ -4692,7 +4712,7 @@ bool LinkClass::animate(int)
                     
                 sfx(itemsbuf[itemid].usesound,pan(int(x)));
             }
-            else if(!ladderx && !laddery && !q30_is_side_swim())
+            else if(!ladderx && !laddery && !q30_is_side_swim() && !q30_on_svladder)
             {
                 fall += q30_link_gravity();
             }
@@ -5606,6 +5626,8 @@ bool LinkClass::animate(int)
 	}
 	
     }
+
+    q30_check_sv_ladder();      // (upstream checks again at the end of the Hero's frame)
     return false;
 }
 
@@ -5783,13 +5805,14 @@ bool LinkClass::startwpn(int itemid)
         
     case itype_rocs:
     {
-        if(!inlikelike && z==0 && charging==0 && !(isSideview() && !ON_SIDEPLATFORM && !ladderx && !laddery) && hoverclk==0)
+        if(!inlikelike && z==0 && charging==0 && !(isSideview() && !ON_SIDEPLATFORM && !ladderx && !laddery && !q30_on_svladder) && hoverclk==0)
         {
             if(!checkmagiccost(itemid))
                 return false;
                 
             paymagiccost(itemid);
             fall -= FEATHERJUMP*(itemsbuf[itemid].power+2);
+            q30_set_sv_ladder(false);   // (2.55/3.0: a jump lets go of a sideview ladder)
             
             // Reset the ladder, unless on an unwalkable combo
             if((ladderx || laddery) && !(_walkflag(ladderx,laddery,0)))
@@ -6342,7 +6365,7 @@ bool LinkClass::startwpn(int itemid)
         break;
         
     case itype_dinsfire:
-        if(z!=0 || (isSideview() && !ON_SIDEPLATFORM && !q30_is_side_swim()))
+        if(z!=0 || (isSideview() && !ON_SIDEPLATFORM && !q30_is_side_swim() && !q30_on_svladder))
             return false;
             
         if(!checkmagiccost(itemid))
@@ -6354,7 +6377,7 @@ bool LinkClass::startwpn(int itemid)
         break;
         
     case itype_faroreswind:
-        if(z!=0 || (isSideview() && !ON_SIDEPLATFORM && !q30_is_side_swim()))
+        if(z!=0 || (isSideview() && !ON_SIDEPLATFORM && !q30_is_side_swim() && !q30_on_svladder))
             return false;
             
         if(!checkmagiccost(itemid))
@@ -6366,7 +6389,7 @@ bool LinkClass::startwpn(int itemid)
         break;
         
     case itype_nayruslove:
-        if(z!=0 || (isSideview() && !ON_SIDEPLATFORM && !q30_is_side_swim()))
+        if(z!=0 || (isSideview() && !ON_SIDEPLATFORM && !q30_is_side_swim() && !q30_on_svladder))
             return false;
             
         if(!checkmagiccost(itemid))
@@ -6840,7 +6863,9 @@ void LinkClass::do_hopping()
     if(hopclk==0xFF) //|| (diagonalMovement && hopclk >= 0xFF) ))                                         // swimming
 			//Possible fix for exiting water in diagonal movement. -Z
     {
-        if(diveclk>0)
+        if(q30_active())
+            q30_tick_diving();      // 2.55/3.0: the flippers' button and dive length
+        else if(diveclk>0)
             --diveclk;
         else if(DrunkrAbtn())
         {
@@ -7321,8 +7346,8 @@ void LinkClass::movelink()
         }
     }
 
-    if(diveclk>0 && q30_can_side_swim())    // (2.55/3.0: no diving while sideview swimming)
-        diveclk=0;
+    if(q30_active())
+        q30_tick_diving();          // 2.55/3.0: the flippers' button and dive length
     else if(diveclk>0)
     {
         --diveclk;
@@ -7538,6 +7563,19 @@ void LinkClass::movelink()
         did_scriptb=false;
     }
     
+    // 2.55/3.0: up or down onto a sideview ladder (upstream's movehero; a 2.53 quest never asks,
+    // as the drunk inputs draw random numbers)
+    if(q30_active() && action!=swimming && !q30_is_side_swim() && !q30_on_svladder)
+    {
+        if(DrunkUp() && q30_can_sv_ladder())
+            q30_set_sv_ladder(true);
+        else if(DrunkDown() && q30_can_sv_ladder(true))
+        {
+            y+=1;
+            q30_set_sv_ladder(true);
+        }
+    }
+
     if(attackclk || action==attacking)
     {
         bool attacked = doattack();
@@ -7784,7 +7822,7 @@ void LinkClass::movelink()
                 }
                 
                 //walkable if Ladder can be placed or is already placed vertically
-                if(isSideview() && !toogam && !(can_deploy_ladder() || (ladderx && laddery && ladderdir==up)))
+                if(isSideview() && !toogam && !(can_deploy_ladder() || (ladderx && laddery && ladderdir==up)) && !q30_on_svladder)
                 {
                     walkable=false;
                 }
@@ -7952,7 +7990,7 @@ void LinkClass::movelink()
                 }
                 
                 //bool walkable;
-                if(isSideview() && !toogam)
+                if(isSideview() && !toogam && !q30_on_svladder)
                 {
                     walkable=false;
                 }
@@ -8167,7 +8205,7 @@ void LinkClass::movelink()
                 
                 int s=shiftdir;
                 
-                if((isdungeon() && (x<=26 || x>=214) && !get_bit(quest_rules,qr_FREEFORM)) || isSideview())
+                if((isdungeon() && (x<=26 || x>=214) && !get_bit(quest_rules,qr_FREEFORM)) || (isSideview() && !q30_on_svladder))
                 {
                     shiftdir=-1;
                 }
@@ -8334,7 +8372,7 @@ void LinkClass::movelink()
                 
                 int s=shiftdir;
                 
-                if((isdungeon() && (x<=26 || x>=214) && !get_bit(quest_rules,qr_FREEFORM)) || isSideview())
+                if((isdungeon() && (x<=26 || x>=214) && !get_bit(quest_rules,qr_FREEFORM)) || (isSideview() && !q30_on_svladder))
                 {
                     shiftdir=-1;
                 }
@@ -8983,7 +9021,7 @@ bool LinkClass::q30_move_xy(double dx, double dy, bool shove)
     bool ret = true;
 
     // (no walking up or down in a sideview screen; swimming there goes every way)
-    if(isSideview() && !(ladderx && laddery && ladderdir == up)
+    if(isSideview() && !(ladderx && laddery && ladderdir == up) && !q30_on_svladder
        && !(q30_is_side_swim() && (action == swimming || action == swimhit || action == attacking)))
         dy = 0;
 
@@ -9309,7 +9347,7 @@ void LinkClass::q30_free_walk(int push)
     const bool new_movement = q30_new_hero_movement();
     double step = new_movement ? (q30_steprate + q30_step_boost) / 100.0 : 1.5;
     bool slowcombo = (combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement && (z == 0 || (tmpscr->flags2 & fAIRCOMBOS))) ||
-                     (isSideview() && ON_SIDEPLATFORM && combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement);
+                     (isSideview() && (ON_SIDEPLATFORM || q30_on_svladder) && combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement);
     bool slowcharging = charging > 0 &&     // (2.55/3.0: the sword's flag 10)
         q30_slow_charging((directWpn>-1 && itemsbuf[directWpn].family==itype_sword) ? directWpn : current_item_id(itype_sword));
 
@@ -9333,10 +9371,15 @@ void LinkClass::q30_free_walk(int push)
     // (steprate + tmp_step_boost) / 100, neither part of the step goes past it, and it becomes
     // the full step again. A shift that can't clear is dropped (shiftdir -1), and then the
     // step along movedir isn't cut to a diagonal one.
+    // (upstream's moveheroOld: in sideview, up or down off a sideview ladder isn't walkable at all)
+    const bool sv_block = new_movement && !q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2) && isSideview() && !toogam
+                          && (movedir == up || movedir == down) && !q30_on_svladder && !(ladderx && laddery && ladderdir == up)
+                          && !q30_is_side_swim();
+
     if(new_movement && !q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2))
     {
         const double movepix = (q30_steprate + q30_step_boost) / 100.0;
-        const bool walkable = q30_fit_step(movedir, q30_hero_newstep, -1, 0);
+        const bool walkable = !sv_block && q30_fit_step(movedir, q30_hero_newstep, -1, 0);
         still = !walkable;
 
         if(shiftdir >= 0 && diagonalMovement)
@@ -9385,7 +9428,7 @@ void LinkClass::q30_free_walk(int push)
     {
         linkstep();
 
-        if(charging == 0 && spins == 0 && z == 0 && !(isSideview() && !ON_SIDEPLATFORM))
+        if(charging == 0 && spins == 0 && z == 0 && !(isSideview() && !ON_SIDEPLATFORM && !q30_on_svladder))
             action = walking;
 
         if(++link_count > (16 * link_animation_speed))
@@ -9402,6 +9445,18 @@ void LinkClass::q30_free_walk(int push)
     // upstream has at .5 lands under it (and rounds the other way, e.g. the camera)
     x = fix(floor(double(x) * 10000 + 0.5) / 10000);
     y = fix(floor(double(y) * 10000 + 0.5) / 10000);
+
+    // upstream's corner-shove after an unwalkable step with diagonal movement: whole pixels, a
+    // pixel round a corner he clips, else pushing (only the sideview case is upstream's here)
+    if(sv_block)
+    {
+        if(diagonalMovement && shiftdir == -1)
+            q30_side_swim_blocked(movedir, push, true);
+        else if(diagonalMovement)
+            pushing = push + 1;
+
+        return;
+    }
 
     if(moved)
         return;
@@ -9555,7 +9610,7 @@ void LinkClass::q30_side_swim_step(int d2)
 
     // (a top-down swim's 2/3 or 1/2 speed isn't this swim's; charging and slow combos still slow it)
     const bool slowcombo = (combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement && (z == 0 || (tmpscr->flags2 & fAIRCOMBOS))) ||
-                           (isSideview() && ON_SIDEPLATFORM && combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement);
+                           (isSideview() && (ON_SIDEPLATFORM || q30_on_svladder) && combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement);
     const bool slowcharging = charging > 0 &&
         q30_slow_charging((directWpn>-1 && itemsbuf[directWpn].family==itype_sword) ? directWpn : current_item_id(itype_sword));
 
@@ -10241,7 +10296,12 @@ bool LinkClass::q30_sideview_solid(int yofs, bool ignore_fallthrough, int misc)
     if(!ignore_fallthrough && q30_fallthrough_input())
         return false;
 
-    return misc != 1 && q30_check_new_slope(bx, by, bw, bh, q30_slope_ox, q30_slope_oy, false, true, q30_slopeid) < 0;
+    if(misc != 1 && q30_check_new_slope(bx, by, bw, bh, q30_slope_ox, q30_slope_oy, false, true, q30_slopeid) < 0)
+        return true;
+
+    // a sideview platform or a sideview ladder's top right under him, standing on the tile's edge
+    // (upstream's checkSVLadderPlatform)
+    return iy % 16 == 0 && (q30_sideview_platform_at(ix + 4, iy + 16) || q30_sideview_platform_at(ix + 12, iy + 16));
 }
 
 // upstream's isStanding(true) (Hero->Standing): on the ground, in sideview on something solid
@@ -10252,7 +10312,7 @@ bool LinkClass::q30_is_standing()
     if(z != 0)
         return false;
 
-    if(isSideview() && !q30_sideview_solid(0, false, 0) && !ladderx && !laddery)
+    if(isSideview() && !q30_sideview_solid(0, false, 0) && !ladderx && !laddery && !q30_on_svladder)
         return false;
 
     if(hoverclk)
@@ -10275,6 +10335,128 @@ void LinkClass::q30_keep_diving()
 {
     if(diveclk < 32)
         diveclk = 32;
+}
+
+// 2.55/3.0 quests: upstream's set_dive and tick_diving. Upstream counts a dive's frames left
+// (diveclk > 0), then its cool-down (diveclk < 0); here diveclk stays 2.53's: diving while it is
+// over 30 (30 + the frames left), and 1..30 through the cool-down, whose frames left are in
+// q30_dive_cool (it can be longer than 30).
+static int q30_dive_cool = 0;
+
+void LinkClass::q30_set_dive(int d)
+{
+    q30_dive_cool = d < 0 ? -d : 0;
+    diveclk = d > 0 ? 30 + d : d < 0 ? zc_min(-d, 30) : 0;
+}
+
+// The flippers' attribute 3 holds the buttons that dive (button bits, A 1, B 2, L 4, R 8, Ex1-4
+// 16-128), attribute 1 the dive's length and 2 the cool-down; flag 2 lets the button end a dive
+// early. With no flippers a dive is 50 frames and the cool-down 30 (no button starts one then).
+void LinkClass::q30_tick_diving()
+{
+    if(diveclk && q30_can_side_swim())
+        diveclk = q30_dive_cool = 0;
+
+    int d = diveclk > 30 ? diveclk - 30 : diveclk > 0 ? -(q30_dive_cool > 0 ? q30_dive_cool : diveclk) : 0;
+    const int fid = current_item_id(itype_flippers);
+    const byte btn = fid >= 0 ? byte(itemsbuf[fid].misc3 & 0xFF) : 0;
+    const bool pressed = btn && q30_btn_pressed(btn);
+    bool eat = false;
+
+    if(d > 0)
+    {
+        --d;
+        bool cool = d == 0;
+
+        if(!cool && fid >= 0 && q30_item_flag(fid, ITEM_FLAG2) && pressed)    // ended by the button
+            cool = eat = true;
+
+        if(cool)
+            d = fid >= 0 ? -itemsbuf[fid].misc2 : -30;
+    }
+    else if(d < 0)
+        ++d;
+    else if((action == swimming || action == hopping) && !q30_can_side_swim() && pressed
+            && q30_no_diving() == ((tmpscr->flags5 & fTOGGLEDIVING) != 0))
+    {
+        d = fid < 0 ? 50 : itemsbuf[fid].misc1;
+        eat = true;
+    }
+
+    if(eat)
+        q30_btn_take(btn);
+
+    q30_set_dive(d);
+}
+
+// ---- 2.55/3.0: sideview ladders (the "Sideview Ladder" flag, 161) ------------------------------
+// Up or down where one is puts Link on it (upstream's movehero): no gravity there, and he walks
+// up and down it as he walks along. He lets go once he can no longer hold it (off its side, or
+// its top reached: the top is a platform), when he jumps, or a fall starts.
+
+bool LinkClass::q30_sv_ladder() { return q30_on_svladder; }
+
+// upstream's setOnSideviewLadder
+void LinkClass::q30_set_sv_ladder(bool on)
+{
+    if(on)
+        fall = hoverclk = jumping = 0;
+
+    q30_on_svladder = on;
+}
+
+// upstream's canSideviewLadderRemote: x + 4 and + 12 are where sideview platforms are looked
+// for under him, y + 0 / + 8 his top half (big / small hit box), y + 15 whether he is on one at
+// all, y + 16 (going down) one he stands on
+bool LinkClass::q30_can_sv_ladder_at(int wx, int wy, bool down)
+{
+    if(!isSideview() || jumping < 0 || !q30_active())
+        return false;
+
+    if(down && q30_quest_rule(182))     // qr_DOWN_DOESNT_GRAB_LADDERS
+    {
+        const bool solid = q30_sideview_solid(0, true, 0);
+        return (q30_sideview_ladder_at(wx + 4, wy + 16) && (!q30_sideview_ladder_at(wx + 4, wy) || solid))
+            || (q30_sideview_ladder_at(wx + 12, wy + 16) && (!q30_sideview_ladder_at(wx + 12, wy) || solid));
+    }
+
+    const int top = bigHitbox ? 0 : 8;
+    return q30_sideview_ladder_at(wx + 4, wy + top) || q30_sideview_ladder_at(wx + 12, wy + top)
+        || q30_sideview_ladder_at(wx + 4, wy + 15) || q30_sideview_ladder_at(wx + 12, wy + 15)
+        || (down && (q30_sideview_ladder_at(wx + 4, wy + 16) || q30_sideview_ladder_at(wx + 12, wy + 16)));
+}
+
+// upstream's canSideviewLadder: the same where Link is, and not down onto a slope
+bool LinkClass::q30_can_sv_ladder(bool down)
+{
+    if(!isSideview() || jumping < 0 || !q30_active())
+        return false;
+
+    if(down && q30_slopes_here()
+       && q30_check_new_slope(q30_raw(x), q30_raw(y) + 1, 160000, 160000, q30_slope_ox, q30_slope_oy, true, false, 0) != 0)
+        return false;
+
+    return q30_can_sv_ladder_at(int(x), int(y), down);
+}
+
+// upstream's trySideviewLadder: after a warp, a scroll or a respawn, onto a ladder he is at
+void LinkClass::q30_try_sv_ladder()
+{
+    if(q30_can_sv_ladder() && !q30_sideview_solid(0, false, 0))
+        q30_set_sv_ladder(true);
+}
+
+// animate, before gravity and at the end: off it when he can't hold it or is falling or jumping;
+// on it (with qr_SIDEVIEWLADDER_FACEUP) he faces up while he stands or walks
+void LinkClass::q30_check_sv_ladder()
+{
+    if(!q30_on_svladder)
+        return;
+
+    if(!q30_can_sv_ladder() || jumping < 0 || fall != 0)
+        q30_set_sv_ladder(false);
+    else if(q30_quest_rule(Q30_QR_SIDEVIEWLADDER_FACEUP) && dir != up && (action == walking || action == none))
+        dir = up;
 }
 
 // upstream's sprite::handle_termv, before and after the gravity step: a 2.55/3.0 quest without
@@ -10621,7 +10803,7 @@ void LinkClass::move(int d2)
     int z3skip=0;
     int z3diagskip=0;
     bool slowcombo = (combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement && (z==0 || tmpscr->flags2&fAIRCOMBOS)) ||
-                     (isSideview() && ON_SIDEPLATFORM && combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement);
+                     (isSideview() && (ON_SIDEPLATFORM || q30_on_svladder) && combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement);
     bool slowcharging = charging>0 &&       // (2.55/3.0: the sword's flag 10)
         q30_slow_charging((directWpn>-1 && itemsbuf[directWpn].family==itype_sword) ? directWpn : current_item_id(itype_sword));
     bool is_swimming = (action == swimming);
@@ -10860,12 +11042,12 @@ void LinkClass::move(int d2)
             switch(d2)
             {
             case up:
-                if(!isSideview() || (ladderx && laddery && ladderdir==up)) dy-=ystep;
+                if(!isSideview() || (ladderx && laddery && ladderdir==up) || q30_on_svladder) dy-=ystep;
                 
                 break;
                 
             case down:
-                if(!isSideview() || (ladderx && laddery && ladderdir==up)) dy+=ystep;
+                if(!isSideview() || (ladderx && laddery && ladderdir==up) || q30_on_svladder) dy+=ystep;
                 
                 break;
                 
@@ -10890,7 +11072,7 @@ void LinkClass::move(int d2)
         linkstep();
         
         //ack... don't walk if in midair! -DD
-        if(charging==0 && spins==0 && z==0 && !(isSideview() && !ON_SIDEPLATFORM))
+        if(charging==0 && spins==0 && z==0 && !(isSideview() && !ON_SIDEPLATFORM && !q30_on_svladder))
             action = walking;
             
         if(++link_count > (16*link_animation_speed))
@@ -14567,7 +14749,7 @@ bool LinkClass::dowarp(int type, int index)
         {
             //ALLOFF kills the action, but we want to preserve Link's action if he's swimming or diving -DD
             bool wasswimming = (action == swimming);
-            byte olddiveclk = diveclk;
+            int olddiveclk = diveclk;     // (2.55/3.0 dives can be longer than a byte holds)
             ALLOFF();
             
             if(wasswimming)
@@ -14989,6 +15171,7 @@ bool LinkClass::dowarp(int type, int index)
                         "Insta-Warp");
                         
     eventlog_mapflags();
+    q30_try_sv_ladder();        // (2.55/3.0: onto a sideview ladder he came in at)
     return true;
 }
 
@@ -17144,6 +17327,7 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
     
     entry_x = x;
     entry_y = y;
+    q30_try_sv_ladder();        // (2.55/3.0: onto a sideview ladder he scrolled in on)
     warpx   = -1;
     warpy   = -1;
     

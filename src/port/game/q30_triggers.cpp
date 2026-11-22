@@ -7709,17 +7709,29 @@ void q30_trig_push()
     }
 }
 
+// A press of one of these buttons, not used up (rButton without taking it). A button let go
+// is no longer down, as rButton has it; otherwise one nothing else reads (L, R, Ex1-4) would
+// stay down after its first use and never be pressed again.
+static bool btn_peek_one(bool pressed, bool &down)
+{
+    if(!pressed)
+        down = false;
+
+    return pressed && !down;
+}
+
 static bool btn_peek(byte mask)
 {
-    if((mask & 0x01) && cAbtn() && !Adown) return true;
-    if((mask & 0x02) && cBbtn() && !Bdown) return true;
-    if((mask & 0x04) && cLbtn() && !LBdown) return true;
-    if((mask & 0x08) && cRbtn() && !RBdown) return true;
-    if((mask & 0x10) && cEx1btn() && !Ex1down) return true;
-    if((mask & 0x20) && cEx2btn() && !Ex2down) return true;
-    if((mask & 0x40) && cEx3btn() && !Ex3down) return true;
-    if((mask & 0x80) && cEx4btn() && !Ex4down) return true;
-    return false;
+    bool ret = false;
+    if((mask & 0x01) && btn_peek_one(cAbtn(), Adown)) ret = true;
+    if((mask & 0x02) && btn_peek_one(cBbtn(), Bdown)) ret = true;
+    if((mask & 0x04) && btn_peek_one(cLbtn(), LBdown)) ret = true;
+    if((mask & 0x08) && btn_peek_one(cRbtn(), RBdown)) ret = true;
+    if((mask & 0x10) && btn_peek_one(cEx1btn(), Ex1down)) ret = true;
+    if((mask & 0x20) && btn_peek_one(cEx2btn(), Ex2down)) ret = true;
+    if((mask & 0x40) && btn_peek_one(cEx3btn(), Ex3down)) ret = true;
+    if((mask & 0x80) && btn_peek_one(cEx4btn(), Ex4down)) ret = true;
+    return ret;
 }
 
 static void btn_eat(byte mask)
@@ -7733,6 +7745,10 @@ static void btn_eat(byte mask)
     if(mask & 0x40) rEx3btn();
     if(mask & 0x80) rEx4btn();
 }
+
+// upstream's getIntBtnInput(mask, INPUT_PRESS | INPUT_PEEK) and the same without INPUT_PEEK
+bool q30_btn_pressed(byte mask) { return btn_peek(mask); }
+void q30_btn_take(byte mask) { btn_eat(mask); }
 
 static bool has_btn_trigger(const Q30Combo *c)
 {
@@ -9323,6 +9339,45 @@ void q30_lift_reset()
     g_thrown.clear();
 }
 
+weapon *q30_lifted_weapon(long uid)
+{
+    if(!q30_active() || !g_lift_wpn || (uid && g_lift_wpn->getUID() != uid))
+        return NULL;
+
+    return g_lift_wpn;
+}
+
+// Upstream's Hero->LiftedWeapon write: the weapon held goes (deleted), then the lweapon named,
+// if there is one, is taken out of the lweapons and held instead (the lift's clock and height
+// stay as they are). Naming the one already held deletes it, as there.
+void q30_set_lifted_weapon(weapon *w)
+{
+    if(!q30_active())
+        return;
+
+    if(g_lift_wpn)
+    {
+        weapon *old = g_lift_wpn;
+        g_lift_wpn = NULL;
+
+        if(old == w)
+            w = NULL;
+
+        delete old;
+    }
+
+    if(!w || !Lwpns.remove(w))
+        return;
+
+    g_lift_wpn = w;
+    g_lift_info.ax = g_lift_info.ay = g_lift_info.z = g_lift_info.fall = g_lift_info.step = 0;
+    g_lift_info.death_sprite = g_lift_info.death_sfx = 0;
+    g_lift_info.drop_item = g_lift_info.drop_set = -1;
+    g_lift_info.drop_flags = 0;
+    g_lift_info.break_solid = false;
+    g_lift_info.dying = false;
+}
+
 static void set_lift_flags(int liftid)
 {
     if(liftid < 0)
@@ -10763,6 +10818,9 @@ static bool layer_has_flag(const H &h, int flag)
     if(q30_combo_flag(h_data(h)) == flag)
         return true;
 
+    if(m->sflag[h.pos] == flag)     // (one a script placed: Screen->ComboF[] holds these numbers)
+        return true;
+
     int index;
 
     if(h.layer == 0)
@@ -10805,6 +10863,12 @@ bool q30_sideview_platform_at(int x, int y)
         return true;
 
     return flag_at_point(x, y, Q30MF_SIDEVIEWLADDER, 2) && !flag_at_point(x, y - 16, Q30MF_SIDEVIEWLADDER, 2);
+}
+
+// upstream's isSVLadder
+bool q30_sideview_ladder_at(int x, int y)
+{
+    return q30_active() && flag_at_point(x, y, Q30MF_SIDEVIEWLADDER, 2);
 }
 
 bool q30_unsafe_ground(int x, int y)
@@ -11257,6 +11321,11 @@ void q30_test_list_features()
     int shown[3] = { 0, 0, 0 };
 
     for(int i = 0; i < MAXITEMS; ++i)
+        if(itemsbuf[i].family == itype_flippers)
+            al_trace("test: feature flippers item %d: dive %ld wait %ld button bits %ld flags 0x%lx\n", i, (long)itemsbuf[i].misc1,
+                     (long)itemsbuf[i].misc2, (long)itemsbuf[i].misc3, (unsigned long)q30_item_flags(i));
+
+    for(int i = 0; i < MAXITEMS; ++i)
         if(q30_item_family(i) == Q30_ITYPE_SWITCHHOOK || q30_item_family(i) == Q30_ITYPE_LIFTGLOVE)
             al_trace("test: feature item %d family %ld level %d flags 0x%lx style %ld\n", i, q30_item_family(i), (int)itemsbuf[i].fam_type,
                      (unsigned long)q30_item_flags(i), (long)itemsbuf[i].misc5);
@@ -11348,6 +11417,25 @@ void q30_test_list_features()
                         al_trace("test: feature %s: ZC_TEST_START=%d,%d,%d,%d (combo at %d,%d)\n", names[k], dm, s - DMaps[dm].xoff,
                                  (found[k] % 16) * 16, (found[k] / 16) * 16 + 16, (found[k] % 16) * 16, (found[k] / 16) * 16);
                 }
+
+            // sideview screens with sideview ladders (161) or platforms (162), placed or inherent
+            static int lad_shown = 0;
+
+            if((m.flags7 & fSIDEVIEW) && lad_shown < 12)
+            {
+                int lad = 0, plat = 0;
+                const int mi = DMaps[dm].map * MAPSCRS + s;
+
+                for(int p = 0; p < 176; ++p)
+                {
+                    const int pf = q30_true_placed_flag(mi, p), cf = q30_combo_flag(m.data[p]);
+                    lad += (pf == Q30MF_SIDEVIEWLADDER || cf == Q30MF_SIDEVIEWLADDER) ? 1 : 0;
+                    plat += (pf == Q30MF_SIDEVIEWPLATFORM || cf == Q30MF_SIDEVIEWPLATFORM) ? 1 : 0;
+                }
+
+                if((lad || plat) && ++lad_shown)
+                    al_trace("test: feature svladder: dmap %d screen %d: %d ladder, %d platform squares\n", dm, s - DMaps[dm].xoff, lad, plat);
+            }
 
             // sideview screens with water (qr_SIDESWIM): Link starts in the open above it
             static int sw_shown = 0;
@@ -12976,6 +13064,35 @@ static int switch_sprite(const sprite *s)
         return q30_switchhook_hide_link() ? -1 : 0;
 
     return q30_switchhook_rise();
+}
+
+// upstream's sprite::switch_hooked (sprite->SwitchHooked): while a switch goes on, Link, the
+// enemy, item or FFC being switched, and the hook's head, handle and chain
+bool q30_switch_hooked(sprite *s, int ffc)
+{
+    if(!q30_active() || !g_sw.active)
+        return false;
+
+    if(ffc >= 0)
+        return g_sw.ffc == ffc;
+
+    if(!s)
+        return false;
+
+    if(s == (sprite *)&Link)
+        return true;
+
+    const long uid = s->getUID();
+
+    if((g_sw.enemy_uid && uid == g_sw.enemy_uid) || (g_sw.item_uid && uid == g_sw.item_uid)
+       || s == Lwpns.spr(Lwpns.idFirst(wHookshot)) || s == Lwpns.spr(Lwpns.idFirst(wHSHandle)))
+        return true;
+
+    for(int j = 0; j < chainlinks.Count(); ++j)
+        if(s == chainlinks.spr(j))
+            return true;
+
+    return false;
 }
 
 // (declared here, at file scope: a block-scope extern inside the unnamed namespace below would
