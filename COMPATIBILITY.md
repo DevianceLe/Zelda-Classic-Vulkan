@@ -43,9 +43,9 @@ The final run was stopped before its last 11 quests. Their results are from the 
 
 - A script-moved viewport outside scrolling regions, and saving global script variables past 255. No quest in this collection needs the second one.
 - Quests made in ZC 1.00 and 1.50 can't be opened. None are in this collection.
-- About 30 of 3.0's script commands and values, none of them used by a quest in this collection: 8 not handled yet, the rest giving different values (mostly the numbers 3.0 gives its script objects).
-- Weapon data that 2.53's weapons have no room for (timeouts, piercing, bouncing, burning sprites): kept for scripts, not yet acting in play.
-- In a tall scrolling region with 3.0's extended view, the field's slide on up and down scrolls (sideways scrolls slide as in 3.0).
+- 16 of 3.0's script values still read differently, none of them used by a quest in this collection: how 3.0 numbers array pointers and sprites, and values that come from the machine's own settings or clock.
+- Weapons bouncing or breaking when they land (ordinary weapons have no height here yet).
+- In a tall scrolling region with 3.0's extended view, the field's slide when scrolling up from a lone screen into the region's bottom row (other scrolls slide as in 3.0).
 
 **Built, but tried in only a few quests**
 
@@ -81,7 +81,7 @@ The final run was stopped before its last 11 quests. Their results are from the 
 **Known bugs**
 
 - A save made with an older version of this player, for a 2.55 or 3.0 quest whose hearts aren't 16 HP, keeps the old life amount. Starting a new save fixes it. The title screen's save list shows hearts using the loaded quest's HP per heart.
-- On 2.55 and 3.0 Nightly quests the feature test suite still differs from 3.0 in one spot: the equipped items after button presses on one subscreen. In Mystical Harps a Thwomp in one dark region (379/0x72) doesn't fall as it does in 3.0, and the temple's sleeping Link tile differs.
+- Mystical Harps: at the temple Link starts facing up where 3.0 faces down, and at dungeon starts the HUD shows one frame early (a global script runs right after the opening wipe, where 3.0 waits during an old-style DMap intro).
 - A 3.0 quest's starting B item can differ from ZC 3.0's: the 1st Quest Master and Hero Mode remakes start with B empty where 3.0 puts the bomb there.
 - ZQuest's Save As leaves out the editor names a quest keeps in a separate `.zinfo` file.
 
