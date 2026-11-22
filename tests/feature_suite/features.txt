@@ -14,23 +14,26 @@
 # Sources: r10region, r11region, r12script, r12hero scenes (their scene notes) and
 # r10play / r11script / r12script / r12hero tests (...\work\tests).
 
+# random (r14enemy): the Rock Shooter fires at random (1 in 64 a frame once ready), and 0x39's Octorok and 0x28's
+# Stalfos cells and walks are random: upstream records with a time seed, so two upstream runs of eweapon_* or despawn
+# differ from each other there as they do from ours (the rocks' flight and life match: 64 frames, same path).
 # --- 3.0 scrolling regions (z3 quest, DMap 0 map 1 copies) ---------------------------------------
-raft_seam      | 0   | 94 | - | - | 100:+DOWN 110:-DOWN 111:+RIGHT 181:-RIGHT 182:+UP 200:-UP 290:+RIGHT 330:-RIGHT | 520 | 300 368 450 516 | hero rows=56 | Link rafts up from the dock on 0x5E, then right across the 0x5E/0x5F seam; the hand-off to 0x5F at 368
-ffc_ranges     | 300 | 28 | ffc_ranges.txt | - | 220:+RIGHT 330:-RIGHT | 430 | 300 320 340 360 380 420 | hero rows=56 | 2x2 region 0x1C: 0x1D's FFC suspend range 16 (resumes 16 px from the view), 0x2D's FFC despawn range 16 (never shows)
-despawn        | 301 | 57 | despawn.txt | - | 100:+LEFT 330:-LEFT | 480 | 200 260 300 400 | hero rows=28 | still harmless Octoroks (despawn 32, suspend 400) die 32 px past the view, silently, no drop
-wizzrobe       | 302 | 57 | wizzrobe.txt | - | 100:+LEFT 250:-LEFT | 720 | - | hero=0-220 random rows=28 | 0x28/0x38 Stalfos made teleporting Wizzrobes stay on their own screens (random spots: hero only)
-leever         | 303 | 57 | leever.txt | - | 100:+LEFT 175:-LEFT | 600 | 200 250 300 400 500 | hero rows=28 | still Leevers under 0x38 come up left of Link across the seam (0x39's no-enemy cells)
-wallmaster     | 304 | 57 | wallmaster.txt | - | 100:+RIGHT 340:-RIGHT | 600 | 340 360 400 440 505 | hero rows=28 | Wall Masters of 0x3A come out of the region's right wall, drawn without the viewport; the grab ~507
-eweapon_despawn| 305 | 57 | eweapon_despawn.txt | - | 890:+UP 891:-UP | 900 | 150 200 236 238 240 300 | hero rows=28 | Rock Shooter rocks (weapon despawn 8) live 70 frames, removed 8 px past the view (extra death frame)
-eweapon_parent | 306 | 57 | eweapon_parent.txt | - | 890:+UP 891:-UP | 900 | 200 300 400 600 | hero rows=28 | rocks with suspend 48 fly on: the firing enemy in view keeps its weapons in view
-eweapon_suspend| 307 | 57 | eweapon_suspend.txt | - | 890:+UP 891:-UP | 900 | 200 300 400 600 | hero rows=28 | the same with weapon suspend 8
-boss_flag      | 308 | 57 | boss_flag.txt | - | 100:+RIGHT 172:-RIGHT 180:+A 183:-A 220:+LEFT 400:-LEFT | 520 | 200 450 500 | hero rows=28 | sword kills 0x3A's 1-HP Octorok across the seam; 0x38's boss-room Stalfos don't come; death puff
-raised_combo   | 309 | 57 | raised_combo.txt | - | 100:+RIGHT 230:-RIGHT | 300 | 150 176 178 180 182 184 186 190 200 250 | hero rows=28 | Link steps up onto a raised strip (height 8), walks over the 0x39/0x3A seam on it and steps down
-shooter        | 310 | 57 | shooter.txt | - | 100:+RIGHT 220:-RIGHT | 400 | 214 215 216 230 250 300 | hero rows=28 | shooter combo fires the Magic Book's magic (suspend 8): first shot at 215, flying across the seam
-summoner       | 311 | 57 | summoner.txt | summon.zs | 100:+RIGHT 170:-RIGHT | 400 | 240 300 390 | hero lines rows=28 | npc->SummonMinion at script frames 130 and 230 on 0x3A; every npc's place printed
-shop_walk      | 312 | 57 | shop.txt | - | 250:+UP 362:-UP 370:+LEFT 530:-LEFT | 700 | 360 520 | hero rows=28 | merchant on 0x39 sets up the origin 0x28's shop; Link walks up out of 0x39 and left into 0x28
-shop_buy       | 313 | 57 | shop.txt | shop_buy.zs | 250:+UP 362:-UP 370:+LEFT 530:-LEFT | 760 | 450 520 600 750 | hero lines rows=28 | the same with wares from a script: prices kept across the hand-off, item 32 bought at 524
-no_enemy_spawn | 314 | 57 | no_enemy_spawn.txt | - | 230:+UP 231:-UP | 240 | 69 72 | hero random rows=28 | flag 163 on every ground cell but one: all four random Octoroks come out on row 2 col 3 at 68
+raft_seam      | 0   | 94 | - | - | 100:+DOWN 110:-DOWN 111:+RIGHT 181:-RIGHT 182:+UP 200:-UP 290:+RIGHT 330:-RIGHT | 520 | 300 368 450 516 | hero | Link rafts up from the dock on 0x5E, then right across the 0x5E/0x5F seam; the hand-off to 0x5F at 368
+ffc_ranges     | 300 | 28 | ffc_ranges.txt | - | 220:+RIGHT 330:-RIGHT | 430 | 300 320 340 360 380 420 | hero | 2x2 region 0x1C: 0x1D's FFC suspend range 16 (resumes 16 px from the view), 0x2D's FFC despawn range 16 (never shows)
+despawn        | 301 | 57 | despawn.txt | - | 100:+LEFT 330:-LEFT | 480 | 200 260 300 400 | hero random | still harmless Octoroks (despawn 32, suspend 400) die 32 px past the view, silently, no drop
+wizzrobe       | 302 | 57 | wizzrobe.txt | - | 100:+LEFT 250:-LEFT | 720 | - | hero=0-220 random | 0x28/0x38 Stalfos made teleporting Wizzrobes stay on their own screens (random spots: hero only)
+leever         | 303 | 57 | leever.txt | - | 100:+LEFT 175:-LEFT | 600 | 200 250 300 400 500 | hero | still Leevers under 0x38 come up left of Link across the seam (0x39's no-enemy cells)
+wallmaster     | 304 | 57 | wallmaster.txt | - | 100:+RIGHT 340:-RIGHT | 600 | 340 360 400 440 505 | hero | Wall Masters of 0x3A come out of the region's right wall, drawn without the viewport; the grab ~507
+eweapon_despawn| 305 | 57 | eweapon_despawn.txt | - | 890:+UP 891:-UP | 900 | 150 200 236 238 240 300 | hero random | Rock Shooter rocks (weapon despawn 8) live 70 frames, removed 8 px past the view (extra death frame)
+eweapon_parent | 306 | 57 | eweapon_parent.txt | - | 890:+UP 891:-UP | 900 | 200 300 400 600 | hero random | rocks with suspend 48 fly on: the firing enemy in view keeps its weapons in view
+eweapon_suspend| 307 | 57 | eweapon_suspend.txt | - | 890:+UP 891:-UP | 900 | 200 300 400 600 | hero random | the same with weapon suspend 8
+boss_flag      | 308 | 57 | boss_flag.txt | - | 100:+RIGHT 172:-RIGHT 180:+A 183:-A 220:+LEFT 400:-LEFT | 520 | 200 450 500 | hero | sword kills 0x3A's 1-HP Octorok across the seam; 0x38's boss-room Stalfos don't come; death puff
+raised_combo   | 309 | 57 | raised_combo.txt | - | 100:+RIGHT 230:-RIGHT | 300 | 150 176 178 180 182 184 186 190 200 250 | hero | Link steps up onto a raised strip (height 8), walks over the 0x39/0x3A seam on it and steps down
+shooter        | 310 | 57 | shooter.txt | - | 100:+RIGHT 220:-RIGHT | 400 | 214 215 216 230 250 300 | hero | shooter combo fires the Magic Book's magic (suspend 8): first shot at 215, flying across the seam
+summoner       | 311 | 57 | summoner.txt | summon.zs | 100:+RIGHT 170:-RIGHT | 400 | 240 300 390 | hero lines | npc->SummonMinion at script frames 130 and 230 on 0x3A; every npc's place printed
+shop_walk      | 312 | 57 | shop.txt | - | 250:+UP 362:-UP 370:+LEFT 530:-LEFT | 700 | 360 520 | hero | merchant on 0x39 sets up the origin 0x28's shop; Link walks up out of 0x39 and left into 0x28
+shop_buy       | 313 | 57 | shop.txt | shop_buy.zs | 250:+UP 362:-UP 370:+LEFT 530:-LEFT | 760 | 450 520 600 750 | hero lines | the same with wares from a script: prices kept across the hand-off, item 32 bought at 524
+no_enemy_spawn | 314 | 57 | no_enemy_spawn.txt | - | 230:+UP 231:-UP | 240 | 69 72 | hero random | flag 163 on every ground cell but one: all four random Octoroks come out on row 2 col 3 at 68
 
 # --- hero, enemies, sideview (script rooms; the scripts build the room and press the buttons) -----
 sideswim       | 330 | 20 | @script | sideswim.zs | - | 1700 | 1650 | lines | sideview swimming, Game->Generic[] swim rates, leaving the water, drowning, sideview ladders
