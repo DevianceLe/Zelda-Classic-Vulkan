@@ -3134,6 +3134,40 @@ static inline void sub_item_place(sprite *s)
 #endif
 }
 
+// 2.55/3.0: a subscreen item shows the frame of upstream's subscr_item_clk (putitem3 ->
+// dummyitem_animate): the frames the passive subscreen was drawn this game, the same for every
+// item, not how long its sprite has lived (2.53 makes the sprites again on each pickup and each
+// opening of the active subscreen, which starts their animation over).
+static void q30_sub_item_frame(sprite *s)
+{
+#ifdef ZC_PLAYER_BUILD
+    if(!q30_active())
+        return;
+
+    extern int q30_subscr_item_clk;
+    item *it = (item *)s;
+    const int fr = it->frames < 1 ? 1 : it->frames, spd = it->o_speed < 1 ? 1 : it->o_speed, del = it->o_delay;
+    const int wid = spd * (fr + del);
+
+    if(wid <= 0)
+        return;
+
+    int clk = q30_subscr_item_clk % wid;
+    clk = clk ? clk - 1 : wid - 1;      // one back: animate() steps it on (as upstream's)
+    it->aframe = clk < del * spd ? 0 : (clk - del * spd) / spd;
+    it->aclk = it->aframe ? (clk - del * spd) % spd : clk;
+    // only the frame (and tile) are wanted: the rest animate() does stays as it was this frame
+    const fix x = it->x, y = it->y, z = it->z;
+    const fix fall = it->fall;
+    const int misc = it->misc, c = it->clk, c2 = it->clk2;
+    it->animate(0);
+    it->x = x; it->y = y; it->z = z;
+    it->fall = fall; it->misc = misc; it->clk = c; it->clk2 = c2;
+#else
+    (void)s;
+#endif
+}
+
 #ifdef ZC_PLAYER_BUILD
 // The X and Y buttons of newer quests.
 extern int Xwpn, Ywpn;
@@ -3369,6 +3403,7 @@ void subscreenitem(BITMAP *dest, int x, int y, int itemtype)
                 
                 if(displaysubscreenitem(itemtype, d))
                 {
+                    q30_sub_item_frame(Sitems.spr(i));
                     Sitems.spr(i)->draw(dest);
                 }
                 
@@ -3394,6 +3429,7 @@ void subscreenitem(BITMAP *dest, int x, int y, int itemtype)
         Sitems.spr(overridecheck)->x = x;
         Sitems.spr(overridecheck)->y = y;
         sub_item_place(Sitems.spr(overridecheck));
+        q30_sub_item_frame(Sitems.spr(overridecheck));
         Sitems.spr(overridecheck)->draw(dest);
     }
 }
@@ -3469,6 +3505,7 @@ static void q30_subscreen_item_draw(BITMAP *dest, int x, int y, int id)
     Sitems.spr(found)->x = x;
     Sitems.spr(found)->y = y;
     sub_item_place(Sitems.spr(found));
+    q30_sub_item_frame(Sitems.spr(found));
     Sitems.spr(found)->draw(dest);
 }
 #endif
