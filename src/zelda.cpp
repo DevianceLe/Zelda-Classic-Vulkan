@@ -471,6 +471,10 @@ void initZScriptArrayRAM(bool firstplay)
                 to[j] = from[j];
             }
         }
+
+        // 3.0 quests from ZScript version 28: the global arrays take back their object ids
+        extern void zasm30_arrays_load_globals(long count);
+        zasm30_arrays_load_globals((long)(getNumGlobalArrays() < game->globalRAM.size() ? getNumGlobalArrays() : game->globalRAM.size()));
     }
 }
 
@@ -1102,6 +1106,7 @@ LinkClass   Link;
 #include "ending.h"
 #include "port/game/q30_scripts.h"
 #include "port/game/q30_regions.h"
+#include "port/game/q30_triggers.h"   // q30_trig_defer_screen_load (init_game)
 
 #include "zc_sys.h"
 
@@ -2067,7 +2072,9 @@ int init_game()
     global_wait=false;
     
     //loadscr(0,currscr,up);
+    q30_trig_defer_screen_load = q30_active();     // (2.55/3.0: they run after Link.init, as upstream)
     loadscr(0,currdmap,currscr,-1,false);
+    q30_trig_defer_screen_load = false;
     putscr(scrollbuf,0,0,&tmpscr[0]);
     putscrdoors(scrollbuf,0,0,&tmpscr[0]);
     

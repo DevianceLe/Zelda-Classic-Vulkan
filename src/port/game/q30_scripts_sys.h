@@ -384,7 +384,7 @@ static bool z30_savemenu_command(word cmd)
     case Z30C_SAVEMENU_SETNAME:
         if(Q30SaveMenu *m = z30_savemenu(Z30_REF(SAVEMENU)))
         {
-            const long ptr = get_register(sarg1) / 10000;
+            const long ptr = zasm30_aptr(get_register(sarg1));
             if(cmd == Z30C_SAVEMENU_GETNAME)
                 ArrayH::setArray(ptr, m->name);
             else
@@ -459,7 +459,7 @@ static bool z30_savemenu_command(word cmd)
     case Z30C_SAVEMENU_MISCTEXT_SET_STRING:
         if(Q30SaveMenu *m = z30_savemenu(Z30_REF(SAVEMENU)))
         {
-            const long ix = get_register(sarg1) / 10000, ptr = get_register(sarg2) / 10000;
+            const long ix = get_register(sarg1) / 10000, ptr = zasm30_aptr(get_register(sarg2));
             const bool opt = cmd == Z30C_SAVEMENU_OPT_GET_STRING || cmd == Z30C_SAVEMENU_OPT_SET_STRING;
             const bool get = cmd == Z30C_SAVEMENU_OPT_GET_STRING || cmd == Z30C_SAVEMENU_MISCTEXT_GET_STRING;
 
@@ -1124,7 +1124,7 @@ static bool z30_websocket_command(word cmd)
     case Z30C_WEBSOCKET_LOAD:
     {
         std::string url;
-        ArrayH::getString(get_register(sarg1) / 10000, url, 512);
+        ArrayH::getString(zasm30_aptr(get_register(sarg1)), url, 512);
         Z30_REF(WEBSOCKET) = 0;
         ri->d[2] = 0;
 
@@ -1155,7 +1155,7 @@ static bool z30_websocket_command(word cmd)
 
     case Z30C_WEBSOCKET_ERROR:
     {
-        const long ptr = get_register(sarg1) / 10000;
+        const long ptr = zasm30_aptr(get_register(sarg1));
         Z30WebSocket *ws = z30_websocket(Z30_REF(WEBSOCKET));
         ArrayH::setArray(ptr, std::string(ws ? ws->err : "Invalid pointer"));
         return true;
@@ -1530,7 +1530,7 @@ static bool z30_sub_sys_command(word cmd)
         Z30SubWidget *w = z30_subwidg(Z30_REF(SUBSCREENWIDG));
         if(!w)
             return true;
-        const long ptr = get_register(sarg1) / 10000;
+        const long ptr = zasm30_aptr(get_register(sarg1));
         if(cmd == Z30C_SUBWIDG_GET_SELTEXT_OVERRIDE)
             ArrayH::setArray(ptr, w->seltext);
         else
@@ -2201,7 +2201,7 @@ static bool z30_misc_command(word cmd)
     case Z30C_XTOI2:        // the string at D0, as upstream's zc_xtoi (no "0x")
     {
         string a;
-        ArrayH::getString(ri->d[0] / 10000, a);
+        ArrayH::getString(zasm30_aptr(ri->d[0]), a);
         const char *p = a.c_str();
         const bool neg = *p == '-';
         int32_t val = 0;
@@ -2233,8 +2233,8 @@ static bool z30_misc_command(word cmd)
     case Z30C_STRICMPR:
     {
         string a, b;
-        ArrayH::getString(get_register(sarg1) / 10000, a);
-        ArrayH::getString(get_register(sarg2) / 10000, b);
+        ArrayH::getString(zasm30_aptr(get_register(sarg1)), a);
+        ArrayH::getString(zasm30_aptr(get_register(sarg2)), b);
         z30_strcmp_flags(cmd == Z30C_STRCMPR ? strcmp(a.c_str(), b.c_str()) : stricmp(a.c_str(), b.c_str()));
         return true;
     }
@@ -2406,7 +2406,7 @@ static bool zasm30_sys_command(word cmd)
     case Z30C_GETDMAPBYNAME:
     {
         string name;
-        ArrayH::getString(get_register(sarg1) / 10000, name, cmd == Z30C_GETITEMBYNAME ? 512 : 256);
+        ArrayH::getString(zasm30_aptr(get_register(sarg1)), name, cmd == Z30C_GETITEMBYNAME ? 512 : 256);
         long num = -1;
 
         if(cmd == Z30C_GETITEMBYNAME)
@@ -2567,8 +2567,8 @@ static bool zasm30_sys_command(word cmd)
     {
         // printfa(format, args[]) and sprintfa(dest, format, args[])
         const bool to_str = cmd == Z30C_SPRINTFA;
-        const long fmt_ptr = SH::read_stack(SPR + 1) / 10000, args_ptr = SH::read_stack(SPR) / 10000;
-        const long dest = to_str ? SH::read_stack(SPR + 2) / 10000 : 0;
+        const long fmt_ptr = zasm30_aptr(SH::read_stack(SPR + 1)), args_ptr = zasm30_aptr(SH::read_stack(SPR));
+        const long dest = to_str ? zasm30_aptr(SH::read_stack(SPR + 2)) : 0;
         ZScriptArray &fa = ArrayH::getArray(fmt_ptr);
         ZScriptArray &aa = ArrayH::getArray(args_ptr);
 
@@ -2617,7 +2617,7 @@ static bool zasm30_sys_command(word cmd)
     }
     case Z30C_MODULEGETIC:
     {
-        const long ptr = get_register(sarg1) / 10000, element = get_register(sarg2) / 10000;
+        const long ptr = zasm30_aptr(get_register(sarg1)), element = get_register(sarg2) / 10000;
 
         if((unsigned long)element > 511)
             Z_scripterrlog("Illegal itemclass supplied to ZInfo->GetItemClass().\nLegal values are 1 to 511.\n");
@@ -2763,7 +2763,7 @@ static bool zasm30_sys_command(word cmd)
         if(BC::checkMessage(id, "Game->SetMessage()") == SH::_NoError)
         {
             string text;
-            ArrayH::getString(get_register(sarg2) / 10000, text, 8192);
+            ArrayH::getString(zasm30_aptr(get_register(sarg2)), text, 8192);
             z30_msg_set(id, text);
         }
         return true;
@@ -2772,7 +2772,7 @@ static bool zasm30_sys_command(word cmd)
     case Z30C_SETDMAPTITLE:
     case Z30C_SETDMAPINTRO:
     {
-        const long id = get_register(sarg1) / 10000, ptr = get_register(sarg2) / 10000;
+        const long id = get_register(sarg1) / 10000, ptr = zasm30_aptr(get_register(sarg2));
 
         if(BC::checkDMapID(id, "Game->SetDMap...()") != SH::_NoError)
             return true;

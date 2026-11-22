@@ -139,6 +139,12 @@ static bool z30_counted() { return zasm30_ffscript_version >= 25; }
 
 static bool zasm30_mark_handle(long v)
 {
+    if(zasm30_stacks.count(v))      // (a stack's id is from the shared pool, as upstream's)
+    {
+        zasm30_handle_marks.insert(v);
+        return true;
+    }
+
     if(v < Z30_FILE_BASE || v >= Z30_HANDLE_END)
         return false;
 
@@ -413,7 +419,7 @@ static void z30_file_open(long path_ptr, const char *mode)
 {
     string user;
     std::string path;
-    ArrayH::getString(path_ptr / 10000, user, 512);
+    ArrayH::getString(zasm30_aptr(path_ptr), user, 512);
     ri->d[2] = 0;
     ri->d[3] = 0;
 
@@ -467,7 +473,7 @@ static void z30_fit_array(ZScriptArray &a, long size)
 // The start of every array read and write: the open file and the part of the array to use.
 static Z30File *z30_array_args(ZScriptArray *&a, long &pos, long &count, bool reading)
 {
-    a = &ArrayH::getArray(get_register(sarg1) / 10000);
+    a = &ArrayH::getArray(zasm30_aptr(get_register(sarg1)));
     count = get_register(sarg2) / 10000;
     pos = zc_max(ri->d[0] / 10000, 0L);
     ri->d[2] = 0;
@@ -559,7 +565,7 @@ static void z30_file_read_ints()
 
 static void z30_file_read_line()
 {
-    ZScriptArray &a = ArrayH::getArray(get_register(sarg1) / 10000);
+    ZScriptArray &a = ArrayH::getArray(zasm30_aptr(get_register(sarg1)));
     ri->d[2] = 0;
     Z30File *f = z30_file(Z30_REF(FILE), true);
 
@@ -834,7 +840,10 @@ static void zasm30_sweep_handles(bool sweep)
         for(std::map<long, std::vector<long> >::iterator it = zasm30_stacks.begin(); it != zasm30_stacks.end(); )
         {
             if(!zasm30_handle_marks.count(it->first))
+            {
+                zasm30_object_id_free(it->first);
                 zasm30_stacks.erase(it++);
+            }
             else
                 ++it;
         }
@@ -1573,7 +1582,7 @@ static void z30_user_bitmap_draw(int command, int base_command, int numargs)
     string text;
 
     if(base_command == DRAWSTRINGR)
-        ArrayH::getString(sdci[8] / 10000, text);
+        ArrayH::getString(zasm30_aptr(sdci[8]), text);
 
     zasm30_draw_now(bmp, (int *)sdci, &text);
 }
@@ -1591,7 +1600,7 @@ static void z30_bitmap_file(bool write)
     const int nargs = write ? 3 : 2;
     long ref = SH::read_stack(SPR + nargs);
     string user, path;
-    ArrayH::getString(SH::read_stack(SPR + nargs - 2) / 10000, user, 256);
+    ArrayH::getString(zasm30_aptr(SH::read_stack(SPR + nargs - 2)), user, 256);
     const bool overwrite = write && SH::read_stack(SPR) != 0;
     const bool target = ref >= 10 && ref < 17;     // a render target
 
@@ -1720,7 +1729,7 @@ static bool z30_sarg3(long &out)
 
 static void z30_arrayptr_to_string(long ptr, string &out)
 {
-    ArrayH::getString(ptr / 10000, out, 4096);
+    ArrayH::getString(zasm30_aptr(ptr), out, 4096);
 }
 
 // Writes a string into a script's array as upstream's ArrayH::setArray does: an array a script
@@ -1821,7 +1830,7 @@ static std::string z30_format(const std::string &format, const std::vector<long>
             if(arg)
             {
                 std::string text;
-                ArrayH::getString(arg / 10000, text, 4096);
+                ArrayH::getString(zasm30_aptr(arg), text, 4096);
                 out += text;
             }
             else
@@ -1978,7 +1987,7 @@ static void z30_bmp_polygon()
 {
     BITMAP *dest = z30_bitmap(SH::read_stack(SPR + 5));
     const long points = SH::read_stack(SPR + 3) / 10000;
-    const long ptr = SH::read_stack(SPR + 2) / 10000;
+    const long ptr = zasm30_aptr(SH::read_stack(SPR + 2));
     const int color = SH::read_stack(SPR + 1) / 10000;
     const int opacity = SH::read_stack(SPR) / 10000;
 
@@ -1996,7 +2005,7 @@ static void z30_bmp_polygon()
 // screen drawing (2.53's drawing commands), the coordinates kept in the command's vector.
 static void z30_screen_polygon()
 {
-    const long ptr = SH::read_stack(SPR + 2) / 10000;
+    const long ptr = zasm30_aptr(SH::read_stack(SPR + 2));
 
     if(!ptr)
     {
@@ -2284,7 +2293,7 @@ static void z30_bmp_draw_string2()
         return;
 
     std::string text;
-    ArrayH::getString(a[8] / 10000, text, 256);
+    ArrayH::getString(zasm30_aptr(a[8]), text, 256);
 
     int x = a[2] / 10000;
     const int y = a[3] / 10000;
@@ -3072,7 +3081,7 @@ static bool zasm30_command(word cmd)
 
     case Z30C_LINKWARPEXR:
     {
-        long ptr = get_register(sarg1) / 10000;
+        long ptr = zasm30_aptr(get_register(sarg1));
         ZScriptArray &a = ArrayH::getArray(ptr);
 
         if(&a != &INVALIDARRAY && (a.Size() == 8 || a.Size() == 9))
@@ -3107,7 +3116,7 @@ static bool zasm30_command(word cmd)
     case Z30C_STRINGLENGTH:
     {
         string str;
-        ArrayH::getString(get_register(sarg2) / 10000, str);
+        ArrayH::getString(zasm30_aptr(get_register(sarg2)), str);
         set_register(sarg1, (long)str.length() * 10000);
         return true;
     }
@@ -3115,15 +3124,15 @@ static bool zasm30_command(word cmd)
     case Z30C_STRINGCOPY:
     {
         string str;
-        ArrayH::getString(get_register(sarg2) / 10000, str);
-        ArrayH::setArray(get_register(sarg1) / 10000, str);
+        ArrayH::getString(zasm30_aptr(get_register(sarg2)), str);
+        ArrayH::setArray(zasm30_aptr(get_register(sarg1)), str);
         return true;
     }
 
     case Z30C_ARRAYCOPY:
     {
-        ZScriptArray &dest = ArrayH::getArray(get_register(sarg1) / 10000);
-        ZScriptArray &src = ArrayH::getArray(get_register(sarg2) / 10000);
+        ZScriptArray &dest = ArrayH::getArray(zasm30_aptr(get_register(sarg1)));
+        ZScriptArray &src = ArrayH::getArray(zasm30_aptr(get_register(sarg2)));
 
         if(&dest != &INVALIDARRAY && &src != &INVALIDARRAY && &dest != &src)
             for(dword n = 0; n < dest.Size() && n < src.Size(); ++n)
@@ -3135,8 +3144,8 @@ static bool zasm30_command(word cmd)
     case Z30C_STRINGNICOMPARE:
     {
         string a, b;
-        ArrayH::getString(ri->d[0] / 10000, a);
-        ArrayH::getString(ri->d[3] / 10000, b);
+        ArrayH::getString(zasm30_aptr(ri->d[0]), a);
+        ArrayH::getString(zasm30_aptr(ri->d[3]), b);
         long len = ri->d[2] / 10000;
         int r = cmd == Z30C_STRINGNCOMPARE ? strncmp(a.c_str(), b.c_str(), len) : strnicmp(a.c_str(), b.c_str(), len);
         set_register(sarg1, vbound(r, -1, 1) * 10000);
@@ -3146,8 +3155,8 @@ static bool zasm30_command(word cmd)
     case Z30C_STRINGICOMPARE:
     {
         string a, b;
-        ArrayH::getString(ri->d[0] / 10000, a);
-        ArrayH::getString(ri->d[1] / 10000, b);
+        ArrayH::getString(zasm30_aptr(ri->d[0]), a);
+        ArrayH::getString(zasm30_aptr(ri->d[1]), b);
         set_register(sarg1, vbound(stricmp(a.c_str(), b.c_str()), -1, 1) * 10000);
         return true;
     }
@@ -3155,9 +3164,9 @@ static bool zasm30_command(word cmd)
     case Z30C_STRCAT:
     {
         string a, b;
-        ArrayH::getString(ri->d[0] / 10000, a);
-        ArrayH::getString(ri->d[1] / 10000, b);
-        bool over = ArrayH::setArray(ri->d[0] / 10000, a + b) == SH::_Overflow;
+        ArrayH::getString(zasm30_aptr(ri->d[0]), a);
+        ArrayH::getString(zasm30_aptr(ri->d[1]), b);
+        bool over = ArrayH::setArray(zasm30_aptr(ri->d[0]), a + b) == SH::_Overflow;
         set_register(sarg1, over ? 0 : ri->d[0]);
         return true;
     }
@@ -3165,8 +3174,8 @@ static bool zasm30_command(word cmd)
     case Z30C_STRSTR:
     {
         string a, b;
-        ArrayH::getString(ri->d[0] / 10000, a);
-        ArrayH::getString(ri->d[1] / 10000, b);
+        ArrayH::getString(zasm30_aptr(ri->d[0]), a);
+        ArrayH::getString(zasm30_aptr(ri->d[1]), b);
         set_register(sarg1, a.empty() ? -10000 : (long)a.find(b) * 10000);
         return true;
     }
@@ -3175,8 +3184,8 @@ static bool zasm30_command(word cmd)
     case Z30C_STRCSPN:
     {
         string a, b;
-        ArrayH::getString(ri->d[0] / 10000, a);
-        ArrayH::getString(ri->d[1] / 10000, b);
+        ArrayH::getString(zasm30_aptr(ri->d[0]), a);
+        ArrayH::getString(zasm30_aptr(ri->d[1]), b);
         size_t n = cmd == Z30C_STRSPN ? strspn(a.c_str(), b.c_str()) : strcspn(a.c_str(), b.c_str());
         set_register(sarg1, (long)n * 10000);
         return true;
@@ -3186,7 +3195,7 @@ static bool zasm30_command(word cmd)
     case Z30C_STRRCHR:
     {
         string a;
-        ArrayH::getString(ri->d[0] / 10000, a);
+        ArrayH::getString(zasm30_aptr(ri->d[0]), a);
         char c = (char)(ri->d[1] / 10000);
         size_t at = cmd == Z30C_STRCHR ? a.find_first_of(c) : a.find_last_of(c);
         set_register(sarg1, a.empty() ? -10000 : (long)at * 10000);
@@ -3197,7 +3206,7 @@ static bool zasm30_command(word cmd)
     case Z30C_LOWERTOUPPER:
     case Z30C_CONVERTCASE:
     {
-        long ptr = get_register(sarg1) / 10000;
+        long ptr = zasm30_aptr(get_register(sarg1));
         string a;
         ArrayH::getString(ptr, a);
 
@@ -3225,7 +3234,7 @@ static bool zasm30_command(word cmd)
     case Z30C_XTOI:
     {
         string a;
-        ArrayH::getString(get_register(sarg2) / 10000, a);
+        ArrayH::getString(zasm30_aptr(get_register(sarg2)), a);
         const char *p = a.c_str();
         bool negative = *p == '-';
         if(negative)
@@ -3239,7 +3248,7 @@ static bool zasm30_command(word cmd)
 
     case Z30C_XTOA:
     {
-        long ptr = get_register(sarg1) / 10000, number = get_register(sarg2) / 10000;
+        long ptr = zasm30_aptr(get_register(sarg1)), number = get_register(sarg2) / 10000;
         char text[32];
         sprintf(text, "%s0x%lX", number < 0 ? "-" : "", number < 0 ? -number : number);
         bool over = ArrayH::setArray(ptr, string(text)) == SH::_Overflow;
@@ -3250,7 +3259,7 @@ static bool zasm30_command(word cmd)
     case Z30C_ILEN:
     {
         string a;
-        ArrayH::getString(get_register(sarg2) / 10000, a);
+        ArrayH::getString(zasm30_aptr(get_register(sarg2)), a);
         size_t n = (!a.empty() && a[0] == '-') ? 1 : 0;
         while(n < a.size() && a[n] >= '0' && a[n] <= '9')
             ++n;
@@ -3260,7 +3269,7 @@ static bool zasm30_command(word cmd)
 
     case Z30C_ITOACAT:
     {
-        long ptr = get_register(sarg1) / 10000;
+        long ptr = zasm30_aptr(get_register(sarg1));
         string a;
         ArrayH::getString(ptr, a);
         char digits[32];
@@ -3277,7 +3286,7 @@ static bool zasm30_command(word cmd)
     case Z30C_STRINGWIDTHR:
     {
         string a;
-        ArrayH::getString(get_register(sarg1) / 10000, a, 512);
+        ArrayH::getString(zasm30_aptr(get_register(sarg1)), a, 512);
         ri->d[2] = text_length(get_zc_font(get_register(sarg2) / 10000), a.c_str()) * 10000;
         return true;
     }
@@ -3319,7 +3328,7 @@ static bool zasm30_command(word cmd)
 
     case Z30C_PLAYENHMUSICEX:
     {
-        long ptr = get_register(sarg1) / 10000;
+        long ptr = zasm30_aptr(get_register(sarg1));
 
         if(!ptr)
         {
@@ -3355,7 +3364,7 @@ static bool zasm30_command(word cmd)
 
     case Z30C_ENHCROSSFADE:
     {
-        long ptr = SH::read_stack(SPR + 5) / 10000;
+        long ptr = zasm30_aptr(SH::read_stack(SPR + 5));
         string name;
 
         if(ptr)
@@ -3387,21 +3396,21 @@ static bool zasm30_command(word cmd)
     case Z30C_GETMUSICDATABYNAME:
     {
         string name;
-        ArrayH::getString(get_register(sarg1) / 10000, name, 256);
+        ArrayH::getString(zasm30_aptr(get_register(sarg1)), name, 256);
         set_register(sarg1, q30_music_by_name(name.c_str()) * 10000);
         return true;
     }
 
     case Z30C_MUSICDATA_GETPATH:
     case Z30C_MUSICDATA_GETNAME:
-        ArrayH::setArray(get_register(sarg1) / 10000, string(cmd == Z30C_MUSICDATA_GETPATH ? q30_musicdata_path(Z30_REF(MUSIC)) : q30_musicdata_name(Z30_REF(MUSIC))));
+        ArrayH::setArray(zasm30_aptr(get_register(sarg1)), string(cmd == Z30C_MUSICDATA_GETPATH ? q30_musicdata_path(Z30_REF(MUSIC)) : q30_musicdata_name(Z30_REF(MUSIC))));
         return true;
 
     case Z30C_MUSICDATA_SETPATH:
     case Z30C_MUSICDATA_SETNAME:
     {
         string text;
-        ArrayH::getString(get_register(sarg1) / 10000, text, 2048);
+        ArrayH::getString(zasm30_aptr(get_register(sarg1)), text, 2048);
 
         if(cmd == Z30C_MUSICDATA_SETPATH)
             q30_musicdata_set_path(Z30_REF(MUSIC), text.c_str());
@@ -3531,7 +3540,7 @@ static bool zasm30_command(word cmd)
     {
         // Upstream: the name is in the array at sarg1's register, and the slot goes back there.
         string name;
-        ArrayH::getString(get_register(sarg1) / 10000, name, 256);
+        ArrayH::getString(zasm30_aptr(get_register(sarg1)), name, 256);
         int table = -1;
         switch(cmd)
         {
@@ -3558,7 +3567,7 @@ static bool zasm30_command(word cmd)
         // upstream's do_isvalidarray only answers: an invalid pointer is no script error. Logging
         // one made a script that checks every enemy's array each frame (Tales of Murdoch) write
         // millions of lines and run five times slower.
-        set_register(sarg1, ArrayH::isValid(get_register(sarg1) / 10000) ? 10000 : 0);
+        set_register(sarg1, ArrayH::isValid(zasm30_aptr(get_register(sarg1))) ? 10000 : 0);
         return true;
     case Z30C_OWNARRAYR:
     {
@@ -3818,13 +3827,15 @@ static bool zasm30_command(word cmd)
             return true;
         }
 
-        if(zasm30_next_stack >= Z30_HANDLE_END)
-            zasm30_next_stack = Z30_STACK_BASE + 1;
+        const long id = zasm30_object_id_new();     // (upstream's shared object ids)
 
-        while(zasm30_stacks.count(zasm30_next_stack))
-            ++zasm30_next_stack;
+        if(!id)
+        {
+            Z30_REF(STACK) = 0;
+            ri->d[2] = 0;
+            return true;
+        }
 
-        const long id = zasm30_next_stack++;
         zasm30_stacks[id];
         Z30_REF(STACK) = id;
         ri->d[2] = id;
@@ -3833,8 +3844,8 @@ static bool zasm30_command(word cmd)
     case Z30C_STACKOWN:
         return true;
     case Z30C_STACKFREE:
-        if(!z30_counted())      // (counted: it lives while something refers to it)
-            zasm30_stacks.erase(Z30_REF(STACK));
+        if(!z30_counted() && zasm30_stacks.erase(Z30_REF(STACK)))   // (counted: it lives while something refers to it)
+            zasm30_object_id_free(Z30_REF(STACK));
         return true;
     case Z30C_STACKCLEAR:
     {
@@ -3975,7 +3986,7 @@ static bool zasm30_command(word cmd)
     case Z30C_NPCADD:
     {
         ri->d[2] = ri->d[3] = 0;
-        ZScriptArray &a = ArrayH::getArray(get_register(sarg1) / 10000);
+        ZScriptArray &a = ArrayH::getArray(zasm30_aptr(get_register(sarg1)));
 
         if(&a == &INVALIDARRAY || a.Size() < 1)
             return true;
@@ -4107,7 +4118,7 @@ static bool zasm30_command(word cmd)
         if(BC::checkMessage(id, "messagedata->Set()") == SH::_NoError)
         {
             string text;
-            ArrayH::getString(get_register(sarg1) / 10000, text, 8192);
+            ArrayH::getString(zasm30_aptr(get_register(sarg1)), text, 8192);
             z30_msg_set(id, text);
         }
         return true;
@@ -4119,7 +4130,7 @@ static bool zasm30_command(word cmd)
         const long id = Z30_REF(MSGDATA);
 
         if(BC::checkMessage(id, "messagedata->Get()") == SH::_NoError)
-            ArrayH::setArray(get_register(sarg1) / 10000, string(MsgStrings[id].s));
+            ArrayH::setArray(zasm30_aptr(get_register(sarg1)), string(MsgStrings[id].s));
         return true;
     }
 
@@ -4171,7 +4182,7 @@ static bool zasm30_command(word cmd)
     case Z30C_GETCOMBOBYNAME:
     {
         string name;
-        ArrayH::getString(get_register(sarg1) / 10000, name, 256);
+        ArrayH::getString(zasm30_aptr(get_register(sarg1)), name, 256);
         long found = -1;
 
         for(int q = 0; q < MAXCOMBOS && !name.empty(); ++q)
@@ -4248,7 +4259,7 @@ static bool zasm30_command(word cmd)
     case Z30C_NPCCONSTWALK:
     case Z30C_NPCCONSTWALK8:
     {
-        ZScriptArray &a = ArrayH::getArray(get_register(sarg1) / 10000);
+        ZScriptArray &a = ArrayH::getArray(zasm30_aptr(get_register(sarg1)));
 
         if(&a != &INVALIDARRAY && a.Size() == 3 && GuyH::loadNPC(ri->guyref, "npc->ConstantWalk()") == SH::_NoError)
         {
@@ -4583,7 +4594,7 @@ static bool zasm30_command(word cmd)
     case Z30C_NPCNEWDIR:
     case Z30C_NPCNEWDIR8:
     {
-        ZScriptArray &a = ArrayH::getArray(get_register(sarg1) / 10000);
+        ZScriptArray &a = ArrayH::getArray(zasm30_aptr(get_register(sarg1)));
 
         if(&a == &INVALIDARRAY || GuyH::loadNPC(ri->guyref, "npc->NewDir()") != SH::_NoError)
             return true;
@@ -4633,7 +4644,7 @@ static bool zasm30_command(word cmd)
     case Z30C_ITEMGETSHOWNNAME:
     {
         const long id = ri->idata;
-        const long ptr = get_register(sarg1) / 10000;
+        const long ptr = zasm30_aptr(get_register(sarg1));
 
         if(id < 0 || id >= q30_items_end())
             return true;
@@ -4682,7 +4693,7 @@ static bool zasm30_command(word cmd)
         }
 
         std::string name;
-        ArrayH::getString(get_register(sarg1) / 10000, name, 256);
+        ArrayH::getString(zasm30_aptr(get_register(sarg1)), name, 256);
         const Q30Combo *c = q30_combo((int)cid);
         long ref = 0;
 
@@ -4704,7 +4715,7 @@ static bool zasm30_command(word cmd)
         if(!t)
             return true;
 
-        const long ptr = get_register(sarg1) / 10000;
+        const long ptr = zasm30_aptr(get_register(sarg1));
 
         if(cmd == Z30C_CMBTRIG_SET_LABEL)
             ArrayH::getString(ptr, t->label, 4096);
@@ -4717,9 +4728,9 @@ static bool zasm30_command(word cmd)
     case Z30C_SPRINTFVARG:
     {
         Zasm30Frame &f = zasm30_frame();
-        const long dest = SH::read_stack(SPR + 1) / 10000;
+        const long dest = zasm30_aptr(SH::read_stack(SPR + 1));
         std::string format;
-        ArrayH::getString(SH::read_stack(SPR) / 10000, format, 65535);
+        ArrayH::getString(zasm30_aptr(SH::read_stack(SPR)), format, 65535);
         const std::string out = z30_format(format, f.vargs);
 
         if(z30_set_string(dest, out) == SH::_Overflow)
@@ -4756,7 +4767,7 @@ static bool zasm30_command(word cmd)
     case Z30C_FILEOPENMODE:
     {
         string mode;
-        ArrayH::getString(get_register(sarg2) / 10000, mode, 16);
+        ArrayH::getString(zasm30_aptr(get_register(sarg2)), mode, 16);
         z30_file_open(get_register(sarg1), mode.c_str());
         return true;
     }
@@ -4836,7 +4847,7 @@ static bool zasm30_command(word cmd)
         if(Z30File *f = z30_file(Z30_REF(FILE), true))
         {
             const int err = ferror(f->f);
-            ArrayH::setArray(get_register(sarg1) / 10000, string(err ? strerror(err) : ""));
+            ArrayH::setArray(zasm30_aptr(get_register(sarg1)), string(err ? strerror(err) : ""));
         }
         return true;
     }
@@ -4876,7 +4887,7 @@ static bool zasm30_command(word cmd)
     case Z30C_FILEWRITESTR:
     {
         Z30File *f = z30_file(Z30_REF(FILE), true);
-        const long ptr = get_register(sarg1) / 10000;   // (read first: the result goes in the same register)
+        const long ptr = zasm30_aptr(get_register(sarg1));   // (read first: the result goes in the same register)
         ri->d[2] = 0;
         if(f)
         {
@@ -4892,7 +4903,7 @@ static bool zasm30_command(word cmd)
     {
         string user;
         std::string path;
-        ArrayH::getString(get_register(sarg1) / 10000, user, 2048);
+        ArrayH::getString(zasm30_aptr(get_register(sarg1)), user, 2048);
         if(cmd == Z30C_FILESYSREMOVE)
         {
             z30_collect_open_files();
@@ -4913,7 +4924,7 @@ static bool zasm30_command(word cmd)
     case Z30C_LOADDIRECTORYR:
     {
         string user;
-        ArrayH::getString(get_register(sarg1) / 10000, user, 2048);
+        ArrayH::getString(zasm30_aptr(get_register(sarg1)), user, 2048);
         Z30_REF(DIRECTORY) = z30_load_dir(user);
         set_register(sarg1, Z30_REF(DIRECTORY));
         return true;
@@ -4921,7 +4932,7 @@ static bool zasm30_command(word cmd)
     case Z30C_DIRECTORYGET:
     {
         Z30Dir *d = z30_dir(Z30_REF(DIRECTORY));
-        const long idx = get_register(sarg1) / 10000, ptr = get_register(sarg2) / 10000;
+        const long idx = get_register(sarg1) / 10000, ptr = zasm30_aptr(get_register(sarg2));
         const bool has = d && idx >= 0 && idx < (long)d->names.size();
         if(d)
             ArrayH::setArray(ptr, has ? d->names[idx] : string());

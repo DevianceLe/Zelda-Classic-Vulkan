@@ -201,18 +201,27 @@ static void z30_wtermv_clamp(weapon *w, Zasm30SpriteState &st)
         st.fakefall = termv;
 }
 
-// WFLAG_BREAK_WHEN_LANDING / WFLAG_STOP_WHEN_LANDING (upstream also checks its collisions first)
+// WFLAG_BREAK_WHEN_LANDING / WFLAG_STOP_WHEN_LANDING: it hits what it lands on first (upstream's
+// collision_check; the combo triggers it touches run at the end of its frame as ever)
+void q30_weapon_collision_check(weapon *w);     // guys.cpp
+
 static void z30_wland(weapon *w, const Zasm30SpriteState &st)
 {
     if(st.weapon_flags & Z30WF_BREAK_WHEN_LANDING)
+    {
+        q30_weapon_collision_check(w);
         w->q30_kill_special();
+    }
 
     if(st.weapon_flags & Z30WF_STOP_WHEN_LANDING)
+    {
+        q30_weapon_collision_check(w);
         w->step = 0;
+    }
 }
 
 // one 3.0 height (Z or FakeZ): falls by its speed, lands at 0, bounces while the bounce goes up
-static void z30_wfall_axis(weapon *w, Zasm30SpriteState &st, long &z, long &fall)
+static void z30_wfall_axis(weapon *w, Zasm30SpriteState &st, long &z, long &fall, bool real = false)
 {
     const bool didfall = z > 0;
     z -= fall / 100;
@@ -229,7 +238,15 @@ static void z30_wfall_axis(weapon *w, Zasm30SpriteState &st, long &z, long &fall
             fall = 0;
 
             if(didfall)
+            {
+                if(real)    // (it is on the ground as it hits what it lands on)
+                {
+                    w->z = z30_wfix(z);
+                    w->fall = z30_wfix(fall);
+                }
+
                 z30_wland(w, st);
+            }
         }
     }
     else if(fall <= z30_wtermv(st))
@@ -315,14 +332,220 @@ void q30_weapon_fall(weapon *w)
             if(!(st.move_flags & Z30MV_NO_REAL_Z))
             {
                 long z = z30_wz(w->z), fall = z30_wz(w->fall);
-                z30_wfall_axis(w, st, z, fall);
-                w->z = z30_wfix(z);
+                z30_wfall_axis(w, st, z, fall, true);
+w->z = z30_wfix(z);
                 w->fall = z30_wfix(fall);
             }
         }
     }
 
     z30_wtermv_clamp(w, st);
+}
+
+// ---- falling into pits and drowning (upstream weapon::animate, sprite::check_pits / check_water) ----
+
+enum { Z30MV_CAN_WATERDROWN = 1 << 3 };
+static const long Z30WF_FALL_DYING = 1 + 41;    // live field: the fall's extra death frame has begun
+
+int q30_water_at(int x, int y);     // link.cpp: upstream's iswaterex for a sprite (not Link), 0 for none
+extern int q255_header_version[3];
+
+static int z30_wfall_at(int x, int y, bool water) { return water ? q30_water_at(x, y) : q30_pitfall_at(x, y); }
+
+// qr_OLD_SPRITE_FALL_DROWN (462; quests before 2.55.11 as upstream's loader sets it)
+static bool z30_wfall_old_rule()
+{
+    return q30_quest_rule(462) || (q255_header_version[0] == 2 && q255_header_version[1] < 55)
+           || (q255_header_version[0] == 2 && q255_header_version[1] == 55 && q255_header_version[2] < 11);
+}
+
+// the old check: a weapon partly over a pit (water) is drawn in a pixel at a time towards it,
+// falling once all its corners are over it (or after 15 pulls); returns the combo, 0 for none
+static int z30_wfall_old(weapon *w, bool water)
+{
+    bool fallen = false;
+    int ul = 0, bl = 0, ur = 0, br = 0, ul5 = 0, bl5 = 0, ur5 = 0, br5 = 0;
+
+    for(int safe = 1; safe < 16; ++safe)
+    {
+        const int x = int(w->x), y = int(w->y);
+        ul = z30_wfall_at(x, y, water); bl = z30_wfall_at(x, y+15, water);
+        ur = z30_wfall_at(x+15, y, water); br = z30_wfall_at(x+15, y+15, water);
+
+        if(water)   // (upstream's check_water takes its middle points crosswise)
+        {
+            ul5 = z30_wfall_at(x+8, y+8, true); bl5 = z30_wfall_at(x+8, y+7, true);
+            ur5 = z30_wfall_at(x+7, y+8, true); br5 = z30_wfall_at(x+7, y+7, true);
+        }
+        else
+        {
+            ul5 = z30_wfall_at(x+7, y+7, false); bl5 = z30_wfall_at(x+7, y+8, false);
+            ur5 = z30_wfall_at(x+8, y+7, false); br5 = z30_wfall_at(x+8, y+8, false);
+        }
+
+        int d = -1;
+
+        switch((ul?1:0) + (ur?1:0) + (bl?1:0) + (br?1:0))
+        {
+        case 4:
+            return ul5 ? ul5 : ul;
+
+        case 3:
+            if(ul && ur && bl) { if(ul5) d = l_up; }
+            else if(ul && ur && br) { if(ur5) d = r_up; }
+            else if(ul && bl && br) { if(bl5) d = l_down; }
+            else if(bl && ur && br) { if(br5) d = r_down; }
+            break;
+
+        case 2:
+            if(ul && ur && (ul5 || ur5)) d = (ul5 && ur5) ? up : ul5 ? l_up : r_up;
+            else if(bl && br && (bl5 || br5)) d = (bl5 && br5) ? down : bl5 ? l_down : r_down;
+            else if(ul && bl && (ul5 || bl5)) d = (ul5 && bl5) ? left : ul5 ? l_up : l_down;
+            else if(ur && br && (ur5 || br5)) d = (ur5 && br5) ? right : ur5 ? r_up : r_down;
+            break;
+
+        case 1:
+            if(ul && ul5) d = l_up;
+            else if(ur && ur5) d = r_up;
+            else if(bl && bl5) d = l_down;
+            else if(br && br5) d = r_down;
+            break;
+        }
+
+        if(d == -1)
+            return 0;
+
+        fallen = true;
+
+        if(d == l_up || d == l_down || d == left) w->x -= 1;
+        else if(d == r_up || d == r_down || d == right) w->x += 1;
+
+        if(d == l_up || d == r_up || d == up) w->y -= 1;
+        else if(d == l_down || d == r_down || d == down) w->y += 1;
+    }
+
+    if(!fallen)
+        return 0;
+
+    return ul5 ? ul5 : ur5 ? ur5 : bl5 ? bl5 : br5 ? br5 : ul ? ul : ur ? ur : bl ? bl : br;
+}
+
+// the newer check: every point of the hit box, 2 pixels in from its edges (its lower half in
+// sideview), over a pit (water)
+static int z30_wfall_new(weapon *w, bool water)
+{
+    const int endx = zc_max(w->hxsz - 2, 1), endy = zc_max(w->hysz - 2, 1);
+    const int startx = zc_min(2, endx - 1);
+    const int starty = (tmpscr->flags7 & fSIDEVIEW) ? zc_min(endy / 2 + 2, endy - 1) : zc_min(2, endy - 1);
+    int ret = 0;
+
+    for(int dx = startx; dx < endx; ++dx)
+        for(int dy = starty; dy < endy; ++dy)
+            if(!(ret = z30_wfall_at(int(w->x) + dx + w->hxofs, int(w->y) + dy + w->hyofs, water)))
+                return 0;
+
+    return ret;
+}
+
+// after its fall: a weapon on the ground whose move flags let it falls into the pit (drowns in
+// the water) under it; the melee weapons and sparkles never do
+void q30_weapon_pits(weapon *w)
+{
+    Zasm30SpriteState *st = zasm30_sprite_state_if(w->getUID());
+
+    if(!st || !(st->move_flags & (Z30MV_CAN_PITFALL | Z30MV_CAN_WATERDROWN)) || st->fall_clk || st->drown_clk)
+        return;
+
+    switch(w->id)
+    {
+    case wSword: case wWand: case wCByrna: case wHammer: case wHookshot: case wWhistle:
+    case wFSparkle: case wHSChain: case wHSHandle: case wSSparkle: case wStomp: case wSmack:
+        return;
+    }
+
+    if(w->z > 0 || st->fakez > 0)
+        return;
+
+    const bool old = z30_wfall_old_rule();
+
+    if(st->move_flags & Z30MV_CAN_PITFALL)
+        if(const int pit = old ? z30_wfall_old(w, false) : z30_wfall_new(w, false))
+        {
+            st->fall_clk = 70;      // PITFALL_FALL_FRAMES
+            w->o_cset = w->cs;
+            z30_lf_set(w->getUID(), 1 + Z30W_FALLCMB, 0, pit);
+        }
+
+    if(st->move_flags & Z30MV_CAN_WATERDROWN)
+        if(const int wat = old ? z30_wfall_old(w, true) : z30_wfall_new(w, true))
+        {
+            st->drown_clk = 64;     // WATER_DROWN_FRAMES
+            w->o_cset = w->cs;
+            z30_lf_set(w->getUID(), 1 + Z30W_DROWNCMB, 0, wat);
+        }
+}
+
+// upstream weapon::animate while it falls or drowns: 0 not falling; 1 it falls on, drawn with the
+// quest's fall (drown, lava drown) sprite, touching nothing; 2 it is gone, with no death effects
+// (qr_WEAPONS_EXTRA_DEATH_FRAME: one more frame first, not drawn)
+int q30_weapon_falling(weapon *w)
+{
+    Zasm30SpriteState *st = zasm30_sprite_state_if(w->getUID());
+
+    if(!st || (st->fall_clk <= 0 && st->drown_clk <= 0))
+        return 0;
+
+    const long uid = w->getUID();
+    const bool pit = st->fall_clk > 0;
+    long &clk = pit ? st->fall_clk : st->drown_clk;
+    const int frames = pit ? 70 : 64;
+    const int cmb = (int)z30_lf_get(uid, 1 + (pit ? Z30W_FALLCMB : Z30W_DROWNCMB), 0, 0);
+
+    if(pit && clk == frames && cmb)
+    {
+        const Q30Combo *c = q30_combo(cmb);
+        const int s = c ? int(c->attributes[8] / 10000) : 0;
+
+        if(s > 0)
+            sfx(s, pan(int(w->x)));
+    }
+
+    if(!--clk)
+    {
+        if(!z30_lf_get(uid, Z30WF_FALL_DYING, 0, 0) && q30_quest_rule(Q30_QR_WEAPONS_EXTRA_DEATH_FRAME)
+           && w->id != wSword && w->id != wBrang)
+        {
+            w->dead = 0;
+            z30_lf_set(uid, Z30WF_FALL_DYING, 0, 1);
+            ++clk;
+            return 1;
+        }
+
+        return 2;
+    }
+
+    const Q30Combo *c = (!pit && cmb) ? q30_combo(cmb) : NULL;
+    const int spr = q30_misc_sprite(pit ? 0 : (c && (c->usrflags & 0x1)) ? 2 : 1);     // sprFALL, sprDROWN, sprLAVADROWN
+
+    if(spr >= 0 && spr < MAXWPNS)
+    {
+        const int fr = wpnsbuf[spr].frames ? wpnsbuf[spr].frames : 1, spd = wpnsbuf[spr].speed ? wpnsbuf[spr].speed : 1;
+        w->cs = wpnsbuf[spr].csets & 0xF;
+        w->tile = wpnsbuf[spr].tile + zc_min((frames - (int)clk) / spd, fr - 1);
+    }
+
+    return 1;
+}
+
+// 1 while it falls (drawn as a plain sprite), 2 in the fall's extra death frame (not drawn)
+int q30_weapon_fall_draw(weapon *w)
+{
+    const Zasm30SpriteState *st = zasm30_sprite_state_if(w->getUID());
+
+    if(!st || (st->fall_clk <= 0 && st->drown_clk <= 0))
+        return 0;
+
+    return z30_lf_get(w->getUID(), Z30WF_FALL_DYING, 0, 0) ? 2 : 1;
 }
 
 // upstream weapon::collide_solid: a solid combo anywhere under the weapon's hitbox
@@ -386,6 +609,10 @@ bool q30_weapon_still_hits = false;
 bool q30_weapon_no_collision(weapon *w)
 {
     const Zasm30SpriteState *st = zasm30_sprite_state_if(w->getUID());
+
+    if(st && (st->fall_clk > 0 || st->drown_clk > 0))     // (falling into a pit or drowning)
+        return true;
+
     return st && !q30_weapon_still_hits && w->step == 0 && (st->weapon_flags & Z30WF_NO_COLL_WHEN_STILL);
 }
 

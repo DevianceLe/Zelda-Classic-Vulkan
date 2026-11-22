@@ -2566,38 +2566,52 @@ bool enemy::cannotpenetrate()
     return (family == eeAQUA || family == eeMANHAN || family == eeGHOMA);
 }
 
+// 2.55/3.0: the enemy editor's "off-grid movement" flag (upstream's OFFGRID_ENEMY, ENEMY_FLAG15)
+bool enemy::q30_offgrid()
+{
+    const Q30GuyData *x = q30_active() ? q30_guy_data(id & 0xFFF) : NULL;
+    return x && (x->editorflags & 0x4000);
+}
+
 // returns true if next step is ok, false if there is something there
 // 2.55/3.0 (upstream's canmove): an enemy with the size tab's hit size or offset looks at every
-// 16 pixels across its hit box (and its last pixel), from its hit offset
+// 16 pixels across its hit box (and its last pixel), from its hit offset; an off-grid one at
+// every 8, and may be smaller than a tile. (Upstream counts its tries as size / step.)
 bool enemy::q30_canmove(int ndir,fix s,int special,int dx1,int dy1,int dx2,int dy2)
 {
+    const bool offgrid = q30_offgrid();
     const int xo = (q30_sizeflags & 0x020) ? hxofs : 0, yo = (q30_sizeflags & 0x040) ? hyofs : 0;
-    const int w = zc_max(16, (q30_sizeflags & 0x004) ? hxsz : 16);
-    const int h = zc_max(16, (q30_sizeflags & 0x008) ? hysz : 16);
+    const int w = zc_max(offgrid ? 0 : 16, (q30_sizeflags & 0x004) ? hxsz : 16);
+    const int h = zc_max(offgrid ? 0 : 16, (q30_sizeflags & 0x008) ? hysz : 16);
     const int sv = (tmpscr->flags7&fSIDEVIEW) ? 7 : 8;
     const int ex = int(x) + xo, ey = int(y) + yo;
     s += 0.5;
 
-    // free across the width at y+dy / down the height at x+dx
+    // free across the width at y+dy / down the height at x+dx (the flier check moved by fd: down
+    // and right, by the size past a tile, as upstream)
     struct Box
     {
-        enemy *e; int ex, ey, w, h, sv;
-        bool blocked(int px, int py, int fy, int sp) { return e->m_walkflag(px, py, sp, e->x, e->y) || e->flyerblocked(px, fy, sp); }
-        bool row(int dy, int sp)
+        enemy *e; int ex, ey, w, h, sv, step;
+        bool blocked(int px, int py, int fx, int fy, int sp) { return e->m_walkflag(px, py, sp, e->x, e->y) || e->flyerblocked(fx, fy, sp); }
+        bool row(int dy, int sp, int fd = 0)
         {
-            for(int t = 0; t < w; t += 16)
-                if(blocked(ex+t, ey+dy, ey+dy, sp))
+            if(w / step <= 0)
+                return false;
+            for(int n = w / step, t = 0; n > 0; --n, t += step)
+                if(blocked(ex+t, ey+dy, ex+t, ey+dy+fd, sp))
                     return false;
-            return !(w % 16) || !blocked(ex+w-1, ey+dy, ey+dy, sp);
+            return !(w % 16) || !blocked(ex+w-1, ey+dy, ex+w-1, ey+dy+fd, sp);
         }
-        bool col(int dx, int sp)
+        bool col(int dx, int sp, int fd = 0)
         {
-            for(int t = 0; t < h; t += 16)
-                if(blocked(ex+dx, ey+t+sv, ey+t+8, sp))
+            if(h / step <= 0)
+                return false;
+            for(int n = h / step, t = 0; n > 0; --n, t += step)
+                if(blocked(ex+dx, ey+t+sv, ex+dx+fd, ey+t+8, sp))
                     return false;
-            return !(h % 16) || !blocked(ex+dx, ey+h-1+sv, ey+h-1+8, sp);
+            return !(h % 16) || !blocked(ex+dx, ey+h-1+sv, ex+dx+fd, ey+h-1+8, sp);
         }
-    } b = { this, ex, ey, w, h, sv };
+    } b = { this, ex, ey, w, h, sv, offgrid ? 8 : 16 };
 
     const int up_y = dy1-s, down_y = dy2+s, left_x = dx1-s, right_x = dx2+s;
 
@@ -2615,7 +2629,7 @@ bool enemy::q30_canmove(int ndir,fix s,int special,int dx1,int dy1,int dx2,int d
         if(canfall(id) && tmpscr->flags7&fSIDEVIEW)
             return false;
 
-        return b.row(down_y, special);
+        return b.row(down_y, special, zc_max(h-16, 0));
 
     case 14:
     case left:
@@ -2623,7 +2637,7 @@ bool enemy::q30_canmove(int ndir,fix s,int special,int dx1,int dy1,int dx2,int d
 
     case 10:
     case right:
-        return b.col(right_x, special);
+        return b.col(right_x, special, zc_max(w-16, 0));
 
     case 9:
     case r_up:
@@ -2658,7 +2672,7 @@ void enemy::q30_move_box(int &dx2, int &dy2)
 
 bool enemy::canmove(int ndir,fix s,int special,int dx1,int dy1,int dx2,int dy2)
 {
-    if(q30_sizeflags & (0x004 | 0x008 | 0x020 | 0x040))    // (2.55/3.0: a hit size or offset of its own)
+    if((q30_sizeflags & (0x004 | 0x008 | 0x020 | 0x040)) || q30_offgrid())    // (2.55/3.0: a hit size or offset of its own, or off-grid)
         return q30_canmove(ndir,s,special,dx1,dy1,dx2,dy2);
 
     bool ok;
@@ -11584,8 +11598,13 @@ ePatra::ePatra(fix ,fix ,int Id,int Clk) : enemy((fix)128,(fix)48,Id,Clk)
     flycnt=dmisc1;
     flycnt2=dmisc2;
     loopcnt=0;
-    
+
     if(dmisc6<short(1))dmisc6=1; // ratio cannot be 0!
+
+    // 2.55/3.0 (upstream ePatra::init_size_flags over the enemy's own): the size tab's draw Y
+    // offset takes the playing field's offset once more
+    if(q30_sizeflags & 0x100)
+        yofs += q30_quest_rule(319) ? playing_field_offset : original_playing_field_offset;
 }
 
 bool ePatra::animate(int index)
@@ -11917,7 +11936,14 @@ esPatra::esPatra(fix X,fix Y,int Id,int Clk) : enemy(X,Y,Id,Clk)
     hyofs=2;
     hxsz=hysz=12;
     hxofs=2;
-    mainguy=count_enemy=false;
+
+    if(q30_active())    // (upstream: one tile, whatever the size tab says; the draw offset as the quest's rule)
+    {
+        extend = 0;
+        txsz = tysz = 1;
+        yofs = q30_quest_rule(319) ? playing_field_offset : original_playing_field_offset;
+    }
+mainguy=count_enemy=false;
     bgsfx=-1;
     //o_tile=0;
     flags &= (~guy_neverret);
@@ -12002,9 +12028,17 @@ ePatraBS::ePatraBS(fix ,fix ,int Id,int Clk) : enemy((fix)128,(fix)48,Id,Clk)
     loopcnt=0;
     hxsz = 32;
     hxofs=-8;
-    
+
+    if(q30_sizeflags)   // (2.55/3.0, upstream ePatraBS::init_size_flags: the size tab's hit width and X offset, else these)
+    {
+        q30_init_size_flags();
+
+        if(!(q30_sizeflags & 0x004)) hxsz = 32;
+        if(!(q30_sizeflags & 0x020)) hxofs = -8;
+    }
+
     if(dmisc6<short(1))dmisc6=1; // ratio cannot be 0!
-    
+
     //nets+4480;
 }
 
@@ -12242,6 +12276,9 @@ int ePatraBS::defend(int wpnId, int *power, int edef)
     return ret;
 }
 
+// 2.55/3.0: the big Patra whose orbiters are being made (upstream passes it to esPatraBS)
+static enemy *q30_patra_parent = NULL;
+
 esPatraBS::esPatraBS(fix X,fix Y,int Id,int Clk) : enemy(X,Y,Id,Clk)
 {
     //cs=csBOSS;
@@ -12251,7 +12288,23 @@ esPatraBS::esPatraBS(fix X,fix Y,int Id,int Clk) : enemy(X,Y,Id,Clk)
     yofs=playing_field_offset;
     hyofs=2;
     hxsz=hysz=16;
-    bgsfx=-1;
+
+    // 2.55/3.0 (upstream's esPatraBS): what the Patra's size tab overrides, the orbiter takes
+    // from the Patra (its hit size 16x16, Y offset 2 and the playing field's draw offset else)
+    if(const enemy *p = q30_active() ? q30_patra_parent : NULL)
+    {
+        const long pf = p->q30_sizeflags;
+        if((pf & 0x001) && txsz > 0) { txsz = p->txsz; if(txsz > 1) extend = 3; }
+        if((pf & 0x002) && tysz > 0) { tysz = p->tysz; if(tysz > 1) extend = 3; }
+        if(pf & 0x004) hxsz = p->hxsz;
+        if(pf & 0x008) hysz = p->hysz;
+        if((pf & 0x010) && hzsz >= 0) hzsz = p->hzsz;
+        if(pf & 0x020) hxofs = p->hxofs;
+        if(pf & 0x040) hyofs = p->hyofs;
+        if(pf & 0x080) xofs = p->xofs;
+        yofs = (pf & 0x100) ? p->yofs : (q30_quest_rule(319) ? playing_field_offset : original_playing_field_offset);
+    }
+bgsfx=-1;
     mainguy=count_enemy=false;
     deadsfx = WAV_EDEAD;
     hitsfx = WAV_EHIT;
@@ -12895,13 +12948,15 @@ int addenemy(int x,int y,int z,int id,int clk)
     {
         id &= 0xFFF;
         int outeyes = 0;
-        
+        q30_patra_parent = (enemy*)e;
+
         for(int i=0; i<zc_min(254,guysbuf[id&0xFFF].misc1); i++)
         {
             if(!(guysbuf[id].misc10?guys.add(new esPatraBS((fix)x,(fix)y,id+0x1000,i)):guys.add(new esPatra((fix)x,(fix)y,id+0x1000,i))))
             {
                 al_trace("Patra outer eye %d could not be created!\n",i+1);
-                
+                q30_patra_parent = NULL;
+
                 for(int j=0; j<i+1; j++)
                     guys.del(guys.Count()-1);
                     
@@ -12909,10 +12964,12 @@ int addenemy(int x,int y,int z,int id,int clk)
             }
             else
                 outeyes++;
-                
+
             ret++;
         }
-        
+
+        q30_patra_parent = NULL;
+
         for(int i=0; i<zc_min(254,guysbuf[id&0xFFF].misc2); i++)
         {
             if(!guys.add(new esPatra((fix)x,(fix)y,id+0x1000,i)))
@@ -15126,6 +15183,48 @@ static bool q30_take_any(int take, int pitem, item *it)
 
     const bool key = itemsbuf[it->id].family==itype_key || itemsbuf[it->id].family==itype_lkey;
     return q30_item_flag(pitem, ITEM_FLAG4) || (it->pickup & 8192) != 0 || (key && q30_item_flag(pitem, Q30_ITEM_FLAG7));
+}
+
+// 2.55/3.0 (upstream weapon::collision_check, as a weapon breaks or stops on landing): an lweapon
+// hits the enemies it touches right then, before it goes (check_enemy_lweapon_collision)
+bool q30_weapon_no_collision(weapon *w);     // q30_weapon_fx.h
+
+void q30_weapon_collision_check(weapon *w)
+{
+    if(!(w->scriptcoldet&1) || q30_weapon_no_collision(w))
+        return;
+
+    bool lw = false;
+
+    for(int i=0; i<Lwpns.Count() && !lw; i++)
+        lw = Lwpns.spr(i) == w;
+
+    if(!lw)
+        return;
+
+    if(w->Dead() || w->id==wSword || w->id==wHammer || w->id==wWand || q30_switchhook_held(w))
+        return;
+
+    for(int j=0; j<guys.Count(); j++)
+    {
+        enemy *e = (enemy*)guys.spr(j);
+
+        if(e->hit(w))
+        {
+            int h = e->takehit(w);
+
+            if(h < 0)
+                w->q30_hit_pierce(true);
+            else if(h)
+                w->onhit(false);
+
+            if(h==2)
+                break;
+        }
+
+        if(w->Dead())
+            break;
+    }
 }
 
 void check_collisions()

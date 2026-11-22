@@ -139,7 +139,7 @@ static void z30d_screen(int cmd, int nargs, const std::vector<long> *v = NULL)
 // false: none to draw (upstream drops the command, or logs an invalid pointer).
 static bool z30d_array_arg(int nargs, const char *name, std::vector<long> &out)
 {
-    const long ptr = SH::read_stack(SPR + (nargs - 2)) / 10000;
+    const long ptr = zasm30_aptr(SH::read_stack(SPR + (nargs - 2)));
 
     if(!ptr)
     {
@@ -296,7 +296,7 @@ static void z30d_bmp_poly3d(bool quad)
     for(int a = 0; a < 4; ++a)
     {
         std::vector<int> vals;
-        z30_array_ints(SH::read_stack(SPR + (9 - (2 + a))) / 10000, vals);
+        z30_array_ints(zasm30_aptr(SH::read_stack(SPR + (9 - (2 + a)))), vals);
 
         for(int q = 0; q < counts[a] && q < (int)vals.size(); ++q)
             v[offsets[a] + q] = vals[q];
@@ -637,7 +637,7 @@ static RGB z30d_rgb_from(const double arr[], int color_space)
 // Graphics->ConvertFromRGB(buf[], rgb, colour space): the colour's components, x10000
 static void z30d_convert_from_rgb()
 {
-    const long buf = SH::read_stack(SPR + 2) / 10000;
+    const long buf = zasm30_aptr(SH::read_stack(SPR + 2));
     const long clri = SH::read_stack(SPR + 1);
     const int color_space = SH::read_stack(SPR) / 10000;
     ZScriptArray &a = ArrayH::getArray(buf);
@@ -661,7 +661,7 @@ static void z30d_convert_from_rgb()
 // Graphics->ConvertToRGB(buf[], colour space): the rgb value in rEXP1
 static void z30d_convert_to_rgb()
 {
-    const long buf = SH::read_stack(SPR + 1) / 10000;
+    const long buf = zasm30_aptr(SH::read_stack(SPR + 1));
     const int color_space = SH::read_stack(SPR) / 10000;
     ZScriptArray &a = ArrayH::getArray(buf);
 
@@ -744,7 +744,7 @@ static void z30d_paldata_load_bitmap()
         return;
 
     std::string user, path;
-    ArrayH::getString(get_register(sarg1) / 10000, user, 256);
+    ArrayH::getString(zasm30_aptr(get_register(sarg1)), user, 256);
 
     if(!(q30_quest_rule(678) ? z30_resolve_path(user, true, path) : z30_legacy_path(user, path)))
     {

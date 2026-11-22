@@ -1977,6 +1977,7 @@ struct Zasm30Frame
     // The screen of the FFC the script last named (REFFFC; ri->ffcref holds its slot): -1 for the
     // current screen, else another screen of a 3.0 scrolling region (q30_scripts_region.h).
     int ffc_screen;
+    std::set<long> objpos;      // stack slots that hold objects (version 28 on: q30_scripts_arrays.h)
 
     Zasm30Frame() { sp = 0; thiskey = thiskey2 = switchkey = 0; waitframes = 0; draw_origin = draw_origin_target = 0; ffc_screen = -1; memset(inst, 0, sizeof(inst)); memset(refs, 0, sizeof(refs)); }
 };
@@ -2123,6 +2124,7 @@ struct Zasm30Object
 static std::vector<Zasm30Object> zasm30_objects;
 static std::deque<long> zasm30_free_objects;   // freed indices, reused oldest first
 static bool zasm30_gc_array[Z30_LOCALRAM_SIZE];
+static bool zasm30_gc_marked[Z30_LOCALRAM_SIZE];   // zasm30_collect's marks
 
 static Zasm30Object *zasm30_object(long id)
 {
@@ -2215,12 +2217,18 @@ static void zasm30_retire_instance(Zasm30Instance *in)
         delete in;
 }
 
+static void zasm30_drain_pool();      // q30_scripts_arrays.h
+
 struct Zasm30RunDepth
 {
     Zasm30RunDepth() { ++zasm30_run_depth; }
 
     ~Zasm30RunDepth()
     {
+        // the end of a (top-level) script run: the autorelease pool lets go, as upstream's
+        if(zasm30_run_depth == 1 && zasm30_ffscript_version >= 28)
+            zasm30_drain_pool();
+
         if(--zasm30_run_depth == 0 && !zasm30_retired.empty())
         {
             for(size_t n = 0; n < zasm30_retired.size(); ++n)
@@ -2260,6 +2268,7 @@ static void zasm30_begin(long inits)
     f.ffc_screen = -1;
     memset(f.inst, 0, sizeof(f.inst));
     memset(f.refs, 0, sizeof(f.refs));
+    f.objpos.clear();
 
     if(f.wstack.empty())
         f.wstack.resize(ZASM30_STACK_SIZE, 0);
@@ -2419,6 +2428,13 @@ static void zasm30_object_id_free(long id)
         zasm30_id_freelist.push_back(id);
 }
 
+static inline bool zasm30_gc_arrays();     // q30_scripts_arrays.h
+static void zasm30_arr_unbind(long slot);
+static long zasm30_arr_new(long slot);
+static void zasm30_arrays_forget();
+long zasm30_aptr(long v);
+long zasm30_aval(long slot);
+
 // ---- the 3.0 heap: arrays a 3.0 quest's scripts make (slots Z30_HEAP_FIRST and up) ----------
 static long zasm30_heap_next = Z30_HEAP_FIRST;   // where the search for a free slot goes on from
 
@@ -2447,6 +2463,7 @@ static long zasm30_heap_find()
 
 static void zasm30_free_array(long p)
 {
+    zasm30_arr_unbind(p);
     localRAM[p].Clear();
     zasm30_empty_array[p] = false;
     arrayOwner[p] = 255;
@@ -2473,7 +2490,7 @@ static long zasm30_new_array(long size)
     arrayOwner[ptrval] = 255;
     zasm30_array_inst[ptrval] = NULL;
     zasm30_gc_array[ptrval] = true;
-    return ptrval * 10000;
+    return zasm30_gc_arrays() ? zasm30_arr_new(ptrval) : ptrval * 10000;
 }
 
 // A new game or quest: every heap array and class object goes.
@@ -2486,6 +2503,7 @@ void zasm30_clear_heap()
     }
 
     zasm30_heap_next = Z30_HEAP_FIRST;
+    zasm30_arrays_forget();
     zasm30_objects.clear();
     zasm30_free_objects.clear();
 
@@ -2595,6 +2613,8 @@ class MiscH : public SH
 public:
 
 };
+
+#include "port/game/q30_scripts_arrays.h"
 
 byte flagpos;
 int ornextflag(bool flag)
@@ -5548,12 +5568,12 @@ else \
         
     case SCRIPTRAM:
     case GLOBALRAM:
-        ret = ArrayH::getElement(ri->d[0] / 10000, ri->d[1] / 10000);
+        ret = ArrayH::getElement(zasm30_aptr(ri->d[0]), ri->d[1] / 10000);
         break;
         
     case SCRIPTRAMD:
     case GLOBALRAMD:
-        ret = ArrayH::getElement(ri->d[0] / 10000, 0);
+        ret = ArrayH::getElement(zasm30_aptr(ri->d[0]), 0);
         break;
         
     case GDD://Doesn't work like this =(
@@ -7738,12 +7758,12 @@ case COMBODDM:
         
     case SCRIPTRAM:
     case GLOBALRAM:
-        ArrayH::setElement(ri->d[0] / 10000, ri->d[1] / 10000, value);
+        ArrayH::setElement(zasm30_aptr(ri->d[0]), ri->d[1] / 10000, value);
         break;
         
     case SCRIPTRAMD:
     case GLOBALRAMD:
-        ArrayH::setElement(ri->d[0] / 10000, 0, value);
+        ArrayH::setElement(zasm30_aptr(ri->d[0]), 0, value);
         break;
         
     case REFFFC:
@@ -7923,8 +7943,11 @@ void do_allocatemem(const bool v, const bool local, const byte i)
         if(zasm30_ffscript_version >= 28)
         {
             if(ptrval == 0)
+            {
                 zasm30_object_ids_reset();
-            zasm30_object_id_new();
+                zasm30_arrays_forget();
+            }
+            zasm30_arr_bind(MAX_ZCARRAY_SIZE + ptrval, zasm30_object_id_new());
         }
 
         for(dword j = 0; j < (dword)size; j++)
@@ -7934,7 +7957,7 @@ void do_allocatemem(const bool v, const bool local, const byte i)
     }
     
     
-    set_register(sarg1, ptrval * 10000);
+    set_register(sarg1, zasm30_aval(ptrval));
     
     // If this happens once per frame, it can drown out every other message. -L
     /*Z_eventlog("Allocated %s array of size %d, pointer address %ld\n",
@@ -9014,10 +9037,10 @@ void do_drawing_command(const int script_command)
         long* size = &v->at(24);
         
         set_drawing_command_args(j, 8);
-        ArrayH::getValues(script_drawing_commands[j][2] / 10000, pos, 12);
-        ArrayH::getValues(script_drawing_commands[j][3] / 10000, uv, 8);
-        ArrayH::getValues(script_drawing_commands[j][4] / 10000, col, 4);
-        ArrayH::getValues(script_drawing_commands[j][5] / 10000, size, 2);
+        ArrayH::getValues(zasm30_aptr(script_drawing_commands[j][2]), pos, 12);
+        ArrayH::getValues(zasm30_aptr(script_drawing_commands[j][3]), uv, 8);
+        ArrayH::getValues(zasm30_aptr(script_drawing_commands[j][4]), col, 4);
+        ArrayH::getValues(zasm30_aptr(script_drawing_commands[j][5]), size, 2);
         
         script_drawing_commands[j].SetVector(v);
     }
@@ -9034,10 +9057,10 @@ void do_drawing_command(const int script_command)
         long* size = &v->at(18);
         
         set_drawing_command_args(j, 8);
-        ArrayH::getValues(script_drawing_commands[j][2] / 10000, pos, 8);
-        ArrayH::getValues(script_drawing_commands[j][3] / 10000, uv, 6);
-        ArrayH::getValues(script_drawing_commands[j][4] / 10000, col, 3);
-        ArrayH::getValues(script_drawing_commands[j][5] / 10000, size, 2);
+        ArrayH::getValues(zasm30_aptr(script_drawing_commands[j][2]), pos, 8);
+        ArrayH::getValues(zasm30_aptr(script_drawing_commands[j][3]), uv, 6);
+        ArrayH::getValues(zasm30_aptr(script_drawing_commands[j][4]), col, 3);
+        ArrayH::getValues(zasm30_aptr(script_drawing_commands[j][5]), size, 2);
         
         script_drawing_commands[j].SetVector(v);
     }
@@ -9050,7 +9073,7 @@ void do_drawing_command(const int script_command)
         //const int index = script_drawing_commands[j][19] = j;
         
         string *str = script_drawing_commands.GetString();
-        ArrayH::getString(script_drawing_commands[j][8] / 10000, *str);
+        ArrayH::getString(zasm30_aptr(script_drawing_commands[j][8]), *str);
         script_drawing_commands[j].SetString(str);
     }
     break;
@@ -9087,7 +9110,7 @@ void do_midi(bool v)
 
 void do_enh_music(bool v)
 {
-    long arrayptr = SH::get_arg(sarg1, v) / 10000;
+    long arrayptr = zasm30_aptr(SH::get_arg(sarg1, v));
     long track = (SH::get_arg(sarg2, v) / 10000)-1;
     
     if(arrayptr == 0)
@@ -9119,7 +9142,7 @@ void do_enh_music(bool v)
 void do_get_enh_music_filename(const bool v)
 {
     long ID = SH::get_arg(sarg1, v) / 10000;
-    long arrayptr = get_register(sarg2) / 10000;
+    long arrayptr = zasm30_aptr(get_register(sarg2));
     
     if(BC::checkDMapID(ID, "Game->GetDMapMusicFilename") != SH::_NoError)
         return;
@@ -9141,7 +9164,7 @@ void do_get_enh_music_track(const bool v)
 void do_set_dmap_enh_music(const bool v)
 {
     long ID   = SH::read_stack(SPR + 2) / 10000;
-    long arrayptr = SH::read_stack(SPR + 1) / 10000;
+    long arrayptr = zasm30_aptr(SH::read_stack(SPR + 1));
     long track = (SH::read_stack(SPR + 0) / 10000)-1;
     string filename_str;
     
@@ -9234,7 +9257,7 @@ void do_tracebool(const bool v)
 
 void do_tracestring()
 {
-    long arrayptr = get_register(sarg1) / 10000;
+    long arrayptr = zasm30_aptr(get_register(sarg1));
     string str;
     ArrayH::getString(arrayptr, str, 512);
     TraceScriptIDs();
@@ -9343,13 +9366,13 @@ void do_tracetobase()
 
 void do_arraysize()
 {
-    long arrayptr = get_register(sarg1) / 10000;
+    long arrayptr = zasm30_aptr(get_register(sarg1));
     set_register(sarg1, (long)(ArrayH::getSize(arrayptr) * 10000));
 }
 
 void do_getsavename()
 {
-    long arrayptr = get_register(sarg1) / 10000;
+    long arrayptr = zasm30_aptr(get_register(sarg1));
     
     // ZC_TEST_NAME (test runs only): the name a 2.55/3.0 quest's scripts get, as upstream's test
     // replays name their save after the test its TestRunner script should run.
@@ -9369,7 +9392,7 @@ void do_getsavename()
 
 void do_setsavename()
 {
-    long arrayptr = get_register(sarg1) / 10000;
+    long arrayptr = zasm30_aptr(get_register(sarg1));
     
     string str;
     ArrayH::getString(arrayptr, str);
@@ -9392,7 +9415,7 @@ void do_setsavename()
 void do_getmessage(const bool v)
 {
     long ID = SH::get_arg(sarg1, v) / 10000;
-    long arrayptr = get_register(sarg2) / 10000;
+    long arrayptr = zasm30_aptr(get_register(sarg2));
     
     if(BC::checkMessage(ID, "Game->GetMessage") != SH::_NoError)
         return;
@@ -9404,7 +9427,7 @@ void do_getmessage(const bool v)
 void do_getdmapname(const bool v)
 {
     long ID = SH::get_arg(sarg1, v) / 10000;
-    long arrayptr = get_register(sarg2) / 10000;
+    long arrayptr = zasm30_aptr(get_register(sarg2));
     
     if(BC::checkDMapID(ID, "Game->GetDMapName") != SH::_NoError)
         return;
@@ -9416,7 +9439,7 @@ void do_getdmapname(const bool v)
 void do_getdmaptitle(const bool v)
 {
     long ID = SH::get_arg(sarg1, v) / 10000;
-    long arrayptr = get_register(sarg2) / 10000;
+    long arrayptr = zasm30_aptr(get_register(sarg2));
     
     if(BC::checkDMapID(ID, "Game->GetDMapTitle") != SH::_NoError)
         return;
@@ -9428,7 +9451,7 @@ void do_getdmaptitle(const bool v)
 void do_getdmapintro(const bool v)
 {
     long ID = SH::get_arg(sarg1, v) / 10000;
-    long arrayptr = get_register(sarg2) / 10000;
+    long arrayptr = zasm30_aptr(get_register(sarg2));
     
     if(BC::checkDMapID(ID, "Game->GetDMapIntro") != SH::_NoError)
         return;
@@ -9439,7 +9462,7 @@ void do_getdmapintro(const bool v)
 
 void do_getitemname()
 {
-    long arrayptr = get_register(sarg1) / 10000;
+    long arrayptr = zasm30_aptr(get_register(sarg1));
     
     if(ArrayH::setArray(arrayptr, q30_item_name(ri->idata)) == SH::_Overflow)    // (any item of a 2.55/3.0 quest)
         Z_scripterrlog("Array supplied to 'itemdata->GetName' not large enough\n");
@@ -9447,7 +9470,7 @@ void do_getitemname()
 
 void do_getnpcname()
 {
-    long arrayptr = get_register(sarg1) / 10000;
+    long arrayptr = zasm30_aptr(get_register(sarg1));
     
     if(GuyH::loadNPC(ri->guyref, "npc->GetName") != SH::_NoError)
         return;
@@ -9460,7 +9483,7 @@ void do_getnpcname()
 
 void do_getffcscript()
 {
-    long arrayptr = get_register(sarg1) / 10000;
+    long arrayptr = zasm30_aptr(get_register(sarg1));
     string name;
     int num=-1;
     ArrayH::getString(arrayptr, name, 256); // What's the limit on name length?
@@ -9693,7 +9716,7 @@ static string zasm255_format(const string &format, long num_args)
             if(arg)
             {
                 string text;
-                ArrayH::getString(arg / 10000, text, 4096);
+                ArrayH::getString(zasm30_aptr(arg), text, 4096);
                 out += text;
             }
             else
@@ -9735,9 +9758,9 @@ static string zasm255_format(const string &format, long num_args)
 
 static void zasm255_sprintf(long num_args)
 {
-    const long dest = SH::read_stack(SPR + num_args + 1) / 10000;
+    const long dest = zasm30_aptr(SH::read_stack(SPR + num_args + 1));
     string format;
-    ArrayH::getString(SH::read_stack(SPR + num_args) / 10000, format, 4096);
+    ArrayH::getString(zasm30_aptr(SH::read_stack(SPR + num_args)), format, 4096);
     const string output = zasm255_format(format, num_args);
 
     if(ArrayH::setArray(dest, output) == SH::_Overflow)
@@ -9756,7 +9779,6 @@ static void zasm255_sprintf(long num_args)
 // sprites' Misc[] and the engine's other script storage, and from there every array and object
 // those reach. Whatever that leaves is freed. A false match only keeps an array a little
 // longer. Only arrays and objects a 3.0 script made are ever freed here.
-static bool zasm30_gc_marked[Z30_LOCALRAM_SIZE];
 static std::vector<bool> zasm30_obj_marked;
 static long zasm30_allocs_since_collect = 0;
 static bool zasm30_mark_bitmap(long v);     // q30_scripts_cmds.h: bitmaps a script made
@@ -9783,10 +9805,20 @@ static void zasm30_mark(long v, std::vector<long> &work)
     if(zasm30_mark_bitmap(v) || zasm30_mark_handle(v))
         return;
 
-    if(v <= 0 || v % 10000)
-        return;
+    long p;
 
-    long p = v / 10000;
+    if(zasm30_gc_arrays())          // (version 28 on: array ids, q30_scripts_arrays.h)
+    {
+        if(v <= 0 || !(p = zasm30_aptr(v)))
+            return;
+    }
+    else
+    {
+        if(v <= 0 || v % 10000)
+            return;
+
+        p = v / 10000;
+    }
 
     if(!(p < MAX_ZCARRAY_SIZE || zasm30_heap_slot(p)) || zasm30_gc_marked[p] || !zasm30_array_live(p))
         return;
@@ -9797,10 +9829,10 @@ static void zasm30_mark(long v, std::vector<long> &work)
 
 static void zasm30_mark_script(const refInfo &r, const long *stack_base, const Zasm30Frame &frame, std::vector<long> &work)
 {
-    for(int n = 0; n < 8; ++n)
+    for(int n = 0; n < 8 && !zasm30_mark_no_regs; ++n)
         zasm30_mark(r.d[n], work);
 
-    for(int n = 0; n < 2; ++n)
+    for(int n = 0; n < 2 && !zasm30_mark_no_regs; ++n)
         zasm30_mark(r.a[n], work);
 
     if(!frame.wstack.empty())
@@ -9841,7 +9873,7 @@ static void zasm30_mark_engine(std::vector<long> &work);   // q30_scripts_cmds.h
 static void zasm30_mark_region_states(std::vector<long> &work);    // q30_scripts_region.h
 static long zasm30_own_sprite_uid(long type);              // q30_scripts_cmds.h
 
-static void zasm30_collect()
+static void zasm30_collect_mark()
 {
     memset(zasm30_gc_marked, 0, sizeof(zasm30_gc_marked));
     zasm30_obj_marked.assign(zasm30_objects.size(), false);
@@ -9927,6 +9959,12 @@ static void zasm30_collect()
         for(dword m = 0; m < a.Size(); ++m)
             zasm30_mark(a[m], work);
     }
+}
+
+static void zasm30_collect()
+{
+    zasm30_collect_mark();
+    const bool counted = zasm30_ffscript_version >= 25;
 
     for(long p = 1; p < Z30_LOCALRAM_SIZE; ++p)
     {
@@ -11460,27 +11498,27 @@ int run_script(const byte type, const word script, const byte i)
             break;
 
         case ZASM255_READPODARRAYR:
-            set_register(sarg1, ArrayH::getElement(ri->d[0] / 10000, get_register(sarg2) / 10000));
+            set_register(sarg1, ArrayH::getElement(zasm30_aptr(ri->d[0]), get_register(sarg2) / 10000));
             break;
 
         case ZASM255_READPODARRAYV:
-            set_register(sarg1, ArrayH::getElement(ri->d[0] / 10000, sarg2 / 10000));
+            set_register(sarg1, ArrayH::getElement(zasm30_aptr(ri->d[0]), sarg2 / 10000));
             break;
 
         case ZASM255_WRITEPODARRAYRR:
-            ArrayH::setElement(ri->d[0] / 10000, get_register(sarg1) / 10000, get_register(sarg2));
+            ArrayH::setElement(zasm30_aptr(ri->d[0]), get_register(sarg1) / 10000, get_register(sarg2));
             break;
 
         case ZASM255_WRITEPODARRAYRV:
-            ArrayH::setElement(ri->d[0] / 10000, get_register(sarg1) / 10000, sarg2);
+            ArrayH::setElement(zasm30_aptr(ri->d[0]), get_register(sarg1) / 10000, sarg2);
             break;
 
         case ZASM255_WRITEPODARRAYVR:
-            ArrayH::setElement(ri->d[0] / 10000, sarg1 / 10000, get_register(sarg2));
+            ArrayH::setElement(zasm30_aptr(ri->d[0]), sarg1 / 10000, get_register(sarg2));
             break;
 
         case ZASM255_WRITEPODARRAYVV:
-            ArrayH::setElement(ri->d[0] / 10000, sarg1 / 10000, sarg2);
+            ArrayH::setElement(zasm30_aptr(ri->d[0]), sarg1 / 10000, sarg2);
             break;
 
         case ZASM255_POPARGS:
@@ -11501,7 +11539,7 @@ int run_script(const byte type, const word script, const byte i)
             char itoa_buf[16];
             sprintf(itoa_buf, "%ld", get_register(sarg2) / 10000);
 
-            if(ArrayH::setArray(get_register(sarg1) / 10000, string(itoa_buf)) == SH::_Overflow)
+            if(ArrayH::setArray(zasm30_aptr(get_register(sarg1)), string(itoa_buf)) == SH::_Overflow)
                 set_register(sarg1, -1);
             else
                 set_register(sarg1, (long)strlen(itoa_buf) * 10000L);
@@ -11555,7 +11593,7 @@ int run_script(const byte type, const word script, const byte i)
                 script_drawing_commands[j][k] = SH::read_stack(SPR + (11 - k));
 
             string *str = script_drawing_commands.GetString();
-            ArrayH::getString(script_drawing_commands[j][8] / 10000, *str);
+            ArrayH::getString(zasm30_aptr(script_drawing_commands[j][8]), *str);
             script_drawing_commands[j].SetString(str);
             zasm30_capture_draw_origin(j);
             break;
@@ -11621,7 +11659,7 @@ int run_script(const byte type, const word script, const byte i)
         case ZASM255_ATOL:
         {
             string number;
-            ArrayH::getString(get_register(sarg2) / 10000, number);
+            ArrayH::getString(zasm30_aptr(get_register(sarg2)), number);
             set_register(sarg1, atoi(number.c_str()) * (scommand == ZASM255_ATOI ? 10000 : 1));
             break;
         }
@@ -11718,15 +11756,15 @@ int run_script(const byte type, const word script, const byte i)
         case ZASM30_STRINGCOMPARE:
         {
             string a, b;
-            ArrayH::getString(ri->d[0] / 10000, a);
-            ArrayH::getString(ri->d[1] / 10000, b);
+            ArrayH::getString(zasm30_aptr(ri->d[0]), a);
+            ArrayH::getString(zasm30_aptr(ri->d[1]), b);
             set_register(sarg1, vbound(strcmp(a.c_str(), b.c_str()), -1, 1) * 10000);
             break;
         }
 
         case ZASM30_ARRAYPUSH:
         {
-            long ptr = SH::read_stack(SPR + 2) / 10000, value = SH::read_stack(SPR + 1), at = SH::read_stack(SPR) / 10000;
+            long ptr = zasm30_aptr(SH::read_stack(SPR + 2)), value = SH::read_stack(SPR + 1), at = SH::read_stack(SPR) / 10000;
             ZScriptArray &a = ArrayH::getArray(ptr);
 
             if(&a == &INVALIDARRAY || a.Size() >= 65535)
@@ -11749,7 +11787,7 @@ int run_script(const byte type, const word script, const byte i)
 
         case ZASM30_ARRAYPOP:
         {
-            long ptr = SH::read_stack(SPR + 1) / 10000, at = SH::read_stack(SPR) / 10000;
+            long ptr = zasm30_aptr(SH::read_stack(SPR + 1)), at = SH::read_stack(SPR) / 10000;
             ZScriptArray &a = ArrayH::getArray(ptr);
             long size = a.Size();
 
@@ -11771,7 +11809,7 @@ int run_script(const byte type, const word script, const byte i)
 
         case ZASM30_RESIZEARRAYR:
         {
-            ZScriptArray &a = ArrayH::getArray(get_register(sarg1) / 10000);
+            ZScriptArray &a = ArrayH::getArray(zasm30_aptr(get_register(sarg1)));
 
             if(&a != &INVALIDARRAY)
                 zasm30_resize_array(a, vbound(get_register(sarg2) / 10000, 0, 65535));     // 0: empty, as upstream
@@ -11786,8 +11824,14 @@ int run_script(const byte type, const word script, const byte i)
             set_register(sarg1, SH::read_stack(get_register(D(4)) + sarg2));
             break;
 
-        case ZASM30_STORE:
         case ZASM30_STORE_OBJECT:
+            if(zasm30_gc_arrays())
+            {
+                zasm30_store_object(get_register(D(4)) + sarg2, get_register(sarg1));
+                break;
+            }
+            // fall through
+        case ZASM30_STORE:
             SH::write_stack(get_register(D(4)) + sarg2, get_register(sarg1));
             break;
 
@@ -11796,6 +11840,12 @@ int run_script(const byte type, const word script, const byte i)
             break;
 
         case ZASM30_SET_OBJECT:
+            if(zasm30_gc_arrays())      // a global or instance variable that holds an object
+            {
+                const long old = get_register(sarg1), v = get_register(sarg2);
+                zasm30_ref_inc(v);
+                zasm30_ref_dec(old);
+            }
             set_register(sarg1, get_register(sarg2));
             break;
 
@@ -11981,7 +12031,7 @@ int run_script(const byte type, const word script, const byte i)
             std::map<const ffscript *, Zasm30Literal>::iterator it = zasm30_literals.find(&curscript[pc]);
 
             if(it != zasm30_literals.end())
-                ArrayH::setArray(get_register(sarg1) / 10000, it->second.str);
+                ArrayH::setArray(zasm30_aptr(get_register(sarg1)), it->second.str);
             break;
         }
 
@@ -11991,7 +12041,7 @@ int run_script(const byte type, const word script, const byte i)
 
             if(it != zasm30_literals.end())
             {
-                long ptr = get_register(sarg1) / 10000;
+                long ptr = zasm30_aptr(get_register(sarg1));
                 for(size_t n = 0; n < it->second.vec.size(); ++n)
                     ArrayH::setElement(ptr, (long)n, it->second.vec[n]);
             }
@@ -12046,7 +12096,7 @@ int run_script(const byte type, const word script, const byte i)
             if(printf_to_log)
             {
                 std::string format;
-                ArrayH::getString(SH::read_stack(SPR) / 10000, format, 65535);
+                ArrayH::getString(zasm30_aptr(SH::read_stack(SPR)), format, 65535);
                 al_trace("printf: %s", z30_printf_text(format, zasm30_frame().vargs).c_str());
             }
 
@@ -12205,14 +12255,30 @@ int run_script(const byte type, const word script, const byte i)
             }
             break;
 
-        // The collector finds what is still referenced (zasm30_collect), so the reference counts
-        // the compiler keeps aren't needed.
+        // Version 28 on: arrays are counted as upstream's (q30_scripts_arrays.h). Other objects:
+        // the collector finds what is still referenced (zasm30_collect).
         case ZASM30_REF_INC:
         case ZASM30_REF_DEC:
+            if(zasm30_gc_arrays())
+                zasm30_ref_change(sarg1, scommand == ZASM30_REF_INC);
+            break;
+
         case ZASM30_REF_AUTORELEASE:
+            if(zasm30_gc_arrays())
+                zasm30_autorelease(get_register(sarg1));
+            break;
+
         case ZASM30_REF_REMOVE:
-        case ZASM30_REF_COUNT:
+            if(zasm30_gc_arrays())
+                zasm30_ref_remove(sarg1);
+            break;
+
         case ZASM30_MARK_TYPE_STACK:
+            if(zasm30_gc_arrays())
+                zasm30_mark_type_stack(sarg1, sarg2);
+            break;
+
+        case ZASM30_REF_COUNT:
         case ZASM30_MARK_TYPE_REG:
         case ZASM30_ZCLASS_MARK_TYPE:
         case ZASM30_GC:
@@ -12456,7 +12522,10 @@ static void zasm30_run_screen_script_here(int)
 int ffscript_engine(const bool preload)
 {
     if(preload)
+    {
         q30_throw_generic_event(Z30EV_FFC_PRELOAD);    // newer quests' generic scripts (upstream)
+        q30_trig_screen_load_flush();                   // the screen-load triggers init_game deferred
+    }
 
     // In a 3.0 scrolling region every screen of it runs its screen script, then every screen its
     // FFC scripts, as upstream (q30_regions.h); anywhere else, the current screen as before.

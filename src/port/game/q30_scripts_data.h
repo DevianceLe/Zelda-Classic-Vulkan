@@ -561,7 +561,7 @@ static bool z30d_dmap_command(word cmd)
     }
 
     const long id = Z30_REF(DMAPDATA);
-    const long ptr = get_register(sarg1) / 10000;
+    const long ptr = zasm30_aptr(get_register(sarg1));
 
     if(!z30d_dmap_ok(id))
         return true;
@@ -3751,7 +3751,7 @@ static bool zasm30_data_command(word cmd)
     case Z30C_BOTTLENAMEGET:
     case Z30C_BOTTLENAMESET:
     {
-        const long ptr = get_register(sarg1) / 10000, id = Z30_REF(BOTTLETYPE) - 1;
+        const long ptr = zasm30_aptr(get_register(sarg1)), id = Z30_REF(BOTTLETYPE) - 1;
 
         if(unsigned(id) > 63)
         {
@@ -3776,7 +3776,7 @@ static bool zasm30_data_command(word cmd)
     case Z30C_BSHOPNAMESET:
     {
         // (upstream's SetName takes the shop after the loaded one, its ref not less one)
-        const long ptr = get_register(sarg1) / 10000;
+        const long ptr = zasm30_aptr(get_register(sarg1));
         const long id = cmd == Z30C_BSHOPNAMEGET ? Z30_REF(BOTTLESHOP) - 1 : Z30_REF(BOTTLESHOP);
 
         if(unsigned(id) > 255)
@@ -3800,7 +3800,7 @@ static bool zasm30_data_command(word cmd)
     }
     case Z30C_NPCDATAGETNAME:
     {
-        const long ptr = get_register(sarg1) / 10000, id = Z30_REF(NPCDATA);
+        const long ptr = zasm30_aptr(get_register(sarg1)), id = Z30_REF(NPCDATA);
 
         if(unsigned(id) > 511)
             Z_scripterrlog("Invalid npc ID (%ld) passed to npcdata->GetName().\n", id);

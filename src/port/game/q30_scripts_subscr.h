@@ -3740,7 +3740,7 @@ static bool zasm30_sub_command(word cmd)
         Z30Subscreen *s = z30_subdata(Z30_REF(SUBSCREENDATA));
         if(!s)
             return true;
-        const long ptr = get_register(sarg1) / 10000;
+        const long ptr = zasm30_aptr(get_register(sarg1));
         if(cmd == Z30C_SUBDATA_GET_NAME)
             z30_set_string(ptr, s->name);
         else
@@ -3772,7 +3772,7 @@ static bool zasm30_sub_command(word cmd)
         if(cmd == Z30C_SUBPAGE_FIND_WIDGET_BY_LABEL)
         {
             std::string lbl;
-            ArrayH::getString(SH::read_stack(SPR) / 10000, lbl);
+            ArrayH::getString(zasm30_aptr(SH::read_stack(SPR)), lbl);
 
             for(size_t q = 0; lbl.size() && q < p->widgets.size() && found < 0; ++q)
                 if(p->widgets[q].label == lbl)
@@ -3821,7 +3821,7 @@ static bool zasm30_sub_command(word cmd)
             return true;
         }
 
-        const long ptr = get_register(sarg1) / 10000;
+        const long ptr = zasm30_aptr(get_register(sarg1));
 
         if(cmd == Z30C_SUBWIDG_TY_GETTEXT)
             z30_set_string(ptr, std::string(o->dp1 ? (const char *)o->dp1 : ""));
@@ -3844,7 +3844,7 @@ static bool zasm30_sub_command(word cmd)
         Z30SubWidget *w = z30_subwidg(Z30_REF(SUBSCREENWIDG));
         if(!w)
             return true;
-        const long ptr = get_register(sarg1) / 10000;
+        const long ptr = zasm30_aptr(get_register(sarg1));
         if(cmd == Z30C_SUBWIDG_GET_LABEL)
             z30_set_string(ptr, w->label);
         else

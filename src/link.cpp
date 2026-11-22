@@ -297,6 +297,7 @@ static byte q30_layer_grid[2][22];
 // flippers, or lava without the flippers' flag 3) are not water. Returns the combo, 0 for none.
 // shallow: shallow water counts too (upstream's ShallowCheck: the combo type, or water with its flag 4).
 static bool q30_ignore_dive_under = false;  // (the water as it would be with Link at the surface)
+static bool q30_water_nohero = false;       // (a sprite's water: upstream's iswaterex with hero false)
 
 static int q30_ss_water_layer(int layer, int x, int y, bool shallow)   // layer -1: the screen; 0 and 1: layers 1 and 2
 {
@@ -310,7 +311,7 @@ static int q30_ss_water_layer(int layer, int x, int y, bool shallow)   // layer 
 
         bool q30_hero_dives_under(int cid);     // (q30_triggers.cpp)
 
-        if(!q30_ignore_dive_under && q30_hero_dives_under(cid))     // (upstream: Link diving under this layer's combo)
+        if(!q30_ignore_dive_under && !q30_water_nohero && q30_hero_dives_under(cid))     // (upstream: Link diving under this layer's combo)
             continue;
 
         if(c && c->type == Q30C_BRIDGE && (q30_quest_rule(313) ? !(walk & (1 << b)) : (walk & (0x10 << b)) != 0))  // qr_OLD_BRIDGE_COMBOS
@@ -326,8 +327,8 @@ static int q30_ss_water_layer(int layer, int x, int y, bool shallow)   // layer 
         {
             const int flippers = current_item_id(itype_flippers);
 
-            if((c->usrflags & 0xC) || current_item(itype_flippers) < c->attributes[8] / 10000
-               || ((c->usrflags & 0x1) && !(flippers >= 0 && q30_item_flag(flippers, ITEM_FLAG3))))
+            if((c->usrflags & 0xC) || (!q30_water_nohero && (current_item(itype_flippers) < c->attributes[8] / 10000
+               || ((c->usrflags & 0x1) && !(flippers >= 0 && q30_item_flag(flippers, ITEM_FLAG3))))))
                 return 0;
         }
     }
@@ -372,6 +373,15 @@ static int q30_ss_water(int x, int y, bool shallow = false)
                 return cid;
 
     return 0;
+}
+
+// 2.55/3.0 weapons drowning (q30_weapon_fx.h): the water a sprite other than Link is over, 0 for none
+int q30_water_at(int x, int y)
+{
+    q30_water_nohero = true;
+    const int cid = q30_ss_water(x, y);
+    q30_water_nohero = false;
+    return cid;
 }
 
 // dRipples::animate under qr_SHALLOW_SENSITIVE (2.55/3.0): 1 when the ripples go, 0 while they
@@ -502,6 +512,8 @@ static bool q30_item_jinx_ok(int item, bool sword)
 }
 static int q30_sprite_index(sprite_list &list, int index, long uid);    // below
 void q30_shield_jinx_reset(bool all);
+void q30_bubble_shield_jinx(int guy, int dm7, int divisor, bool ringflag1);   // (q30_scripts_regs.h)
+void q30_shield_jinx_tick();
 
 // called by ALLOFF()
 void LinkClass::resetflags(bool all)
@@ -4428,6 +4440,10 @@ void LinkClass::hitlink(int hit2)
         //I can only assume these are supposed to be int, not bool ~pkmnfrk
         int sworddivisor = ((itemid>-1 && itemsbuf[itemid].misc1 & 1) ? itemsbuf[itemid].power : 1);
         int itemdivisor = ((itemid>-1 && itemsbuf[itemid].misc1 & 2) ? itemsbuf[itemid].power : 1);
+
+        if(q30_active())    // (2.55/3.0: the shield too, upstream's e8tSHIELD)
+            q30_bubble_shield_jinx(((enemy*)guys.spr(hit2))->id & 0xFFF, dm7, (itemid>-1 && (itemsbuf[itemid].misc1 & 4)) ? itemsbuf[itemid].power : 1,
+                                   itemid>-1 && (itemsbuf[itemid].flags & ITEM_FLAG1));
         
         switch(dm7)
         {
@@ -5098,6 +5114,9 @@ bool LinkClass::animate(int)
         
     if(itemclk>0)
         --itemclk;
+
+    if(q30_active())
+        q30_shield_jinx_tick();
         
     // 2.55/3.0: signs and button triggers (upstream's checksigns), before Link moves or his
     // sword can take the press

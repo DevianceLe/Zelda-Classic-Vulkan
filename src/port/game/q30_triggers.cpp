@@ -3532,7 +3532,7 @@ bool run_trigger_core(const H &h, size_t idx, int special, weapon *w)
     }
 
     if(g_trig_trace)
-        al_trace("q30 trig RUN cid %d idx %d type %d lyr %d pos %d ffc %d wpn %d special %d swjinx %d timer %d prox %d\n", cid, (int)idx, c->type, h.layer, h.pos, h.ffc, w ? w->id : -1, special, (int)c->triggers[idx].trig_swjinxtime, (int)c->triggers[idx].trigtimer, (int)c->triggers[idx].trigprox);
+        al_trace("q30 trig RUN cid %d idx %d type %d lyr %d pos %d ffc %d wpn %d special %d swjinx %d timer %d prox %d frame %d linkdir %d destdir %d dest %ld,%ld\n", cid, (int)idx, c->type, h.layer, h.pos, h.ffc, w ? w->id : -1, special, (int)c->triggers[idx].trig_swjinxtime, (int)c->triggers[idx].trigtimer, (int)c->triggers[idx].trigprox, frame, Link.getDir(), (int)c->triggers[idx].dest_player_dir, c->triggers[idx].dest_player_x, c->triggers[idx].dest_player_y);
 
     bool check_bit = w ? wpn_done(w, key) : false;
     bool used_bit = false;
@@ -6005,8 +6005,13 @@ static void screen_trig_visit(const H &h, void *ctx)
     while(++guard < 32);
 }
 
+bool q30_trig_defer_screen_load = false;
+static bool g_screen_load_pending = false;
+
 void q30_trig_screen_load()
 {
+    g_screen_load_pending = false;
+
     if(!q30_active() || tmpscr[0].data.empty())
         return;
 
@@ -6060,8 +6065,29 @@ void q30_trig_screen_load()
     for(int i = 0; i < Q30_MAXFFCS; ++i)
         g_ffcpos[i].data = tmpscr[0].ffdata[i];
 
+    // Upstream fires the screen-load triggers in ffscript_engine(true) (handle_region_load_trigger),
+    // after the game has placed the hero; init_game defers them to there (q30_trig_defer_screen_load),
+    // so a trigger that sets the hero's direction is not undone by Link.init (Mystical Harps'
+    // temple 511/0x4D and blacksmith 402/26 start screens)
+    if(q30_trig_defer_screen_load)
+    {
+        g_screen_load_pending = true;
+        return;
+    }
+
     for_all_positions(screen_trig_visit, (void *)1);
 
+}
+
+void q30_trig_screen_load_flush()
+{
+    if(!g_screen_load_pending)
+        return;
+
+    g_screen_load_pending = false;
+
+    if(q30_active())
+        for_all_positions(screen_trig_visit, (void *)1);
 }
 
 void q30_trig_screen_unload()

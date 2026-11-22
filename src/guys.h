@@ -173,6 +173,7 @@ protected:
     void q30_rock_shadow(BITMAP *dest, bool translucent);
     bool canmove(int ndir,fix s,int special,int dx1,int dy1,int dx2,int dy2);
     bool q30_canmove(int ndir,fix s,int special,int dx1,int dy1,int dx2,int dy2);
+    bool q30_offgrid();     // the enemy editor's off-grid movement flag (2.55/3.0)
     void q30_move_box(int &dx2, int &dy2);
     bool canmove(int ndir,fix s,int special);
     bool canmove(int ndir,int special);

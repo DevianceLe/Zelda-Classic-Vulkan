@@ -188,7 +188,7 @@ static q30_live_enemy_access *z30_live_npc(const char *what)
 // The array a movement command takes, or NULL (upstream's ArrayManager am(arrayptr); am.invalid()).
 static ZScriptArray *z30_live_array(long ptr)
 {
-    ZScriptArray &a = ArrayH::getArray(ptr / 10000);
+    ZScriptArray &a = ArrayH::getArray(zasm30_aptr(ptr));
     return &a == &INVALIDARRAY ? NULL : &a;
 }
 
@@ -302,7 +302,7 @@ static void z30_own_value(long v, long type)
 
 static void zasm30_own_array(long ptr, long type)
 {
-    const long p = ptr / 10000;
+    const long p = zasm30_aptr(ptr);
 
     if(p >= MAX_ZCARRAY_SIZE && p < MAX_ZCARRAY_SIZE * 2)
         return;     // a global array: ignored, as upstream's
@@ -1395,6 +1395,7 @@ static bool zasm30_live_get(const long arg, long &ret)
     case Z30R_LWPNGRAVITY: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); ret = (st && (st->move_flags & 1)) ? 10000 : 0; return true; }
     case Z30R_LWPNDROWNCLK: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); ret = st ? st->drown_clk * 10000 : 0; return true; }
     case Z30R_EWPNFALLCLK: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); ret = st ? st->fall_clk * 10000 : 0; return true; }
+    case Z30R_LWPNFALLCLK: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); ret = st ? st->fall_clk * 10000 : 0; return true; }
     case Z30R_LWPNVX:
     case Z30R_LWPNVY:
     {
@@ -1543,6 +1544,10 @@ static bool zasm30_live_set(const long arg, const long value)
         if(weapon *w = z30_ewpn_ref())
             z30_wpn_clk_write(w, z30_state_of(w)->fall_clk, value);
         return true;
+    case Z30R_LWPNFALLCLK:
+        if(weapon *w = z30_lwpn_ref())
+            z30_wpn_clk_write(w, z30_state_of(w)->fall_clk, value);
+        return true;
     case Z30R_LWPNVX:
     case Z30R_LWPNVY:
         if(weapon *w = z30_lwpn_ref())
@@ -1589,7 +1594,7 @@ static bool zasm30_live_command(word cmd)
     {
         std::string name;
         long num = -1;
-        ArrayH::getString(get_register(sarg1) / 10000, name, 256);
+        ArrayH::getString(zasm30_aptr(get_register(sarg1)), name, 256);
 
         for(int q = 0; q < MAXGUYS; ++q)
         {

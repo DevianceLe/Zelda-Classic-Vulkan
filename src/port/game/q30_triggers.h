@@ -420,6 +420,10 @@ int q30_combo_flag(int id);
 void q30_trig_update();
 // A new screen just became tmpscr / is being left (trigger timers, ScreenLoad triggers).
 void q30_trig_screen_load();
+// init_game sets q30_trig_defer_screen_load around its loadscr: the screen-load triggers then wait for
+// q30_trig_screen_load_flush (called by ffscript_engine(true), as upstream's handle_region_load_trigger)
+extern bool q30_trig_defer_screen_load;
+void q30_trig_screen_load_flush();
 void q30_trig_screen_unload();
 // A scrolling region's other screen, as drawn before Link goes on it (q30_regions.cpp): the combo
 // changes its exstates, ex doors and combo position states made (mi: its map index).

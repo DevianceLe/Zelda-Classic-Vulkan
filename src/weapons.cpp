@@ -101,6 +101,9 @@ void q30_weapon_fall(weapon *w);
 void q30_weapon_solid(weapon *w);
 bool q30_weapon_no_collision(weapon *w);
 void q30_weapon_blast_flags(weapon *w, int how);
+void q30_weapon_pits(weapon *w);          // q30_weapon_fx.h: falling into pits and drowning
+int q30_weapon_falling(weapon *w);
+int q30_weapon_fall_draw(weapon *w);
 
 // 2.55/3.0 without qr_BROKEN_HORIZONTAL_WEAPON_ANIM (236): a weapon facing sideways animates from
 // its sideways tile (upstream's _handle_loadsprite: o_tile = tile after each update_weapon_frame)
@@ -1607,6 +1610,12 @@ bool weapon::animate(int index)
     if(q30_switch_hooked(this, -1))
         return false;
 
+    // 2.55/3.0: a weapon falling into a pit or drowning does only that, then goes without its
+    // death effects (upstream's fallclk / drownclk in weapon::animate)
+    if(q30_active())
+        if(const int f = q30_weapon_falling(this))
+            return f == 2;
+
     const bool gone = animate_body(index);
 
     if(gone && dead == 0 && q30_quest_rule(Q30_QR_WEAPONS_EXTRA_DEATH_FRAME))
@@ -1638,7 +1647,10 @@ bool weapon::animate_body(int)
     
     // fall down (2.55/3.0: as the move flags say, upstream's weapon::animate)
     if(q30_active())
+    {
         q30_weapon_fall(this);
+        q30_weapon_pits(this);
+    }
     else switch(id)
     {
     case wFire:
@@ -4028,6 +4040,14 @@ void weapon::draw(BITMAP *dest)
 {
     if(q30_dying_frame)     // (upstream: a weapon in its extra death frame isn't drawn)
         return;
+
+    if(q30_active())        // (falling or drowning: the plain sprite, upstream's weapon::draw)
+        if(const int f = q30_weapon_fall_draw(this))
+        {
+            if(f == 1)
+                sprite::draw(dest);
+            return;
+        }
 
     if(flash==1)
     {

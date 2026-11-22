@@ -1016,7 +1016,7 @@ static void z30_gameover_write(int index, int v)
 static void z30_gameover_text_write(int index, long ptr)
 {
     std::string s;
-    ArrayH::getString(ptr / 10000, s, 73);
+    ArrayH::getString(zasm30_aptr(ptr), s, 73);
 
     if(s.size() > 31)
         s.resize(31);
@@ -1042,7 +1042,35 @@ const char *q30_gameover_text(int line)
 // down each frame, and -1 lasts until cured. link.cpp asks q30_shield_jinxed() before blocking.
 static int zasm30_shield_jinx = 0;
 
-bool q30_shield_jinxed() { return zasm30_ffscript_version && zasm30_shield_jinx != 0; }
+bool q30_shield_jinxed() { return (zasm30_ffscript_version || q30_active()) && zasm30_shield_jinx != 0; }
+
+const Q30GuyData *q30_guy_data(int guy);    // q30_scripts_data.h
+
+// A bubble enemy's touch (upstream hero.cpp, eeWALK): with the shield among what it jinxes (its
+// attribute 8's e8tSHIELD, 4) it jinxes the shield for 150 frames (by the Whisp Ring's divisor),
+// for good (or 150 frames with the ring's flag 1), or cures it, as it does the sword.
+void q30_bubble_shield_jinx(int guy, int dm7, int divisor, bool ringflag1)
+{
+    const Q30GuyData *x = q30_guy_data(guy);
+
+    if(!x || !(x->attributes[7] & 4))
+        return;
+
+    switch(dm7)
+    {
+    case e7tTEMPJINX: if(zasm30_shield_jinx >= 0 && divisor) zasm30_shield_jinx = 150 / divisor; break;
+    case e7tPERMJINX: if(divisor) zasm30_shield_jinx = ringflag1 ? 150 / divisor : -1; break;
+    case e7tUNJINX: zasm30_shield_jinx = 0; break;
+    }
+}
+
+// the jinx counts down with Link's other jinxes in a quest without 3.0 scripts (with them: at the
+// start of the frame, zasm30_frame_start)
+void q30_shield_jinx_tick()
+{
+    if(!zasm30_ffscript_version && zasm30_shield_jinx > 0)
+        --zasm30_shield_jinx;
+}
 
 // LinkClass::resetflags: jinxes that count down are cured, and all of them with 'all'.
 void q30_shield_jinx_reset(bool all)
@@ -2838,7 +2866,6 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     }
     case Z30R_SCREENDATASECRETSFX: ret = tmpscr->secretsfx * 10000; return true;
     case Z30R_CLOCKACTIVE: ret = watch ? 10000 : 0; return true;
-    case Z30R_LWPNFALLCLK: ret = 0; return true;     // weapons never fall here either
     case Z30R_SCREENSIDEWARPID:
     {
         const long n = Z30_INDEX;
