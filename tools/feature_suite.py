@@ -271,12 +271,15 @@ def zasm_names():
     """ZASM command / register numbers -> names, from our compiler's copy of upstream's defines.h."""
     global ZASM_NAMES
     if ZASM_NAMES is None:
-        ZASM_NAMES = {'cmd': {}, 'reg': {}}
+        # built whole before it is published: worker threads must never see a half-filled table
+        # (they did with --jobs 6, and unhandled items were then counted as "differ")
+        names = {'cmd': {}, 'reg': {}}
         t = open(os.path.join(ROOT, 'src', 'port', 'zscript30', 'components', 'zasm', 'defines.h'), encoding='utf-8', errors='replace').read()
         for m in re.finditer(r'^\s*(\w+),\s*//\s*(0x[0-9A-Fa-f]+)', t, re.M):
-            ZASM_NAMES['cmd'][int(m.group(2), 16)] = m.group(1)
+            names['cmd'][int(m.group(2), 16)] = m.group(1)
         for m in re.finditer(r'^#define\s+(\w+)\s+(0x[0-9A-Fa-f]+|\d+)\b', t, re.M):
-            ZASM_NAMES['reg'].setdefault(int(m.group(2), 0), m.group(1))
+            names['reg'].setdefault(int(m.group(2), 0), m.group(1))
+        ZASM_NAMES = names
     return ZASM_NAMES
 
 
@@ -434,6 +437,7 @@ def main():
             shutil.rmtree(os.path.join(a.work, 'runs', f['name'], 'fd'), ignore_errors=True)
         return f, st, note, item
     t0 = time.time(); cnt = {}; cov = [0, 0, 0, 0]; covd = []
+    zasm_names()        # fill the name table before the worker threads start
     with ThreadPoolExecutor(a.jobs) as ex:
         for f, st, note, item in ex.map(one, sel):
             cnt[st] = cnt.get(st, 0) + 1
