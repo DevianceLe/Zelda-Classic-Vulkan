@@ -969,17 +969,20 @@ int q255_read_initdata(Q255Section &s)
             if(sz)
             {
                 // screen script data: a size, then the values, which upstream keeps as given
+                // (the screen's size is the first one: upstream's resize(sz))
                 dword n = s.igetl();
                 if(n > s.left() / 4)
                 {
                     s.failed = true;
                     break;
                 }
+                if(s.keep)
+                    q30_set_screen_data_init((int)q, (long)sz, -1, 0);
                 for(dword k = 0; k < n && !s.failed; ++k)
                 {
                     long val = s.igetl_s();
                     if(s.keep)
-                        q30_set_screen_data_init((int)q, (long)n, (int)k, val);
+                        q30_set_screen_data_init((int)q, (long)sz, (int)k, val);
                 }
             }
         }

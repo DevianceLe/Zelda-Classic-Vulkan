@@ -41,6 +41,7 @@
 
 extern zinitdata zinit;
 extern zquestheader header;
+extern word map_count;
 extern ZCHEATS zcheats;
 extern itemdata *itemsbuf;
 extern item_drop_object item_drop_sets[MAXITEMDROPSETS];
@@ -1138,19 +1139,203 @@ bool store_generic_same()
     return true;
 }
 
+// ---- the init screen script data (upstream's zinit.screen_data) ----
+//
+// A bounded_map<dword, bounded_map<dword, int32_t>>: each map screen's Screen->Data[] at the
+// start, its size and values. As upstream holds it after a load: values past a screen's size
+// and zeros left out, and screens of size 0 too (they equal the container's default). ZQuest's
+// Copy and Paste All carry it (zqw_maps.cpp), which can leave a screen of size 0 in the store
+// where upstream's operator[] leaves one: it counts for where the container ends, as there.
+
+typedef std::map<int, std::pair<long, std::map<int, long> > > ScreenDataNorm;
+
+void screen_data_norm(const std::map<int, Zq255Store::ScreenData> &a, ScreenDataNorm &out)
+{
+    out.clear();
+
+    for(std::map<int, Zq255Store::ScreenData>::const_iterator i = a.begin(); i != a.end(); ++i)
+    {
+        if(i->first < 0 || i->second.size <= 0)
+            continue;
+
+        std::pair<long, std::map<int, long> > &s = out[i->first];
+        s.first = i->second.size;
+
+        for(std::map<int, long>::const_iterator j = i->second.values.begin(); j != i->second.values.end(); ++j)
+            if(j->first >= 0 && j->first < i->second.size && j->second)
+                s.second[j->first] = j->second;
+    }
+}
+
 bool store_screen_data_same()
 {
-    const std::map<int, Zq255Store::ScreenData> &a = zq255.screen_data_init, &b = g_snap.screen_data;
+    ScreenDataNorm a, b;
+    screen_data_norm(zq255.screen_data_init, a);
+    screen_data_norm(g_snap.screen_data, b);
+    return a == b;
+}
 
-    if(a.size() != b.size())
+// p_putbmap's choice: key / value pairs when they take no more room than every value up to the
+// last key. Upstream weighs an entry by its C++ type: an int32_t 4 bytes, a screen's own
+// bounded_map the object's size in its x64 build (32: vtable pointer, size, default, std::map).
+bool bmap_pairs(size_t used, size_t through, size_t value_size)
+{
+    return used * (value_size + 4) <= through * value_size;
+}
+
+// One screen's bounded_map<dword, int32_t>, as p_putbmap writes it.
+void put_screen_values(Buf &o, long size, const std::map<int, long> &vals)
+{
+    o.l(size > 0 ? size : 0);
+
+    if(size <= 0)
+        return;
+
+    const size_t used = vals.size(), through = vals.empty() ? 0 : (size_t)vals.rbegin()->first + 1;
+    const bool pairs = bmap_pairs(used, through, 4);
+    o.c(pairs ? 1 : 0);
+    o.l((long)(pairs ? used : through));
+
+    if(pairs)
+    {
+        for(std::map<int, long>::const_iterator j = vals.begin(); j != vals.end(); ++j)
+        {
+            o.l(j->first);
+            o.l(j->second);
+        }
+    }
+    else
+    {
+        for(size_t q = 0; q < through; ++q)
+        {
+            std::map<int, long>::const_iterator j = vals.find((int)q);
+            o.l(j == vals.end() ? 0 : j->second);
+        }
+    }
+}
+
+// INIT v37 and up (2.55.18's v38, 3.0's v52): p_putbmap(zinit.screen_data); bound: the
+// container's size (upstream's MAXSCRS, 255 maps of 136 screens).
+void put_screen_data_new(Buf &o, dword bound)
+{
+    const std::map<int, Zq255Store::ScreenData> &a = zq255.screen_data_init;
+    ScreenDataNorm n;
+    screen_data_norm(a, n);
+    o.l((long)bound);
+
+    if(!bound)
+        return;
+
+    size_t used = 0, through = 0;
+
+    for(std::map<int, Zq255Store::ScreenData>::const_iterator i = a.begin(); i != a.end(); ++i)
+        if(i->first >= 0 && (dword)i->first < bound)
+            through = (size_t)i->first + 1;
+
+    for(ScreenDataNorm::const_iterator i = n.begin(); i != n.end(); ++i)
+        if((dword)i->first < bound)
+            ++used;
+
+    const bool pairs = bmap_pairs(used, through, 32);
+    o.c(pairs ? 1 : 0);
+    o.l((long)(pairs ? used : through));
+
+    if(pairs)
+    {
+        for(ScreenDataNorm::const_iterator i = n.begin(); i != n.end(); ++i)
+        {
+            if((dword)i->first >= bound)
+                continue;
+
+            o.l(i->first);
+            put_screen_values(o, i->second.first, i->second.second);
+        }
+    }
+    else
+    {
+        for(size_t q = 0; q < through; ++q)
+        {
+            ScreenDataNorm::const_iterator i = n.find((int)q);
+
+            if(i == n.end())
+                o.l(0);
+            else
+                put_screen_values(o, i->second.first, i->second.second);
+        }
+    }
+}
+
+// INIT v35 and v36 (2.55 alphas, the writer of upstream's b080de56c): how many screens follow
+// (up to the last one with data, of the maps the quest has), then each one's size and, when it
+// has one, its values as a vector (count, then each value).
+void put_screen_data_old(Buf &o)
+{
+    ScreenDataNorm n;
+    screen_data_norm(zq255.screen_data_init, n);
+    long used = 0;
+
+    for(ScreenDataNorm::const_iterator i = n.begin(); i != n.end(); ++i)
+        if(i->first <= (long)map_count * MAPSCRS)
+            used = i->first + 1;
+
+    o.l(used);
+
+    for(long q = 0; q < used; ++q)
+    {
+        ScreenDataNorm::const_iterator i = n.find((int)q);
+        const long size = i == n.end() ? 0 : i->second.first;
+        o.l(size);
+
+        if(!size)
+            continue;
+
+        o.l(size);
+
+        for(long k = 0; k < size; ++k)
+        {
+            std::map<int, long>::const_iterator j = i->second.second.find((int)k);
+            o.l(j == i->second.second.end() ? 0 : j->second);
+        }
+    }
+}
+
+// The section's screen data as this version holds it (false: it has no place for any).
+bool encode_screen_data(int v, dword bound, std::vector<byte> &out)
+{
+    Buf o;
+
+    if(v >= 37)
+        put_screen_data_new(o, bound ? bound : 255 * 136);
+    else if(v > 34)
+        put_screen_data_old(o);
+    else
         return false;
 
-    std::map<int, Zq255Store::ScreenData>::const_iterator i = a.begin(), j = b.begin();
+    out.swap(o.b);
+    return true;
+}
 
-    for(; i != a.end(); ++i, ++j)
-        if(i->first != j->first || i->second.size != j->second.size || i->second.values != j->second.values)
-            return false;
+// An INIT record (the init data editor's) with the screen data ZQuest has now, when that
+// changed since the load (Paste All): false when this version has no place for it.
+bool record_take_screen_data(std::vector<byte> &rec, int v)
+{
+    if(store_screen_data_same())
+        return true;
 
+    Tape t;
+    TapeParser tp(rec.empty() ? NULL : &rec[0], rec.size(), 0, &t);
+    TapeField *x = NULL;
+
+    if(!zq_tape_init(tp, v) || tp.pos != rec.size() || !(x = t.find("screen_data")))
+        return false;
+
+    const dword bound = x->bytes.size() >= 4 ? (dword)(x->bytes[0] | (x->bytes[1] << 8) | (x->bytes[2] << 16) | ((dword)x->bytes[3] << 24)) : 0;
+
+    if(!encode_screen_data(v, bound, x->bytes))
+        return false;
+
+    rec.clear();
+    t.encode(rec);
     return true;
 }
 
@@ -1523,10 +1708,21 @@ void init_new(Patch &p, int v)
     copy_bounded(p, 2, 4);      // event states
     copy_bounded_nested(p, 2, walk_long_map);
 
-    if(!store_screen_data_same())
-        p.fail("changed screen script start data");
-
-    copy_bounded_nested(p, 4, walk_long_map);
+    // the screen script data: as it was, or what Copy / Paste All left (upstream's writer)
+    if(store_screen_data_same())
+        copy_bounded_nested(p, 4, walk_long_map);
+    else
+    {
+        Buf c;
+        Patch q(s, c);
+        const size_t at = s.pos;
+        const dword bound = (dword)s.l();
+        s.pos = at;
+        copy_bounded_nested(q, 4, walk_long_map);    // past the original's
+        std::vector<byte> enc;
+        encode_screen_data(v, bound, enc);
+        p.o.put(enc.empty() ? NULL : &enc[0], enc.size());
+    }
 
     if(v >= 38)
         p.copy(3);
@@ -1741,9 +1937,6 @@ void init_255_old(Patch &p, int v)
 
     if(v > 34)
     {
-        if(!store_screen_data_same())
-            p.fail("changed screen script start data");
-
         size_t at = s.pos;
         long used = s.l();
 
@@ -1762,7 +1955,17 @@ void init_255_old(Patch &p, int v)
 
         size_t end = s.pos;
         s.pos = at;
-        p.copy(end - at);
+
+        // as it was, or what Copy / Paste All left
+        if(store_screen_data_same())
+            p.copy(end - at);
+        else if(!s.bad)
+        {
+            std::vector<byte> enc;
+            encode_screen_data(v, 0, enc);
+            p.o.put(enc.empty() ? NULL : &enc[0], enc.size());
+            s.pos = end;
+        }
     }
     else if(!store_screen_data_same())
         p.fail("screen script start data");
@@ -1895,6 +2098,13 @@ int write_initdata(PACKFILE *f, const ZqPartContext &ctx)
             if(TapeField *x = t.find("last_screen")) x->value = zinit.last_screen;
             rec.clear();
             t.encode(rec);
+
+            // and the screen script data Copy / Paste All left since
+            if(!record_take_screen_data(rec, v))
+            {
+                set_why("the init data: this version has no place for screen script data");
+                return CANT_HOLD;
+            }
             Buf body;
             body.put(&rec[0], rec.size());
             return emit(f, ctx.part->id, s, h, body);
@@ -3579,6 +3789,22 @@ void hash_init_record(uint64_t *h)
 {
     if(!zq255.init_record.empty())
         zq_hash_add(h, &zq255.init_record[0], zq255.init_record.size());
+
+    // the screen script data Copy / Paste All carry
+    ScreenDataNorm n;
+    screen_data_norm(zq255.screen_data_init, n);
+
+    for(ScreenDataNorm::const_iterator i = n.begin(); i != n.end(); ++i)
+    {
+        const long head[2] = { (long)i->first, i->second.first };
+        zq_hash_add(h, head, sizeof(head));
+
+        for(std::map<int, long>::const_iterator j = i->second.second.begin(); j != i->second.second.end(); ++j)
+        {
+            const long kv[2] = { (long)j->first, j->second };
+            zq_hash_add(h, kv, sizeof(kv));
+        }
+    }
 }
 
 ZqStoreHashRegistration g_hash_init(ID_INITDATA, hash_init_record);
@@ -3611,6 +3837,8 @@ bool zq255_init_record(std::vector<byte> &rec, int *version)
     else
         rec.assign(d.begin() + 8, d.end());
 
+    // with the screen script data as ZQuest has it now (Copy / Paste All since the load)
+    record_take_screen_data(rec, v);
     return true;
 }
 

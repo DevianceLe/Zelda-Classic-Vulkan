@@ -244,12 +244,13 @@ struct HostDialog
     bool was_top;
     int focused_obj;                // ImGui focus last frame
     bool list_focused;              // a list had the focus last frame
+    int list_keys;                  // the list that has jwin's keyboard focus (-1: none)
     bool popup_open;                // a popup (menu, combo) was open last frame
     unsigned int open_menu_seen;
 
     HostDialog() : id(0), dirty_x0(0), dirty_y0(0), dirty_x1(0), dirty_y1(0), popup_closed(false),
                    next_serial(1), frames(0), was_top(false), focused_obj(-1),
-                   list_focused(false), popup_open(false), open_menu_seen(0) {}
+                   list_focused(false), list_keys(-1), popup_open(false), open_menu_seen(0) {}
 };
 
 struct Shared

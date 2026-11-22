@@ -40,6 +40,7 @@ extern word map_count;
 extern newcombo *combobuf;
 extern zinitdata zinit;
 extern zquestheader header;
+extern int q255_header_version[3];     // q255_basic.cpp: a 2.55/3.0 quest's header version
 void clear_screen(mapscr *temp_scr);   // qst.cpp
 
 // q255_maps.cpp, for ZQuest only: one screen or DMap read as the 2.55 loader reads it,
@@ -4480,10 +4481,102 @@ void ops_loaded()
 
 ZqLoadHookRegistration g_hook_ops(ops_loaded);
 
+// ---- the init screen script data (upstream's zinit.screen_data) ----
+//
+// Upstream's Copy takes the copied screen's init screen data (copyscrdata), Paste All and
+// Paste All To All put it on each screen they paste (2.55.18 and 3.0 zq_class.cpp); Delete,
+// Template, Map Count and the other pastes leave it as it is. 2.55.18's Copy reads it with
+// operator[], which leaves an empty entry for the screen; its Undo swaps the screens only.
+// 3.0's undo and redo of Paste All paste the copied data again, the redo of Paste All To All
+// too. The INIT writer (zqw_init.cpp) writes the store's.
+
+Zq255Store::ScreenData g_copy_data;     // what Copy took (size 0: none)
+
+// what the last operation's undo does with the screen data (3.0)
+struct DataUndo
+{
+    int kind;       // 0 nothing, 1 Paste All (index: its screen), 2 Paste All To All (index: the map's first screen)
+    int index;
+    int swaps;
+};
+
+DataUndo g_data_undo = { 0, 0, 0 };
+
+// The open quest's INIT section version when it is a 2.55 / 3.0 one (35 on hold screen data).
+int init_version()
+{
+    const ZqQuestPart *part = zq_find_part(ID_INITDATA);
+    byte b[2] = { 0, 0 };
+
+    if(!part || header.zelda_version != 0x255 || !zq_part_read(*part, 0, b, 2))
+        return 0;
+
+    return b[0] | (b[1] << 8);
+}
+
+void data_copied(int index)
+{
+    std::map<int, Zq255Store::ScreenData>::const_iterator i = zq255.screen_data_init.find(index);
+
+    if(i != zq255.screen_data_init.end())
+        g_copy_data = i->second;
+    else
+    {
+        g_copy_data = Zq255Store::ScreenData();
+        const int v = init_version();
+
+        if(v >= 35 && v <= 38 && q255_header_version[0] < 3)
+            zq255.screen_data_init[index];      // 2.55.18's operator[]
+    }
+}
+
+void data_put(int index)
+{
+    if(index >= 0 && init_version() >= 35)
+        zq255.screen_data_init[index] = g_copy_data;   // size 0: the default, as operator= leaves it
+}
+
+void data_pasted_all(int index)
+{
+    if(init_version() < 35)
+        return;
+
+    data_put(index);
+
+    if(g_data_undo.kind == 0)
+    {
+        g_data_undo.kind = 1;
+        g_data_undo.index = index;
+        g_data_undo.swaps = 0;
+    }
+    else if(g_data_undo.kind == 1 && g_data_undo.index != index)
+    {
+        g_data_undo.kind = 2;       // one operation pasting every screen: Paste All To All
+        g_data_undo.index = index - index % MAPSCRS;
+    }
+}
+
+void data_undone()
+{
+    if(q255_header_version[0] < 3)
+        return;
+
+    if(g_data_undo.kind == 1)
+        data_put(g_data_undo.index);
+    else if(g_data_undo.kind == 2 && ++g_data_undo.swaps % 2 == 0)
+    {
+        for(int x = 0; x < 128; ++x)
+            data_put(g_data_undo.index + x);
+    }
+}
+
 } // namespace
 
 void zq255_screen_copied(int index, int ffc)
 {
+    if(ffc < 0 && index >= 0)
+        data_copied(index);
+
     g_copy.on = false;
     const MapsAt *m = maps_at();
 
@@ -4497,6 +4590,9 @@ void zq255_screen_copied(int index, int ffc)
 
 void zq255_screen_pasted(int index, int kind, int ffc)
 {
+    if(kind == ZQ255_PASTE_ALL && index >= 0)
+        data_pasted_all(index);
+
     const MapsAt *m = maps_at();
 
     if(!m || !g_copy.on || g_copy.v != m->v || index < 0 || (size_t)index >= TheMaps.size())
@@ -4695,6 +4791,9 @@ void zq255_screen_templated(int index, int tmpl)
 
 void zq255_screen_undo_note(int slot, int index)
 {
+    if(slot == 0)
+        g_data_undo.kind = 0;   // a new operation: its own undo
+
     if(!ops_version() || slot < 0)
         return;
 
@@ -4707,6 +4806,9 @@ void zq255_screen_undo_note(int slot, int index)
 
 void zq255_screen_undo_swap(int slot, int index)
 {
+    if(slot == 0)
+        data_undone();
+
     if(!ops_version() || slot < 0 || (size_t)slot >= g_undo.size() || index < 0)
         return;
 

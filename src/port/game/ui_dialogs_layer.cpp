@@ -777,13 +777,59 @@ void draw_widget(HostDialog &hd, const WidgetView &w, const Place &pl, bool inpu
         int sel = shown_value(hd, w);
         ImGui::SetCursorScreenPos(p);
         snprintf(id, sizeof(id), "##l%d", w.obj);
+
+        // jwin's list with the keyboard focus moves its selection with the arrow keys, Home, End,
+        // Page Up and Page Down, and Enter goes to the dialog (OK): the list the dialog starts on
+        // (ZQuest's pickers: Map Count, Goto Map...) or one clicked, until Tab or a click elsewhere
+        // takes the focus away. ImGui's navigation leaves those keys alone meanwhile.
+        const ImVec2 far_corner(p.x + size.x, p.y + size.y);
+        if(first && w.obj == v.focus_obj)
+            hd.list_keys = w.obj;
+        if(input && hd.list_keys == w.obj &&
+           (ImGui::IsKeyPressed(ImGuiKey_Tab, false) || (ImGui::IsMouseClicked(0) && !ImGui::IsMouseHoveringRect(p, far_corner))))
+            hd.list_keys = -1;
+        else if(input && ImGui::IsMouseClicked(0) && ImGui::IsMouseHoveringRect(p, far_corner))
+            hd.list_keys = w.obj;
+        const bool keys_here = input && hd.list_keys == w.obj;
+        if(keys_here)
+        {
+            static const ImGuiKey list_keys[] = { ImGuiKey_UpArrow, ImGuiKey_DownArrow, ImGuiKey_Home, ImGuiKey_End, ImGuiKey_PageUp,
+                                                  ImGuiKey_PageDown, ImGuiKey_Enter, ImGuiKey_KeypadEnter, ImGuiKey_Space };
+            const ImGuiID owner = ImGui::GetID("##listkeys");
+            for(size_t k = 0; k < sizeof(list_keys) / sizeof(list_keys[0]); ++k)
+                ImGui::SetKeyOwner(list_keys[k], owner);
+            const int n = (int)w.items.size();
+            const int page = std::max(1, (int)(size.y / ImGui::GetTextLineHeightWithSpacing()) - 1);
+            int to = sel;
+            if(ImGui::IsKeyPressed(ImGuiKey_UpArrow, true))
+                to = sel - 1;
+            if(ImGui::IsKeyPressed(ImGuiKey_DownArrow, true))
+                to = sel + 1;
+            if(ImGui::IsKeyPressed(ImGuiKey_PageUp, true))
+                to = sel - page;
+            if(ImGui::IsKeyPressed(ImGuiKey_PageDown, true))
+                to = sel + page;
+            if(ImGui::IsKeyPressed(ImGuiKey_Home, false))
+                to = 0;
+            if(ImGui::IsKeyPressed(ImGuiKey_End, false))
+                to = n - 1;
+            to = std::max(0, std::min(n - 1, to));
+            if(n > 0 && to != sel)
+            {
+                change_value(hd, w, Event::SET, to);
+                sel = to;
+            }
+            if(w.kind == K_ABCLIST)
+                hd.list_focused = true;     // typed letters stay with the abc list too
+        }
+
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, 2.0f * zcui::scale()));
         if(ImGui::BeginListBox(id, size))
         {
             if(ImGui::IsWindowFocused())
                 hd.list_focused = true;
             // Allegro's abc list jumps to the first item with the letter typed
-            if(w.kind == K_ABCLIST && input && ImGui::IsWindowFocused())
+            if(w.kind == K_ABCLIST && input && (ImGui::IsWindowFocused() || keys_here))
             {
                 ImGuiIO &io = ImGui::GetIO();
                 for(int c = 0; c < io.InputQueueCharacters.Size; ++c)
