@@ -2323,6 +2323,14 @@ bool has_screen_fields(size_t index)
     return it != zq255.screen_fields.end() && !it->second.empty();
 }
 
+// A screen a .map import put in (zq255.screen_records): its record, in the section's version,
+// stands for the loaded one. NULL for a screen that keeps its loaded record.
+const std::vector<byte> *imported_screen(size_t index)
+{
+    std::map<int, std::vector<byte> >::const_iterator it = zq255.screen_records.find((int)index);
+    return it == zq255.screen_records.end() ? NULL : &it->second;
+}
+
 // What a map's own fields are in the v23+ format (before its screens).
 struct MapHead
 {
@@ -2438,7 +2446,7 @@ int write_maps_255(PACKFILE *f, const ZqPartContext &ctx)
 
         if(!mh.valid)
             for(int j = 0; j < MAPSCRS && !any_changed; ++j)
-                any_changed = !screen_unchanged((size_t)i * MAPSCRS + j);
+                any_changed = !screen_unchanged((size_t)i * MAPSCRS + j) || imported_screen((size_t)i * MAPSCRS + j);
 
         // the map's scrolling region ids as the region editor left them (zq_cpool.cpp); the
         // reader keeps every valid map's, so an unedited map's come out as they were
@@ -2495,16 +2503,30 @@ int write_maps_255(PACKFILE *f, const ZqPartContext &ctx)
             if(index >= TheMaps.size())
                 return ERR_READ;
 
+            // A screen a .map import put in: its record stands for the loaded one, read as the
+            // loader would read it here (zq255_map_take put that into TheMaps).
+            const std::vector<byte> *imp = imported_screen(index);
+
+            if(imp)
+            {
+                used = read_screen_255(*imp, 0, v, j, screens_in_raw ? mh.autolayers : no_layers, screens_in_raw ? mh.autopalette : 0, loaded);
+
+                if(used != imp->size())
+                    return ERR_READ;
+            }
+
+            const std::vector<byte> &src = imp ? *imp : body;
+            const size_t from = imp ? 0 : start, to = imp ? imp->size() : in.pos;
             const mapscr &c = TheMaps[index];
             const bool unchanged = used && screen_unchanged(index);
 
             if(unchanged && !zqw_force_serialize && !has_screen_fields(index))
             {
-                o.copy(body, start, in.pos);
+                o.copy(src, from, to);
                 continue;
             }
 
-            const std::vector<byte> rec_raw(body.begin() + start, body.begin() + in.pos);
+            const std::vector<byte> rec_raw(src.begin() + from, src.begin() + to);
             bool ok = false, encoder_ok = true;
             Out rec;
 
@@ -2574,12 +2596,12 @@ int write_maps_255(PACKFILE *f, const ZqPartContext &ctx)
             // a screen with fields edited in the screen editor counts as changed: it can't be dropped quietly
             const bool kept_as_is = unchanged && !has_screen_fields(index);
 
-            if(ok && encoder_ok && !exact_differs(ID_MAPS, (int)index, kept_as_is, rec.b, body, start, in.pos))
+            if(ok && encoder_ok && !exact_differs(ID_MAPS, (int)index, kept_as_is, rec.b, src, from, to))
                 o.pn(&rec.b[0], rec.b.size());
             else if(refuse(ID_MAPS, (int)index, kept_as_is, "can't be held in this version"))
                 return ERR_CANT_HOLD;
             else
-                o.copy(body, start, in.pos);
+                o.copy(src, from, to);
         }
     }
 
@@ -2951,6 +2973,15 @@ void hash_screen_fields(uint64_t *h)
             zq_hash_add(h, &f->second.value, sizeof(f->second.value));
             zq_hash_add(h, f->second.bytes.empty() ? NULL : &f->second.bytes[0], f->second.bytes.size());
         }
+
+    // and the screens a .map import put in
+    for(std::map<int, std::vector<byte> >::const_iterator it = zq255.screen_records.begin(); it != zq255.screen_records.end(); ++it)
+    {
+        const unsigned n = (unsigned)it->second.size();
+        zq_hash_add(h, &it->first, sizeof(it->first));
+        zq_hash_add(h, &n, sizeof(n));
+        zq_hash_add(h, it->second.empty() ? NULL : &it->second[0], it->second.size());
+    }
 }
 
 ZqStoreHashRegistration g_hash_dmaps(ID_DMAPS, hash_dmap_records);
@@ -3003,6 +3034,12 @@ bool screen_raw(size_t index, std::vector<byte> &rec, word &v)
 
     if(v < 18 || v > 41)
         return false;
+
+    if(const std::vector<byte> *imp = imported_screen(index))
+    {
+        rec = *imp;
+        return true;
+    }
 
     const std::vector<byte> body(orig.begin() + 8, orig.end());
     In in(body, 0);
@@ -3117,6 +3154,22 @@ bool zq255_screen_records_all(std::vector<std::vector<byte> > &recs, int *versio
     In in(body, 0);
     const int maps = in.g16();
     mapscr scratch;
+    std::map<int, std::vector<byte> >::const_iterator imp = zq255.screen_records.begin();
+
+    // the screens a .map import put in, in their places (in a map the file has no screens for too)
+    auto imported_before = [&](int at)
+    {
+        for(; imp != zq255.screen_records.end() && imp->first < at; ++imp)
+        {
+            if((size_t)imp->first >= TheMaps.size())
+                continue;   // on a map deleted since
+
+            recs.push_back(imp->second);
+
+            if(indices)
+                indices->push_back(imp->first);
+        }
+    };
 
     for(int i = 0; i < maps; ++i)
     {
@@ -3152,7 +3205,12 @@ bool zq255_screen_records_all(std::vector<std::vector<byte> > &recs, int *versio
             if(!used)
                 return false;
 
-            recs.push_back(std::vector<byte>(body.begin() + in.pos, body.begin() + in.pos + used));
+            imported_before(i * MAPSCRS + j);
+
+            if(imp != zq255.screen_records.end() && imp->first == i * MAPSCRS + j)
+                recs.push_back((imp++)->second);
+            else
+                recs.push_back(std::vector<byte>(body.begin() + in.pos, body.begin() + in.pos + used));
 
             if(indices)
                 indices->push_back(i * MAPSCRS + j);
@@ -3161,6 +3219,7 @@ bool zq255_screen_records_all(std::vector<std::vector<byte> > &recs, int *versio
         }
     }
 
+    imported_before(0x7FFFFFFF);
     return true;
 }
 
@@ -3507,6 +3566,314 @@ bool zq255_dmap_split(const std::vector<byte> &data, size_t at, word v, int n, s
 
         recs.push_back(std::vector<byte>(data.begin() + at, data.begin() + end));
         at = end;
+    }
+
+    return true;
+}
+
+// ---- .map files: export and import (zq_exports.cpp) ----------------------------------------
+//
+// A .map file holds one map's 136 screens, each one's record as the MAP section holds it
+// (upstream's zmap::save and zmap::load: the section's version as a word, a byte that was once
+// the build, then writemapscreen's record of each screen). A screen a .map import puts in is
+// kept as a whole record in the section's version (zq255.screen_records): the save writes it,
+// the screen data editor and the script remap read it, and TheMaps (2.53's view, which the map
+// painter edits) holds what it reads as, as for a screen as loaded.
+
+void q30_set_screen_music(int index, long music);   // q255_store_zq.cpp
+
+namespace
+{
+
+// A map's place in a MAP section's data (after its size): whether the section has it and
+// holds screens for it, the auto layers and palette its unused screens read, where its first
+// screen starts.
+struct MapPlace
+{
+    bool found, screens;
+    word autolayers[6];
+    word autopalette;
+    size_t at;
+};
+
+bool find_map(const std::vector<byte> &body, word v, int map, MapPlace &mp)
+{
+    memset(&mp, 0, sizeof(mp));
+    In in(body, 0);
+    const int maps = in.g16();
+    mapscr scratch;
+
+    for(int i = 0; i < maps && !in.bad; ++i)
+    {
+        byte valid = 1;
+        word autolayers[6] = { 0, 0, 0, 0, 0, 0 };
+        word autopalette = 0;
+
+        if(v > 22)
+            valid = in.g8();
+
+        if(valid)
+        {
+            if(v > 25)
+            {
+                for(int q = 0; q < 6; ++q) autolayers[q] = in.g16();
+                if(v >= 36) autopalette = in.g16();
+            }
+
+            if(v >= 31)
+                in.skip(64);
+        }
+
+        if(in.bad)
+            return false;
+
+        if(i == map)
+        {
+            mp.found = true;
+            mp.screens = valid != 0;
+            memcpy(mp.autolayers, autolayers, sizeof(autolayers));
+            mp.autopalette = autopalette;
+            mp.at = in.pos;
+            return true;
+        }
+
+        for(int j = 0; valid && j < MAPSCRS; ++j)
+        {
+            const size_t used = read_screen_255(body, in.pos, v, j, autolayers, autopalette, scratch);
+
+            if(!used)
+                return false;
+
+            in.pos += used;
+        }
+    }
+
+    return !in.bad;     // (found false: a map the section doesn't have)
+}
+
+// A v37+ screen record's music object (0: none of its own).
+long record_music(const std::vector<byte> &rec, word v)
+{
+    if(v < 37 || rec.empty())
+        return 0;
+
+    Tape t;
+    TapeParser p(&rec[0], rec.size(), 0, &t);
+    const TapeField *f = zq_tape_screen(p, v) ? t.find("music") : NULL;
+    return f ? (long)f->value : 0;
+}
+
+} // namespace
+
+// The open quest's MAP section version, 0 when it isn't a 2.55 / 3.0 one.
+int zq255_map_version()
+{
+    const ZqQuestPart *part = find_part(ID_MAPS);
+    std::vector<byte> orig;
+
+    if(!part || header.zelda_version != 0x255 || !part_bytes(*part, orig) || orig.size() < 10)
+        return 0;
+
+    const word v = (word)(orig[0] | (orig[1] << 8));
+    return v >= 18 && v <= 41 ? v : 0;
+}
+
+// Map `map`'s 136 screen records as the quest's own-version save writes them now (edits and
+// imports in), and the section's version. A map the section holds no screens for (v23+) has
+// only unused screens: each one's record is its valid byte, as upstream writes an unused screen.
+bool zq255_map_export(int map, std::vector<std::vector<byte> > &recs, word *version, std::string &why)
+{
+    recs.clear();
+    const ZqQuestPart *part = find_part(ID_MAPS);
+    std::vector<byte> all;
+
+    if(!part || header.zelda_version != 0x255 || !zq_own_part_bytes(*part, all) || all.size() < 10)
+    {
+        why = "the quest's maps couldn't be written";
+        return false;
+    }
+
+    const word v = (word)(all[0] | (all[1] << 8));
+    const std::vector<byte> body(all.begin() + 8, all.end());
+    MapPlace mp;
+
+    if(v < 18 || v > 41 || !find_map(body, v, map, mp) || !mp.found)
+    {
+        why = "the map isn't in the quest's map section as expected";
+        return false;
+    }
+
+    size_t at = mp.at;
+    mapscr scratch;
+
+    for(int j = 0; j < MAPSCRS; ++j)
+    {
+        const size_t index = (size_t)map * MAPSCRS + j;
+
+        if(!mp.screens)
+        {
+            recs.push_back(std::vector<byte>(1, index < TheMaps.size() ? (byte)(TheMaps[index].valid & ~mVALID) : (byte)0));
+            continue;
+        }
+
+        const size_t used = read_screen_255(body, at, v, j, mp.autolayers, mp.autopalette, scratch);
+
+        if(!used)
+        {
+            why = "a screen of the map doesn't read back";
+            recs.clear();
+            return false;
+        }
+
+        recs.push_back(std::vector<byte>(body.begin() + at, body.begin() + at + used));
+        at += used;
+    }
+
+    *version = v;
+    return true;
+}
+
+// The 136 screen records of version v laid end to end from data[at...] (a .map file's after its
+// header), as each reads; false if they don't read as that version.
+bool zq255_map_split(const std::vector<byte> &data, size_t at, word v, std::vector<std::vector<byte> > &recs)
+{
+    recs.clear();
+
+    if(v < 18 || v > 41)
+        return false;
+
+    const word no_layers[6] = { 0, 0, 0, 0, 0, 0 };
+    mapscr scratch;
+
+    for(int j = 0; j < MAPSCRS; ++j)
+    {
+        const size_t used = read_screen_255(data, at, v, j, no_layers, 0, scratch);
+
+        if(!used)
+            return false;
+
+        recs.push_back(std::vector<byte>(data.begin() + at, data.begin() + at + used));
+        at += used;
+    }
+
+    return true;
+}
+
+// A .map file of 2.53 or older (its header the version and build of the ZC that wrote it, as
+// 2.53's zmap::save writes it): its 136 screens read by 2.53's reader as 2.53's import reads them
+// (with that version as the header's), each written again as 2.53's own record, which is MAP
+// format 18, where 2.55's formats begin. As 2.53's import, a file whose first screen has no
+// version mark and whose header isn't 2.53's own is no map file.
+bool zq255_map_from_253(const std::vector<byte> &file, std::vector<std::vector<byte> > &recs, std::string &why)
+{
+    recs.clear();
+
+    if(file.size() < 3)
+    {
+        why = "it isn't a map file";
+        return false;
+    }
+
+    const word version = (word)(file[0] | (file[1] << 8));
+    const byte build = file[2];
+    zquestheader h = header;
+    h.zelda_version = version;
+    h.build = build;
+    size_t at = 3;
+
+    for(int j = 0; j < MAPSCRS; ++j)
+    {
+        mapscr m;
+        const size_t used = read_screen_old(file, at, h, version, m);
+
+        if(!used)
+        {
+            why = "it holds less than a whole map (incomplete data)";
+            recs.clear();
+            return false;
+        }
+
+        if(j == 0 && !(m.valid & mVERSION) && !(version == ZELDA_VERSION && build == VERSION_BUILD))
+        {
+            why = "it isn't a map file (invalid version)";
+            recs.clear();
+            return false;
+        }
+
+        Out o;
+        screen_bytes_253(o, m);
+        recs.push_back(o.b);
+        at += used;
+    }
+
+    return true;
+}
+
+// .map import: map `map`'s screens j with a record in recs (136 of them, in the section's
+// version; an empty one leaves its screen as it is) replaced. Every record is read first, as the
+// loader reads it here (the map's auto layers where a save keeps the map's own fields), so
+// nothing changes if one doesn't read. Each screen then counts as unchanged since, so a save
+// writes its record as it is until the screen is edited; the 2.55/3.0-only fields edited on
+// it before are dropped (the import replaces the whole screen).
+bool zq255_map_take(int map, const std::vector<std::vector<byte> > &recs, std::string &why)
+{
+    const ZqQuestPart *part = find_part(ID_MAPS);
+    std::vector<byte> orig;
+    const word v = (word)zq255_map_version();
+
+    if(!v || !part || !part_bytes(*part, orig) || orig.size() < 10 || recs.size() != MAPSCRS || map < 0 ||
+       (size_t)(map + 1) * MAPSCRS > TheMaps.size())
+    {
+        why = "the quest's maps can't take it";
+        return false;
+    }
+
+    const std::vector<byte> body(orig.begin() + 8, orig.end());
+    MapPlace mp;
+
+    if(!find_map(body, v, map, mp))
+    {
+        why = "the quest's map section isn't laid out as expected";
+        return false;
+    }
+
+    // as write_maps_255: a map the file holds screens for keeps its own fields; one written anew
+    // has no auto layers or palette
+    const bool head = mp.found && mp.screens;
+    const word no_layers[6] = { 0, 0, 0, 0, 0, 0 };
+    std::vector<mapscr> got(MAPSCRS);
+
+    for(int j = 0; j < MAPSCRS; ++j)
+    {
+        if(recs[j].empty())
+            continue;
+
+        const size_t index = (size_t)map * MAPSCRS + j;
+        got[j].screen_midi = TheMaps[index].screen_midi;
+
+        if(read_screen_255(recs[j], 0, v, j, head ? mp.autolayers : no_layers, head ? mp.autopalette : 0, got[j]) != recs[j].size())
+        {
+            char b[96];
+            snprintf(b, sizeof(b), "screen %X doesn't read in this quest's format %d", j, (int)v);
+            why = b;
+            return false;
+        }
+    }
+
+    if(g_screens_loaded.size() < TheMaps.size())
+        g_screens_loaded.resize(TheMaps.size(), 0);
+
+    for(int j = 0; j < MAPSCRS; ++j)
+    {
+        if(recs[j].empty())
+            continue;
+
+        const int index = map * MAPSCRS + j;
+        TheMaps[index] = got[j];
+        zq255.screen_records[index] = recs[j];
+        zq255.screen_fields.erase(index);
+        g_screens_loaded[index] = screen_hash(TheMaps[index]);
+        q30_set_screen_music(index, record_music(recs[j], v));
     }
 
     return true;

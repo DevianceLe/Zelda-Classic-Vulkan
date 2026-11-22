@@ -145,6 +145,14 @@ size_t zqn255_subscreen_extent(const std::vector<byte> &data, int v);
 // 3 map). False (why says) when it doesn't read so, or v is newer than the target's.
 bool zqn255_subscreen_file(int target, const std::vector<byte> &data, int v, std::vector<byte> &out, int *kind, std::string &why);
 
+// The screens of an upstream .map file of map format v (18-41), one whole record each (screen
+// j of the map at recs[j]), as the target's map import reads them into the open quest
+// (readmapscreen, the quest's rules; a screen's MIDI before format 37 becomes no music of its
+// own in 3.0, as its import makes no music objects) and writemapscreen writes them: 3.0's format
+// 41 (ZQ_NEWER_30) or 2.55.18's 30 (ZQ_NEWER_255). Replaced in place; false (why says) when one
+// doesn't read so, or v is newer than the target's.
+bool zqn255_map_screens(int target, std::vector<std::vector<byte> > &recs, int v, std::string &why);
+
 // Sets a number field of a tape (adding the field if the record's version doesn't hold it), for
 // conversions before a rebuild in a newer version.
 void zqn255_tape_set(Tape &t, const char *key, int64_t value);

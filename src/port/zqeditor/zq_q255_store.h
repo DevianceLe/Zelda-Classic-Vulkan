@@ -103,6 +103,9 @@ struct Zq255Store
     // a screen's 2.55/3.0-only fields edited in the screen editor: screen index (map * 136 +
     // screen) -> field key -> the field as edited; zqw_maps.cpp puts them into the record
     std::map<int, std::map<std::string, TapeField> > screen_fields;
+    // screens a .map import put in (zq_exports.cpp): screen index -> the whole record, in the MAP
+    // section's own version; zqw_maps.cpp writes and reads it in place of the loaded one
+    std::map<int, std::vector<byte> > screen_records;
     // the MISC section's 2.55/3.0-only fields edited in the misc data editor: key -> the field
     // as edited; zqw_basic.cpp puts them into the section the writer makes
     std::map<std::string, TapeField> misc_fields;

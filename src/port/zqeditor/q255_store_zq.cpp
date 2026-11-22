@@ -79,6 +79,7 @@ void Zq255Store::clear()
     sub_fields.clear();
     subs_base.clear();
     screen_fields.clear();
+    screen_records.clear();
     bottle_types.clear();
     bottle_shops.clear();
     init_bottle_slots.clear();

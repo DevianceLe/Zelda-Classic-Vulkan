@@ -1579,29 +1579,81 @@ int get_import_map_bias()
     return -1;
 }
 
+#ifdef ZC_ZQEDITOR
+// A .map file of 2.55 or 3.0 (upstream's zmap::save starts it with the map section's version, 19
+// to 41, where 2.53's starts with the version of the ZC that wrote it, 0x250 for 2.53) for a quest
+// of 2.53 or older: its format can't hold the file's screens, so the quest is to be saved as a
+// newer version first; nothing is read. True when the file was refused (and the user told why).
+static bool zq_map_file_too_new(const char *path)
+{
+    PACKFILE *f = pack_fopen_password(path, F_READ, "");
+
+    if(!f)
+        return false;
+
+    short version = 0;
+    const bool got = p_igetw(&version, f, true) != 0;
+    pack_fclose(f);
+
+    if(!got || version < 19 || version > 41)
+        return false;
+
+    char l1[120], l2[160];
+    snprintf(l1, sizeof(l1), "This map file's screens are in map format %d: ZC 2.55 or 3.0 Nightly wrote it.", version);
+    snprintf(l2, sizeof(l2), "This quest was made in ZC %s, whose file format holds screens up to format %d.", zq_made_in().c_str(), V_MAPS);
+
+    if(jwin_alert("Import", l1, l2, "Save the quest as 2.55.18 or 3.0 Nightly first, then import the file?", "&Save As...", "&Cancel", 's', 'c', lfont) == 1)
+        onSaveAs();
+
+    return true;
+}
+#endif
+
 int onImport_Map()
 {
     if(Map.getCurrMap()>=Map.getMapCount())
         return D_O_K;
-        
+
     if(get_import_map_bias()==-1)
     {
         return D_O_K;
     }
-    
+
     if(!getname("Import Map (.map)","map",NULL,datapath,false))
         return D_O_K;
-        
+
+    int ret;
+#ifdef ZC_ZQEDITOR
+    // A 2.55 / 3.0 quest takes upstream's .map files of its version (or older, converted up),
+    // into its own map section's records (zq_exports.cpp); nothing changes when one is refused.
+    const bool zq_newer = zq255_quest_is_newer();
+    std::string zq_why, zq_note;
+
+    if(zq_newer)
+        ret = zqx_import_map(temppath, Map.getCurrMap(), ImportMapBias, zq_why, zq_note) ? 0 : -1;
+    else if(zq_map_file_too_new(temppath))
+        return D_O_K;
+    else
+#endif
+    {
     saved=false;
-    int ret=Map.load(temppath);
-    
+    ret=Map.load(temppath);
+    }
+
     if(ret)
     {
+#ifdef ZC_ZQEDITOR
+        if(zq_newer)
+            zq_newer_file_done(false, temppath, false, zq_why, "");
+        else
+#endif
+        {
         char buf[80],name[13];
         extract_name(temppath,name,FILENAME8_3);
         sprintf(buf,"Unable to load %s",name);
         jwin_alert("Error",buf,loaderror[ret],NULL,"O&K",NULL,'k',0,lfont);
-        
+        }
+
 #ifndef ZC_ZQEDITOR
         if(ret>1)
             Map.clearmap(false);
@@ -1610,6 +1662,10 @@ int onImport_Map()
     }
     else
     {
+#ifdef ZC_ZQEDITOR
+        if(zq_newer)
+            Map.setCurrScr(0);  // as zmap::load
+#endif
         bool willaffectlayers=false;
         
         for(int i=0; i<MAPSCRS; i++)
@@ -1634,8 +1690,12 @@ int onImport_Map()
                        "of the affected layers will be reset to 0.",
                        "&OK", NULL, 'o', 0, lfont);
         }
+#ifdef ZC_ZQEDITOR
+        if(zq_newer)
+            zq_newer_file_done(false, temppath, true, "", zq_note);
+#endif
     }
-    
+
     refresh(rSCRMAP+rMAP+rMENU);
     return D_O_K;
 }
@@ -1644,10 +1704,21 @@ int onExport_Map()
 {
     if(Map.getCurrMap()>=Map.getMapCount())
         return D_O_K;
-        
+
     if(!getname("Export Map (.map)","map",NULL,datapath,false))
         return D_O_K;
-        
+
+#ifdef ZC_ZQEDITOR
+    // a 2.55 / 3.0 quest: upstream's .map, in the quest's own map section version
+    if(zq255_quest_is_newer())
+    {
+        std::string why;
+        const bool ok = zqx_export_map(temppath, Map.getCurrMap(), why);
+        zq_newer_file_done(true, temppath, ok, why, "");
+        return D_O_K;
+    }
+#endif
+
     int ret = Map.save(temppath);
     char buf[80],buf2[80],name[13];
     extract_name(temppath,name,FILENAME8_3);

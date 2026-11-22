@@ -34,6 +34,9 @@ bool zqx_export_zgp(const char *path, std::string &why);
 // The whole quest in its own version, unencoded: packed (.zqt) or not (.qsu), as upstream
 // stores a .qst and a .qsu.
 bool zqx_export_quest(const char *path, bool packed, std::string &why);
+// Map `map`'s 136 screens (.map: upstream's zmap::save: the map section's version, a byte once
+// the build, then each screen's record as the map section holds it).
+bool zqx_export_map(const char *path, int map, std::string &why);
 
 // ---- imports: true when the file went in; otherwise why says what stopped it (and nothing in
 // the quest changed). note: anything the user should know after it went in ("" for nothing).
@@ -68,6 +71,11 @@ bool zqx_import_guys(const char *path, std::string &why, std::string &note);
 // A graphics pack (.zgp): tiles, combos, palettes, items, weapon sprites, game icons, misc
 // colours and door sets, as upstream's import does.
 bool zqx_import_zgp(const char *path, std::string &why, std::string &note);
+// A map (.map) over map `map`, as upstream's zmap::load: bias 0 takes every screen ("Total
+// Copy"), 1 only where the map's screen is unused ("Prefer Original"), 2 only the file's used
+// screens ("Prefer Import"). A file of an older map format (2.53's .map files too) is converted
+// up to the quest's format; one of a newer format is refused.
+bool zqx_import_map(const char *path, int map, int bias, std::string &why, std::string &note);
 
 // ---- one item or enemy (.zitem, .znpc: upstream's writeoneitem / readoneitem and writeonenpc /
 // readonenpc, the item and enemy listers' Save and Load) -------------------------------------

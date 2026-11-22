@@ -1577,3 +1577,67 @@ int write_maps_255(PACKFILE *f, const ZqNewerContext &ctx)
 ZqNewerRegistration g_reg_maps_255(ID_MAPS, write_maps_255, "2.55 maps as 2.55.18");
 
 } // namespace
+
+// ---- .map files (zq_exports.cpp) ------------------------------------------------------------
+//
+// Upstream's map import (zmap::load in zq/zq_class.cpp) reads each screen with readmapscreen in
+// the file's version, the open quest's header and rules, no screen index (so an unused screen
+// gets no auto layers) and keep_music false; its save then writes the screens in its own format.
+bool zqn255_map_screens(int target, std::vector<std::vector<byte> > &recs, int v, std::string &why)
+{
+    const bool t255 = target == ZQ_NEWER_255;
+    const int newest = t255 ? 30 : 41;
+
+    if((target != ZQ_NEWER_255 && target != ZQ_NEWER_30) || v < 18 || v > newest || recs.size() != (size_t)SCREENS)
+    {
+        why = "these screens can't be converted to that format";
+        return false;
+    }
+
+    std::vector<byte> rules;
+
+    if(!zqn255_rules_loaded(target, rules) || rules.size() * 8 <= (size_t)QR_OLD_FFC_FUNCTIONALITY)
+    {
+        why = "the quest rules as that version holds them couldn't be worked out";
+        return false;
+    }
+
+    const bool nofairyfires = (rules[QR_NOFAIRYGUYFIRES >> 3] >> (QR_NOFAIRYGUYFIRES & 7)) & 1;
+    const bool old_ffcs = (rules[QR_OLD_FFC_FUNCTIONALITY >> 3] >> (QR_OLD_FFC_FUNCTIONALITY & 7)) & 1;
+    std::vector<std::vector<byte> > out(SCREENS);
+
+    for(int j = 0; j < SCREENS; ++j)
+    {
+        Scr c;
+        c.clear();
+
+        if(t255)
+            c.noreset = c.nocarry = 0;  // a fresh 2.55.17 mapscr's
+
+        Zqn255In in(recs[j]);
+
+        if(!(v < 23 ? (read_old(in, v, nofairyfires, c, t255), true) : read_grouped(in, v, nofairyfires, c, t255)) || !in.at_end())
+        {
+            char b[96];
+            snprintf(b, sizeof(b), "screen %X isn't laid out as format %d", j, v);
+            why = b;
+            return false;
+        }
+
+        // readmapscreen before 37, keep_music false: a MIDI of its own can't become a music object
+        if(!t255 && v < 37)
+            c.music = c.screen_midi > 0 ? -1 : (c.screen_midi < -1 ? -1 : c.screen_midi);
+
+        Zqn255Out o;
+
+        if(t255)
+            write_screen_255(o, c, j, old_ffcs);
+        else
+            write_screen(o, c, j, old_ffcs);
+
+        out[j].swap(o.b);
+    }
+
+    recs.swap(out);
+    return true;
+}

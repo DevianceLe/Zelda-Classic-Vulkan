@@ -2186,6 +2186,305 @@ bool zqx_import_one(bool item, int index, const char *path, std::string &why, st
     return true;
 }
 
+// ---- .map files ---------------------------------------------------------------------------------
+
+bool zq255_map_export(int map, std::vector<std::vector<byte> > &recs, word *version, std::string &why);   // zqw_maps.cpp
+int zq255_map_version();
+bool zq255_map_split(const std::vector<byte> &data, size_t at, word v, std::vector<std::vector<byte> > &recs);
+bool zq255_map_from_253(const std::vector<byte> &file, std::vector<std::vector<byte> > &recs, std::string &why);
+bool zq255_map_take(int map, const std::vector<std::vector<byte> > &recs, std::string &why);
+
+extern std::vector<mapscr> TheMaps;
+
+bool zqx_export_map(const char *path, int map, std::string &why)
+{
+    std::vector<std::vector<byte> > recs;
+    word v = 0;
+
+    if(!zq255_map_export(map, recs, &v, why))
+        return false;
+
+    Out o;
+    o.p16(v);
+    o.p8(0);    // upstream: "This was the build number ... Keep this junk byte"
+
+    for(size_t j = 0; j < recs.size(); ++j)
+        o.pn(recs[j]);
+
+    return write_file(path, o.b, why);
+}
+
+namespace
+{
+
+// A screen's tape of the newest format of its line (30 or 41) with the fields the quest's older
+// format qv holds under other names or in another form put in by those (the rebuild takes every
+// field by name): the script configs as a script and eight InitD (before 41), no music of its own
+// as the MIDI of before 37 (none or 0; a music object stays out), the FFCs in use as a bit per
+// FFC (before 25), an FFC's hit and tile sizes in one byte each (before 24).
+void screen_keys_older(Tape &t, int from, int qv)
+{
+    char a[48], b[48];
+
+    if(from >= 41 && qv < 41)
+    {
+        zqn255_tape_set(t, "script", t.get("sc.script"));
+
+        for(int q = 0; q < 8; ++q)
+        {
+            snprintf(a, sizeof(a), "sc.initd%d", q);
+            snprintf(b, sizeof(b), "initd%d", q);
+            zqn255_tape_set(t, b, t.get(a));
+        }
+
+        for(int m = 0; m < 128; ++m)
+        {
+            snprintf(a, sizeof(a), "ffc%d.sc.script", m);
+
+            if(!t.find(a))
+                continue;
+
+            snprintf(b, sizeof(b), "ffc%d.script", m);
+            zqn255_tape_set(t, b, t.get(a));
+
+            for(int q = 0; q < 8; ++q)
+            {
+                snprintf(a, sizeof(a), "ffc%d.sc.initd%d", m, q);
+                snprintf(b, sizeof(b), "ffc%d.initd%d", m, q);
+                zqn255_tape_set(t, b, t.get(a));
+            }
+        }
+    }
+
+    if(from >= 37 && qv < 37 && t.find("music"))
+    {
+        const int64_t m = t.get("music");
+        zqn255_tape_set(t, "screen_midi", m == 0 ? 0 : -1);
+    }
+
+    if(from >= 25 && qv < 25)
+    {
+        int64_t bits = 0;
+
+        for(int m = 0; m < 32; ++m)
+        {
+            snprintf(a, sizeof(a), "ffc%d.combo", m);
+
+            if(t.get(a))
+                bits |= (int64_t)1 << m;
+        }
+
+        zqn255_tape_set(t, "numff", bits);
+    }
+
+    if(from >= 24 && qv < 24)
+        for(int m = 0; m < 32; ++m)
+        {
+            const char *dim[2][3] = { { "width", "hit_w", "tiles_w" }, { "height", "hit_h", "tiles_h" } };
+
+            for(int d = 0; d < 2; ++d)
+            {
+                snprintf(a, sizeof(a), "ffc%d.%s", m, dim[d][1]);
+
+                if(!t.find(a))
+                    continue;
+
+                const int64_t hit = t.get(a);
+                snprintf(a, sizeof(a), "ffc%d.%s", m, dim[d][2]);
+                const int64_t tiles = t.get(a);
+                snprintf(b, sizeof(b), "ffc%d.%s", m, dim[d][0]);
+                zqn255_tape_set(t, b, (((tiles - 1) & 3) << 6) | ((hit - 1) & 63));
+            }
+        }
+}
+
+// A map file's screens of format fv brought up to the quest's format qv (fv < qv), as
+// upstream's import reads them and its save writes them (zqn255_map_screens: to 2.55.18's 30 or
+// 3.0's 41, whichever line qv is in). A quest in its line's newest format takes them so. A quest
+// in an older one gets them laid out again in its own format, with the proof that nothing is
+// lost: converted up again the same way, every screen must come out as it did. Between the
+// fixed-order formats (up to 22), where each format only adds fields at the end (19: the unused
+// arrays, 20: the script and InitD, 21: its preload, 22: the hidden layers) that a record of an
+// older one reads as none, the record is laid out again with those fields as none.
+bool map_screens_to_format(std::vector<std::vector<byte> > &recs, int fv, int qv, std::string &why)
+{
+    char b[200];
+
+    if(qv <= 22)
+    {
+        for(int j = 0; j < MAPSCRS; ++j)
+        {
+            Tape t;
+            TapeParser p(recs[j].empty() ? NULL : &recs[j][0], recs[j].size(), 0, &t);
+            std::vector<byte> out;
+
+            if(!zq_tape_screen(p, fv) || p.bad || p.pos != recs[j].size() || !zqn255_tape_rebuild(zq_tape_screen, t, qv, out))
+            {
+                snprintf(b, sizeof(b), "screen %X of the file couldn't be laid out in this quest's map format %d", j, qv);
+                why = b;
+                return false;
+            }
+
+            recs[j].swap(out);
+        }
+
+        return true;
+    }
+
+    const int target = qv <= 30 ? ZQ_NEWER_255 : ZQ_NEWER_30;
+    const int newest = target == ZQ_NEWER_255 ? 30 : 41;
+    std::vector<std::vector<byte> > up = recs;
+
+    if(!zqn255_map_screens(target, up, fv, why))
+        return false;
+
+    if(qv == newest)
+    {
+        recs.swap(up);
+        return true;
+    }
+
+    std::vector<std::vector<byte> > older(MAPSCRS);
+
+    for(int j = 0; j < MAPSCRS; ++j)
+    {
+        Tape t;
+        TapeParser p(up[j].empty() ? NULL : &up[j][0], up[j].size(), 0, &t);
+
+        if(!zq_tape_screen(p, newest) || p.bad || p.pos != up[j].size())
+        {
+            snprintf(b, sizeof(b), "screen %X of the file doesn't read after its conversion", j);
+            why = b;
+            return false;
+        }
+
+        screen_keys_older(t, newest, qv);
+
+        if(!zqn255_tape_rebuild(zq_tape_screen, t, qv, older[j]))
+        {
+            snprintf(b, sizeof(b), "screen %X of the file couldn't be laid out in this quest's map format %d", j, qv);
+            why = b;
+            return false;
+        }
+    }
+
+    std::vector<std::vector<byte> > back = older;
+    std::string w;
+
+    if(!zqn255_map_screens(target, back, qv, w))
+    {
+        why = "the screens laid out in this quest's map format don't read back: " + w;
+        return false;
+    }
+
+    for(int j = 0; j < MAPSCRS; ++j)
+        if(back[j] != up[j])
+        {
+            snprintf(b, sizeof(b), "screen %X holds what this quest's map format %d has no place for (format %d holds it), so the map "
+                     "stays out", j, qv, newest);
+            why = b;
+            return false;
+        }
+
+    recs.swap(older);
+    return true;
+}
+
+} // namespace
+
+bool zqx_import_map(const char *path, int map, int bias, std::string &why, std::string &note)
+{
+    note.clear();
+    std::vector<byte> b;
+    const int qv = zq255_map_version();
+
+    if(!qv || map < 0 || (size_t)(map + 1) * MAPSCRS > TheMaps.size())
+    {
+        why = "this quest's maps can't take a map file";
+        return false;
+    }
+
+    if(!read_file(path, b, why))
+        return false;
+
+    if(b.size() < 3)
+    {
+        why = "it isn't a map file";
+        return false;
+    }
+
+    // upstream's (2.55 and 3.0): the map section's version; 2.53's and older: the version of the
+    // ZC that wrote it (0x250 for 2.53), then its build
+    const int fv = b[0] | (b[1] << 8);
+    int from = fv;
+    std::vector<std::vector<byte> > recs;
+    char buf[200];
+
+    if(fv >= 18 && fv <= 41)
+    {
+        if(fv > qv)
+        {
+            why = newer_words("screens", fv, qv);
+            return false;
+        }
+
+        if(!zq255_map_split(b, 3, (word)fv, recs))
+        {
+            snprintf(buf, sizeof(buf), "its screens don't read as map format %d (incomplete data)", fv);
+            why = buf;
+            return false;
+        }
+    }
+    else if(fv >= 0x100 && fv <= 0x250)
+    {
+        if(!zq255_map_from_253(b, recs, why))
+            return false;
+
+        from = 18;
+    }
+    else
+    {
+        snprintf(buf, sizeof(buf), "it isn't a map file this ZQuest reads (it starts with %d)", fv);
+        why = buf;
+        return false;
+    }
+
+    if(from < qv && !map_screens_to_format(recs, from, qv, why))
+        return false;
+
+    // which screens go in, as upstream's zmap::load (ImportMapBias)
+    int taken = 0;
+
+    for(int j = 0; j < MAPSCRS; ++j)
+    {
+        const bool here = (TheMaps[(size_t)map * MAPSCRS + j].valid & mVALID) != 0;
+        const bool there = !recs[j].empty() && (recs[j][0] & mVALID);
+
+        if(bias == 0 || (bias == 1 && !here) || (bias == 2 && there))
+            ++taken;
+        else
+            recs[j].clear();
+    }
+
+    if(!zq255_map_take(map, recs, why))
+        return false;
+
+    snprintf(buf, sizeof(buf), "%d screen%s", taken, taken == 1 ? "" : "s");
+    note = buf;
+
+    if(fv > 0xFF)
+        snprintf(buf, sizeof(buf), " from a 2.53 map file, converted to this quest's map format %d", qv);
+    else if(from < qv)
+        snprintf(buf, sizeof(buf), ", converted from map format %d to this quest's %d", from, qv);
+    else
+        buf[0] = 0;
+
+    note += buf;
+    extern bool saved;
+    saved = false;
+    return true;
+}
+
 namespace
 {
 
@@ -2809,11 +3108,13 @@ int zqx_timed_save(const char *quest_path, int retention, bool uncompressed, std
 //
 // The same exports and imports the menus run, from the command line, for checking files against
 // upstream's (the menus are checked through the window):
-//   -qst-export in.qst dmaps|strings|combos|tiles|guys|zgp|zqt|qsu|zitem|znpc out [a b]
-//       (dmaps: first and last DMap; tiles: first page and page count; zitem, znpc: which one)
-//   -qst-import in.qst dmaps|strings|combos|tiles|guys|zgp|zqt|qsu file out.qst [dest]
+//   -qst-export in.qst dmaps|strings|combos|tiles|guys|zgp|zqt|qsu|zitem|znpc|map out [a b]
+//       (dmaps: first and last DMap; tiles: first page and page count; zitem, znpc: which one;
+//       map: which map, from 0)
+//   -qst-import in.qst dmaps|strings|combos|tiles|guys|zgp|zqt|qsu|map file out.qst [dest]
 //       (combos and tiles: the first combo or tile; zitem, znpc (also accepted here): the item
-//       or enemy to replace; then saved in the quest's own version)
+//       or enemy to replace; map: the map, from 0, then the import bias 0-2; then saved in the
+//       quest's own version)
 //   -qst-timed-save in.qst retention uncompressed
 // The result goes to allegro.log; the exit code is 0 when it worked.
 
@@ -2881,6 +3182,7 @@ int zqx_test_switches(int argc, char **argv)
         else if(kind == "tiles") ok = zqx_export_tiles(out, a, b, why);
         else if(kind == "guys") ok = zqx_export_guys(out, why);
         else if(kind == "zitem" || kind == "znpc") ok = zqx_export_one(kind == "zitem", a, out, why);
+        else if(kind == "map") ok = zqx_export_map(out, a, why);
         else if(kind == "zgp") ok = zqx_export_zgp(out, why);
         else if(kind == "zqt" || kind == "qsu") ok = zqx_export_quest(out, kind == "zqt", why);
         else if(kind == "all")
@@ -2931,6 +3233,7 @@ int zqx_test_switches(int argc, char **argv)
         else if(kind == "tiles") ok = zqx_import_tiles(file, dest, why, note);
         else if(kind == "guys") ok = zqx_import_guys(file, why, note);
         else if(kind == "zitem" || kind == "znpc") ok = zqx_import_one(kind == "zitem", dest, file, why, note);
+        else if(kind == "map") ok = zqx_import_map(file, dest, argc > at + 6 ? atoi(argv[at + 6]) : 0, why, note);
         else if(kind == "zgp") ok = zqx_import_zgp(file, why, note);
         else if(kind == "zqt" || kind == "qsu")
         {
