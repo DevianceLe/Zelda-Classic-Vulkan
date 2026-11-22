@@ -1657,7 +1657,14 @@ int load_savedgames()
     {
         goto newdata;
     }
-    
+
+    // ZC_TEST_START (test runs only): always a new game, as upstream's test mode, never the
+    // save a run before left in the folder (which made it a continue: onSaveLoad, not Init)
+    if(standalone_mode && getenv("ZC_TEST_START"))
+    {
+        goto init;
+    }
+
     errno = 0;  // the check below would otherwise see a stale error
     if(file_size_ex_password(fname, "") == 0)
     {

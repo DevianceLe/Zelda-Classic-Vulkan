@@ -2264,7 +2264,10 @@ int init_game()
         if(q30_early_preload)
             ffscript_engine(true);
 
-        q30_global_first_frame = q30_scripts_active();
+        // (a message a preload script started here is already up as the game's first frame
+        // begins, and upstream's freeze_message holds the global script back then too:
+        // Mystical Harps' dungeons, StringDungeon)
+        q30_global_first_frame = q30_scripts_active() && !msg_active;
     }
 
     // Newer quests' scripts get a frame before the opening (q30_warp_script_check), but not those
