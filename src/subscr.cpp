@@ -4685,7 +4685,14 @@ void counter(BITMAP *dest, int x, int y, FONT *tempfont, int color, int shadowco
     sprintf(valstring,"01234567890123456789");
     sprintf(formatstring, "%%0%dd", digits);
     
-    if(onlyselected && !(((Bitem&&(is_counter_item(Bitem->id,itemtype1)||is_counter_item(Bitem->id,itemtype2)||is_counter_item(Bitem->id,itemtype3)))||(Aitem&&(is_counter_item(Aitem->id,itemtype1)||is_counter_item(Aitem->id,itemtype2)||is_counter_item(Aitem->id,itemtype3))))))
+    if(onlyselected && !(((Bitem&&(is_counter_item(Bitem->id,itemtype1)||is_counter_item(Bitem->id,itemtype2)||is_counter_item(Bitem->id,itemtype3)))||(Aitem&&(is_counter_item(Aitem->id,itemtype1)||is_counter_item(Aitem->id,itemtype2)||is_counter_item(Aitem->id,itemtype3)))
+#ifdef ZC_PLAYER_BUILD
+        // 2.55/3.0: the item on X or Y counts too (upstream's SW_Counter with SUBSCR_COUNTER_ONLYSEL;
+        // Xitem and Yitem only exist in those quests)
+        ||(Xitem&&(is_counter_item(Xitem->id,itemtype1)||is_counter_item(Xitem->id,itemtype2)||is_counter_item(Xitem->id,itemtype3)))
+        ||(Yitem&&(is_counter_item(Yitem->id,itemtype1)||is_counter_item(Yitem->id,itemtype2)||is_counter_item(Yitem->id,itemtype3)))
+#endif
+        )))
     {
         return;
     }
