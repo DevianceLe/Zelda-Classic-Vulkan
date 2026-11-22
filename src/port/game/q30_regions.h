@@ -67,6 +67,9 @@ int q30_region_screen_at(int lx, int ly);
 // lx, ly are unused, the camera follows Link by itself), and in region pixels (Viewport->X / Y;
 // during a scroll, the scroll's view in the new region's pixels).
 void q30_region_camera(int lx, int ly, int *cam_x, int *cam_y);
+// The camera is used: in a scrolling region, or on a lone screen while a script places the
+// viewport (Viewport->Mode 2: upstream's 1x1 region; Modes 0 and 1 keep it at 0, 0 there).
+bool q30_region_camera_used();
 void q30_region_viewport(int *vx, int *vy);
 // Viewport-> for scripts (upstream's scripting/types/viewport.cpp). Mode: 0 centred on the target
 // and kept in the region, 1 centred, 2 placed by the script (X / Y); a screen load or a scroll
@@ -338,6 +341,8 @@ bool q30_scroll_on();               // a 3.0 quest's scroll is running
 bool q30_scroll_align_first();
 int q30_scroll_align_step(bool scroll_left);
 bool q30_scroll_align_pending();
+// the playing field offset has yet to change (upstream's pfo_counter): no still frames at the end
+bool q30_scroll_pfo_pending();
 // The view's offset on the other axis, relative to both screens (add it to the scroll's x or y).
 void q30_scroll_offset(int *ox, int *oy);
 int q30_scroll_pfo_shift();     // the playing field offset's change so far in a 3.0 scroll (upstream's pfo_counter)

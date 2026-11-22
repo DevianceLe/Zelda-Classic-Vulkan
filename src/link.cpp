@@ -17192,7 +17192,8 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
             else
             {
                 //4 frames after we've finished scrolling of being still
-                if(cx == 0 && !end_frames)
+                //(not while a 2.55/3.0 playing field offset change waits: upstream's pfo_counter)
+                if(cx == 0 && !end_frames && !q30_scroll_pfo_pending())
                 {
                     cx += 4;
                     no_move += 4;

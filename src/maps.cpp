@@ -3081,7 +3081,7 @@ static void q30_ffc_layer(BITMAP *bmp, int pass, int also, mapscr *scr, bool low
     }
     else
     {
-        if(q30_region_on()) q30_region_upper_layer(bmp, -3, scr, false);
+        if(q30_region_camera_used()) q30_region_upper_layer(bmp, -3, scr, false);
         else do_layer(bmp, -3, scr, 0, 0, 2);
         if(bmp != scrollbuf)
             do_layer(scrollbuf, -3, scr, 0, 0, 2);
@@ -3528,7 +3528,7 @@ void draw_screen(mapscr* this_screen, bool showlink)
     
     if(!(this_screen->flags7&fLAYER3BG))
     {
-        if(q30_region_on()) q30_region_upper_layer(temp_buf, 2, this_screen, true);
+        if(q30_region_camera_used()) q30_region_upper_layer(temp_buf, 2, this_screen, true);
         else do_layer(temp_buf,2, this_screen, 0, 0, 2, false, true);
         do_layer(scrollbuf, 2, this_screen, 0, 0, 2);
         
@@ -3543,7 +3543,7 @@ void draw_screen(mapscr* this_screen, bool showlink)
         q30_ffc_layer(temp_buf, 3, 3, this_screen, false);
     }
     
-    if(q30_region_on()) q30_region_upper_layer(temp_buf, 3, this_screen, true);
+    if(q30_region_camera_used()) q30_region_upper_layer(temp_buf, 3, this_screen, true);
     else do_layer(temp_buf,3, this_screen, 0, 0, 2, false, true);
     do_layer(scrollbuf, 3, this_screen, 0, 0, 2);
     //do_primitives(temp_buf, 3, this_screen, 0,playing_field_offset);//don't uncomment me
@@ -3558,7 +3558,7 @@ void draw_screen(mapscr* this_screen, bool showlink)
     
     q30_ffc_layer(temp_buf, 4, 4, this_screen, false);
     
-    if(q30_region_on()) q30_region_upper_layer(temp_buf, -1, this_screen, false);
+    if(q30_region_camera_used()) q30_region_upper_layer(temp_buf, -1, this_screen, false);
     else do_layer(temp_buf,-1, this_screen, 0, 0, 2);
     do_layer(scrollbuf,-1, this_screen, 0, 0, 2);
     q30_draw_script_layer(temp_buf, Q30_SPLAYER_OVERHEAD_CMB);
@@ -3651,7 +3651,7 @@ void draw_screen(mapscr* this_screen, bool showlink)
     
     set_clip_rect(framebuf,draw_screen_clip_rect_x1,draw_screen_clip_rect_y1,draw_screen_clip_rect_x2,draw_screen_clip_rect_y2);
     
-    if(q30_region_on()) q30_region_upper_layer(temp_buf, 4, this_screen, true);
+    if(q30_region_camera_used()) q30_region_upper_layer(temp_buf, 4, this_screen, true);
     else do_layer(temp_buf,4, this_screen, 0, 0, 2, false, true);
     do_layer(scrollbuf, 4, this_screen, 0, 0, 2);
     
@@ -3665,12 +3665,12 @@ void draw_screen(mapscr* this_screen, bool showlink)
     
     q30_ffc_layer(temp_buf, 5, 5, this_screen, false);
     
-    if(q30_region_on()) q30_region_upper_layer(temp_buf, -4, this_screen, false);
+    if(q30_region_camera_used()) q30_region_upper_layer(temp_buf, -4, this_screen, false);
     else do_layer(temp_buf,-4, this_screen, 0, 0, 2); // overhead freeform combos!
     do_layer(scrollbuf, -4, this_screen, 0, 0, 2);
     q30_draw_script_layer(temp_buf, Q30_SPLAYER_OVERHEAD_FFC);
 
-    if(q30_region_on()) q30_region_upper_layer(temp_buf, 5, this_screen, true);
+    if(q30_region_camera_used()) q30_region_upper_layer(temp_buf, 5, this_screen, true);
     else do_layer(temp_buf,5, this_screen, 0, 0, 2, false, true);
     do_layer(scrollbuf, 5, this_screen, 0, 0, 2);
     

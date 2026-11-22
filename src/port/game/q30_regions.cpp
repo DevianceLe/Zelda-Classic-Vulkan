@@ -113,7 +113,10 @@ struct ScreenState
 std::map<int, ScreenState> g_screen_state;  // screens of the region visited in this stay
 std::map<long, int> g_sprite_screen;        // sprite UID -> the screen it came from
 std::vector<signed char> g_map_valid;    // per map: -1 unknown, 0 invalid region layout, 1 valid
-BITMAP *g_canvas = NULL;                 // 3 x 3 screens, the current one in the middle
+BITMAP *g_canvas = NULL;                 // 3 x 4 screens: the ones around the view (g_canvas_x/y)
+// where the current screen's top-left is on g_canvas: 256, 176 (its middle column, second row)
+// while the view is within a screen of it, else anchored on the view (a script's viewport)
+int g_canvas_x = 256, g_canvas_y = 176;
 
 // ---- the camera: upstream's viewport and its follow logic (zc/maps.cpp) ----------------------
 // The viewport (g_cam_vx/vy) is the camera's top-left in region pixels, kept inside the region.
@@ -680,11 +683,6 @@ struct LayersIn
     ~LayersIn() { for(int i = 0; i < 6; ++i) std::swap(tmpscr3[i], rs->layers[i]); }
 };
 
-bool overlaps(int a0, int a1, int b0, int b1)
-{
-    return a0 < b1 && b0 < a1;
-}
-
 } // namespace
 
 bool q30_region_on()
@@ -1096,18 +1094,42 @@ int q30_region_screen_at(int lx, int ly)
 }
 
 
+// the camera is used: in a scrolling region, or on a lone screen (upstream's 1x1 region) while
+// a script places the viewport (Viewport->Mode 2; else it is 0, 0 there)
+static bool camera_used()
+{
+    return g_reg.on || (g_vp_mode == 2 && q30_active());
+}
+
+bool q30_region_camera_used() { return camera_used(); }
+
 void q30_region_camera(int, int, int *cam_x, int *cam_y)
 {
     *cam_x = *cam_y = 0;
 
-    if(!g_reg.on)
+    if(!camera_used())
         return;
 
     camera_look();
-    // (a script's or a centred viewport can be anywhere; what is drawn reaches a screen around
-    // this one: q30_region_lower_begin's canvas)
-    *cam_x = vbound(g_cam_vx - g_reg.dx * 256, -256, 256);
-    *cam_y = vbound(g_cam_vy - g_reg.dy * 176, -176, 352 - q30_view_h());
+    // (a script's or a centred viewport can be anywhere; what is drawn is the screens it shows:
+    // q30_region_lower_begin's canvas is anchored on them)
+    *cam_x = g_cam_vx - q30_region_offset_x();
+    *cam_y = g_cam_vy - q30_region_offset_y();
+}
+
+static int view_div(int a, int b)
+{
+    return a >= 0 ? a / b : -((-a + b - 1) / b);
+}
+
+// the screens (relative to the current one) a view at cx, cy (relative to it) shows, or comes
+// within extra pixels of
+static void view_screen_range(int cx, int cy, int extra, int *x0, int *y0, int *x1, int *y1)
+{
+    *x0 = view_div(cx - extra, 256);
+    *x1 = view_div(cx + 255 + extra, 256);
+    *y0 = view_div(cy - extra, 176);
+    *y1 = view_div(cy + q30_view_h() - 1 + extra, 176);
 }
 
 void q30_set_viewport_follow(int dmap, bool custom, int deadzone_w, int deadzone_h, int lookahead_x, int lookahead_y,
@@ -1381,13 +1403,21 @@ BITMAP *q30_region_lower_begin(BITMAP *scrollbuf)
     if(g_reg.on)
         log_region_ffc_hash();
 
-    if(!g_reg.on || q30_scroll_on())
+    if(!camera_used() || q30_scroll_on())
         return scrollbuf;
 
     q30_region_camera(int(Link.getX()), int(Link.getY()), &g_lower_cx, &g_lower_cy);
 
     if(!g_lower_cx && !g_lower_cy)
         return scrollbuf;
+
+    // the canvas's screens: -1..1 across and -1..2 down around this one while the view is in
+    // them, else moved to take the view in (it spans at most 2 across and 3 down)
+    int x0, y0, x1, y1;
+    view_screen_range(g_lower_cx, g_lower_cy, 0, &x0, &y0, &x1, &y1);
+    const int lc = x0 < -1 ? x0 : x1 > 1 ? x1 - 2 : -1, tc = y0 < -1 ? y0 : y1 > 2 ? y1 - 3 : -1;
+    g_canvas_x = -lc * 256;
+    g_canvas_y = -tc * 176;
 
     if(!g_canvas)
         g_canvas = create_bitmap_ex(8, 768, 704);
@@ -1398,10 +1428,10 @@ BITMAP *q30_region_lower_begin(BITMAP *scrollbuf)
     clear_bitmap(g_canvas);
     g_lower_canvas = true;
 
-    // this screen's (x, y) is drawn at (x - q30_draw_cam_x, y + pfo - q30_draw_cam_y): 256, 176 on
-    // the canvas (sprites drawn here, Link under a climb cover, follow the same offsets)
-    q30_draw_cam_x = -256;
-    q30_draw_cam_y = playing_field_offset - 176;
+    // this screen's (x, y) is drawn at (x - q30_draw_cam_x, y + pfo - q30_draw_cam_y): g_canvas_x,
+    // g_canvas_y on the canvas (sprites drawn here, Link under a climb cover, follow the same offsets)
+    q30_draw_cam_x = -g_canvas_x;
+    q30_draw_cam_y = playing_field_offset - g_canvas_y;
     return g_canvas;
 }
 
@@ -1417,14 +1447,15 @@ void q30_region_lower_layer(BITMAP *lower, int which)
 
     const int cx = g_lower_cx, cy = g_lower_cy;
     const int pfo = playing_field_offset;
+    int x0, y0, x1, y1;
+    view_screen_range(cx, cy, 0, &x0, &y0, &x1, &y1);
 
-    for(int sdy = -1; sdy <= 1; ++sdy)
-        for(int sdx = -1; sdx <= 1; ++sdx)
+    for(int sdy = y0; sdy <= y1; ++sdy)
+        for(int sdx = x0; sdx <= x1; ++sdx)
         {
             int scr;
 
-            if((!sdx && !sdy) || !overlaps(sdx * 256, sdx * 256 + 256, cx, cx + 256) || !overlaps(sdy * 176, sdy * 176 + 176, cy, cy + q30_view_h())
-               || !in_region(sdx, sdy, &scr))
+            if((!sdx && !sdy) || !in_region(sdx, sdy, &scr))
                 continue;
 
             RegionScreen *rs = region_screen(scr);
@@ -1433,7 +1464,7 @@ void q30_region_lower_layer(BITMAP *lower, int which)
                 continue;
 
             mapscr *s = &rs->base;
-            const int ox = 256 + sdx * 256, oy = 176 + sdy * 176;
+            const int ox = g_canvas_x + sdx * 256, oy = g_canvas_y + sdy * 176;
             const int x = -ox, y = pfo - oy;
             LayersIn in(rs);
 
@@ -1470,20 +1501,26 @@ void q30_region_lower_layer(BITMAP *lower, int which)
 BITMAP *q30_region_lower_local(BITMAP *lower)
 {
     static BITMAP *sub = NULL;
-    static int sub_pfo = -1;
+    static int sub_pfo = -1, sub_x = -1, sub_y = -1;
 
     if(!g_lower_canvas || lower != g_canvas)
         return lower;
 
-    // this screen's top-left is at 256, 176 on the canvas; the sub-bitmap starts pfo above it
-    // (remade when the playing field offset moves, as an earthquake does)
-    if(!sub || sub_pfo != playing_field_offset)
+    // this screen's top-left is at g_canvas_x, g_canvas_y on the canvas; the sub-bitmap starts pfo
+    // above it (remade when the playing field offset moves, as an earthquake does, or the canvas)
+    if(!sub || sub_pfo != playing_field_offset || sub_x != g_canvas_x || sub_y != g_canvas_y)
     {
         if(sub)
             destroy_bitmap(sub);
 
+        sub = NULL;
         sub_pfo = playing_field_offset;
-        sub = create_sub_bitmap(g_canvas, 256, 176 - sub_pfo, 512, 352 + sub_pfo);
+        sub_x = g_canvas_x;
+        sub_y = g_canvas_y;
+
+        // (a view so far off that this screen isn't on the canvas: nothing of it shows)
+        if(sub_x >= 0 && sub_y - sub_pfo >= 0 && sub_x < 768 && sub_y < 704)
+            sub = create_sub_bitmap(g_canvas, sub_x, sub_y - sub_pfo, 768 - sub_x, 704 - sub_y + sub_pfo);
     }
 
     return sub ? sub : lower;
@@ -1495,8 +1532,8 @@ void q30_draw_view_origin(BITMAP *bmp, int *x, int *y)
 
     if(g_lower_canvas && bmp == g_canvas)
     {
-        *x = 256 + g_lower_cx;
-        *y = 176 + g_lower_cy - playing_field_offset;
+        *x = g_canvas_x + g_lower_cx;
+        *y = g_canvas_y + g_lower_cy - playing_field_offset;
     }
 }
 
@@ -1505,7 +1542,7 @@ void q30_region_lower_end(BITMAP *scrollbuf)
     if(!g_lower_canvas)
         return;
 
-    blit(g_canvas, scrollbuf, 256 + g_lower_cx, 176 + g_lower_cy, 0, playing_field_offset, 256, q30_view_h());
+    blit(g_canvas, scrollbuf, g_canvas_x + g_lower_cx, g_canvas_y + g_lower_cy, 0, playing_field_offset, 256, q30_view_h());
     g_lower_canvas = false;
     q30_draw_cam_x = q30_draw_cam_y = 0;
 }
@@ -1523,13 +1560,15 @@ void q30_region_upper_layer(BITMAP *bmp, int type, mapscr *this_screen, bool dra
     if(!g_reg.on || (!cx && !cy))
         return;
 
-    for(int sdy = -1; sdy <= 1; ++sdy)
-        for(int sdx = -1; sdx <= 1; ++sdx)
+    int x0, y0, x1, y1;
+    view_screen_range(cx, cy, 0, &x0, &y0, &x1, &y1);
+
+    for(int sdy = y0; sdy <= y1; ++sdy)
+        for(int sdx = x0; sdx <= x1; ++sdx)
         {
             int scr;
 
-            if((!sdx && !sdy) || !overlaps(sdx * 256, sdx * 256 + 256, cx, cx + 256) || !overlaps(sdy * 176, sdy * 176 + 176, cy, cy + q30_view_h())
-               || !in_region(sdx, sdy, &scr))
+            if((!sdx && !sdy) || !in_region(sdx, sdy, &scr))
                 continue;
 
             RegionScreen *rs = region_screen(scr);
@@ -1554,14 +1593,15 @@ int q30_region_view_screens(Q30ViewScreen *out, int extra)
 
     int cx, cy;
     q30_region_camera(0, 0, &cx, &cy);
+    int x0, y0, x1, y1;
+    view_screen_range(cx, cy, extra, &x0, &y0, &x1, &y1);
 
-    for(int sdy = -2; sdy <= 2; ++sdy)
-        for(int sdx = -2; sdx <= 2 && n < Q30_VIEW_SCREENS; ++sdx)
+    for(int sdy = y0; sdy <= y1; ++sdy)
+        for(int sdx = x0; sdx <= x1 && n < Q30_VIEW_SCREENS; ++sdx)
         {
             int scr;
 
-            if((!sdx && !sdy) || !overlaps(sdx * 256, sdx * 256 + 256, cx - extra, cx + 256 + extra)
-               || !overlaps(sdy * 176, sdy * 176 + 176, cy - extra, cy + q30_view_h() + extra) || !in_region(sdx, sdy, &scr))
+            if((!sdx && !sdy) || !in_region(sdx, sdy, &scr))
                 continue;
 
             RegionScreen *rs = region_screen(scr);
@@ -3081,6 +3121,11 @@ bool q30_scroll_align_first()
 bool q30_scroll_align_pending()
 {
     return g_scroll.on && (g_scroll.align_left > 0 || g_scroll.pfo_left > 0);
+}
+
+bool q30_scroll_pfo_pending()
+{
+    return g_scroll.on && g_scroll.pfo_left > 0;
 }
 
 int q30_scroll_align_step(bool scroll_left)
