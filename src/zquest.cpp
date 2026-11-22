@@ -11950,16 +11950,16 @@ const char *infolist(int index, int *list_size)
 
 
 
-int onMapCount()
+// What Quest > Map Count does with the count picked (ret: the count less one); ask: whether the
+// question about layers is asked (the -qst-map-count test answers it with OK).
+static void map_count_apply(int ret, bool ask)
 {
     bool makechange=true;
     bool willaffectlayers=false;
     int oldmapcount=map_count-1;
     
-    int ret = select_data("Number of Maps",map_count-1,maplist, lfont);
-    
     if(ret == oldmapcount)
-        return D_O_K; //they selected the same number of maps they already have.
+        return; //they selected the same number of maps they already have.
         
     {
         if(ret < 0)
@@ -11985,7 +11985,7 @@ int onMapCount()
                 }
             }
             
-            if(willaffectlayers)
+            if(willaffectlayers && ask)
             {
                 if(jwin_alert("Confirm Change",
                               "This change will delete maps being used for",
@@ -12018,9 +12018,24 @@ int onMapCount()
             }
         }
     }
+}
+
+int onMapCount()
+{
+    int ret = select_data("Number of Maps",map_count-1,maplist, lfont);
     
+    if(ret == map_count-1)
+        return D_O_K; //they selected the same number of maps they already have.
+        
+    map_count_apply(ret, true);
     refresh(rMAP+rSCRMAP+rMENU);
     return D_O_K;
+}
+
+// -qst-map-count (main): Quest > Map Count set to count, as picking it there does.
+void zq_test_map_count(int count)
+{
+    map_count_apply(count-1, false);
 }
 
 int onGotoMap()
@@ -24216,6 +24231,34 @@ int main(int argc,char **argv)
                 ret = zq_save_own_format_ex(argv[own_save_arg+2], getenv("ZQ_OWN_SAVE_ENCODE") != NULL, getenv("ZQ_OWN_SAVE_ALL") != NULL, why);
 
             al_trace("-qst-own-save result: %d %s\n", ret, why.c_str());
+            exit(ret == 0 ? 0 : 3);
+        }
+
+        // -qst-map-count in.qst out.qst N [N2 ...]: Quest > Map Count set to N (then N2 ...), as
+        // picking it there does (OK to its question about layers), then a save in the quest's own
+        // version (the newer UI's list in that dialog takes no test keys)
+        int mapcount_arg = used_switch(argc,argv,"-qst-map-count");
+
+        if(mapcount_arg && argc>mapcount_arg+3)
+        {
+            extern bool skip_quest_password;
+            extern bool zq_batch_load;
+            extern int zq_save_own_format_ex(const char *filename, bool encode, bool all_parts, std::string &why);
+            extern void zq_test_map_count(int count);
+            skip_quest_password = true;
+            zq_batch_load = true;
+            int ret = load_quest(argv[mapcount_arg+1],true,true);
+            std::string why;
+
+            if(ret == qe_OK)
+            {
+                for(int a = mapcount_arg+3; a < argc && atoi(argv[a]) > 0; ++a)
+                    zq_test_map_count(atoi(argv[a]));
+
+                ret = zq_save_own_format_ex(argv[mapcount_arg+2], true, false, why);
+            }
+
+            al_trace("-qst-map-count result: %d %s\n", ret, why.c_str());
             exit(ret == 0 ? 0 : 3);
         }
 

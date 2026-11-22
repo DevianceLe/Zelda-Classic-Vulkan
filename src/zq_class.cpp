@@ -51,6 +51,17 @@
 #include "port/game/quest_version.h"
 #endif
 
+// A 2.55/3.0 screen's own record follows zmap's screen operations (zq_q255.h).
+#ifdef ZC_ZQEDITOR
+#define ZQ255_PASTED(scr, kind) zq255_screen_pasted(currmap*MAPSCRS+(scr), (kind), -1)
+#define ZQ255_UNDO_NOTE(slot, index) zq255_screen_undo_note((slot), (index))
+#define ZQ255_UNDO_SWAP(slot, index) zq255_screen_undo_swap((slot), (index))
+#else
+#define ZQ255_PASTED(scr, kind) ((void)0)
+#define ZQ255_UNDO_NOTE(slot, index) ((void)0)
+#define ZQ255_UNDO_SWAP(slot, index) ((void)0)
+#endif
+
 using std::string;
 using std::pair;
 #define EPSILON 0.01 // Define your own tolerance
@@ -796,6 +807,10 @@ void zmap::Template(int floorcombo, int floorcset, int scr)
     
     for(int i=0; i<4; i++)
         putdoor(scr,i,screens[scr].door[i]);
+
+#ifdef ZC_ZQEDITOR
+    zq255_screen_templated(currmap*MAPSCRS+scr, currmap*MAPSCRS+TEMPLATE);
+#endif
 }
 
 void zmap::putdoor(int side,int door)
@@ -834,6 +849,10 @@ void zmap::clearscr(int scr)
         screens[scr].ffwidth[i]=15;
         screens[scr].ffheight[i]=15;
     }
+
+#ifdef ZC_ZQEDITOR
+    zq255_screen_cleared(currmap*MAPSCRS+scr);
+#endif
 }
 
 const char *loaderror[] =
@@ -3823,17 +3842,20 @@ void zmap::Ugo()
     for(int x=0; x<MAPSCRS; x++)
     {
         copy_mapscr(&undomap[x], &screens[x]);
+        ZQ255_UNDO_NOTE(x, currmap*MAPSCRS+x);
     }
     
     for(int k=0; k<6; ++k)
     {
         undomap[MAPSCRS+k].zero_memory();
+        ZQ255_UNDO_NOTE(MAPSCRS+k, -1);
         layermap=layer->layermap[k]-1;
         
         if(layermap>-1 && layermap<map_count)
         {
             layerscreen=layer->layerscreen[k];
             copy_mapscr(&undomap[MAPSCRS+k], AbsoluteScr(layermap,layerscreen));
+            ZQ255_UNDO_NOTE(MAPSCRS+k, layermap*MAPSCRS+layerscreen);
         }
     }
     
@@ -3851,6 +3873,7 @@ void zmap::Uhuilai()
         for(int x=0; x<MAPSCRS; x++)
         {
             zc_swap(screens[x],undomap[x]);
+            ZQ255_UNDO_SWAP(x, currmap*MAPSCRS+x);
         }
         
         for(int k=0; k<6; ++k)
@@ -3861,6 +3884,7 @@ void zmap::Uhuilai()
             {
                 layerscreen=layer->layerscreen[k];
                 zc_swap(*AbsoluteScr(layermap,layerscreen),undomap[MAPSCRS+k]);
+                ZQ255_UNDO_SWAP(MAPSCRS+k, layermap*MAPSCRS+layerscreen);
             }
         }
     }
@@ -3876,6 +3900,9 @@ void zmap::Copy()
         copymap=currmap;
         copyscr=currscr;
         copyffc = -1;
+#ifdef ZC_ZQEDITOR
+        zq255_screen_copied(currmap*MAPSCRS+currscr, -1);
+#endif
     }
 }
 
@@ -3889,6 +3916,9 @@ void zmap::CopyFFC(int n)
         copymap=currmap;
         copyscr=currscr;
         copyffc = n;
+#ifdef ZC_ZQEDITOR
+        zq255_screen_copied(currmap*MAPSCRS+currscr, n);
+#endif
     }
 }
 
@@ -3942,6 +3972,7 @@ void zmap::Paste()
             rebuild_trans_table();
         }
         
+        ZQ255_PASTED(currscr, ZQ255_PASTE_COMBOS);
         saved=false;
     }
 }
@@ -3953,6 +3984,7 @@ void zmap::PasteUnderCombo()
         Ugo();
         screens[currscr].undercombo = copymapscr.undercombo;
         screens[currscr].undercset = copymapscr.undercset;
+        ZQ255_PASTED(currscr, ZQ255_PASTE_UNDERCOMBO);
         saved=false;
     }
 }
@@ -3970,6 +4002,7 @@ void zmap::PasteSecretCombos()
             screens[currscr].secretflag[i] = copymapscr.secretflag[i];
         }
         
+        ZQ255_PASTED(currscr, ZQ255_PASTE_SECRETS);
         saved=false;
     }
 }
@@ -4007,6 +4040,7 @@ void zmap::PasteFFCombos()
                 screens[currscr].inita[i][j] = copymapscr.inita[i][j];
         }
         
+        ZQ255_PASTED(currscr, ZQ255_PASTE_FFCS);
         saved=false;
     }
 }
@@ -4040,6 +4074,9 @@ void zmap::PasteOneFFC(int i) //i - destination ffc slot
         screens[currscr].inita[i][j] = copymapscr.inita[copyffc][j];
         
     screens[currscr].numff|=(1<<i);
+#ifdef ZC_ZQEDITOR
+    zq255_screen_pasted(currmap*MAPSCRS+currscr, ZQ255_PASTE_ONEFFC, i);
+#endif
     copyffc = -1;
     saved=false;
 }
@@ -4065,6 +4102,7 @@ void zmap::PasteWarps()
             screens[currscr].tilewarpoverlayflags = copymapscr.tilewarpoverlayflags;
         }
         
+        ZQ255_PASTED(currscr, ZQ255_PASTE_WARPS);
         saved=false;
     }
 }
@@ -4109,6 +4147,7 @@ void zmap::PasteScreenData()
         screens[currscr].stairx = copymapscr.stairx;
         screens[currscr].stairy = copymapscr.stairy;
         screens[currscr].timedwarptics = copymapscr.timedwarptics;
+        ZQ255_PASTED(currscr, ZQ255_PASTE_SCREENDATA);
         saved=false;
     }
 }
@@ -4128,6 +4167,7 @@ void zmap::PasteWarpLocations()
             screens[currscr].warpreturny[i] = copymapscr.warpreturny[i];
         }
         
+        ZQ255_PASTED(currscr, ZQ255_PASTE_WARPRETURN);
         saved=false;
     }
 }
@@ -4142,6 +4182,7 @@ void zmap::PasteDoors()
             screens[currscr].door[i] = copymapscr.door[i];
             
         screens[currscr].door_combo_set = copymapscr.door_combo_set;
+        ZQ255_PASTED(currscr, ZQ255_PASTE_DOORS);
         saved=false;
     }
 }
@@ -4159,6 +4200,7 @@ void zmap::PasteLayers()
             screens[currscr].layeropacity[i] = copymapscr.layeropacity[i];
         }
         
+        ZQ255_PASTED(currscr, ZQ255_PASTE_LAYERS);
         saved=false;
     }
 }
@@ -4170,6 +4212,7 @@ void zmap::PasteRoom()
         Ugo();
         screens[currscr].room = copymapscr.room;
         screens[currscr].catchall = copymapscr.catchall;
+        ZQ255_PASTED(currscr, ZQ255_PASTE_ROOM);
         saved=false;
     }
 }
@@ -4181,6 +4224,7 @@ void zmap::PasteGuy()
         Ugo();
         screens[currscr].guy = copymapscr.guy;
         screens[currscr].str = copymapscr.str;
+        ZQ255_PASTED(currscr, ZQ255_PASTE_GUY);
         saved=false;
     }
 }
@@ -4205,6 +4249,7 @@ void zmap::PastePalette()
             rebuild_trans_table();
         }
         
+        ZQ255_PASTED(currscr, ZQ255_PASTE_PALETTE);
         saved=false;
     }
 }
@@ -4230,6 +4275,7 @@ void zmap::PasteAll()
             rebuild_trans_table();
         }
         
+        ZQ255_PASTED(currscr, ZQ255_PASTE_ALL);
         saved=false;
     }
 }
@@ -4276,6 +4322,9 @@ void zmap::PasteToAll()
             rebuild_trans_table();
         }
         
+        for(int x=0; x<128; x++)
+            ZQ255_PASTED(x, ZQ255_PASTE_TOALL);
+
         saved=false;
     }
 }
@@ -4306,6 +4355,9 @@ void zmap::PasteAllToAll()
             rebuild_trans_table();
         }
         
+        for(int x=0; x<128; x++)
+            ZQ255_PASTED(x, ZQ255_PASTE_ALL);
+
         saved=false;
     }
 }
@@ -4316,6 +4368,8 @@ void zmap::PasteEnemies()
     {
         for(int i=0; i<10; i++)
             screens[currscr].enemy[i]=copymapscr.enemy[i];
+
+        ZQ255_PASTED(currscr, ZQ255_PASTE_ENEMIES);
     }
 }
 
@@ -5746,6 +5800,10 @@ bool setMapCount2(int c)
         return false;
     }
     
+#ifdef ZC_ZQEDITOR
+    zq255_maps_counted(oldmapcount, map_count, currmap);
+#endif
+
     if(map_count>oldmapcount)
     {
         for(int mc=oldmapcount; mc<map_count; mc++)

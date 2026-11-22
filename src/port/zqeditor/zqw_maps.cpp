@@ -1179,8 +1179,45 @@ uint64_t screen_hash(const mapscr &m)
 
 std::vector<uint64_t> g_screens_loaded;   // each screen's hash in 2.53's form
 
+// The open quest's MAP section version when it is a 2.55 / 3.0 one (0 otherwise).
+word newer_map_version()
+{
+    if(!zq255_quest_is_newer() || header.zelda_version != 0x255)
+        return 0;
+
+    const ZqQuestPart *part = find_part(ID_MAPS);
+    byte b[2];
+
+    if(!part || part->length < 10 || !zq_part_read(*part, 0, b, 2))
+        return 0;
+
+    const word v = (word)(b[0] | (b[1] << 8));
+    return v >= 18 && v <= 41 ? v : 0;
+}
+
+// What upstream's mapscr starts with (2.55.18 and 3.0) where 2.53's clearscr and the reader of
+// an unused screen leave something else: what a screen gets once it is used.
+void unused_defaults(mapscr &m)
+{
+    m.csensitive = 1;
+    m.secretsfx = 27;
+    m.holdupsfx = 20;
+    m.screen_midi = -1;
+
+    for(int q = 0; q < 4; ++q)
+        m.sidewarptype[q] = wtSCROLL;
+}
+
 void note_maps()
 {
+    // An unused screen of a v23+ quest: nothing of it is in the file, and the reader leaves it
+    // cleared; ZQuest holds it as upstream's ZQuest does, so a paste or a combo drawn there
+    // makes the screen upstream's would be.
+    if(newer_map_version() >= 23)
+        for(size_t i = 0; i < TheMaps.size(); ++i)
+            if(!(TheMaps[i].valid & mVALID))
+                unused_defaults(TheMaps[i]);
+
     g_screens_loaded.resize(TheMaps.size());
 
     for(size_t i = 0; i < TheMaps.size(); ++i)
@@ -1786,8 +1823,10 @@ void put_group(Out &o, int i, word v, const mapscr &c, const mapscr &l, const by
 
         if(v > 26)
         {
+            // guy tile, CSet, room flags; a screen without the group has upstream's -1 for the
+            // tile ("the guy's own"), which 0 isn't (tile 0)
             if(rp) o.pn(rp + 1, 7);
-            else for(int k = 0; k < 7; ++k) o.p8(0);
+            else { o.p32(0xFFFFFFFF); o.p8(0); o.p16(0); }
         }
 
         o.p16(c.str);
@@ -2339,6 +2378,140 @@ struct MapHead
     word autopalette;
 };
 
+// What a valid screen with no groups reads as (v23+).
+bool blank_screen(word v, mapscr &blank)
+{
+    Out s;
+    s.p8(mVALID);
+    s.p32(0);
+
+    if(v < 25) s.p32(0); else s.p16(0);
+    if(v > 29) s.p32(0);
+
+    word nolayers[6] = { 0, 0, 0, 0, 0, 0 };
+    return v < 23 || read_screen_255(s.b, 0, v, 0, nolayers, 0, blank);
+}
+
+// How a screen comes out of write_maps_255 (screen_out).
+enum { SO_NEW, SO_COPY, SO_CANT, SO_BAD };
+
+// Screen `index` (screen j of its map) as write_maps_255 lays it out: ZQuest's screen (TheMaps)
+// put on its record src[from, to), which reads as `loaded` (used false: there is none, loaded is
+// a cleared screen), the screen editor's fields in. layers, palette: what the map's unused
+// screens read with. SO_NEW: out holds the record; SO_COPY: the record as it is; SO_CANT: it
+// can't be held (kept_as_is: the screen is unchanged); SO_BAD: the record doesn't read.
+int screen_out(size_t index, int j, word v, const mapscr &loaded, bool used, const std::vector<byte> &src,
+               size_t from, size_t to, const word *layers, word palette, const mapscr &blank,
+               std::vector<byte> &out, bool &kept_as_is)
+{
+    const mapscr &c = TheMaps[index];
+    const bool unchanged = used && screen_unchanged(index);
+    kept_as_is = unchanged && !has_screen_fields(index);
+
+    if(unchanged && !zqw_force_serialize && !has_screen_fields(index))
+        return SO_COPY;
+
+    // An unused screen is its valid byte alone (v23+), as upstream writes one: nothing else of
+    // it is in the file, so there is nothing to read back.
+    if(v >= 23 && !(c.valid & mVALID) && !has_screen_fields(index))
+    {
+        out.assign(1, c.valid);
+        return SO_NEW;
+    }
+
+    const std::vector<byte> rec_raw(src.begin() + from, src.begin() + to);
+    mapscr got, raw253, merged;
+    Grouped g;
+    bool ok = false, encoder_ok = true;
+    Out rec;
+
+    for(int pass = 0; pass < 2 && !ok && encoder_ok; ++pass)
+    {
+        const bool keep = pass == 0;
+        rec.b.clear();
+
+        if(v < 23)
+        {
+            if(used)
+            {
+                In r(rec_raw, 0);
+                parse_screen_253(r, raw253);
+                merge_flat(merged, c, loaded, raw253, keep);
+                screen_bytes_253(rec, merged);
+                rec.copy(rec_raw, r.pos, rec_raw.size());   // what follows: v19-22's fields 2.53 has no room for
+            }
+            else
+            {
+                merge_flat(merged, c, loaded, loaded, false);
+                screen_bytes_253(rec, merged);
+
+                if(v >= 19) for(int q = 0; q < 100; ++q) rec.p8(0);
+                if(v >= 20) for(int q = 0; q < 34; ++q) rec.p8(0);
+                if(v >= 21) rec.p8(0);
+                if(v >= 22) { rec.p8(0); rec.p8(0); }
+            }
+        }
+        else
+        {
+            const Grouped *gp = NULL;
+
+            if(used)
+            {
+                if(!parse_grouped(rec_raw, 0, v, g))
+                    return SO_BAD;
+
+                gp = &g;
+            }
+
+            bool exact = true;
+            put_screen_grouped(rec, v, c, loaded, blank, rec_raw, gp, keep, &exact);
+
+            if(!exact && strict())
+            {
+                encoder_ok = false;     // a bug in the encoder: fail the check
+                break;
+            }
+        }
+
+        // the 2.55/3.0-only fields edited in the screen editor
+        if(!apply_screen_fields(index, v, rec.b))
+        {
+            encoder_ok = false;
+            break;
+        }
+
+        // a map written anew has no layers or palette of its own for unused screens
+        got.screen_midi = c.screen_midi;
+        size_t back = read_screen_255(rec.b, 0, v, j, layers, palette, got);
+        ok = back == rec.b.size() && same_screen(c, got);
+    }
+
+    if(!ok || !encoder_ok)
+        return SO_CANT;
+
+    out.swap(rec.b);
+    return SO_NEW;
+}
+
+// Maps that Quest > Map Count added (zq255_maps_counted): the file's head for one, if it has
+// one, is not theirs. Map -> the auto palette it starts with (3.0's setMapCount2 gives a new
+// map the current one's).
+std::map<int, word> g_new_maps;
+
+// Whether every screen of map i is unused in ZQuest now.
+bool map_unused(int i)
+{
+    for(int j = 0; j < MAPSCRS; ++j)
+    {
+        const size_t index = (size_t)i * MAPSCRS + j;
+
+        if(index >= TheMaps.size() || (TheMaps[index].valid & mVALID))
+            return false;
+    }
+
+    return true;
+}
+
 int write_maps_255(PACKFILE *f, const ZqPartContext &ctx)
 {
     const word v = ctx.version;
@@ -2369,22 +2542,11 @@ int write_maps_255(PACKFILE *f, const ZqPartContext &ctx)
 
     // what a valid screen with no groups reads as
     mapscr blank;
-    {
-        Out s;
-        s.p8(mVALID);
-        s.p32(0);
 
-        if(v < 25) s.p32(0); else s.p16(0);
-        if(v > 29) s.p32(0);
+    if(!blank_screen(v, blank))
+        return ERR_READ;
 
-        word nolayers[6] = { 0, 0, 0, 0, 0, 0 };
-
-        if(v >= 23 && !read_screen_255(s.b, 0, v, 0, nolayers, 0, blank))
-            return ERR_READ;
-    }
-
-    mapscr loaded, got, raw253, merged;
-    Grouped g;
+    mapscr loaded, got;
     const word no_layers[6] = { 0, 0, 0, 0, 0, 0 };
 
     for(int i = 0; i < (count > old_maps ? count : old_maps); ++i)
@@ -2440,19 +2602,63 @@ int write_maps_255(PACKFILE *f, const ZqPartContext &ctx)
             continue;
         }
 
+        // A map Quest > Map Count added: where the file has one (maps were taken away and given
+        // back), that one isn't it. Its screens are passed over and the map is written anew,
+        // with no auto layers and the palette it was given.
+        std::map<int, word>::const_iterator nm = g_new_maps.find(i);
+        const bool fresh = nm != g_new_maps.end();
+        bool raw_map = map_in_raw;
+
+        if(fresh)
+        {
+            for(int j = 0; map_in_raw && mh.valid && j < MAPSCRS; ++j)
+            {
+                size_t used = read_screen_255(body, in.pos, v, j, mh.autolayers, mh.autopalette, got);
+
+                if(!used)
+                    return ERR_READ;
+
+                in.pos += used;
+            }
+
+            memset(&mh, 0, sizeof(mh));
+            mh.valid = 1;
+            mh.autopalette = v >= 36 ? nm->second : 0;
+            raw_map = false;
+        }
+
         // A map the file holds without screens loads cleared; if a screen of it changed,
         // it is written whole.
         bool any_changed = false;
+        const bool unused_now = v > 22 && map_unused(i);
 
-        if(!mh.valid)
+        if(!mh.valid || unused_now)
             for(int j = 0; j < MAPSCRS && !any_changed; ++j)
                 any_changed = !screen_unchanged((size_t)i * MAPSCRS + j) || imported_screen((size_t)i * MAPSCRS + j);
+
+        // A map with no screen in use now (cleared, or added) is its valid byte alone, as
+        // upstream writes one; a map as the file holds it stays as it is.
+        if(unused_now && (!raw_map || any_changed))
+        {
+            for(int j = 0; raw_map && mh.valid && j < MAPSCRS; ++j)
+            {
+                size_t used = read_screen_255(body, in.pos, v, j, mh.autolayers, mh.autopalette, got);
+
+                if(!used)
+                    return ERR_READ;
+
+                in.pos += used;
+            }
+
+            o.p8(0);
+            continue;
+        }
 
         // the map's scrolling region ids as the region editor left them (zq_cpool.cpp); the
         // reader keeps every valid map's, so an unedited map's come out as they were
         const bool region_kept = v >= 31 && (size_t)i < q255_map_region_ids.size() && q255_map_region_ids[i].size() == 64;
 
-        if(map_in_raw && (mh.valid || !any_changed))
+        if(raw_map && (mh.valid || !any_changed))
         {
             o.copy(body, head_at, head_end);
 
@@ -2465,15 +2671,18 @@ int write_maps_255(PACKFILE *f, const ZqPartContext &ctx)
             if(v > 25)
             {
                 for(int q = 0; q < 6; ++q) o.p16(0);
-                if(v >= 36) o.p16(0);
+                if(v >= 36) o.p16(fresh ? mh.autopalette : 0);
             }
             if(v >= 31) for(int q = 0; q < 64; ++q) o.p8(region_kept ? q255_map_region_ids[i][q] : 0);
         }
 
-        if(map_in_raw && !mh.valid && !any_changed)
+        if(raw_map && !mh.valid && !any_changed)
             continue;
 
-        const bool screens_in_raw = map_in_raw && mh.valid;
+        const bool screens_in_raw = raw_map && mh.valid;
+        // what the map's unused screens read with: its head's, none for a map written anew
+        const word *layers = screens_in_raw ? mh.autolayers : no_layers;
+        const word palette = screens_in_raw || fresh ? mh.autopalette : 0;
 
         for(int j = 0; j < MAPSCRS; ++j)
         {
@@ -2503,13 +2712,13 @@ int write_maps_255(PACKFILE *f, const ZqPartContext &ctx)
             if(index >= TheMaps.size())
                 return ERR_READ;
 
-            // A screen a .map import put in: its record stands for the loaded one, read as the
-            // loader would read it here (zq255_map_take put that into TheMaps).
+            // A screen a .map import or a map or screen operation put in: its record stands for
+            // the loaded one, read as the loader would read it here.
             const std::vector<byte> *imp = imported_screen(index);
 
             if(imp)
             {
-                used = read_screen_255(*imp, 0, v, j, screens_in_raw ? mh.autolayers : no_layers, screens_in_raw ? mh.autopalette : 0, loaded);
+                used = read_screen_255(*imp, 0, v, j, layers, palette, loaded);
 
                 if(used != imp->size())
                     return ERR_READ;
@@ -2517,87 +2726,17 @@ int write_maps_255(PACKFILE *f, const ZqPartContext &ctx)
 
             const std::vector<byte> &src = imp ? *imp : body;
             const size_t from = imp ? 0 : start, to = imp ? imp->size() : in.pos;
-            const mapscr &c = TheMaps[index];
-            const bool unchanged = used && screen_unchanged(index);
+            std::vector<byte> rec;
+            bool kept_as_is = false;    // a screen with fields edited in the screen editor counts as changed
+            const int r = screen_out(index, j, v, loaded, used != 0, src, from, to, layers, palette, blank, rec, kept_as_is);
 
-            if(unchanged && !zqw_force_serialize && !has_screen_fields(index))
-            {
+            if(r == SO_BAD)
+                return ERR_READ;
+
+            if(r == SO_COPY)
                 o.copy(src, from, to);
-                continue;
-            }
-
-            const std::vector<byte> rec_raw(src.begin() + from, src.begin() + to);
-            bool ok = false, encoder_ok = true;
-            Out rec;
-
-            for(int pass = 0; pass < 2 && !ok && encoder_ok; ++pass)
-            {
-                const bool keep = pass == 0;
-                rec.b.clear();
-
-                if(v < 23)
-                {
-                    if(used)
-                    {
-                        In r(rec_raw, 0);
-                        parse_screen_253(r, raw253);
-                        merge_flat(merged, c, loaded, raw253, keep);
-                        screen_bytes_253(rec, merged);
-                        rec.copy(rec_raw, r.pos, rec_raw.size());   // what follows: v19-22's fields 2.53 has no room for
-                    }
-                    else
-                    {
-                        merge_flat(merged, c, loaded, loaded, false);
-                        screen_bytes_253(rec, merged);
-
-                        if(v >= 19) for(int q = 0; q < 100; ++q) rec.p8(0);
-                        if(v >= 20) for(int q = 0; q < 34; ++q) rec.p8(0);
-                        if(v >= 21) rec.p8(0);
-                        if(v >= 22) { rec.p8(0); rec.p8(0); }
-                    }
-                }
-                else
-                {
-                    const Grouped *gp = NULL;
-
-                    if(used)
-                    {
-                        if(!parse_grouped(rec_raw, 0, v, g))
-                            return ERR_READ;
-
-                        gp = &g;
-                    }
-
-                    bool exact = true;
-                    put_screen_grouped(rec, v, c, loaded, blank, rec_raw, gp, keep, &exact);
-
-                    if(!exact && strict())
-                    {
-                        encoder_ok = false;     // a bug in the encoder: fail the check
-                        break;
-                    }
-                }
-
-                // the 2.55/3.0-only fields edited in the screen editor
-                if(!apply_screen_fields(index, v, rec.b))
-                {
-                    encoder_ok = false;
-                    break;
-                }
-
-                // a map written anew has no layers or palette of its own for unused screens
-                const bool head_kept = screens_in_raw;
-                got.screen_midi = c.screen_midi;
-                size_t back = read_screen_255(rec.b, 0, v, j, head_kept ? mh.autolayers : no_layers,
-                                              head_kept ? mh.autopalette : 0, got);
-                ok = back == rec.b.size() && same_screen(c, got);
-            }
-
-            // a screen with fields edited in the screen editor counts as changed: it can't be dropped quietly
-            const bool kept_as_is = unchanged && !has_screen_fields(index);
-
-            if(ok && encoder_ok && !exact_differs(ID_MAPS, (int)index, kept_as_is, rec.b, src, from, to))
-                o.pn(&rec.b[0], rec.b.size());
+            else if(r == SO_NEW && !exact_differs(ID_MAPS, (int)index, kept_as_is, rec, src, from, to))
+                o.pn(&rec[0], rec.size());
             else if(refuse(ID_MAPS, (int)index, kept_as_is, "can't be held in this version"))
                 return ERR_CANT_HOLD;
             else
@@ -2974,7 +3113,13 @@ void hash_screen_fields(uint64_t *h)
             zq_hash_add(h, f->second.bytes.empty() ? NULL : &f->second.bytes[0], f->second.bytes.size());
         }
 
-    // and the screens a .map import put in
+    for(std::map<int, word>::const_iterator it = g_new_maps.begin(); it != g_new_maps.end(); ++it)
+    {
+        zq_hash_add(h, &it->first, sizeof(it->first));
+        zq_hash_add(h, &it->second, sizeof(it->second));
+    }
+
+    // and the screens a .map import or a map or screen operation put in
     for(std::map<int, std::vector<byte> >::const_iterator it = zq255.screen_records.begin(); it != zq255.screen_records.end(); ++it)
     {
         const unsigned n = (unsigned)it->second.size();
@@ -3838,9 +3983,11 @@ bool zq255_map_take(int map, const std::vector<std::vector<byte> > &recs, std::s
     }
 
     // as write_maps_255: a map the file holds screens for keeps its own fields; one written anew
-    // has no auto layers or palette
-    const bool head = mp.found && mp.screens;
+    // has no auto layers, and the palette Map Count gave it
+    std::map<int, word>::const_iterator nm = g_new_maps.find(map);
+    const bool head = mp.found && mp.screens && nm == g_new_maps.end();
     const word no_layers[6] = { 0, 0, 0, 0, 0, 0 };
+    const word palette = head ? mp.autopalette : nm != g_new_maps.end() && v >= 36 ? nm->second : 0;
     std::vector<mapscr> got(MAPSCRS);
 
     for(int j = 0; j < MAPSCRS; ++j)
@@ -3851,7 +3998,7 @@ bool zq255_map_take(int map, const std::vector<std::vector<byte> > &recs, std::s
         const size_t index = (size_t)map * MAPSCRS + j;
         got[j].screen_midi = TheMaps[index].screen_midi;
 
-        if(read_screen_255(recs[j], 0, v, j, head ? mp.autolayers : no_layers, head ? mp.autopalette : 0, got[j]) != recs[j].size())
+        if(read_screen_255(recs[j], 0, v, j, head ? mp.autolayers : no_layers, palette, got[j]) != recs[j].size())
         {
             char b[96];
             snprintf(b, sizeof(b), "screen %X doesn't read in this quest's format %d", j, (int)v);
@@ -3877,4 +4024,721 @@ bool zq255_map_take(int map, const std::vector<std::vector<byte> > &recs, std::s
     }
 
     return true;
+}
+
+// ---- map and screen operations (zq_class.cpp's zmap) --------------------------------------
+//
+// zmap's operations (Copy and the pastes, clearscr, Template, Undo, Quest > Map Count) change
+// TheMaps, 2.53's view of each screen. A 2.55/3.0 screen's record holds more: the fields 2.53's
+// mapscr has no room for, and the values it narrows (room types, flags, items). The writer
+// takes that from the screen's record, kept by its place: the file's record there, or one put
+// in for it (zq255.screen_records), with the screen editor's edits on it (zq255.screen_fields).
+// So after an operation every screen it changed gets a record of its own, made as upstream's
+// ZQuest (2.55.18 and 3.0 zq_class.cpp) leaves that screen: what upstream copies comes from the
+// copied screen's record whole, what it clears is cleared, the rest stays the screen's own.
+// TheMaps then holds what that record reads as, as for a screen as loaded.
+
+namespace
+{
+
+// The MAP section of the quest as it stands (a save puts what it wrote in the loaded one's
+// place), each map's head and each screen's record in it.
+struct MapsAt
+{
+    int64_t offset, length;
+    word v;
+    std::vector<byte> body;
+    std::vector<MapPlace> maps;
+    std::vector<std::vector<size_t> > at;   // a map with screens: where each record starts, then the end
+
+    MapsAt() : offset(-1), length(-1), v(0) {}
+};
+
+MapsAt g_at;
+
+// The open quest's MAP version when its screens are 2.55/3.0 records (0 otherwise).
+word ops_version()
+{
+    return newer_map_version();
+}
+
+const MapsAt *maps_at()
+{
+    if(!ops_version())
+        return NULL;
+
+    const ZqQuestPart *part = find_part(ID_MAPS);
+
+    if(g_at.v && g_at.offset == part->offset && g_at.length == part->length)
+        return &g_at;
+
+    g_at = MapsAt();
+    std::vector<byte> orig;
+
+    if(!part_bytes(*part, orig) || orig.size() < 10)
+        return NULL;
+
+    MapsAt m;
+    m.v = (word)(orig[0] | (orig[1] << 8));
+    m.body.assign(orig.begin() + 8, orig.end());
+    In in(m.body, 0);
+    const int maps = in.g16();
+    mapscr scratch;
+
+    for(int i = 0; i < maps && !in.bad; ++i)
+    {
+        MapPlace mp;
+        memset(&mp, 0, sizeof(mp));
+        byte valid = 1;
+
+        if(m.v > 22)
+            valid = in.g8();
+
+        if(valid)
+        {
+            if(m.v > 25)
+            {
+                for(int q = 0; q < 6; ++q) mp.autolayers[q] = in.g16();
+                if(m.v >= 36) mp.autopalette = in.g16();
+            }
+
+            if(m.v >= 31)
+                in.skip(64);
+        }
+
+        if(in.bad)
+            return NULL;
+
+        mp.found = true;
+        mp.screens = valid != 0;
+        mp.at = in.pos;
+        std::vector<size_t> at;
+
+        for(int j = 0; valid && j < MAPSCRS; ++j)
+        {
+            at.push_back(in.pos);
+            const size_t used = read_screen_255(m.body, in.pos, m.v, j, mp.autolayers, mp.autopalette, scratch);
+
+            if(!used)
+                return NULL;
+
+            in.pos += used;
+        }
+
+        if(valid)
+            at.push_back(in.pos);
+
+        m.maps.push_back(mp);
+        m.at.push_back(at);
+    }
+
+    if(in.bad)
+        return NULL;
+
+    m.offset = part->offset;
+    m.length = part->length;
+    g_at = m;
+    return &g_at;
+}
+
+// What write_maps_255 reads screen index's record with: the map's head (auto layers and
+// palette for its unused screens), and where the file has the record (from == to: nowhere).
+struct ScreenAt
+{
+    word layers[6];
+    word palette;
+    size_t from, to;
+};
+
+void screen_at(const MapsAt &m, size_t index, ScreenAt &s)
+{
+    const int i = (int)(index / MAPSCRS), j = (int)(index % MAPSCRS);
+    memset(&s, 0, sizeof(s));
+    std::map<int, word>::const_iterator nm = g_new_maps.find(i);
+
+    if(nm != g_new_maps.end())
+        s.palette = m.v >= 36 ? nm->second : 0;
+    else if(i < (int)m.maps.size() && m.maps[i].screens)
+    {
+        memcpy(s.layers, m.maps[i].autolayers, sizeof(s.layers));
+        s.palette = m.maps[i].autopalette;
+        s.from = m.at[i][j];
+        s.to = m.at[i][j + 1];
+    }
+}
+
+// Screen index's record as a save would write it now: its record with ZQuest's screen and the
+// screen editor's edits put on it (false: it can't be laid out).
+bool screen_now(const MapsAt &m, size_t index, std::vector<byte> &rec)
+{
+    if(index >= TheMaps.size())
+        return false;
+
+    ScreenAt s;
+    screen_at(m, index, s);
+    const int j = (int)(index % MAPSCRS);
+    mapscr loaded, blank;
+
+    if(!blank_screen(m.v, blank))
+        return false;
+
+    loaded.screen_midi = TheMaps[index].screen_midi;
+    const std::vector<byte> *imp = imported_screen(index);
+    const std::vector<byte> &src = imp ? *imp : m.body;
+    const size_t from = imp ? 0 : s.from, to = imp ? imp->size() : s.to;
+    const bool used = to > from;
+
+    if(used)
+    {
+        if(read_screen_255(src, from, m.v, j, s.layers, s.palette, loaded) != to - from)
+            return false;
+    }
+    else
+        clear_screen(&loaded);
+
+    bool kept = false;
+    const int r = screen_out(index, j, m.v, loaded, used, src, from, to, s.layers, s.palette, blank, rec, kept);
+
+    if(r == SO_COPY)
+        rec.assign(src.begin() + from, src.begin() + to);
+
+    return r == SO_NEW || r == SO_COPY;
+}
+
+// Makes rec screen index's record, as a .map import does (zq255_map_take): the screen
+// editor's edits are in it, and TheMaps takes what it reads as (read_in; an unused screen
+// keeps what ZQuest has: nothing else of it is in the record).
+bool set_record(const MapsAt &m, size_t index, const std::vector<byte> &rec, bool read_in)
+{
+    if(index >= TheMaps.size() || rec.empty())
+        return false;
+
+    if(read_in && (m.v < 23 || (rec[0] & mVALID)))
+    {
+        ScreenAt s;
+        screen_at(m, index, s);
+        mapscr got;
+        got.screen_midi = TheMaps[index].screen_midi;
+
+        if(read_screen_255(rec, 0, m.v, (int)(index % MAPSCRS), s.layers, s.palette, got) != rec.size())
+            return false;
+
+        TheMaps[index] = got;
+    }
+
+    zq255.screen_records[(int)index] = rec;
+    zq255.screen_fields.erase((int)index);
+
+    if(g_screens_loaded.size() < TheMaps.size())
+        g_screens_loaded.resize(TheMaps.size(), 0);
+
+    g_screens_loaded[index] = screen_hash(TheMaps[index]);
+    q30_set_screen_music((int)index, record_music(rec, m.v));
+    return true;
+}
+
+// A screen record's fields by key with every group on: a field of a group the record leaves
+// out has what it reads as there (the schema's default).
+bool fields_all(word v, const std::vector<byte> &rec, Tape &all)
+{
+    Tape t;
+    TapeParser p(rec.empty() ? NULL : &rec[0], rec.size(), 0, &t);
+
+    if(!zq_tape_screen(p, v) || p.pos != rec.size())
+        return false;
+
+    if(TapeField *has = t.find("has"))
+        has->value = 0xEFFF;
+
+    TapeParser q(&t, &all);
+    zq_tape_screen(q, v);
+    return !q.bad;
+}
+
+// Puts fields into a screen record by key: one the record has takes the value, one it lacks
+// comes in with the group it belongs to switched on. counts: the record's own counts set first
+// (which FFC slots it has). The record is laid out again; false when it doesn't read, or it is
+// an unused screen.
+bool tape_put(word v, std::vector<byte> &rec, const std::vector<TapeField> &edits,
+              const std::vector<std::pair<std::string, int64_t> > &counts)
+{
+    Tape t;
+    TapeParser p(rec.empty() ? NULL : &rec[0], rec.size(), 0, &t);
+
+    if(!zq_tape_screen(p, v) || p.pos != rec.size())
+        return false;
+
+    if(TapeField *has = t.find("has"))
+    {
+        Tape all;
+
+        if(!fields_all(v, rec, all))
+            return false;
+
+        for(size_t k = 0; k < edits.size(); ++k)
+            if(!t.find(edits[k].key.c_str()))
+                if(const TapeField *g = all.find(edits[k].key.c_str()))
+                    has->value |= g->gate;
+    }
+    else if(v >= 23)
+        return false;
+
+    for(size_t k = 0; k < counts.size(); ++k)
+        if(TapeField *x = t.find(counts[k].first.c_str()))
+            x->value = counts[k].second;
+
+    for(size_t k = 0; k < edits.size(); ++k)
+    {
+        if(TapeField *x = t.find(edits[k].key.c_str()))
+            take_field(*x, edits[k]);
+        else
+            t.f.push_back(edits[k]);
+    }
+
+    Tape out;
+    TapeParser r(&t, &out);
+    zq_tape_screen(r, v);
+
+    if(r.bad)
+        return false;
+
+    std::vector<byte> b;
+    out.encode(b);
+    Tape chk;
+    TapeParser c(b.empty() ? NULL : &b[0], b.size(), 0, &chk);
+
+    if(!zq_tape_screen(c, v) || c.pos != b.size())
+        return false;
+
+    rec.swap(b);
+    return true;
+}
+
+// A field key a paste takes: the name itself, or with "#" at its end the name and a number
+// (one field of an array: "door#" is door0 to door3).
+bool key_is(const std::string &key, const char *name)
+{
+    const size_t n = strlen(name);
+
+    if(!n || name[n - 1] != '#')
+        return key == name;
+
+    if(key.size() < n || key.compare(0, n - 1, name, n - 1))
+        return false;
+
+    for(size_t k = n - 1; k < key.size(); ++k)
+        if(key[k] < '0' || key[k] > '9')
+            return false;
+
+    return key.size() > n - 1;
+}
+
+void take_keys(const Tape &from, const char *const *names, std::vector<TapeField> &edits)
+{
+    for(size_t k = 0; k < from.f.size(); ++k)
+        for(const char *const *n = names; *n; ++n)
+            if(key_is(from.f[k].key, *n))
+            {
+                edits.push_back(from.f[k]);
+                break;
+            }
+}
+
+// FFC m's field key ("ffc3.x" -> 3, rest ".x"); -1 for a field of no FFC.
+int ffc_of(const std::string &key, std::string *rest)
+{
+    if(key.compare(0, 3, "ffc") || key.size() < 5 || key[3] < '0' || key[3] > '9')
+        return -1;
+
+    size_t k = 3;
+    int m = 0;
+
+    while(k < key.size() && key[k] >= '0' && key[k] <= '9')
+        m = m * 10 + (key[k++] - '0');
+
+    if(k >= key.size() || key[k] != '.')
+        return -1;
+
+    if(rest)
+        *rest = key.substr(k);
+
+    return m;
+}
+
+// The fields each of upstream's pastes takes from the copied screen (zmap::Paste... in
+// 2.55.18 and 3.0); a field the quest's version doesn't have isn't there to take.
+const char *const k_combos[] = { "door_combo_set", "door#", "data", "sflag", "cset", NULL };
+const char *const k_toall[] = { "data", "sflag", "cset", NULL };
+const char *const k_under[] = { "undercombo", "undercset", NULL };
+const char *const k_secrets[] = { "secretcombo", "secretcset", "secretflag", NULL };
+// (and flags2's warp bits, which ZQuest's paste puts in TheMaps)
+const char *const k_warps[] = { "sidewarpindex", "tilewarptype#", "tilewarpdmap#", "tilewarpscr#", "sidewarptype#",
+                                "sidewarpdmap#", "sidewarpscr#", "sidewarpoverlayflags", "tilewarpoverlayflags", NULL };
+// (and flags2 but its warp bits; enemyflags is upstream's flags11; 2.55.18 pastes the screen
+// MIDI, 3.0 its music, which a version before MAP 37 holds as the MIDI)
+const char *const k_screendata[] = { "csensitive", "oceansfx", "bosssfx", "secretsfx", "holdupsfx", "flags", "flags3",
+                                     "flags4", "flags5", "flags6", "flags7", "flags8", "flags9", "flags10", "enemyflags",
+                                     "item", "hasitem", "itemx", "itemy", "nextmap", "nextscr", "nocarry", "noreset",
+                                     "exstate_reset", "exstate_carry", "path#", "pattern", "exitdir", "screen_midi",
+                                     "music", "stairx", "stairy", "timedwarptics", NULL };
+const char *const k_warpret[] = { "warpreturnc", "warparrivalx", "warparrivaly", "warpreturnx#", "warpreturny#", NULL };
+const char *const k_doors[] = { "door#", "door_combo_set", NULL };
+const char *const k_layers[] = { "layermap#", "layerscreen#", "layeropacity#", NULL };
+const char *const k_room[] = { "room", "catchall", NULL };
+const char *const k_guy[] = { "guy", "guytile", "guycs", "str", NULL };     // and two room flags
+const char *const k_palette[] = { "color", NULL };
+const char *const k_enemies[] = { "enemy#", NULL };
+const char *const k_ffc_counts[] = { "ffc_count", "numff", NULL };   // which FFC slots a screen has
+
+// What Copy took: the copied screen's record as it stood then.
+struct Copied
+{
+    bool on;
+    word v;
+    int ffc;
+    std::vector<byte> rec;
+
+    Copied() : on(false), v(0), ffc(-1) {}
+};
+
+Copied g_copy;
+
+// Undo (zmap::Ugo / Uhuilai): each undo slot's screen state beside 2.53's copy of the screen.
+struct UndoScreen
+{
+    bool rec_on, fields_on, music_on, hash_on;
+    std::vector<byte> rec;
+    std::map<std::string, TapeField> fields;
+    long music;
+    uint64_t hash;
+
+    UndoScreen() : rec_on(false), fields_on(false), music_on(false), hash_on(false), music(0), hash(0) {}
+};
+
+std::vector<UndoScreen> g_undo;
+
+void state_take(int index, UndoScreen &u)
+{
+    u = UndoScreen();
+
+    if(index < 0)
+        return;
+
+    std::map<int, std::vector<byte> >::const_iterator r = zq255.screen_records.find(index);
+    std::map<int, std::map<std::string, TapeField> >::const_iterator f = zq255.screen_fields.find(index);
+    std::map<int, long>::const_iterator mu = zq255.screen_music.find(index);
+
+    if((u.rec_on = r != zq255.screen_records.end()))
+        u.rec = r->second;
+
+    if((u.fields_on = f != zq255.screen_fields.end()))
+        u.fields = f->second;
+
+    if((u.music_on = mu != zq255.screen_music.end()))
+        u.music = mu->second;
+
+    if((u.hash_on = (size_t)index < g_screens_loaded.size()))
+        u.hash = g_screens_loaded[index];
+}
+
+void state_put(int index, const UndoScreen &u)
+{
+    if(index < 0)
+        return;
+
+    if(u.rec_on)
+        zq255.screen_records[index] = u.rec;
+    else
+        zq255.screen_records.erase(index);
+
+    if(u.fields_on)
+        zq255.screen_fields[index] = u.fields;
+    else
+        zq255.screen_fields.erase(index);
+
+    if(u.music_on)
+        zq255.screen_music[index] = u.music;
+    else
+        zq255.screen_music.erase(index);
+
+    if((size_t)index < TheMaps.size())
+    {
+        if(g_screens_loaded.size() < TheMaps.size())
+            g_screens_loaded.resize(TheMaps.size(), 0);
+
+        g_screens_loaded[index] = u.hash_on ? u.hash : 0;
+    }
+}
+
+// A new quest forgets the last one's maps and undo (what Copy took stays, as 2.53's copy does).
+void ops_loaded()
+{
+    g_new_maps.clear();
+    g_undo.clear();
+    g_at = MapsAt();
+}
+
+ZqLoadHookRegistration g_hook_ops(ops_loaded);
+
+} // namespace
+
+void zq255_screen_copied(int index, int ffc)
+{
+    g_copy.on = false;
+    const MapsAt *m = maps_at();
+
+    if(m && index >= 0 && screen_now(*m, (size_t)index, g_copy.rec))
+    {
+        g_copy.on = true;
+        g_copy.v = m->v;
+        g_copy.ffc = ffc;
+    }
+}
+
+void zq255_screen_pasted(int index, int kind, int ffc)
+{
+    const MapsAt *m = maps_at();
+
+    if(!m || !g_copy.on || g_copy.v != m->v || index < 0 || (size_t)index >= TheMaps.size())
+        return;
+
+    const word v = m->v;
+
+    if(kind == ZQ255_PASTE_ALL)
+    {
+        set_record(*m, (size_t)index, g_copy.rec, true);
+        return;
+    }
+
+    // the screen as the paste left it in TheMaps, on its own record
+    std::vector<byte> rec;
+
+    if(!screen_now(*m, (size_t)index, rec))
+        return;
+
+    Tape from, to;
+    std::vector<TapeField> edits;
+    std::vector<std::pair<std::string, int64_t> > counts;
+
+    if(!fields_all(v, g_copy.rec, from) || !fields_all(v, rec, to))
+        return;
+
+    switch(kind)
+    {
+    case ZQ255_PASTE_COMBOS:      take_keys(from, k_combos, edits); break;
+    case ZQ255_PASTE_TOALL:       take_keys(from, k_toall, edits); break;
+    case ZQ255_PASTE_UNDERCOMBO:  take_keys(from, k_under, edits); break;
+    case ZQ255_PASTE_SECRETS:     take_keys(from, k_secrets, edits); break;
+    case ZQ255_PASTE_WARPS:       take_keys(from, k_warps, edits); break;
+    case ZQ255_PASTE_SCREENDATA:  take_keys(from, k_screendata, edits); break;
+    case ZQ255_PASTE_WARPRETURN:  take_keys(from, k_warpret, edits); break;
+    case ZQ255_PASTE_DOORS:       take_keys(from, k_doors, edits); break;
+    case ZQ255_PASTE_LAYERS:      take_keys(from, k_layers, edits); break;
+    case ZQ255_PASTE_ROOM:        take_keys(from, k_room, edits); break;
+    case ZQ255_PASTE_PALETTE:     take_keys(from, k_palette, edits); break;
+    case ZQ255_PASTE_ENEMIES:     take_keys(from, k_enemies, edits); break;
+
+    case ZQ255_PASTE_GUY:
+    {
+        take_keys(from, k_guy, edits);
+        const TapeField *a = from.find("roomflags"), *b = to.find("roomflags");
+
+        if(a && b)
+        {
+            // upstream's RFL_ALWAYS_GUY and RFL_GUYFIRES
+            TapeField e = *b;
+            e.value = (b->value & ~(int64_t)3) | (a->value & 3);
+            edits.push_back(e);
+        }
+
+        break;
+    }
+
+    case ZQ255_PASTE_FFCS:
+        // every FFC slot, as many as the copied screen has
+        for(size_t k = 0; k < from.f.size(); ++k)
+            if(ffc_of(from.f[k].key, NULL) >= 0)
+                edits.push_back(from.f[k]);
+
+        for(const char *const *n = k_ffc_counts; *n; ++n)
+            if(const TapeField *c = from.find(*n))
+                counts.push_back(std::make_pair(std::string(*n), c->value));
+
+        break;
+
+    case ZQ255_PASTE_ONEFFC:
+    {
+        // the copied FFC into slot ffc, but for its place
+        if(g_copy.ffc < 0 || ffc < 0)
+            return;
+
+        char to_key[16];
+        snprintf(to_key, sizeof(to_key), "ffc%d", ffc);
+
+        for(size_t k = 0; k < from.f.size(); ++k)
+        {
+            std::string rest;
+
+            if(ffc_of(from.f[k].key, &rest) == g_copy.ffc && rest != ".x" && rest != ".y")
+            {
+                TapeField e = from.f[k];
+                e.key = to_key + rest;
+                edits.push_back(e);
+            }
+        }
+
+        if(const TapeField *c = to.find("ffc_count"))
+            counts.push_back(std::make_pair(std::string("ffc_count"), c->value > ffc ? c->value : (int64_t)ffc + 1));
+        else if(const TapeField *c = to.find("numff"))
+            counts.push_back(std::make_pair(std::string("numff"), c->value | ((int64_t)1 << ffc)));
+
+        break;
+    }
+
+    default:
+        return;
+    }
+
+    if(!edits.empty() && !tape_put(v, rec, edits, counts))
+        return;     // left as the paste made it in TheMaps
+
+    set_record(*m, (size_t)index, rec, true);
+}
+
+void zq255_screen_cleared(int index)
+{
+    const MapsAt *m = maps_at();
+
+    if(!m || index < 0 || (size_t)index >= TheMaps.size())
+        return;
+
+    // upstream's clearscr: the map's auto layers (2.55.18 and 3.0), and its auto palette (3.0)
+    ScreenAt s;
+    screen_at(*m, (size_t)index, s);
+    mapscr &c = TheMaps[index];
+    const int j = index % MAPSCRS;
+
+    for(int q = 0; q < 6 && m->v > 25; ++q)
+    {
+        const byte layer = s.layers[q] < 256 ? (byte)s.layers[q] : (byte)0;
+        c.layermap[q] = layer;
+        c.layerscreen[q] = layer ? (byte)j : 0;
+    }
+
+    if(m->v >= 36)
+        c.color = s.palette;
+
+    unused_defaults(c);
+
+    // nothing of the screen's record or edits is left: it is written from ZQuest's screen alone
+    zq255.screen_fields.erase(index);
+    zq255.screen_records.erase(index);
+    mapscr loaded, blank;
+    clear_screen(&loaded);
+    loaded.screen_midi = c.screen_midi;
+    std::vector<byte> rec;
+    bool kept = false;
+
+    if(blank_screen(m->v, blank) &&
+       screen_out((size_t)index, j, m->v, loaded, false, m->body, 0, 0, s.layers, s.palette, blank, rec, kept) == SO_NEW)
+        set_record(*m, (size_t)index, rec, false);
+}
+
+void zq255_screen_templated(int index, int tmpl)
+{
+    const MapsAt *m = maps_at();
+    std::vector<byte> rec, trec;
+
+    if(!m || index < 0 || tmpl < 0 || (size_t)index >= TheMaps.size() || (size_t)tmpl >= TheMaps.size() ||
+       !screen_now(*m, (size_t)index, rec) || !screen_now(*m, (size_t)tmpl, trec))
+        return;
+
+    // The squares Template takes from the template screen keep that one's values as its record
+    // has them (a flag or combo 2.53 narrows); the floor and the doors are ZQuest's.
+    Tape a, t;
+
+    if(fields_all(m->v, rec, a) && fields_all(m->v, trec, t))
+    {
+        const TapeField *ad = a.find("data"), *as = a.find("sflag"), *ac = a.find("cset");
+        const TapeField *td = t.find("data"), *ts = t.find("sflag"), *tc = t.find("cset");
+
+        if(ad && as && ac && td && ts && tc && ad->bytes.size() == 352 && td->bytes.size() == 352 && as->bytes.size() == 176 &&
+           ts->bytes.size() == 176 && ac->bytes.size() == 176 && tc->bytes.size() == 176)
+        {
+            std::vector<TapeField> e(3);
+            e[0] = *ad;
+            e[1] = *as;
+            e[2] = *ac;
+            const mapscr &c = TheMaps[index], &tm = TheMaps[tmpl];
+
+            for(int k = 0; k < 176; ++k)
+            {
+                const int x = k & 15, y = k >> 4;
+                const bool border = k < 32 || k >= 144 || (y >= 2 && y <= 9 && (x < 2 || x >= 14));
+
+                if(border && c.data[k] == tm.data[k] && c.cset[k] == tm.cset[k] && c.sflag[k] == tm.sflag[k])
+                {
+                    e[0].bytes[2 * k] = td->bytes[2 * k];
+                    e[0].bytes[2 * k + 1] = td->bytes[2 * k + 1];
+                    e[1].bytes[k] = ts->bytes[k];
+                    e[2].bytes[k] = tc->bytes[k];
+                }
+            }
+
+            std::vector<std::pair<std::string, int64_t> > none;
+            tape_put(m->v, rec, e, none);
+        }
+    }
+
+    set_record(*m, (size_t)index, rec, true);
+}
+
+void zq255_screen_undo_note(int slot, int index)
+{
+    if(!ops_version() || slot < 0)
+        return;
+
+    if(g_undo.size() < (size_t)MAPSCRS + 6)
+        g_undo.resize(MAPSCRS + 6);
+
+    if((size_t)slot < g_undo.size())
+        state_take(index, g_undo[slot]);
+}
+
+void zq255_screen_undo_swap(int slot, int index)
+{
+    if(!ops_version() || slot < 0 || (size_t)slot >= g_undo.size() || index < 0)
+        return;
+
+    UndoScreen now;
+    state_take(index, now);
+    state_put(index, g_undo[slot]);
+    g_undo[slot] = now;
+}
+
+void zq255_maps_counted(int old_count, int new_count, int from_map)
+{
+    const MapsAt *m = maps_at();
+
+    if(!m)
+        return;
+
+    if(new_count < old_count)
+    {
+        // the maps taken away take their screens' records and edits along
+        const int first = new_count * MAPSCRS;
+
+        zq255.screen_records.erase(zq255.screen_records.lower_bound(first), zq255.screen_records.end());
+        zq255.screen_fields.erase(zq255.screen_fields.lower_bound(first), zq255.screen_fields.end());
+        zq255.screen_music.erase(zq255.screen_music.lower_bound(first), zq255.screen_music.end());
+        g_new_maps.erase(g_new_maps.lower_bound(new_count), g_new_maps.end());
+        return;
+    }
+
+    // New maps have no auto layers; 3.0 gives each the current map's auto palette.
+    ScreenAt s;
+    screen_at(*m, (size_t)from_map * MAPSCRS, s);
+
+    for(int i = old_count; i < new_count; ++i)
+        g_new_maps[i] = m->v >= 36 ? s.palette : 0;
 }

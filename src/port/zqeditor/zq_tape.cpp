@@ -1669,7 +1669,7 @@ bool zq_tape_screen(TapeParser &p, int v)
         if(v > 26)
         {
             p.extra(true);
-            p.s("guytile", "Guy tile", 4);
+            p.def(-1).s("guytile", "Guy tile", 4);     // upstream's mapscr starts with -1 (the guy's own)
             p.u("guycs", "Guy CSet", 1);
             p.flags("roomflags", "Room flags", 2, TL_ROOMFLAGS);
             p.extra(false);
