@@ -28,6 +28,13 @@ Zelda Classic is a game engine and quest editor for making and playing custom ad
 | ![ZQuest's screen editor](docs/screenshots/zquest-screen-editor.png) | ![ZQuest's subscreen editor](docs/screenshots/zquest-subscreen-editor.png) | ![ZQuest's scrolling regions dialog](docs/screenshots/zquest-scrolling-regions.png) |
 | Screen editor | Subscreen editor (3.0 Nightly) | Scrolling regions (3.0 Nightly) |
 
+## Video
+
+| zplayer: Mystical Harps | zplayer: Soldier's Test |
+|:-:|:-:|
+| ![Mystical Harps playing in zplayer: Link walks through a scrolling region and opens the subscreen](docs/videos/zplayer-mystical-harps.gif) | ![Soldier's Test playing in zplayer: Link explores the overworld](docs/videos/zplayer-soldiers-test.gif) |
+| [Full-quality MP4](docs/videos/zplayer-mystical-harps.mp4) | [Full-quality MP4](docs/videos/zplayer-soldiers-test.mp4) |
+
 ## Downloads
 
 Get the latest Windows zips (x86, x64, ARM64), Linux `.tar.gz` (x86_64, aarch64), macOS `.tar.gz` (one program for Apple Silicon and Intel), Switch zip and Android APK from the [Releases page](https://github.com/DevianceLe/Zelda-Classic-Vulkan/releases/latest). Earlier builds are in [`downloads/`](downloads/).
