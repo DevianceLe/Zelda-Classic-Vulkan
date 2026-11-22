@@ -17041,6 +17041,7 @@ void LinkClass::scrollscr(int scrolldir, int destscr, int destdmap)
     }
 
     q30_scroll_loaded(delay != 0);  // the new screen is in: Game->Scrolling says where it scrolls
+    cx += q30_scroll_extra_steps(step);     // (2.55/3.0 up/down into or out of a tall view: further)
 
     // change Link's state if entering water
     int ahead = lookahead(scrolldir);
@@ -17208,9 +17209,21 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
             }
             
             //bound Link when me move him off the screen in the last couple of frames of scrolling
-            if(y > 160) y = 160;
-            
-            if(y < 0)   y = 0;
+            //(2.55/3.0 up/down with a tall view: to the view, upstream's clamp)
+            int q30lo, q30hi;
+
+            if(q30_scroll_link_bounds(&q30lo, &q30hi))
+            {
+                if(y > q30hi) y = q30hi;
+
+                if(y < q30lo) y = q30lo;
+            }
+            else
+            {
+                if(y > 160) y = 160;
+
+                if(y < 0)   y = 0;
+            }
             
             if(x > 240) x = 240;
             
@@ -17461,8 +17474,13 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
         advanceframe(true);
     }//end main scrolling loop (2 spaces tab width makes me sad =( )
     
+    // (2.55/3.0 up/down: Link on the new screen's edge, upstream's new_hero_y; the scroll may end a
+    // step short after the field offset changed first)
+    if(q30_scroll_link_edge(scrolldir))
+        y = scrolldir == down ? 0 : 160;
+
     q30_scroll_end();   // 2.55/3.0: Game->Scrolling[DIR] is -1 again
-    
+
     clear_bitmap(msgdisplaybuf);
     set_clip_state(msgdisplaybuf, 1);
 

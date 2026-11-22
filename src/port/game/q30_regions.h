@@ -341,6 +341,12 @@ bool q30_scroll_align_pending();
 // The view's offset on the other axis, relative to both screens (add it to the scroll's x or y).
 void q30_scroll_offset(int *ox, int *oy);
 int q30_scroll_pfo_shift();     // the playing field offset's change so far in a 3.0 scroll (upstream's pfo_counter)
+// up/down 3.0 scrolls into or out of a tall view: the extra moves (upstream's longer scroll_amount),
+// Link's bounds on the view (scrollscr's y; false: 2.53's 0..160), and whether he ends on the new
+// screen's edge (upstream's new_hero_y)
+int q30_scroll_extra_steps(int step);
+bool q30_scroll_link_bounds(int *lo, int *hi);
+bool q30_scroll_link_edge(int dir);
 // The view at scroll position (sx, sy) (scrollscr's numbers): Game->Scrolling's moving entries
 // and Viewport->X / Y for scripts.
 void q30_scroll_view(int sx, int sy);

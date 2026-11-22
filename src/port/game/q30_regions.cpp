@@ -1390,7 +1390,7 @@ BITMAP *q30_region_lower_begin(BITMAP *scrollbuf)
         return scrollbuf;
 
     if(!g_canvas)
-        g_canvas = create_bitmap_ex(8, 768, 528);
+        g_canvas = create_bitmap_ex(8, 768, 704);
 
     if(!g_canvas)
         return scrollbuf;
@@ -2780,6 +2780,10 @@ struct Scroll
     int pfo_left;               // upstream's pfo_counter
     RegionScreen *old_nb[2];    // the old screen's neighbours on the other axis (before, after)
     int new_nb[2];              // the new screen's (screen numbers, -1: none)
+    int v0;                     // up/down: the old camera's top relative to the old screen's top
+    int extra;                  // up/down: upstream's scroll_amount minus 176
+    RegionScreen *old_far;      // up/down: the old region's screen beyond the old one (away from the new)
+    int new_far;                // and the new region's beyond the new one (screen number, -1: none)
 };
 
 Scroll g_scroll;
@@ -2791,6 +2795,25 @@ void scroll_free_old()
         delete g_scroll.old_nb[k];
         g_scroll.old_nb[k] = NULL;
     }
+
+    delete g_scroll.old_far;
+    g_scroll.old_far = NULL;
+}
+
+// up/down: the screen beyond the old (new_screen false) or the new one on the scroll's axis, and
+// its top's offset from that screen's top in scrollscr's picture
+RegionScreen *scroll_far(bool new_screen, int *dy)
+{
+    const int away = g_scroll.dir == down ? -176 : 176;
+    *dy = new_screen ? -away : away;
+
+    if(g_scroll.horiz)
+        return NULL;
+
+    if(!new_screen)
+        return g_scroll.old_far;
+
+    return g_scroll.new_far >= 0 ? region_screen(g_scroll.new_far) : NULL;
 }
 
 // a screen beside the old (new_screen false) or the new one on the other axis: k 0 before, 1 after
@@ -2818,10 +2841,16 @@ bool scroll_shows(int k)
     return k ? top + zc_view_h - playing_field_offset > 176 : top < 0;
 }
 
+// up/down: the view starts off the old screen's top, scrolls further or is taller than a screen
+bool scroll_tall()
+{
+    return g_scroll.on && !g_scroll.horiz && (g_scroll.v0 || g_scroll.extra || scroll_pfo_shift() || zc_view_h - playing_field_offset > 176);
+}
+
 // the scroll's picture needs the canvas: it is offset or shows a neighbour
 bool scroll_canvas()
 {
-    return g_scroll.on && (g_scroll.s || scroll_pfo_shift() || scroll_shows(0) || scroll_shows(1));
+    return g_scroll.on && (g_scroll.s || scroll_pfo_shift() || scroll_shows(0) || scroll_shows(1) || scroll_tall());
 }
 
 } // namespace
@@ -2844,6 +2873,8 @@ void q30_scroll_reset()
     g_scroll.pfo_left = 0;
     g_scroll.old_pfo = g_scroll.new_pfo = original_playing_field_offset;
     g_scroll.new_nb[0] = g_scroll.new_nb[1] = -1;
+    g_scroll.v0 = g_scroll.extra = 0;
+    g_scroll.new_far = -1;
 }
 
 bool q30_scroll_on()
@@ -2897,6 +2928,20 @@ void q30_scroll_begin(int dir)
         }
     }
 
+    // up/down: the old region's screen beyond the old one (the old camera may show some of it)
+    if(!s.horiz)
+    {
+        int scr;
+
+        if(in_region(0, dir == down ? -1 : 1, &scr))
+        {
+            RegionScreen *rs = region_screen(scr);
+
+            if(rs)
+                s.old_far = new RegionScreen(*rs);
+        }
+    }
+
     // 2.53's picture: the new screen beside or above the old one
     s.obx = dir == left ? 256 : 0;
     s.oby = dir == up ? 176 : 0;
@@ -2945,22 +2990,37 @@ void q30_scroll_loaded(bool moves)
     s.pfo_mode = s.dir == up ? 1 : s.dir == down ? 0 : ((!s.old_reg.on || s.old_reg.dy == 0) && dpfo < 0) ? 1 : 0;
     s.pfo_left = moves ? abs(dpfo) : 0;
 
-    // (up/down scrolls: our scroll starts from the old screen's top, not from the old camera, so
-    // the offset still jumps after them)
-    if(!s.horiz)
-        s.pfo_left = 0;
+    // up/down: the view starts at the old camera and scrolls by the lower view's height
+    // (upstream's scroll_amount), more when the offset changes the other way: scrolling up into
+    // a higher offset (it changes after the scroll), or down into a lower one (it changes at once)
+    if(!s.horiz && moves)
+    {
+        s.v0 = s.old_vy - s.old_sy;
+        int a = s.old_vh < q30_view_h() ? s.old_vh : q30_view_h();
+
+        if(s.pfo_mode == 1 && dpfo > 0)
+            a += dpfo;
+        else if(s.pfo_mode == 0 && dpfo < 0)
+        {
+            a -= dpfo;
+            s.pfo_left = 1;
+        }
+
+        s.extra = a - 176;
+    }
 
     // the other axis in screen rows, with both field offsets (upstream's
     // secondary_axis_alignment_amount: Link's place on the new view minus on the old one)
     s.amount = s.s_from - s.s_to + (s.horiz ? dpfo : 0);
 
-    // line up first when the old region can show the view lined up (upstream's align_mode)
+    // line up first when the old region can show the view lined up (upstream's align_mode: the
+    // old view moved by the alignment and, when that changes first, the field offset, its height
+    // as it was, inside the old region on both axes)
     {
-        const int d = s.old_reg.on ? (s.horiz ? s.old_reg.dy : s.old_reg.dx) : 0;
-        const int n = s.old_reg.on ? (s.horiz ? s.old_reg.h : s.old_reg.w) : 1;
-        const int size = s.horiz ? 176 : 256, vsize = s.horiz ? s.old_vh : 256;
-        const int top = d * size + s.s_from - s.amount + (s.horiz && s.pfo_mode == 0 ? dpfo : 0);
-        s.align_mode = (top >= 0 && top + vsize <= n * size) ? 0 : 1;
+        const int ww = s.old_reg.on ? s.old_reg.w * 256 : 256, wh = s.old_reg.on ? s.old_reg.h * 176 : 176;
+        const int ax = s.old_vx - (s.horiz ? 0 : s.amount);
+        const int ay = s.old_vy - (s.horiz ? s.amount : 0) + (s.pfo_mode == 0 ? dpfo : 0);
+        s.align_mode = (ax >= 0 && ax + 256 <= ww && ay >= 0 && ay + s.old_vh <= wh) ? 0 : 1;
     }
 
     s.align_left = moves ? abs(s.amount) : 0;
@@ -2971,6 +3031,12 @@ void q30_scroll_loaded(bool moves)
         int scr;
         const int step = k ? 1 : -1;
         s.new_nb[k] = in_region(s.horiz ? 0 : step, s.horiz ? step : 0, &scr) ? scr : -1;
+    }
+
+    if(!s.horiz)
+    {
+        int scr;
+        s.new_far = in_region(0, s.dir == down ? 1 : -1, &scr) ? scr : -1;
     }
 
     // upstream's ScrollingData at the start (the region delta is the new region's top-left in
@@ -3066,6 +3132,31 @@ int q30_scroll_pfo_shift()
     return scroll_pfo_shift();
 }
 
+int q30_scroll_extra_steps(int step)
+{
+    if(!g_scroll.on || !g_scroll.extra || step <= 0)
+        return 0;
+
+    return (176 + g_scroll.extra) / step - 176 / step;
+}
+
+bool q30_scroll_link_bounds(int *lo, int *hi)
+{
+    if(!scroll_tall())
+        return false;
+
+    int ox, oy;
+    q30_scroll_offset(&ox, &oy);
+    *lo = oy;
+    *hi = oy + (zc_view_h - playing_field_offset) - 16;
+    return true;
+}
+
+bool q30_scroll_link_edge(int dir)
+{
+    return g_scroll.on && !g_scroll.horiz && (dir == up || dir == down);
+}
+
 void q30_scroll_offset(int *ox, int *oy)
 {
     *ox = *oy = 0;
@@ -3076,7 +3167,10 @@ void q30_scroll_offset(int *ox, int *oy)
     if(g_scroll.horiz)
         *oy = g_scroll.s;
     else
+    {
         *ox = g_scroll.s;
+        *oy = g_scroll.v0;      // (up/down: from the old camera)
+    }
 
     // (upstream's viewport.y follows the playing field offset while it changes)
     *oy += scroll_pfo_shift();
@@ -3117,7 +3211,7 @@ bool q30_scroll_blit_lower(BITMAP *scrollbuf, BITMAP *framebuf, int sx, int sy)
         return false;
 
     if(!g_canvas)
-        g_canvas = create_bitmap_ex(8, 768, 528);
+        g_canvas = create_bitmap_ex(8, 768, 704);
 
     if(!g_canvas)
         return false;
@@ -3149,9 +3243,28 @@ bool q30_scroll_blit_lower(BITMAP *scrollbuf, BITMAP *framebuf, int sx, int sy)
             putscr(g_canvas, ox, oy, s);
         }
 
+    // up/down: the screens beyond the old and the new one on the scroll's axis
+    for(int n = 0; n < 2; ++n)
+    {
+        int fdy;
+        RegionScreen *rs = scroll_far(n != 0, &fdy);
+
+        if(!rs)
+            continue;
+
+        const int ox = 256 + (n ? g_scroll.nbx : g_scroll.obx), oy = 176 + (n ? g_scroll.nby : g_scroll.oby) + fdy;
+        mapscr *s = &rs->base;
+        LayersIn in(rs);
+
+        if(s->flags7 & fLAYER2BG) do_layer(g_canvas, 1, s, -ox, pfo - oy, 3);
+        if(s->flags7 & fLAYER3BG) do_layer(g_canvas, 2, s, -ox, pfo - oy, 3);
+
+        putscr(g_canvas, ox, oy, s);
+    }
+
     int ox, oy;
     q30_scroll_offset(&ox, &oy);
-    blit(g_canvas, framebuf, 256 + sx + ox, 176 + sy + oy, 0, pfo, 256, zc_field_h());
+    blit(g_canvas, framebuf, 256 + sx + ox, 176 + sy + oy, 0, pfo, 256, zc_view_h - pfo);     // (the view as tall as the offset is now)
     return true;
 }
 
@@ -3220,6 +3333,15 @@ void q30_scroll_layer(BITMAP *bmp, int type, bool new_screen, int x, int y, bool
         const int step = k ? 1 : -1;
         LayersIn in(rs);
         do_layer(bmp, type, &rs->base, x - (g_scroll.horiz ? 0 : step * 256), y - (g_scroll.horiz ? step * 176 : 0), 3, scrolling);
+    }
+
+    int fdy;
+    RegionScreen *rs = scroll_far(new_screen, &fdy);
+
+    if(rs && !((type == 1 && (rs->base.flags7 & fLAYER2BG)) || (type == 2 && (rs->base.flags7 & fLAYER3BG))))
+    {
+        LayersIn in(rs);
+        do_layer(bmp, type, &rs->base, x, y - fdy, 3, scrolling);
     }
 }
 
