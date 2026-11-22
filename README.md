@@ -56,7 +56,7 @@ What that means in practice:
 
 1. **2.53 quests never change.** A 2.53 quest plays exactly as it always has. A 2.53 quest saved here still opens in the original Zelda Classic 2.53.
 2. **Modern foundations.** SDL3 for windows, input and audio, Vulkan for graphics (Direct3D, OpenGL or Metal where there's no Vulkan), and our own compatibility layer instead of Allegro.
-3. **Everywhere people play.** Windows, Linux and Nintendo Switch homebrew today, Android next.
+3. **Everywhere people play.** Windows, Linux, macOS and Nintendo Switch homebrew today, Android next.
 4. **Every generation of quest.** The player runs 2.55 and 3.0 Nightly quests alongside 2.53 ones, and it never saves a newer quest as an older one.
 5. **An editor for all of it.** ZQuest will become the place where quests convert between the older and newer formats, in both directions.
 
@@ -182,7 +182,7 @@ cmake --build build-switch --target zplayer_nro
 | 2.53.1 and earlier | Plays exactly as before | Opens and saves as 2.53 |
 | 2.55 and 3.0 Nightlies | Plays; never saved as an older quest | Edits and saves in its own version, or as 3.0 Nightly; compiles its ZScript |
 
-Every change has to pass the 2.53 checks. Re-saved reference quests must match byte for byte, and [replays](tests/replay/) must produce identical frames.
+Every change has to pass the 2.53 checks. Re-saved reference quests must match byte for byte, and [replays](tests/replay/) must produce identical frames. For 2.55 and 3.0 Nightly quests, the openings of the 93 newer quests in the collection are compared with ZC 3.0's own player after every change, and the [feature test suite](tests/feature_suite/README.txt) checks each ported feature against 3.0 on the same input: 22 of its 34 features match 3.0 exactly, 7 more differ only where the scene is random, and 354 of the 939 3.0 script commands it calls behave as 3.0's (nearly all the rest are used by no quest in the collection).
 
 ## Repository layout
 
@@ -196,6 +196,7 @@ Every change has to pass the 2.53 checks. Re-saved reference quests must match b
 | `android/` | Android project |
 | `third_party/` | Bundled libraries ([details](third_party/README.md)) |
 | `tests/replay/` | Recorded play-throughs and their expected frame hashes |
+| `tests/feature_suite/` | A 3.0 test quest with one screen per ported 2.55/3.0 feature, 3.0's recorded results, and script coverage tests; run with `tools/feature_suite.py` |
 | `packaging/` | Game data and notes that ship with each release |
 | `.github/workflows/` | Automatic builds and releases |
 | `downloads/` | Earlier builds |

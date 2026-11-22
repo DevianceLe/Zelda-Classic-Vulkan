@@ -55,10 +55,14 @@ The final run was stopped before its last 11 quests. Their results are from the 
 - Slopes: tried in Link's Grand Adventure 3 Remastered and Novel Ruins Gaiden. Enemies on slopes and moving slopes haven't been seen working.
 - Bottles and bottle shops: tried in Link's Journey North, The Deep and Mystical Harps. Saving and reloading bottle contents hasn't been tried.
 - Switch hook: tried in Face Hunt (blocks, items and enemies, in the instant, rise and flicker styles), Cambria, Infinite Quest and Jack's Quest. Switching with FFCs and grabbing flying fairies haven't been played.
-- Scrolling regions (3.0's z3 scrolling): tried in Mystical Harps (VulturPeak and its cart, Hyrule's Outlands, the temple, dark dungeon regions), compared with ZC 3.0's own player. A dark room reached through a scroll and the lens inside a region haven't been seen in play.
+- Scrolling regions (3.0's z3 scrolling): tried in Mystical Harps (VulturPeak and its cart, Hyrule's Outlands, the temple, dark dungeon regions), compared with ZC 3.0's own player. Enemies placing themselves by their own screen (Leevers, Wall Masters, Wizzrobes, summoners), weapon and FFC ranges, boss rooms elsewhere in a region, shops, raised combos across a seam and 3.0's extended view in tall regions were checked on scenes made from 3.0's own z3 test quest; no quest in this collection uses the extended view. A dark room reached through a scroll and the lens inside a region haven't been seen in play.
 - Items numbered 256 and up: tried in Mystical Harps (pickups, drops, the special item rooms, the subscreen) and Tranquil Expression. Shops selling them, and messages that give them, haven't been seen in a quest.
 - 3.0 messages (scrolling text, portraits, shadows, icons, control codes) and the fonts 2.55 and 3.0 added: tried in Tranquil Expression and Mystical Harps.
 - Push blocks falling into pits: tried in Colossal Tower.
+- Save menus (a quest's own game over and F6 menus): Mystical Harps' and OOT1986's menus load as in 3.0, and a game over menu and an F6 menu were seen opening in this player; they haven't been compared with 3.0's on screen.
+- A quest's own HP per heart, magic per block and damage multipliers: tried in 3.0's z3 test quest and in quests with 32 HP per heart and 16 magic per block, against 3.0.
+- Sideview ladders: tried on Mystical Harps' ladders. Diving with the flippers' own settings and enemies falling into pits: tried on test scenes against 3.0.
+- Script portals, websockets (they stay "connecting", as in 3.0 without a network) and subscreen widgets made by scripts: checked with test scripts only.
 - Subscreens with more than one page, their page-turn animations and 3.0 widget conditions: tried in Tales of Zelsteria, Tales of Murdoch and Tranquil Expression. Pages that a script turns (barato's card game) haven't been played through, and the B and A items set on a later page haven't been checked after saving and reloading.
 - The Moon Pearl and bunny form: tried in Kirby's Castle Epic. The magic mirror: tried in Link's Rise 2 DX; its portal and mirror-continue DMaps haven't been seen in a quest yet.
 - The bug net: tried in Kirby's Castle, catching a dropped item. Catching a fairy in a bottle hasn't been seen.
@@ -69,13 +73,14 @@ The final run was stopped before its last 11 quests. Their results are from the 
 
 **Written, but not yet seen working in real play**
 
-- The lantern
-- Ice, new mirrors, screen tints, light beams, bridges and pitfalls
 - Push blocks on layers, scripts running through screen scrolls, passive item scripts, and secret-screen rules
+- Most of the script commands added in 2.53.444.10 (drawing, data objects, live objects, save menus, portals, subscreen widgets): each group matches 3.0 in test scripts, but most haven't been seen in a quest's own play yet
 
 **Known bugs**
 
-- Mystical Harps: the cloud layer sits a little off, dark rooms are brown where ZC 3.0's are black, and the "GAME OVER" text is missing.
+- Mystical Harps: the cloud layer sits a little off, and dark rooms are brown where ZC 3.0's are black. Its "GAME OVER" text was missing; the game over menus added in 2.53.444.10 may bring it back, but that hasn't been checked yet.
+- A save made with an older version of this player, for a 2.55 or 3.0 quest whose hearts aren't 16 HP, keeps the old life amount. Starting a new save fixes it. The title screen's save list shows hearts using the loaded quest's HP per heart.
+- On 2.55 and 3.0 Nightly quests the feature test suite still differs from 3.0 in a few spots: FFC ranges in a region, one boss-room frame, the bottom rows of a raft scene and one subscreen item; in The Rosemaster the subscreen cursor starts one slot to the right of 3.0's.
 - A 3.0 quest's starting B item can differ from ZC 3.0's: the 1st Quest Master and Hero Mode remakes start with B empty where 3.0 puts the bomb there.
 - ZQuest's Save As leaves out the editor names a quest keeps in a separate `.zinfo` file.
 
@@ -90,8 +95,7 @@ The final run was stopped before its last 11 quests. Their results are from the 
 - Every platform has been run on real hardware: Windows (32-bit, 64-bit and ARM64), Linux (x86_64 and ARM64), macOS (Apple Silicon and Intel) and Nintendo Switch. Linux was also tested on Debian 13 and Arch Linux in virtual machines with Mesa's software Vulkan driver. EndeavourOS froze while booting in the test virtual machine, before the game could run.
 - Android starts, but 2.55 and 3.0 Nightly quests haven't been tested on it.
 - Without Vulkan, the player and ZQuest draw through Direct3D, OpenGL or Metal instead, with all their menus (Video Settings > Renderer can also choose it, or software drawing). That has been tried on Windows only.
-- macOS has only been run on GitHub's build machines, where the player starts and loads the 1st Quest. It hasn't been tried on a real Mac.
-- The Nintendo Switch homebrew build has only been tested in the Eden emulator, not on a real Switch. ZQuest isn't part of it.
+- ZQuest isn't part of the Nintendo Switch homebrew build.
 
 ## ZQuest
 
@@ -108,7 +112,7 @@ ZQuest (on Windows, Linux and macOS) opens quests made in every version from 1.9
 
 A rule a newer version always resets (rule 157 in 2.50 quests) can't be changed in a save as that version; ZQuest says so and saves nothing.
 
-2.55 and 3.0 Nightly quests are edited with their own version's features: combos, items, enemies, DMaps, screens, init data, quest rules, misc data, strings and subscreens. Since 2.53.444.8 ZQuest also compiles their ZScript with that version's own compiler (zscript255 for 2.55, zscript30 for 3.0 Nightly) and edits their scrolling regions, combo pools, autocombos, music, hero settings, ZInfo names and subscreen layouts; File > Export and Import use that version's own files, and timed auto-saves keep the version. On 2.53.444.7, all 85 quests in this collection made in 2.55 save as 2.55.17 and as 3.0 Nightly identical to the real ZC's own conversion, apart from the header and ZInfo of the two whose editor names are kept in a separate file. The 8 3.0 Nightly prerelease quests save as 3.0 Nightly.
+2.55 and 3.0 Nightly quests are edited with their own version's features: combos, items, enemies, DMaps, screens, init data, quest rules, misc data, strings and subscreens. Since 2.53.444.8 ZQuest also compiles their ZScript with that version's own compiler (zscript255 for 2.55, zscript30 for 3.0 Nightly) and edits their scrolling regions, combo pools, autocombos, music, hero settings, ZInfo names and subscreen layouts; File > Export and Import use that version's own files, and timed auto-saves keep the version. Since 2.53.444.10 that includes map files (`.map`, byte for byte as 3.0 and 2.55.18 write them, and read by them) and subscreen files (`.sub`); copy, paste, clear and Map Count keep each screen's 2.55 and 3.0 data with the right screen; and a quest's only active or passive subscreen can be deleted. On 2.53.444.7, all 85 quests in this collection made in 2.55 save as 2.55.17 and as 3.0 Nightly identical to the real ZC's own conversion, apart from the header and ZInfo of the two whose editor names are kept in a separate file. The 8 3.0 Nightly prerelease quests save as 3.0 Nightly.
 
 ## Played by hand
 
@@ -116,14 +120,15 @@ A rule a newer version always resets (rule 157 in 2.50 quests) can't be changed 
 
 | Quest | Format | What has been played |
 |---|---|---|
-| Mystical Harps (T.L.O.Z. IV) | 3.0 Nightly | Intro, title, new game, first areas, walking, scrolling and swimming, with its full music folder; scrolling regions (VulturPeak and its cart, Hyrule's Outlands, dark dungeon regions), the temple and items past 255, compared screen by screen with ZC 3.0's own player |
+| Mystical Harps (T.L.O.Z. IV) | 3.0 Nightly | Intro, title, new game, first areas, walking, scrolling and swimming, with its full music folder; scrolling regions (VulturPeak and its cart, Hyrule's Outlands, dark dungeon regions), the temple and items past 255, ladders, shop signs, the subscreen cursor on every widget and holding up items, compared screen by screen with ZC 3.0's own player. The author's newer version of the quest (November 2026) loads the same way |
 | Tranquil Expression | 3.0 Nightly | Full opening with its act cards, title, house scene and dialogue, item screen |
 | Herald of Calamity (Demo) | 2.55 | Title, gameplay, script-driven enemies, combat, item screen, save and reload |
 | Cambria: The Lost Worlds | 2.55 | Opening |
+| Cambria: Danger in the Darkworld, Dueling Dragons, Tales of Murdoch, The Colossal Tower | 2.55 | Openings, the same as ZC 3.0's frame for frame |
 | Shadow Knight | 2.55 | Opening |
 | Alarm Clock (ZScript example) | 2.55 | Clock shows the real time |
 
-Every section of these six quest files reads without errors. They are mostly opening-area tests, so none has been played to the end.
+Every section of these quest files reads without errors. They are mostly opening-area tests, so none has been played to the end.
 
 **2.53 and older quests**
 
