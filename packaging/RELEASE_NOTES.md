@@ -1,3 +1,41 @@
+## What's new in 2.53.444.10
+
+**Every script command the quests use**
+
+- The 2.55 and 3.0 script engine now runs every script command and value that the 93 newer quests in the collection and Mystical Harps carry in their scripts: drawing to the screen and to bitmaps (tiles, combos, layers, mode 7, 3D shapes, colour conversions), the data objects (items, DMaps, messages, maps and screens, enemy and weapon data, bottles), live enemies, weapons and the hero, script-owned objects, combo triggers, subscreen widgets made and moved by scripts, and many smaller ones. Each group was checked against 3.0 with test scripts compiled by ZQuest
+- **Save menus**: a quest's own game over and F6 menus run and draw as in 3.0, including an F6 script when the quest has one (Mystical Harps and OOT1986 use them)
+- **Portals** made by scripts warp and draw (not kept in the save file yet), and `Game->IncrementQuest` starts the next quest's ending
+- `Game->LoadBitmapID` gives the right render target in 3.0 quests, and `bitmap->Read` / `Write` load and save PNG and BMP files
+
+**2.55 and 3.0 quests in the player**
+
+- **Hearts and damage**: life uses the quest's own HP per heart, magic per block and damage multipliers, so a 3.0 quest starts with the life its author set. Saves made with an older version of a quest whose hearts aren't 16 HP keep their old life amount
+- **Scrolling regions**: Leevers, Wall Masters, Wizzrobes and summoners stay on their own screen; enemy weapons follow the quest's viewport ranges and aren't frozen while their enemy is in view; FFCs pause and leave by their ranges; enemies can leave silently; boss rooms elsewhere in the region remember their boss; shops work from any screen of the region; Link stands on raised combos across a seam; and the screen change happens on the same frame as in 3.0
+- **Tall regions** use 3.0's extended view: the field starts at the top of the screen and the subscreen is drawn over it
+- **Swimming and diving**: top-down swimming speed, diving with the flippers' own button and length, diving under combos, and the script values for sideview swimming match 3.0. **Sideview ladders** work
+- **Enemies**: 3.0's death and spawn animations; enemies falling into pits fall at once and drop nothing; weapons keep 3.0's extra frame when the quest asks for it; combos flagged "No Enemy Spawn" are honoured
+- **Subscreens**: the cursor can select every kind of widget, with 3.0's selector size, animation and button rules (Mystical Harps showed no cursor at all); the X and Y buttons get their items on a new game; widgets with press scripts run them; items animate on the subscreen's clock; 2.55 text in newer fonts no longer flickers between fonts (Dueling Dragons); a "clear" widget no longer blanks the play field (Cambria)
+- FFCs at half-pixel positions draw on the same pixel as 3.0, and scripts can resize FFCs
+- Signs and other button-triggered combos read the button before the sword does (Mystical Harps' shop signs)
+- Matched against 3.0's own player in this release: Cambria, Dueling Dragons, Tales of Murdoch and The Colossal Tower openings frame for frame; OOT1986 and NitaGaiden openings much closer
+
+**ZQuest**
+
+- **Map files** (`.map`) export and import for 2.55 and 3.0 quests, in 3.0's own format. Files from 3.0 load here and ours load in 3.0; older map files convert up, never down
+- **Copy, paste, clear and Map Count** keep each screen's 2.55 and 3.0 data with the right screen, Paste All carries a screen's init data, and the Map Count list works from the keyboard
+- **Subscreen files** (`.sub`) export and import for newer quests, and a quest's only active or passive subscreen can be deleted
+- Counter widgets keep their full colours, and strings, items and enemies from 3.0 prerelease quests import
+
+**Controls**
+
+- The gamepad fix from 2.53.444.9.1
+
+**Feature test suite**
+
+- `tests/feature_suite` is a 3.0 test quest with one screen per feature ported from 2.55 and 3.0, and `tools/feature_suite.py` plays them all in the player and compares them with what 3.0 does on the same input. It also checks 939 3.0 script commands one by one: 354 behave as 3.0 now; nearly all the rest are used by no quest in the collection
+
+**Tested:** the 2.53 quests are unchanged (four re-saves byte for byte, and the recorded 1st Quest run, all 2,478 frames); the 93 newer quests open and re-save unchanged in ZQuest; the openings of 93 newer quests were compared with 3.0 after every change; the feature suite matches 3.0 on 22 of its 34 features, with 7 more differing only where the scene is random.
+
 ## 2.53.444.9.1
 
 **Controls no longer lock up with a gamepad**

@@ -1,4 +1,4 @@
-# ZC Vulkan 2.53.444.9.1
+# ZC Vulkan 2.53.444.10
 
 [![Build](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml/badge.svg)](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml)
 
@@ -67,12 +67,14 @@ What that means in practice:
 - Vulkan rendering with window sizes, resolutions, scaling and fullscreen modes. Without Vulkan the game uses Direct3D, OpenGL or Metal instead, or software drawing as a last resort
 - New Dear ImGui menus, dialogs and file browser in the player and the editor
 - ZQuest on SDL3 and Vulkan, with Large and Small layouts you can switch while it runs
-- ZQuest edits 2.55 and 3.0 Nightly quests with their own features: combos, items, enemies, DMaps, screens, strings, init data, quest rules, scrolling regions, combo pools, autocombos, music, hero data, ZInfo names and subscreen layouts (drag widgets on a live preview). Exports, imports and timed autosave work for them too
+- ZQuest edits 2.55 and 3.0 Nightly quests with their own features: combos, items, enemies, DMaps, screens, strings, init data, quest rules, scrolling regions, combo pools, autocombos, music, hero data, ZInfo names and subscreen layouts (drag widgets on a live preview). Exports and imports (including `.map` map files and `.sub` subscreen files) and timed autosave work for them too
 - ZScript in ZQuest: the 2.55.18 and 3.0 Nightly compilers ship with it, and Compile ZScript builds a quest's scripts and assigns their slots. On a test quest the compiled scripts match upstream's byte for byte
 - 2.55 and 3.0 Nightly quest files, scripts of every type, music objects, and combo triggers in the player
 - On 2.55 and 3.0 Nightly quests: FFCs on their own layers, the hero's falling, carrying and lava-drowning animations, item costs for bombs, and newer subscreen life and magic gauges
 - On 2.55 and 3.0 Nightly quests: slopes, bottles and bottle shops, the switch hook, sprite rotation and scaling, script lighting and dark rooms, subscreen widgets and overlay subscreens, subscreens with more than one page, the Moon Pearl and bunny form, the magic mirror, the bug net, lifting and throwing, torches, item pickup messages and secret items. Each has been tried in one to four quests so far
 - On 2.55 and 3.0 Nightly quests, compared with 3.0 on the same input: Z-heights, sideview swimming, scrolling regions loading every screen's guys, items and enemies, 3.0's pit falls and respawn points, Once Per Weapon combo triggers, the lantern, ice, light beams, screen tints, bridges, mirrors and the shadows under falling items and thrown objects
+- On 2.55 and 3.0 Nightly quests, also compared with 3.0: every script command the collection's quests use, save menus, the quest's own hearts and damage, sideview ladders, diving, 3.0's enemy death animations, scrolling regions placing every enemy by its own screen, and 3.0's extended view in tall regions
+- A feature test suite (`tests/feature_suite`) that checks the ported 2.55 and 3.0 features against 3.0 on the same input
 - Title screen choices: Original, Zelda Classic, Zelda Classic 2.50, ZQuest Classic (3.0's title) and Random
 - ZQuest on every quest version from 1.90 to 3.0: each editor works or says why the quest's version can't hold it and offers Save As; subscreen management and wizards, script values that follow slot changes, and `.zitem` / `.znpc` files for 2.55 and 3.0 quests
 - Older quests (1.90 to 2.50.1) keep more of how their own version played, from a survey of the original source branches
@@ -80,13 +82,12 @@ What that means in practice:
 
 **Written, but not yet confirmed in play on 2.55 and 3.0 Nightly quests**
 
-- Script file, directory and stack commands (no quest in the collection reaches them)
 - The hero's timed lifting and the bug net's backswing
 
 **Still to do**
 
-- Scrolling regions: FFC pause ranges, and Leevers, Wall Masters and summoners placing themselves by their own screen
-- In ZQuest: `.sub` subscreen files, and deleting a quest's only active or passive subscreen
+- Script commands no quest in the collection uses (about 565 of 3.0's), and keeping script portals in the save file
+- The few spots where the feature suite still differs from 3.0: FFC ranges in a region, one boss-room frame, the bottom rows of a raft scene and one subscreen item
 
 The [compatibility page](COMPATIBILITY.md#what-still-doesnt-work) has the full list of what still doesn't work, including known bugs.
 

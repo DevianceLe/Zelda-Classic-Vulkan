@@ -41,11 +41,9 @@ The final run was stopped before its last 11 quests. Their results are from the 
 
 **Not built yet**
 
-- `Game->IncrementQuest`, which a 2.53.1 script uses to go straight on to the next numbered quest.
 - A script-moved viewport, and saving global script variables past 255. No quest in this collection needs the second one.
 - Quests made in ZC 1.00 and 1.50 can't be opened. None are in this collection.
-- In ZQuest, for 2.55 and 3.0 Nightly quests: `.sub` subscreen files, and deleting a quest's only active or passive subscreen.
-- Scrolling regions: FFC pause and removal ranges, and Leevers, Wall Masters and summoners placing themselves by their own screen inside a region. An enemy knocked onto a pit stops at its edge.
+- Script commands and values that no quest in this collection uses (about 565 of 3.0's), and keeping script portals in the save file.
 
 **Built, but tried in only a few quests**
 
