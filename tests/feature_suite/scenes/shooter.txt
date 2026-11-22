@@ -1,0 +1,17 @@
+# r11sh (item 5): a shooter combo (3002, type 176) on 0x3A row 5 col 10 firing magic (weapon 13, no parent
+# item) left at 2 px a frame every 30 frames; the Magic Book's (item 32) weapon data: viewport suspend 8
+screen 193 enemy0 0
+screen 193 enemy1 0
+screen 193 enemy2 0
+screen 194 enemy0 0
+combo 3002 copy 5
+combo 3002 type 176
+combo 3002 attr9 13
+combo 3002 attr0 2
+combo 3002 attr2 200
+combo 3002 attr16 30
+combo 3002 attr18 0
+screen 194 data.90 3002
+item 32 wd.vpsuspend 8
+screen 194 enemyflags 0
+screen 177 enemy0 0

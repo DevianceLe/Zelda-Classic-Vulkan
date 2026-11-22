@@ -1,0 +1,981 @@
+ZASM commands (cmd) and registers (reg) upstream 3.0 (ad25219) runs that the 2.55/3.0 engine here has no code for,
+after r12. "pack N": how many of the 93 newer pack quests + Mystical Harps carry it in their compiled scripts
+(4 of them, NitaGaiden, OOT1986, Tranquil Expression and Mystical Harps, carry most of the library, used or not).
+Made by work/scan/gaps.py + gaplist.py from the sources and work/scan/usage.txt (ZC_Q30_ZASM_DUMP of each quest).
+
+cmd GETNPCBYNAME                       781  pack  6  port from upstream as written there; upstream ffscript.cpp
+cmd GAMEEXIT                           285  pack  5  Game-> global: the matching game/zinit value or action; upstream ffscript.cpp
+cmd PAUSESOUNDR                        251  pack  5  port from upstream as written there; upstream ffscript.cpp
+cmd SUBPAGE_NEW_WIDG                  1090  pack  5  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream ffscript.cpp
+reg HEROFALLCMB                       5038  pack  5  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg INCQST                            2230  pack  5  Game-> global: the matching game/zinit value or action; upstream scripting/types/game.cpp
+reg SETITEMSLOT                       4339  pack  5  port from upstream as written there; upstream scripting/types/hero.cpp
+cmd BITMAPEXR                          233  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd BMPCOMBOBLIT                      1140  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd BMPDRAWCOMBOCLOAKEDR               814  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd BMPDRAWLAYERCFLAGR                 717  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd BMPDRAWLAYERCIFLAGR                719  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd BMPDRAWLAYERCTYPER                 718  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd BMPDRAWLAYERSOLIDITYR              720  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd BMPDRAWLAYERSOLIDR                 716  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd BMPDRAWSCREENCOMBOIR               712  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd BMPDRAWSCREENCOMBOTR               713  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd BMPDRAWSCREENSOLID2R               714  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd BMPDRAWSCREENSOLIDR                710  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd BMPDRAWTILECLOAKEDR                812  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd BMPFRAMER                          881  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd BMPMODE7                           721  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd BMPQUAD3DR                         651  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd BMPTILEBLIT                       1139  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd BMPTRIANGLE3DR                     653  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd BOTTLENAMEGET                      910  pack  4  bottle types and bottle shops (data is read; script names/fields not); upstream ffscript.cpp
+cmd BOTTLENAMESET                      911  pack  4  bottle types and bottle shops (data is read; script names/fields not); upstream ffscript.cpp
+cmd BSHOPNAMEGET                       908  pack  4  bottle types and bottle shops (data is read; script names/fields not); upstream ffscript.cpp
+cmd BSHOPNAMESET                       909  pack  4  bottle types and bottle shops (data is read; script names/fields not); upstream ffscript.cpp
+cmd CLOSEWIPE                          816  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd CLOSEWIPESHAPE                     818  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd COMBOARRAYR                        284  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd COMBOBLIT                         1138  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd CONTINUESFX                        309  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd CONVERTFROMRGB                    1076  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd CONVERTTORGB                      1077  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd CREATEPORTAL                      1004  pack  4  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream ffscript.cpp
+cmd CREATESAVPORTAL                   1006  pack  4  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream ffscript.cpp
+cmd CURRENTITEMID                     1069  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd DMAPDATAGETINTROR                  612  pack  4  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream ffscript.cpp
+cmd DMAPDATAGETMUSICR                  616  pack  4  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream ffscript.cpp
+cmd DMAPDATAGETNAMER                   604  pack  4  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream ffscript.cpp
+cmd DMAPDATAGETTITLER                  608  pack  4  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream ffscript.cpp
+cmd DMAPDATANSETITROR                  614  pack  4  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream ffscript.cpp
+cmd DMAPDATASETMUSICR                  618  pack  4  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream ffscript.cpp
+cmd DMAPDATASETNAMER                   606  pack  4  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream ffscript.cpp
+cmd DMAPDATASETTITLER                  610  pack  4  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream ffscript.cpp
+cmd DRAWCOMBOCLOAKEDR                  813  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd DRAWTILECLOAKEDR                   811  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd EWEAPONEXPLODER                    668  pack  4  live eweapon field: weapon members / Zasm30SpriteState; upstream ffscript.cpp
+cmd FRAMER                             880  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd GAMESETCUSTOMCURSOR                994  pack  4  Game-> global: the matching game/zinit value or action; upstream ffscript.cpp
+cmd GETDMAPBYNAME                      784  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd GETITEMBYNAME                      782  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd GRAPHICSCOUNTCOLOR                 973  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd ISSOLIDLAYER                       828  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd ITEMEXPLODER                       664  pack  4  live item sprite field: item members / Zasm30SpriteState; upstream ffscript.cpp
+cmd LINESARRAY                         281  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd LINKEXPLODER                       660  pack  4  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream ffscript.cpp
+cmd LOADBOTTLETYPE                     912  pack  4  bottle types and bottle shops (data is read; script names/fields not); upstream scripting/types/game.cpp
+cmd LOADBSHOPDATA                      913  pack  4  bottle types and bottle shops (data is read; script names/fields not); upstream scripting/types/game.cpp
+cmd LOADPORTAL                        1003  pack  4  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream ffscript.cpp
+cmd LOADSAVEMENU                      1161  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd LOADSAVPORTAL                     1005  pack  4  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream ffscript.cpp
+cmd LPOWERR                            966  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd LWEAPONEXPLODER                    666  pack  4  live lweapon field: weapon members / Zasm30SpriteState; upstream ffscript.cpp
+cmd MAPDATAISSOLIDLYR                  827  pack  4  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream ffscript.cpp
+cmd MESSAGEHEIGHTR                     806  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd MESSAGEWIDTHR                      805  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd MODULEGETIC                        878  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd NPCCANMOVE                         676  pack  4  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+cmd NPCCANPLACE                        995  pack  4  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+cmd NPCCANSLIDE                        691  pack  4  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+cmd NPCDATAGETNAME                     698  pack  4  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npc.cpp
+cmd NPCEXPLODER                        662  pack  4  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream ffscript.cpp
+cmd NPCFIREBREATH                      690  pack  4  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+cmd NPCFLOATWALK                       685  pack  4  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+cmd NPCHALTWALK                        683  pack  4  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+cmd NPCHALTWALK8                       684  pack  4  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+cmd NPCHITWITH                         693  pack  4  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+cmd NPCKNOCKBACK                       815  pack  4  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+cmd NPCVARWALK                         681  pack  4  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+cmd NPCVARWALK8                        682  pack  4  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+cmd OBJ_OWN_ARRAY                      992  pack  4  script object ownership: can be a no-op here (objects are not collected); upstream ffscript.cpp
+cmd OBJ_OWN_BITMAP                     985  pack  4  script object ownership: can be a no-op here (objects are not collected); upstream ffscript.cpp
+cmd OBJ_OWN_DIR                        988  pack  4  script object ownership: can be a no-op here (objects are not collected); upstream ffscript.cpp
+cmd OBJ_OWN_FILE                       987  pack  4  script object ownership: can be a no-op here (objects are not collected); upstream ffscript.cpp
+cmd OBJ_OWN_PALDATA                    986  pack  4  script object ownership: can be a no-op here (objects are not collected); upstream ffscript.cpp
+cmd OBJ_OWN_RNG                        990  pack  4  script object ownership: can be a no-op here (objects are not collected); upstream ffscript.cpp
+cmd OBJ_OWN_STACK                      989  pack  4  script object ownership: can be a no-op here (objects are not collected); upstream ffscript.cpp
+cmd OPENWIPE                           239  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd OPENWIPESHAPE                      817  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd PALDATALOADBITMAP                 1016  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd PALDATAWRITESPRITE                1019  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd PALDATAWRITESPRITECS              1020  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd PIXELARRAYR                        282  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd PORTALREMOVE                      1053  pack  4  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream ffscript.cpp
+cmd PORTALUSESPRITE                   1056  pack  4  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream ffscript.cpp
+cmd PRINTFA                           1067  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd QUIT_NO_DEALLOC                    993  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd REGION_LOAD_TMPSCR_FOR_LAYER_COMBO_POS  1043  pack  4  scrolling region actions: q30_regions.cpp; upstream ffscript.cpp
+cmd REGION_TRIGGER_SECRETS            1044  pack  4  scrolling region actions: q30_regions.cpp; upstream ffscript.cpp
+cmd REPAIRSHIELD                      1144  pack  4  port from upstream as written there; upstream scripting/types/npc.cpp
+cmd RESUMESOUNDR                       253  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd SAVEDPORTALGENERATE               1055  pack  4  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream ffscript.cpp
+cmd SAVEDPORTALREMOVE                 1054  pack  4  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream ffscript.cpp
+cmd SAVEMENU_ADD_OPT                  1156  pack  4  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+cmd SAVEMENU_GETNAME                  1153  pack  4  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+cmd SAVEMENU_OPEN                     1160  pack  4  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream ffscript.cpp
+cmd SAVEMENU_OPT_GET_STRING           1158  pack  4  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+cmd SAVEMENU_OPT_SET_STRING           1159  pack  4  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+cmd SAVEMENU_REMOVE_OPT               1155  pack  4  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+cmd SAVEMENU_SETNAME                  1154  pack  4  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+cmd SAVEMENU_SWAP_OPT                 1157  pack  4  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+cmd SCREENDOSPAWN                      919  pack  4  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream ffscript.cpp
+cmd SETDMAPINTRO                       246  pack  4  port from upstream as written there; upstream scripting/types/game.cpp
+cmd SETDMAPNAME                        244  pack  4  port from upstream as written there; upstream scripting/types/game.cpp
+cmd SETDMAPTITLE                       245  pack  4  port from upstream as written there; upstream scripting/types/game.cpp
+cmd SETMESSAGE                         243  pack  4  port from upstream as written there; upstream scripting/types/game.cpp
+cmd SHOWF6SCREEN                       697  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd SPRINTFA                          1068  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd SRNDR                              785  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd SRNDRND                            787  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd SUBDATA_CLOSE                     1170  pack  4  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream ffscript.cpp
+cmd SUBDATA_OPEN                      1169  pack  4  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream ffscript.cpp
+cmd SUBDATA_SWAP_PAGES                1086  pack  4  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream ffscript.cpp
+cmd SUBPAGE_DELETE                    1091  pack  4  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream ffscript.cpp
+cmd SUBPAGE_MOVE_SEL                  1088  pack  4  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream ffscript.cpp
+cmd SUBPAGE_SWAP_WIDG                 1089  pack  4  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream ffscript.cpp
+cmd SUBWIDG_CHECK_CONDITIONS          1145  pack  4  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream ffscript.cpp
+cmd SUBWIDG_CHECK_VISIBLE             1146  pack  4  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream ffscript.cpp
+cmd SUBWIDG_GET_SELTEXT_OVERRIDE      1092  pack  4  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream ffscript.cpp
+cmd SUBWIDG_SET_SELTEXT_OVERRIDE      1093  pack  4  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream ffscript.cpp
+cmd SWAPSUBSCREENV                    1073  pack  4  port from upstream as written there; upstream scripting/types/game.cpp
+cmd SWITCHCMB                          915  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd SWITCHEW                           918  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd SWITCHITM                          916  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd SWITCHLW                           917  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd SWITCHNPC                          914  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd TILEARRAYR                         283  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd TILEBLIT                          1137  pack  4  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd TRACELR                           1041  pack  4  port from upstream as written there; upstream ffscript.cpp
+cmd WEBSOCKET_ERROR                   1123  pack  4  networking: upstream web build only, not wanted in the port; upstream scripting/types/websocket.cpp
+cmd WEBSOCKET_FREE                    1121  pack  4  networking: upstream web build only, not wanted in the port; upstream scripting/types/websocket.cpp
+cmd WEBSOCKET_LOAD                    1120  pack  4  networking: upstream web build only, not wanted in the port; upstream scripting/types/websocket.cpp
+cmd WEBSOCKET_OWN                     1122  pack  4  networking: upstream web build only, not wanted in the port; upstream scripting/types/websocket.cpp
+cmd WEBSOCKET_RECEIVE                 1124  pack  4  networking: upstream web build only, not wanted in the port; upstream scripting/types/websocket.cpp
+cmd WEBSOCKET_SEND                    1119  pack  4  networking: upstream web build only, not wanted in the port; upstream scripting/types/websocket.cpp
+reg CREATELWPNDX                      4395  pack  4  port from upstream as written there; upstream scripting/types/screendata.cpp
+reg GAMEGRAVITY                       4988  pack  4  Game-> global: the matching game/zinit value or action; upstream scripting/types/game.cpp
+reg LINKOTILE                         4970  pack  4  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg LONGDISTANCE                      5079  pack  4  port from upstream as written there; upstream scripting/types/global.cpp
+reg LONGDISTANCESCALE                 5080  pack  4  port from upstream as written there; upstream scripting/types/global.cpp
+reg MAPDATAEXDOOR                     5534  pack  4  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg NPCCOLLISION                      4894  pack  4  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCSUBMERGED                      4986  pack  4  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+cmd BMPDRAWMAPDATA                    1172  pack  3  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd BMPDRAWMINITILE                   1175  pack  3  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd CREATEWEAPDATA                    1178  pack  3  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+cmd DRAWMAPDATA                       1171  pack  3  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd DRAWMINITILE                      1174  pack  3  drawing: a draw-queue command in q30_scripts_cmds.h (bitmap target, layer, z order); upstream ffscript.cpp
+cmd NPC_SUMMON_MINION_LAYER           1177  pack  3  the layer summoner's own-screen layer pick from a script (guys.cpp random_layer_enemy with q30_layer_scr); upstream scripting/types/npc.cpp
+cmd WEAPDATA_APPLY                    1180  pack  3  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+cmd WEAPDATA_COPY                     1179  pack  3  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg BUTTONHELD                        4342  pack  3  port from upstream as written there; upstream scripting/types/input.cpp
+reg LINKOFLIP                         4971  pack  3  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg LWPNUSEDEFENCE                    4926  pack  3  live lweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/lweapon.cpp
+reg MAPDATASCREENSTATED               4738  pack  3  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+cmd SAVEMENU_ADD_MISCTEXT             1183  pack  2  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+cmd SAVEMENU_MISCTEXT_GET_STRING      1185  pack  2  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+cmd SAVEMENU_MISCTEXT_SET_STRING      1186  pack  2  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+cmd SAVEMENU_REMOVE_MISCTEXT          1182  pack  2  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+cmd SAVEMENU_SWAP_MISCTEXT            1184  pack  2  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg EWPNENGINEANIMATE                 4922  pack  2  live eweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/eweapon.cpp
+reg IDATACOST2                        5205  pack  2  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATACOSTCOUNTER                  4410  pack  2  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATACOSTCOUNTER2                 5203  pack  2  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAMAGCOST                       683  pack  2  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAUSEWPN                       4432  pack  2  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg LWPNAUTOROTATE                    5201  pack  2  live lweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/lweapon.cpp
+reg LWPNGRAVITY                       4951  pack  2  live lweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/lweapon.cpp
+reg MAPDATADOOR                       4580  pack  2  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg NPCDATATOUCHDAMAGE                4521  pack  2  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCENGINEANIMATE                  4920  pack  2  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+cmd COMPAREV2                          951  pack  1  port from upstream as written there; upstream ffscript.cpp
+cmd PAUSEMUSIC                         255  pack  1  port from upstream as written there; upstream ffscript.cpp
+cmd RESUMEMUSIC                        256  pack  1  port from upstream as written there; upstream ffscript.cpp
+cmd VIEWPORT_RESET_FOLLOW_SETTINGS    1189  pack  1  script camera control in scrolling regions (viewport modes, follow settings); upstream scripting/types/viewport.cpp
+reg DMAPDATAMAPSCRIPT                 5060  pack  1  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATASUBSCRP                   4779  pack  1  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DROPSETITEMS                      4990  pack  1  dropset data: item drop sets; upstream scripting/types/dropsetdata.cpp
+reg EWPNFALLCLK                       5046  pack  1  live eweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/eweapon.cpp
+reg EWPNPARENTUID                     4987  pack  1  live eweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/eweapon.cpp
+reg GAMEMISCSFX                       5142  pack  1  Game-> global: the matching game/zinit value or action; upstream scripting/types/game.cpp
+reg HERODROWNCLK                      5173  pack  1  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg IDATAHYSZ                         4426  pack  1  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAJINXIMMUNE                   5324  pack  1  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAPSCRIPT                       681  pack  1  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream ffscript.cpp
+reg IDATATILEH                        4423  pack  1  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAUSESOUND2                    5137  pack  1  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAWPNINITD                     4451  pack  1  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/arrays.cpp
+reg ITEMFORCEGRAB                     5213  pack  1  live item sprite field: item members / Zasm30SpriteState; upstream scripting/types/itemsprite.cpp
+reg ITEMGRAVITY                       4954  pack  1  live item sprite field: item members / Zasm30SpriteState; upstream scripting/types/itemsprite.cpp
+reg LWPNDROWNCLK                      5169  pack  1  live lweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/lweapon.cpp
+reg LWPNENGINEANIMATE                 4921  pack  1  live lweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/lweapon.cpp
+reg LWPNVX                            5197  pack  1  live lweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/lweapon.cpp
+reg LWPNVY                            5198  pack  1  live lweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/lweapon.cpp
+reg MAPDATAFFCSET                     4618  pack  1  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAFFDATA                     4617  pack  1  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAFFDELAY                    4619  pack  1  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAFFEFFECTHEIGHT             4728  pack  1  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAFFEFFECTWIDTH              4727  pack  1  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAFFFLAGS                    4626  pack  1  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAFFHEIGHT                   4628  pack  1  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAFFWIDTH                    4627  pack  1  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAFFXDELTA                   4622  pack  1  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAFFXDELTA2                  4624  pack  1  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAFFYDELTA                   4623  pack  1  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAFFYDELTA2                  4625  pack  1  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATANUMFF                      4616  pack  1  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MESSAGEDATANEXT                   4750  pack  1  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATAPORTTILE               5021  pack  1  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATAPORTY                  5024  pack  1  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATAY                      4756  pack  1  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg NPCDATACSET                       4516  pack  1  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAETILE                      4511  pack  1  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAHOMING                     4527  pack  1  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDROWNCLK                       5165  pack  1  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCRINGLEAD                        741  pack  1  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg SKIPCREDITS                       4923  pack  1  Game-> global: the matching game/zinit value or action; upstream scripting/types/game.cpp
+reg SUBDATATRANSARGS                  5421  pack  1  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+cmd ATOI2                              755  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd BREAKPOINT                         829  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd DMAPDATAGETINTROV                  613  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream ffscript.cpp
+cmd DMAPDATAGETMUSICV                  617  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream ffscript.cpp
+cmd DMAPDATAGETNAMEV                   605  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream ffscript.cpp
+cmd DMAPDATAGETTITLEV                  609  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream ffscript.cpp
+cmd DMAPDATASETINTROV                  615  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream ffscript.cpp
+cmd DMAPDATASETMUSICV                  619  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream ffscript.cpp
+cmd DMAPDATASETNAMEV                   607  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream ffscript.cpp
+cmd DMAPDATASETTITLEV                  611  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream ffscript.cpp
+cmd GREYSCALER                         628  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd GREYSCALEV                         629  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd ILEN2                              754  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd LOAD_INTERNAL_ARRAY               1151  pack  0  an internal array as an array object (SizeOfArray(cd->Triggers), range for): a proxy array type in ArrayH; upstream ffscript.cpp
+cmd LOAD_INTERNAL_ARRAY_REF           1152  pack  0  as LOAD_INTERNAL_ARRAY, with the object reference; upstream ffscript.cpp
+cmd LPOWERV                            967  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd LPOWERV2                           968  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd MAKEVARGARRAY                     1066  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd MODV2                              952  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd MONOCHROMER                        631  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd MONOCHROMEV                        632  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd PAUSESFX                           307  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd PAUSESOUNDV                        252  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd POWERV2                            965  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd REMCHR2                            756  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd RESUMESFX                          308  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd RESUMESOUNDV                       254  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd SETCONTINUESCREEN                  578  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd SETCONTINUESTRING                  579  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd SRNDV                              786  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd STACKWRITEATRV                    1109  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd STRCMPR                            870  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd STRICMPR                           871  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd TOBYTE                             830  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd TOINTEGER                          834  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd TOSHORT                            832  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd TOSIGNEDBYTE                       833  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd TOWORD                             831  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd XLEN                               740  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd XLEN2                              752  pack  0  port from upstream as written there; upstream ffscript.cpp
+cmd XTOI2                              753  pack  0  port from upstream as written there; upstream ffscript.cpp
+reg AUDIOPAN                          4749  pack  0  port from upstream as written there; upstream scripting/types/audio.cpp
+reg AUDIOVOLUME                       4748  pack  0  port from upstream as written there; upstream scripting/types/audio.cpp
+reg BOTTLEAMOUNT                      5122  pack  0  bottle types and bottle shops (data is read; script names/fields not); upstream scripting/types/bottledata.cpp
+reg BOTTLECOUNTER                     5121  pack  0  bottle types and bottle shops (data is read; script names/fields not); upstream scripting/types/bottledata.cpp
+reg BOTTLEFLAGS                       5124  pack  0  bottle types and bottle shops (data is read; script names/fields not); upstream scripting/types/bottledata.cpp
+reg BOTTLENEXT                        5125  pack  0  bottle types and bottle shops (data is read; script names/fields not); upstream scripting/types/bottledata.cpp
+reg BOTTLEPERCENT                     5123  pack  0  bottle types and bottle shops (data is read; script names/fields not); upstream scripting/types/bottledata.cpp
+reg BSHOPCOMBO                        5127  pack  0  bottle types and bottle shops (data is read; script names/fields not); upstream scripting/types/bottleshopdata.cpp
+reg BSHOPCSET                         5128  pack  0  bottle types and bottle shops (data is read; script names/fields not); upstream scripting/types/bottleshopdata.cpp
+reg BSHOPFILL                         5126  pack  0  bottle types and bottle shops (data is read; script names/fields not); upstream scripting/types/bottleshopdata.cpp
+reg BSHOPPRICE                        5129  pack  0  bottle types and bottle shops (data is read; script names/fields not); upstream scripting/types/bottleshopdata.cpp
+reg BSHOPSTR                          5130  pack  0  bottle types and bottle shops (data is read; script names/fields not); upstream scripting/types/bottleshopdata.cpp
+reg CLOCKCLK                          5062  pack  0  port from upstream as written there; upstream scripting/types/hero.cpp
+reg COMBODACLK                        5017  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODATAD                        5634  pack  0  port from upstream as written there; upstream scripting/types/mapdata.cpp
+reg COMBODATA_CSET2_FLASH_DURATION    5936  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODATA_DELAY                   5935  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODATA_LIFT_WEAPONDATA         5881  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODATA_MISC_WEAPONDATA         5880  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODCSET2FLAGS                  5162  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODLIFTBREAKSFX                5248  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODLIFTBREAKSPRITE             5247  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODLIFTDAMAGE                  5240  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODLIFTFLAGS                   5243  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODLIFTGFXCCSET                5237  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODLIFTGFXCOMBO                5236  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODLIFTGFXSPRITE               5245  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODLIFTGFXTYPE                 5244  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODLIFTHEIGHT                  5249  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODLIFTITEM                    5242  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODLIFTLEVEL                   5241  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODLIFTLIGHTRAD                5621  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODLIFTLIGHTSHAPE              5622  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODLIFTSFX                     5246  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODLIFTTIME                    5250  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODLIFTUNDERCMB                5238  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODLIFTUNDERCS                 5239  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBODLIFTWEAPONITEM              5271  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg COMBOD_LARGECOMBO_DIRS            5841  pack  0  port from upstream as written there; upstream scripting/types/combodata.cpp
+reg DISABLEDITEM                      4346  pack  0  port from upstream as written there; upstream scripting/types/game.cpp
+reg DMAPDATACHARTED                   5076  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATAFLOOR                     5749  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATAINTROSTRINGID             5293  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATALARGEMAPCSET              4776  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATALARGEMAPTILE              4775  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATALOOPEND                   5288  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATALOOPSTART                 5287  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATAMINIMAPCSET               4774  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATAMINIMAPTILE               4773  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATAMIRRDMAP                  5317  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATAMUISCTRACK                4777  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATAPSUBINITD                 5904  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATAPSUBSCRIPT                5055  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATASUBINITD                  5056  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATASUBSCRM                   5813  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATASUBSCRO                   5359  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATAXFADEIN                   5289  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATAXFADEOUT                  5290  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATA_GRAVITY_STRENGTH         5738  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATA_MUSIC                    5306  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATA_TERMINAL_VELOCITY        5739  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATA_VIEWPORT_DEADZONE_HEIGHT  5926  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATA_VIEWPORT_DEADZONE_WIDTH  5925  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATA_VIEWPORT_LOOKAHEAD_SPEED  5928  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATA_VIEWPORT_LOOKAHEAD_X     5927  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATA_VIEWPORT_LOOKAHEAD_Y     5930  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATA_VIEWPORT_RECENTER_DELAY  5934  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DMAPDATA_VIEWPORT_RECENTER_SPEED  5933  pack  0  dmapdata field/string: DMaps[] or the q30 DMap extras; upstream scripting/types/dmapdata.cpp
+reg DROPSETCHANCES                    4991  pack  0  dropset data: item drop sets; upstream scripting/types/dropsetdata.cpp
+reg DROPSETNULLCHANCE                 4992  pack  0  dropset data: item drop sets; upstream scripting/types/dropsetdata.cpp
+reg EWPNBURNLIGHTOFFSET               5812  pack  0  live eweapon field: weapon members / Zasm30SpriteState; upstream ?
+reg EWPNBURNLIGHTRADIUS               5539  pack  0  live eweapon field: weapon members / Zasm30SpriteState; upstream ?
+reg EWPNDEATHDROPSET                  5278  pack  0  live eweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/eweapon.cpp
+reg EWPNDEATHIPICKUP                  5279  pack  0  live eweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/eweapon.cpp
+reg EWPNDEATHITEM                     5277  pack  0  live eweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/eweapon.cpp
+reg EWPNDEATHSFX                      5281  pack  0  live eweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/eweapon.cpp
+reg EWPNDEATHSPRITE                   5280  pack  0  live eweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/eweapon.cpp
+reg EWPNDROWNCLK                      5171  pack  0  live eweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/eweapon.cpp
+reg EWPNDROWNCMB                      5172  pack  0  live eweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/eweapon.cpp
+reg EWPNFALLCMB                       5047  pack  0  live eweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/eweapon.cpp
+reg EWPNLIFTHEIGHT                    5351  pack  0  live eweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/eweapon.cpp
+reg EWPNLIFTLEVEL                     5349  pack  0  live eweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/eweapon.cpp
+reg EWPNLIFTTIME                      5350  pack  0  live eweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/eweapon.cpp
+reg EWPNPIERCE                        5801  pack  0  live eweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/eweapon.cpp
+reg EWPNSPRITES                       5532  pack  0  live eweapon field: weapon members / Zasm30SpriteState; upstream ?
+reg EWPNTOTALDYOFFS                   5146  pack  0  live eweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/eweapon.cpp
+reg EWPNVX                            5199  pack  0  live eweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/eweapon.cpp
+reg EWPNVY                            5200  pack  0  live eweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/eweapon.cpp
+reg EWPN_BOUNCE_ADD                   5809  pack  0  live eweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/eweapon.cpp
+reg EWPN_BOUNCE_MULT                  5808  pack  0  live eweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/eweapon.cpp
+reg EWPN_NO_TRIGGERS                  5822  pack  0  live eweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/eweapon.cpp
+reg EWSWHOOKED                        5148  pack  0  port from upstream as written there; upstream scripting/types/eweapon.cpp
+reg FFCINDEX                          5799  pack  0  port from upstream as written there; upstream scripting/types/ffc.cpp
+reg FFCLASTCHANGERX                   5254  pack  0  port from upstream as written there; upstream scripting/types/ffc.cpp
+reg FFCLASTCHANGERY                   5255  pack  0  port from upstream as written there; upstream scripting/types/ffc.cpp
+reg FFC_POSSTATE                      5838  pack  0  port from upstream as written there; upstream scripting/types/ffc.cpp
+reg GAMEASUBOPEN                      5425  pack  0  Game-> global: the matching game/zinit value or action; upstream scripting/types/game.cpp
+reg GAMELAYERZTHRESHOLDS              5744  pack  0  Game-> global: the matching game/zinit value or action; upstream scripting/types/game.cpp
+reg GAMEMAXCHEAT                      5151  pack  0  Game-> global: the matching game/zinit value or action; upstream scripting/types/game.cpp
+reg GAMEMAXMAPS                       4394  pack  0  Game-> global: the matching game/zinit value or action; upstream scripting/types/game.cpp
+reg GAMEMISCSPR                       5141  pack  0  Game-> global: the matching game/zinit value or action; upstream scripting/types/game.cpp
+reg GAMEMOUSECURSOR                   5261  pack  0  Game-> global: the matching game/zinit value or action; upstream scripting/types/game.cpp
+reg GAMEMSUBOPEN                      5748  pack  0  Game-> global: the matching game/zinit value or action; upstream scripting/types/game.cpp
+reg GAMENUMASUB                       5426  pack  0  Game-> global: the matching game/zinit value or action; upstream scripting/types/game.cpp
+reg GAMENUMMESSAGES                   4482  pack  0  Game-> global: the matching game/zinit value or action; upstream scripting/types/game.cpp
+reg GAMENUMMSUB                       5747  pack  0  Game-> global: the matching game/zinit value or action; upstream scripting/types/game.cpp
+reg GAMENUMOSUB                       5428  pack  0  Game-> global: the matching game/zinit value or action; upstream scripting/types/game.cpp
+reg GAMENUMPSUB                       5427  pack  0  Game-> global: the matching game/zinit value or action; upstream scripting/types/game.cpp
+reg GAMEOVERRIDEITEMS                 5358  pack  0  Game-> global: the matching game/zinit value or action; upstream scripting/types/game.cpp
+reg GAME_SAVED_PORTALS                5712  pack  0  Game-> global: the matching game/zinit value or action; upstream scripting/types/game.cpp
+reg GAME_SAVEMENU_F6                  5301  pack  0  Game-> global: the matching game/zinit value or action; upstream scripting/types/game.cpp
+reg GAME_SAVEMENU_GAMEOVER            5302  pack  0  Game-> global: the matching game/zinit value or action; upstream scripting/types/game.cpp
+reg GRAPHICS_SPRITE_LAYER_TARGET      5918  pack  0  port from upstream as written there; upstream scripting/types/graphics.cpp
+reg HEROCOYOTETIME                    5253  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HERODROWNCMB                      5174  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROFLASHINGCSET                  5298  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROFLICKERCOLOR                  5296  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROFLICKERTRANSP                 5300  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROFORCEDRESPAWN                 5823  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROHAMMERSTATE                   5269  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROHEALTHBEEP                    5003  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROICECMB                        5542  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROICEENTRYFRAMES                5546  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROICEENTRYMAXFRAMES             5547  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROICEVX                         5544  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROICEVY                         5545  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROITEMCOOLDOWN                  5732  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROJUMPCOUNT                     5034  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROLIFTFLAGS                     5270  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROLIFTHEIGHT                    5268  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROLIFTMAXTIMER                  5267  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROLIFTTIMER                     5266  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HERONOSTEPFORWARD                 4980  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROPULLCLK                       5036  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROPULLDIR                       5035  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HERORESPAWNDMAP                   5135  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HERORESPAWNDMSCR                  5825  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HERORESPAWNSCR                    5136  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HERORESPAWNX                      5133  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HERORESPAWNY                      5134  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROSCRICECMB                     5543  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROSHOVEOFFSET                   5524  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROSLIDING                       5541  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROSTEPS                         5013  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROSWITCHMAXTIMER                5139  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROSWITCHTIMER                   5138  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HEROTOTALDYOFFS                   5143  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HERO_HAMMER_POS                   5820  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HERO_ITEMBOX_HEIGHT               5805  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HERO_ITEMBOX_WIDTH                5804  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HERO_ITEMBOX_XOFF                 5802  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg HERO_ITEMBOX_YOFF                 5803  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg IDATAATTRIB_L                     5540  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATABURNINGLIGHTRAD              5537  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATABURNINGSPR                   5530  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATACOLLECTFLAGS                 4439  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATACOLLECTINITD                 5902  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATACOMBINE                      4302  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATACONSTSCRIPT                  5321  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATACOOLDOWN                     5731  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATADOWNGRADE                    4303  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATADRAWLAYER                    4438  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATADUPLICATES                   4437  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATADURATION                     4436  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATADXOFS                        4429  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATADYOFS                        4428  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAEDIBLE                       4308  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAFLAGUNUSED                   4309  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAFLASHCSET                    5617  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAGAINLOWER                    4310  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAGRADUAL                      5318  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAHXOFS                        4431  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAHXSZ                         4427  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAHYOFS                        4430  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAHZSZ                         4425  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAJINXSWAP                     5325  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAKEEPOLD                      4306  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAMAGICTIMER                   4304  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAMAGICTIMER2                  5204  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAMISC                          686  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAMISCD                        4441  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAMOVEFLAGS                    5683  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAOVERRIDEFLWEAP               4411  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAPFLAGS                       4311  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAPICKUP                       4422  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAPICKUPLITEMLEVEL             5633  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAPICKUPLITEMS                 5632  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAPSOUND                       5320  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAPSTRING                      4305  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATARUPEECOST                    4307  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATASPRITEINITD                  5903  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATASPRSCRIPT                    5319  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATASSWIMDISABLED                5322  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATATILEHWEAP                    4412  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATATILEW                        4424  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATATILEWWEAP                    4413  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAUSEBURNSPR                   5529  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAUSEDEF                       4433  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAVALIDATE                     4966  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAVALIDATE2                    5206  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAWEAPHXOFS                    4442  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAWEAPHXSZ                     4445  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAWEAPHYOFS                    4443  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAWEAPHYSZ                     4444  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAWEAPHZSZ                     4446  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAWEAPONSCRIPT                 4440  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAWEAPXOFS                     4447  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAWEAPYOFS                     4448  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAWEAPZOFS                     4449  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAWMOVEFLAGS                   5684  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATAWRANGE                       4434  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IDATA_WEAPONDATA                  5877  pack  0  itemdata field: Q30_IDATA where 2.53 itemdata has it, else the item extras map (q30_scripts_regs.h); upstream scripting/types/itemdata.cpp
+reg IS8BITTILE                        5294  pack  0  port from upstream as written there; upstream scripting/types/graphics.cpp
+reg ISBLANKTILE                       5052  pack  0  port from upstream as written there; upstream scripting/types/graphics.cpp
+reg ITEMACLK                           693  pack  0  live item sprite field: item members / Zasm30SpriteState; upstream scripting/types/itemsprite.cpp
+reg ITEMDIR                           5085  pack  0  live item sprite field: item members / Zasm30SpriteState; upstream scripting/types/itemsprite.cpp
+reg ITEMDROPPEDBY                     5227  pack  0  live item sprite field: item members / Zasm30SpriteState; upstream scripting/types/itemsprite.cpp
+reg ITEMDROWNCLK                      5167  pack  0  live item sprite field: item members / Zasm30SpriteState; upstream scripting/types/itemsprite.cpp
+reg ITEMDROWNCMB                      5168  pack  0  live item sprite field: item members / Zasm30SpriteState; upstream scripting/types/itemsprite.cpp
+reg ITEMENGINEANIMATE                 5099  pack  0  live item sprite field: item members / Zasm30SpriteState; upstream scripting/types/itemsprite.cpp
+reg ITEMFAKEJUMP                      5181  pack  0  live item sprite field: item members / Zasm30SpriteState; upstream scripting/types/itemsprite.cpp
+reg ITEMFAKEZ                         5176  pack  0  live item sprite field: item members / Zasm30SpriteState; upstream scripting/types/itemsprite.cpp
+reg ITEMFALLCLK                       5040  pack  0  live item sprite field: item members / Zasm30SpriteState; upstream scripting/types/itemsprite.cpp
+reg ITEMFALLCMB                       5041  pack  0  live item sprite field: item members / Zasm30SpriteState; upstream scripting/types/itemsprite.cpp
+reg ITEMLEVEL                         4902  pack  0  live item sprite field: item members / Zasm30SpriteState; upstream scripting/types/itemsprite.cpp
+reg ITEMNOHOLDSOUND                   5528  pack  0  live item sprite field: item members / Zasm30SpriteState; upstream scripting/types/itemsprite.cpp
+reg ITEMNOSOUND                       5527  pack  0  live item sprite field: item members / Zasm30SpriteState; upstream scripting/types/itemsprite.cpp
+reg ITEMPICKUPEXSTATE                 5833  pack  0  live item sprite field: item members / Zasm30SpriteState; upstream scripting/types/itemsprite.cpp
+reg ITEMPSTRINGFLAGS                  4785  pack  0  live item sprite field: item members / Zasm30SpriteState; upstream scripting/types/itemsprite.cpp
+reg ITEMSCRIPTUID                     4881  pack  0  live item sprite field: item members / Zasm30SpriteState; upstream scripting/types/itemsprite.cpp
+reg ITEMTYPE                          4901  pack  0  live item sprite field: item members / Zasm30SpriteState; upstream scripting/types/itemsprite.cpp
+reg ITMSWHOOKED                       5149  pack  0  port from upstream as written there; upstream scripting/types/itemsprite.cpp
+reg JOYPADPRESS                       4345  pack  0  port from upstream as written there; upstream scripting/types/input.cpp
+reg KEYBINDINGS                       4946  pack  0  port from upstream as written there; upstream scripting/types/input.cpp
+reg LINKDEFENCE                       4875  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg LINKENGINEANIMATE                 4919  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg LINKGRAVITY                       4957  pack  0  Hero state: the LinkClass member it names (some 3.0-only states need new fields); upstream scripting/types/hero.cpp
+reg LWPNBURNLIGHTOFFSET               5811  pack  0  live lweapon field: weapon members / Zasm30SpriteState; upstream ?
+reg LWPNBURNLIGHTRADIUS               5538  pack  0  live lweapon field: weapon members / Zasm30SpriteState; upstream ?
+reg LWPNDEATHDROPSET                  5273  pack  0  live lweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/lweapon.cpp
+reg LWPNDEATHIPICKUP                  5274  pack  0  live lweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/lweapon.cpp
+reg LWPNDEATHITEM                     5272  pack  0  live lweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/lweapon.cpp
+reg LWPNDEATHSFX                      5276  pack  0  live lweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/lweapon.cpp
+reg LWPNDEATHSPRITE                   5275  pack  0  live lweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/lweapon.cpp
+reg LWPNDROWNCMB                      5170  pack  0  live lweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/lweapon.cpp
+reg LWPNFALLCMB                       5044  pack  0  live lweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/lweapon.cpp
+reg LWPNPIERCE                        5800  pack  0  live lweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/lweapon.cpp
+reg LWPNSPECIAL                       5053  pack  0  live lweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/lweapon.cpp
+reg LWPNSPRITES                       5531  pack  0  live lweapon field: weapon members / Zasm30SpriteState; upstream ?
+reg LWPNTOTALDYOFFS                   5145  pack  0  live lweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/lweapon.cpp
+reg LWPN_BOUNCE_ADD                   5807  pack  0  live lweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/lweapon.cpp
+reg LWPN_BOUNCE_MULT                  5806  pack  0  live lweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/lweapon.cpp
+reg LWPN_NO_TRIGGERS                  5821  pack  0  live lweapon field: weapon members / Zasm30SpriteState; upstream scripting/types/lweapon.cpp
+reg LWSWHOOKED                        5147  pack  0  port from upstream as written there; upstream scripting/types/lweapon.cpp
+reg MAPDATACOMBODATAD                 5635  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATACOMBOPOSSTATE              5836  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATACSENSITIVE                 4598  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATADOORCOMBOSET               4572  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAENEMYFLAGS                 4579  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAENTRYX                     4614  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAENTRYY                     4615  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAEXCARRY                    5725  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAEXRESET                    5726  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAEXSTATED                   5219  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAFFCPOSSTATE                5837  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAFFINITIALISED              4633  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAFFLINK                     4629  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAGUYCOUNT                   5526  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAHASITEM                    4569  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAHOLDUPSFX                  4640  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATALAYERINVIS                 4960  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATALENSHIDES                  5354  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATALENSLAYER                  4642  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATALENSSHOWS                  5353  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAMAP                        4964  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATANEXTMAP                    4605  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATANEXTSCREEN                 4606  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATANOCARRY                    4600  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATANOCARRYARR                 5721  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATANORESET                    4599  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATANORESETARR                 5722  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAREGIONID                   5336  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATASCREEN                     4965  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATASCREENFLAGSD               4739  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATASCREENHEIGHT               4613  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATASCREENMIDI                 4641  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATASCREENWIDTH                4612  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATASCRIPT                     4947  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATASCRIPTDRAWS                4961  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATASCRIPTENTRY                4634  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATASCRIPTEXIT                 4636  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATASCRIPTOCCUPANCY            4635  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATASECRETSFX                  4639  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATASIDEWARPINDEX              4593  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATASWARPRETSQR                4984  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATATIMEDWARPTICS              4604  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATATWARPRETSQR                4983  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAUNDERCOMBO                 4594  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAUNDERCSET                  4595  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAVALID                      4564  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAVIEWX                      4610  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAVIEWY                      4611  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATAWARPRETURNC                4575  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATA_FLAG                      5620  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATA_GRAVITY_STRENGTH          5736  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATA_MUSIC                     5307  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAPDATA_TERMINAL_VELOCITY         5737  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/mapdata.cpp
+reg MAXDRAWS                          4940  pack  0  port from upstream as written there; upstream scripting/types/graphics.cpp
+reg MESSAGEDATACSET                   4752  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATAFLAGS                  4763  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATAFLAGSARR               5027  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATAFONT                   4754  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATAH                      4758  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATAHSPACE                 4762  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATALISTPOS                4760  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATAMARGINS                5020  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATAPORTCSET               5022  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATAPORTHEI                5026  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATAPORTWID                5025  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATAPORTX                  5023  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATASEGMENTS               5746  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATASFX                    4759  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATATEXTHEI                5032  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATATEXTWID                5031  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATATILE                   4751  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATATRANS                  4753  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATAVSPACE                 4761  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATAW                      4757  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATAX                      4755  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATA_ADVSFX                5899  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATA_ICON_MORE_ANCHOR      5886  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATA_ICON_MORE_SPRITE      5885  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATA_ICON_MORE_X           5887  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATA_ICON_MORE_Y           5888  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATA_ICON_SCROLLDOWN_ANCHOR  5894  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATA_ICON_SCROLLDOWN_SPRITE  5893  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATA_ICON_SCROLLDOWN_X     5895  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATA_ICON_SCROLLDOWN_Y     5896  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATA_ICON_SCROLLUP_ANCHOR  5890  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATA_ICON_SCROLLUP_SPRITE  5889  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATA_ICON_SCROLLUP_X       5891  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATA_ICON_SCROLLUP_Y       5892  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATA_MENUCLOSE_SFX         5901  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATA_MENUMOVE_SFX          5900  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATA_SCROLL_SPEED_ACTIVE   5897  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATA_SCROLL_SPEED_PASSIVE  5898  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATA_SHADOW_COLOR          5884  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg MESSAGEDATA_SHADOW_TYPE           5883  pack  0  message string field: MsgStrings (2.53 fields) or the 2.55+ string extras (portrait, margins, font); upstream scripting/types/messagedata.cpp
+reg NPCCANFLICKER                     5164  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCDATAATTRIBUTE                  4545  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATABEHAVIOUR                  4888  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATABGSFX                      4530  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATADEFENSE                    4543  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATADROPSET                    4529  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAEFRAMERATE                 4520  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAEHEIGHT                    4513  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAEWIDTH                     4512  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAFIRESFX                    4549  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAFIRESFXSECONDARY           5920  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAFLAG                       4550  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAFLAGS1                     4504  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAFLAGS2                     4505  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAFRAMERATE                  4519  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAFROZENCSET                 4548  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAFROZENTILE                 4547  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAHALT                       4525  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAHEIGHT                     4503  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAHITHEIGHT                  4538  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAHITWIDTH                   4537  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAHITZ                       4539  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAHUNGER                     4528  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAHXOFS                      4535  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAHYOFS                      4536  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAINITD                      4896  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAMOVEFLAGS                  5681  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATARANDOM                     4524  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATASCRIPT                     4897  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATASHEIGHT                    4510  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATASHIELD                     4546  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATASIZEFLAG                   4544  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATASWIDTH                     4509  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATATILEHEIGHT                 4541  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATATILEWIDTH                  4540  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATATYPE                       4515  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAWEAPONINITD                4911  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAWEAPONSCRIPT               4912  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAWIDTH                      4506  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAWMOVEFLAGS                 5682  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAXOFS                       4532  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAYOFS                       4533  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATAZOFS                       4534  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDATA_WEAPONDATA                5879  pack  0  enemy editor data: guysbuf / q30 guy extras field; upstream scripting/types/npcdata.cpp
+reg NPCDDEATHSPR                      5111  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npcdata.cpp
+reg NPCDEATHEXSTATE                   5834  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCDROWNCMB                       5166  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCDSHADOWSPR                     5109  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npcdata.cpp
+reg NPCDSPAWNSPR                      5110  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npcdata.cpp
+reg NPCFADING                         5068  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCFALLCMB                        5050  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCFIRESFXSECONDARY               5919  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCFLICKERCOLOR                   5295  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCFLICKERTRANSP                  5299  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCFROZEN                          744  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCFROZENCSET                      746  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCFROZENTILE                      745  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCGRAVITY                        4953  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCHASITEM                         740  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCMOVESTATUS                     5074  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCORIGINALHP                     5059  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCPARENTUID                       650  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCSCRDEFENSED                    4314  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCSLIDECLK                       5067  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCSUPERMAN                        739  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCSWHOOKED                       5140  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPCTOTALDYOFFS                    5144  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPC_SUMMONER_PARENT               5840  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NPC_WEAPONDATA                    5878  pack  0  live enemy field or action: enemy members / Zasm30SpriteState; actions call guys.cpp; upstream scripting/types/npc.cpp
+reg NUMDRAWS                          4939  pack  0  port from upstream as written there; upstream scripting/types/graphics.cpp
+reg PC                                5018  pack  0  port from upstream as written there; upstream scripting/types/misc.cpp
+reg PORTALACLK                        5380  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/portal.cpp
+reg PORTALAFRM                        5381  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/portal.cpp
+reg PORTALASPD                        5383  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/portal.cpp
+reg PORTALCLOSEDIS                    5386  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/portal.cpp
+reg PORTALCOUNT                       5400  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/screendata.cpp
+reg PORTALDMAP                        5378  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/portal.cpp
+reg PORTALFRAMES                      5384  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/portal.cpp
+reg PORTALOTILE                       5382  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/portal.cpp
+reg PORTALSAVED                       5385  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/portal.cpp
+reg PORTALSCREEN                      5379  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/portal.cpp
+reg PORTALWARPSFX                     5389  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/portal.cpp
+reg PORTALWARPVFX                     5390  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/portal.cpp
+reg PORTALX                           5376  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/portal.cpp
+reg PORTALY                           5377  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/portal.cpp
+reg RAWKEY                            4343  pack  0  port from upstream as written there; upstream scripting/types/input.cpp
+reg SAVEDPORTALCOUNT                  5401  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/game.cpp
+reg SAVEDPORTALDESTDMAP               5394  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/savedportal.cpp
+reg SAVEDPORTALDSTSCREEN              5402  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/savedportal.cpp
+reg SAVEDPORTALPORTAL                 5399  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/savedportal.cpp
+reg SAVEDPORTALSPRITE                 5398  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/savedportal.cpp
+reg SAVEDPORTALSRCDMAP                5393  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/savedportal.cpp
+reg SAVEDPORTALSRCSCREEN              5395  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/savedportal.cpp
+reg SAVEDPORTALWARPSFX                5396  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/savedportal.cpp
+reg SAVEDPORTALWARPVFX                5397  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/savedportal.cpp
+reg SAVEDPORTALX                      5391  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/savedportal.cpp
+reg SAVEDPORTALY                      5392  pack  0  3.0 portals: needs the portal system (Hero->Portal, saved portals, mirror warps); upstream scripting/types/savedportal.cpp
+reg SAVEMENU_BGCOLOR                  5763  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_BGCSET                   5785  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_BGTH                     5787  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_BGTILE                   5784  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_BGTW                     5786  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_CLOSE_FLASH_RATE         5773  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_CLOSE_FRAMES             5772  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_CURSORCSET               5762  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_CURSORTILE               5761  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_FLAGS                    5776  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_HSPACE                   5766  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_ID                       5783  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_MIDI                     5774  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_MISCTEXT_COLOR           5911  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_MISCTEXT_FONT            5914  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_MISCTEXT_SHADOW_COLOR    5913  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_MISCTEXT_SHADOW_TYPE     5912  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_MISCTEXT_TEXT_ALIGN      5917  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_MISCTEXT_X               5915  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_MISCTEXT_Y               5916  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_MUSIC                    5793  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_NUM_MISCTEXTS            5910  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_NUM_OPTIONS              5775  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_OPTX                     5768  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_OPTY                     5769  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_OPT_COLOR_PICKED         5779  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_OPT_COLOR_SHADOW         5906  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_OPT_COLOR_SHADOW_PICKED  5907  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_OPT_COLOR_TEXT           5778  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_OPT_FLAGS                5777  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_OPT_FONTS                5780  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_OPT_FRZSCR               5781  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_OPT_SHADOW_TYPE          5905  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_SEL_OPT_OFFSET_X         5908  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_SEL_OPT_OFFSET_Y         5909  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_SFX_CHOOSE               5765  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_SFX_CURSOR               5764  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_TEXT_ALIGN               5770  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_TEXT_BOX_ALIGN           5771  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SAVEMENU_VSPACE                   5767  pack  0  3.0 save menus: no engine side here yet (menu objects, options, strings); upstream scripting/types/savemenu.cpp
+reg SCREENCOMBOPOSSTATE               5835  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATABOSSSFX                 4717  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATACOLOUR                  4657  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATACSENSITIVE              4677  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATADOOR                    4659  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATADOORCOMBOSET            4651  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATAENEMYFLAGS              4658  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATAEXCARRY                 5723  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATAEXITDIR                 4662  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATAEXRESET                 5724  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATAFFINITIALISED           4712  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATAFLAGS                   4676  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATAGUY                     4644  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATAGUYCOUNT                5525  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATAHOLDUPSFX               4719  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATALAYEROPACITY            4682  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATALENSLAYER               4721  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATANEXTMAP                 4684  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATANEXTSCREEN              4685  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATANOCARRY                 4679  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATANOCARRYARR              5719  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATANORESET                 4678  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATANORESETARR              5720  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATANUMFF                   4695  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATAPATH                    4669  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATAPATTERN                 4664  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATAROOM                    4646  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATASCREENMIDI              4720  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATASCRIPTDRAWS             4959  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATASIDEWARPDMAP            4671  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATASIDEWARPINDEX           4672  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATASIDEWARPOVFLAGS         4666  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATASIDEWARPSC              4670  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATASIDEWARPTYPE            4665  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATASTAIRX                  4655  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATASTAIRY                  4656  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATATILEWARPOVFLAGS         4650  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATATIMEDWARPTICS           4683  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATAVALID                   4643  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATAWARPARRIVALX            4667  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATAWARPARRIVALY            4668  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATAWARPRETURNC             4654  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATA_GRAVITY_STRENGTH       5734  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENDATA_TERMINAL_VELOCITY      5735  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENLENSHIDES                   5356  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENLENSSHOWS                   5355  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREENSCRIPT                      4908  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream ffscript.cpp
+reg SCREEN_EWEAPONS                   5709  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREEN_FFCS                       5710  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREEN_INDEX                      5342  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREEN_ITEMS                      5707  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREEN_LWEAPONS                   5708  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREEN_NPCS                       5706  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SCREEN_PORTALS                    5711  pack  0  screen field/array: the mapscr field (2.53 has most), region-aware like the existing MAPDATA cases; upstream scripting/types/screendata.cpp
+reg SHOPDATASTRING                    4747  pack  0  port from upstream as written there; upstream scripting/types/shopdata.cpp
+reg SIMULATEKEYPRESS                  4945  pack  0  port from upstream as written there; upstream scripting/types/input.cpp
+reg SPRITEDATAFLAGS                   5327  pack  0  port from upstream as written there; upstream scripting/types/spritedata.cpp
+reg SUBDATABTNLEFT                    5370  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATABTNRIGHT                   5371  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATAFLAGS                      5366  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATAINITD                      5369  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATASCRIPT                     5368  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATASELECTORASPD               5416  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATASELECTORCSET               5414  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATASELECTORDELAY              5417  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATASELECTORDSTH               5410  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATASELECTORDSTW               5409  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATASELECTORDSTX               5407  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATASELECTORDSTY               5408  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATASELECTORFLASHCSET          5424  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATASELECTORFRM                5415  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATASELECTORHEI                5412  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATASELECTORTILE               5413  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATASELECTORWID                5411  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATATRANSFLAGS                 5420  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATATRANSLEFTARGS              5375  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATATRANSLEFTFLAGS             5374  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATATRANSLEFTSFX               5373  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATATRANSLEFTTY                5372  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATATRANSRIGHTARGS             5406  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATATRANSRIGHTFLAGS            5405  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATATRANSRIGHTSFX              5404  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBDATATRANSRIGHTTY               5403  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreendata.cpp
+reg SUBWIDGBTNPG                      5461  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGBTNPRESS                   5460  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGDISPITM                    5514  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGPGMODE                     5462  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGPGTARG                     5463  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGPOSES                      5438  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGPRESSINITD                 5459  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGPRESSSCRIPT                5458  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGREQCOUNTER                 5626  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGREQCOUNTERCOND             5627  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGREQCOUNTERVAL              5628  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGREQLITEMLEVEL              5630  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGREQLITEMS                  5629  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGREQOWNITEMS                5624  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGREQSCRIPTDISABLED          5631  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGREQUNOWNITEMS              5625  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGREQ_DMAP                   5758  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGREQ_DMAP_FLOOR             5750  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGREQ_DMAP_LEVEL             5757  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGREQ_LEVEL_STATE            5756  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGREQ_LEVEL_STATE_LEVEL      5751  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGREQ_MAP                    5759  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGREQ_SCREEN                 5760  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGREQ_SCRSTATE_EXSTATE       5755  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGREQ_SCRSTATE_MAP           5752  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGREQ_SCRSTATE_SCREEN        5753  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGREQ_SCRSTATE_STATE         5754  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGSELECTORASPD               5456  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGSELECTORCSET               5453  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGSELECTORDELAY              5457  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGSELECTORDSTH               5449  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGSELECTORDSTW               5448  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGSELECTORDSTX               5446  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGSELECTORDSTY               5447  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGSELECTORFLASHCSET          5454  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGSELECTORFRM                5455  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGSELECTORHEI                5451  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGSELECTORTILE               5452  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGSELECTORWID                5450  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTRANSPGARGS                5467  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTRANSPGFLAGS               5466  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTRANSPGSFX                 5465  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTRANSPGTY                  5464  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_ANIMVAL                 5509  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_BUTTON                  5478  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_COLOR_BG2               5612  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_COLOR_CMPBLNK           5486  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_COLOR_CMPOFF            5487  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_COLOR_PLAYER            5485  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_COLOR_ROOM              5488  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_COLOR_SHD2              5611  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_COLOR_TXT2              5610  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_COLOR_UNVISITED         5828  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_COLOR_VISITED           5798  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_CONTAINER               5501  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_COSTIND                 5484  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_COUNTERS                5479  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_DELAY                   5500  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_FRAMECSET               5492  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_FRAMES                  5498  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_FRAMETILE               5491  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_GAUGE_HEI               5503  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_GAUGE_WID               5502  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_GRIDX                   5507  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_GRIDY                   5508  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_HSPACE                  5505  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_INFCHAR                 5483  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_INFITM                  5482  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_ITEMCLASS               5489  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_ITEMID                  5490  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_LITEMS                  5623  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_MAXDIG                  5481  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_MINDIG                  5480  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_NUMBER                  5496  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_PERCONTAINER            5511  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_PIECECSET               5494  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_PIECETILE               5493  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_SHOWDRAIN               5510  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_SPEED                   5499  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_TOTAL                   5733  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_UNITS                   5504  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDGTY_VSPACE                  5506  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDG_DISPH                     5519  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDG_DISPW                     5518  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDG_DISPX                     5516  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg SUBWIDG_DISPY                     5517  pack  0  subscreen objects as script data: map to the widget/page fields q30_scripts_subscr.h already reads; upstream scripting/types/subscreenwidget.cpp
+reg TYPINGMODE                        4790  pack  0  port from upstream as written there; upstream scripting/types/game.cpp
+reg VIEWPORT_DEADZONE_HEIGHT          5922  pack  0  script camera control in scrolling regions (viewport modes, follow settings); upstream scripting/types/viewport.cpp
+reg VIEWPORT_DEADZONE_WIDTH           5921  pack  0  script camera control in scrolling regions (viewport modes, follow settings); upstream scripting/types/viewport.cpp
+reg VIEWPORT_LOOKAHEAD_SPEED          5924  pack  0  script camera control in scrolling regions (viewport modes, follow settings); upstream scripting/types/viewport.cpp
+reg VIEWPORT_LOOKAHEAD_X              5923  pack  0  script camera control in scrolling regions (viewport modes, follow settings); upstream scripting/types/viewport.cpp
+reg VIEWPORT_LOOKAHEAD_Y              5929  pack  0  script camera control in scrolling regions (viewport modes, follow settings); upstream scripting/types/viewport.cpp
+reg VIEWPORT_RECENTER_DELAY           5932  pack  0  script camera control in scrolling regions (viewport modes, follow settings); upstream scripting/types/viewport.cpp
+reg VIEWPORT_RECENTER_SPEED           5931  pack  0  script camera control in scrolling regions (viewport modes, follow settings); upstream scripting/types/viewport.cpp
+reg VIEWPORT_TARGET                   5613  pack  0  script camera control in scrolling regions (viewport modes, follow settings); upstream scripting/types/viewport.cpp
+reg WEAPDATA_BOUNCE_ADD               5864  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_BOUNCE_MULT              5862  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_BURN_LIGHTOFFSET         5849  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_BURN_LIGHTRAD            5848  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_BURN_SPRITES             5847  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_HIT_HEIGHT               5855  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_HIT_OFFSET_X             5852  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_HIT_OFFSET_Y             5853  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_HIT_WIDTH                5854  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_HIT_ZHEIGHT              5856  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_INITD                    5873  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_LIFTHEIGHT               5871  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_LIFTLEVEL                5869  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_LIFTTIME                 5870  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_LIGHT_SHAPE              5850  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_MISC_FLAGS               5844  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_MOVE_FLAGS               5845  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_PIERCE                   5874  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_SCRIPT                   5872  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_SIZE_BITFLAGS            5851  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_STEP                     5861  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_TILE_H                   5860  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_TILE_W                   5859  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_TIMEOUT                  5866  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_UNBLOCKABLE              5865  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_USEDEFENCE               5868  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_USEWEAPON                5867  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_VALID                    5882  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_VIEWPORT_DESPAWN_RANGE   5876  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_VIEWPORT_SUSPEND_RANGE   5875  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_WEAP_FLAGS               5846  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_X_OFFSET                 5857  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEAPDATA_Y_OFFSET                 5858  pack  0  weapon data objects: script view of Q30WeaponData; upstream scripting/types/weapondata.cpp
+reg WEBSOCKET_HAS_MESSAGE             5551  pack  0  networking: upstream web build only, not wanted in the port; upstream scripting/types/websocket.cpp
+reg WEBSOCKET_MESSAGE_TYPE            5552  pack  0  networking: upstream web build only, not wanted in the port; upstream scripting/types/websocket.cpp
+reg WEBSOCKET_STATE                   5549  pack  0  networking: upstream web build only, not wanted in the port; upstream scripting/types/websocket.cpp
+reg WEBSOCKET_URL                     5550  pack  0  networking: upstream web build only, not wanted in the port; upstream scripting/types/websocket.cpp
+reg ZELDABETA                         4381  pack  0  port from upstream as written there; upstream scripting/types/game.cpp
+reg ZELDABETATYPE                     5252  pack  0  port from upstream as written there; upstream scripting/types/game.cpp
+reg ZELDABUILD                        4380  pack  0  port from upstream as written there; upstream scripting/types/game.cpp
+reg ZSCRIPTVERSION                    4973  pack  0  port from upstream as written there; upstream scripting/types/game.cpp

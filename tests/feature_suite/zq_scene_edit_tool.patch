@@ -1,0 +1,303 @@
+diff --git a/src/port/zqeditor/zq_record_editor.cpp b/src/port/zqeditor/zq_record_editor.cpp
+index 8e9de3c..1c1d3bb 100644
+--- a/src/port/zqeditor/zq_record_editor.cpp
++++ b/src/port/zqeditor/zq_record_editor.cpp
+@@ -2426,3 +2426,254 @@ int zq_dump_record(int kind, int id, const char *report)
+     fclose(f);
+     return 0;
+ }
++
++// -qst-scene-edit (zquest.cpp; test scenes): each line of the file, "item|enemy|screen ID KEY
++// VALUE", sets one number of that record by its key, as the record editors' OK would. A screen's
++// enemy0-9, room, guy, catchall, pattern and enemyflags are 2.53's fields: set in TheMaps, as
++// 2.53's screen dialogs do. 0 when all were set; why says which line wasn't.
++extern std::vector<mapscr> TheMaps;
++extern newcombo *combobuf;
++
++int zq_scene_edit(const char *path, std::string &why)
++{
++    FILE *f = fopen(path, "r");
++
++    if(!f)
++    {
++        why = "no edits file";
++        return 1;
++    }
++
++    char line[256], what[32], key[64];
++    int id = 0, n = 0;
++    long long_value = 0;
++
++    while(fgets(line, sizeof(line), f))
++    {
++        if(sscanf(line, "%31s %d %63s %ld", what, &id, key, &long_value) != 4 || what[0] == '#')
++            continue;
++
++        const std::string k = key, w = what;
++        const int kind = w == "item" ? KIND_ITEM : w == "enemy" ? KIND_GUY : w == "screen" ? KIND_SCREEN : w == "dmap" ? KIND_DMAP : -1;
++
++        // combo ID KEY VALUE: a combo's 2.53 and newer numbers (attrN in whole units, z heights
++        // in pixels); "copy" takes every number of combo VALUE first
++        if(w == "combo" && id > 0 && id < MAXCOMBOS)
++        {
++            Q30Combo *&x = zq255.combos[id];
++
++            if(k == "copy")
++            {
++                combobuf[id] = combobuf[long_value];
++                delete x;
++                x = zq255.combos[long_value] ? new Q30Combo(*zq255.combos[long_value]) : NULL;
++                ++n;
++                continue;
++            }
++
++            if(!x)
++            {
++                x = new Q30Combo();
++                x->type = combobuf[id].type;
++                x->flag = combobuf[id].flag == mfPUSHED ? (byte)104 : combobuf[id].flag;
++                x->walk = (byte)(0xF0 | (combobuf[id].walk & 0x0F));
++            }
++
++            newcombo &c = combobuf[id];
++
++            if(k == "type") { x->type = (byte)long_value; c.type = long_value < cMAX ? (byte)long_value : (byte)cNONE; }
++            else if(k == "flag") { x->flag = (byte)long_value; c.flag = long_value < mfMAX ? (byte)long_value : (byte)mfNONE; }
++            else if(k == "walk") { x->walk = (byte)long_value; c.walk = (byte)(long_value & 0x0F); }
++            else if(k == "tile") c.tile = long_value;
++            else if(k == "cset") c.csets = (byte)long_value;
++            else if(k == "genflags") x->genflags = (word)long_value;
++            else if(k == "usrflags") x->usrflags = (dword)long_value;
++            else if(k == "zh") x->z_height = long_value * 10000;
++            else if(k == "zsh") x->z_step_height = long_value * 10000;
++            else if(k.compare(0, 4, "attr") == 0) x->attributes[atoi(k.c_str() + 4) % 24] = long_value * 10000;
++            else if(k == "mw.vpsuspend") x->misc_weap.viewport_suspend_range = long_value;
++            else if(k == "mw.vpdespawn") x->misc_weap.viewport_despawn_range = long_value;
++            else
++            {
++                why = std::string("no such combo field: ") + line;
++                fclose(f);
++                return 3;
++            }
++
++            ++n;
++            continue;
++        }
++
++        // (suite tool) "item|enemy|dmap N copy M": record M whole into N; "map N copy M": map M's
++        // 136 screens and region ids into map N (the map count grows to hold it)
++        if(k == "copy" && (kind == KIND_ITEM || kind == KIND_GUY || kind == KIND_DMAP))
++        {
++            std::vector<byte> rec;
++            int v = 0;
++
++            if(!record_of(kind, (int)long_value, rec, &v) ||
++               !(kind == KIND_ITEM ? zq255_item_commit(id, rec, why) : kind == KIND_DMAP ? zq255_dmap_commit(id, rec, why) : zq255_guy_commit(id, rec, why)))
++            {
++                why = std::string("copy failed: ") + line + " " + why;
++                fclose(f);
++                return 4;
++            }
++
++            ++n;
++            continue;
++        }
++
++        // (suite tool) "map N enemyswap.E NE": every screen of map N placing enemy E places NE
++        if(w == "map" && k.compare(0, 10, "enemyswap.") == 0 && (size_t)(id + 1) * MAPSCRS <= TheMaps.size())
++        {
++            const int from = atoi(k.c_str() + 10);
++
++            for(int j = 0; j < MAPSCRS; ++j)
++                for(int e = 0; e < 10; ++e)
++                    if(TheMaps[(size_t)id * MAPSCRS + j].enemy[e] == from)
++                        TheMaps[(size_t)id * MAPSCRS + j].enemy[e] = (word)long_value;
++
++            ++n;
++            continue;
++        }
++
++        if(w == "map" && k == "copy")
++        {
++            extern bool setMapCount2(int c);
++            extern word map_count;
++            extern bool zq255_map_export(int map, std::vector<std::vector<byte> > &recs, word *version, std::string &why);
++            extern bool zq255_map_take(int map, const std::vector<std::vector<byte> > &recs, std::string &why);
++            extern bool zq_region_ids(int map, byte out[64]);
++            extern void zq_region_set_ids(int map, const byte ids[64]);
++            std::vector<std::vector<byte> > recs;
++            word mv = 0;
++
++            if(!zq255_map_export((int)long_value, recs, &mv, why))
++            {
++                why = std::string("map export failed: ") + line + " " + why;
++                fclose(f);
++                return 4;
++            }
++
++            if(id >= map_count && !setMapCount2(id + 1))
++            {
++                why = std::string("map count: ") + line;
++                fclose(f);
++                return 4;
++            }
++
++            if(!zq255_map_take(id, recs, why))
++            {
++                why = std::string("map copy failed: ") + line + " " + why;
++                fclose(f);
++                return 4;
++            }
++
++            byte ids[64];
++            zq_region_ids((int)long_value, ids);
++            zq_region_set_ids(id, ids);
++            ++n;
++            continue;
++        }
++
++        if(kind == KIND_SCREEN && id >= 0 && (size_t)id < TheMaps.size()
++           && (k.compare(0, 5, "data.") == 0 || k.compare(0, 6, "sflag.") == 0 || k.compare(0, 5, "cset.") == 0))
++        {
++            // a cell of the screen: data.POS (its combo), sflag.POS, cset.POS
++            mapscr &m = TheMaps[id];
++            const int pos = atoi(k.c_str() + k.find('.') + 1) % 176;
++
++            if(k == "data.show")
++            {
++                // (the screen's combos, sflags and the combos' types, into the report)
++                char b[32];
++
++                for(int i = 0; i < 176; ++i)
++                {
++                    sprintf(b, "%s%d/%d/%d", i % 16 ? " " : "\n", (int)m.data[i], (int)m.sflag[i], (int)combobuf[m.data[i]].type);
++                    why += b;
++                }
++
++                why += "\n";
++                continue;
++            }
++
++            if(k[0] == 'd') m.data[pos] = (word)long_value;
++            else if(k[0] == 's') m.sflag[pos] = (byte)long_value;
++            else m.cset[pos] = (byte)long_value;
++
++            m.valid |= mVALID;
++            ++n;
++            continue;
++        }
++
++        if(kind == KIND_SCREEN && id >= 0 && (size_t)id < TheMaps.size()
++           && (k.compare(0, 5, "enemy") == 0 || k == "room" || k == "guy" || k == "catchall" || k == "pattern"))
++        {
++            mapscr &m = TheMaps[id];
++
++            if(k == "enemyflags") m.enemyflags = (byte)long_value;
++            else if(k.compare(0, 5, "enemy") == 0) m.enemy[atoi(k.c_str() + 5) % 10] = (word)long_value;
++            else if(k == "room") m.room = (byte)long_value;
++            else if(k == "guy") m.guy = (byte)long_value;
++            else if(k == "catchall") m.catchall = (word)long_value;
++            else m.pattern = (byte)long_value;
++
++            m.valid |= mVALID;
++            ++n;
++            continue;
++        }
++
++        std::vector<byte> rec;
++        int v = 0;
++
++        if(kind < 0 || !record_of(kind, id, rec, &v))
++        {
++            why = std::string("no record for: ") + line;
++            fclose(f);
++            return 2;
++        }
++
++        Tape t;
++        TapeParser p(rec.empty() ? NULL : &rec[0], rec.size(), 0, &t);
++
++        // (dmap N flags.clear BITS: clears those bits of the DMap's flags)
++        const bool clear_bits = kind == KIND_DMAP && k == "flags.clear";
++        if(clear_bits)
++            strcpy(key, "flags");
++
++        if(!schema_of(kind)(p, v) || !t.find(key))
++        {
++            why = std::string("no such field: ") + line;
++            fclose(f);
++            return 3;
++        }
++
++        t.find(key)->value = clear_bits ? (t.find(key)->value & ~long_value) : long_value;
++
++        if(kind == KIND_SCREEN)
++        {
++            zq255.screen_fields[id][k] = *t.find(key);
++            zq255_screen_fields_sync(id, false, false);
++        }
++        else
++        {
++            std::vector<byte> out;
++            rebuilt(t, kind, v).encode(out);
++
++            if(!(kind == KIND_ITEM ? zq255_item_commit(id, out, why) : kind == KIND_DMAP ? zq255_dmap_commit(id, out, why) : zq255_guy_commit(id, out, why)))
++            {
++                fclose(f);
++                return 4;
++            }
++        }
++
++        ++n;
++    }
++
++    fclose(f);
++    char buf[64];
++    sprintf(buf, "%d fields set", n);
++    why = buf + why;
++    return 0;
++}
+diff --git a/src/zquest.cpp b/src/zquest.cpp
+index 6e984a7..271527f 100644
+--- a/src/zquest.cpp
++++ b/src/zquest.cpp
+@@ -24479,6 +24479,39 @@ int main(int argc,char **argv)
+             exit(ret == 0 ? 0 : 3);
+         }
+ 
++        // -qst-scene-edit in.qst out.qst edits.txt report.txt: test scenes (zq_record_editor.cpp):
++        // fields set by key, then a save in the quest's own version
++        int scene_arg = used_switch(argc,argv,"-qst-scene-edit");
++
++        if(scene_arg && argc>scene_arg+4)
++        {
++            extern bool skip_quest_password;
++            extern bool zq_batch_load;
++            extern int zq_scene_edit(const char *path, std::string &why);
++            extern int zq_save_own_format_ex(const char *filename, bool encode, bool all_parts, std::string &why);
++            skip_quest_password = true;
++            zq_batch_load = true;
++            int ret = load_quest(argv[scene_arg+1],true,true);
++            std::string why = "the quest didn't load";
++
++            if(ret == qe_OK && (ret = zq_scene_edit(argv[scene_arg+3], why)) == 0)
++            {
++                std::string w2;
++                ret = zq_save_own_format_ex(argv[scene_arg+2], true, false, w2);
++                why += "; save " + w2;
++            }
++
++            FILE *out = fopen(argv[scene_arg+4], "w");
++
++            if(out)
++            {
++                fprintf(out, "%d %s\n", ret, why.c_str());
++                fclose(out);
++            }
++
++            exit(ret == 0 ? 0 : 3);
++        }
++
+         // -qst-dump-cpools in.qst report.txt: the combo pools, autocombos and scrolling region
+         // ids ZQuest holds for a 2.55.17 / 3.0 quest (zq_cpool.cpp; for testing their editors)
+         int dumpcp_arg = used_switch(argc,argv,"-qst-dump-cpools");

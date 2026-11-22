@@ -1,0 +1,21 @@
+# r12shopA (B.4): the region's origin 0x28 is a shop room (room 10, shop 0) with no guy of its own; the merchant
+# (guy 3) is on 0x39, where Link starts. Upstream: a guy anywhere in the region sets up the origin's room,
+# so the wares come out on 0x28 while Link stands on 0x39; Link then walks there and buys. DMap 0 loses
+# "guys in caves only" (flag 8) so the merchant comes out on an overworld screen.
+screen 176 room 10
+screen 176 catchall 0
+screen 176 guy 0
+screen 176 enemy0 0
+screen 176 enemy1 0
+screen 193 guy 3
+screen 193 room 0
+screen 193 enemy0 0
+screen 193 enemy1 0
+screen 193 enemy2 0
+screen 193 pattern 0
+screen 177 enemy0 0
+screen 192 enemy0 0
+screen 192 enemy1 0
+screen 194 enemy0 0
+screen 194 enemyflags 0
+dmap 0 flags.clear 8

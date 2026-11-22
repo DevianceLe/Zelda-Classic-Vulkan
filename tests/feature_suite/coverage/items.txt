@@ -1,0 +1,977 @@
+# group kind name pack how (written by gen_coverage.py)
+game cmd GETNPCBYNAME pack 6 fn Game.GetNPC(char32[] name)
+game cmd CREATESAVPORTAL pack 4 fn Game.CreateSavedPortal()
+game cmd CURRENTITEMID pack 4 fn Game.CurrentItemID(int itemtype, int bitflags = CIID_FLAG_CHECKCOST)
+game cmd GAMESETCUSTOMCURSOR pack 4 fn Game.SetCustomCursor(bitmap b, int fx, int fy, bool sys_recolor = false)
+game cmd GETDMAPBYNAME pack 4 fn Game.GetDMap(char32[] name)
+game cmd GETITEMBYNAME pack 4 fn Game.GetItem(char32[] name)
+game cmd LOADBOTTLETYPE pack 4 fn Game.LoadBottleData(int id)
+game cmd LOADBSHOPDATA pack 4 fn Game.LoadBottleShopData(int id)
+game cmd LOADSAVEMENU pack 4 fn Game.LoadSaveMenu(int id)
+game cmd LOADSAVPORTAL pack 4 fn Game.LoadSavedPortal(int saved_portal_id)
+game cmd REGION_LOAD_TMPSCR_FOR_LAYER_COMBO_POS pack 4 fn Game.LoadTempScreenForComboPos(int layer, int pos)
+game cmd SETDMAPINTRO pack 4 fn Game.SetDMapIntro(int DMap, char32[] buffer)
+game cmd SETDMAPNAME pack 4 fn Game.SetDMapName(int DMap, char32[] buffer)
+game cmd SETDMAPTITLE pack 4 fn Game.SetDMapTitle(int DMap, char32[] buffer)
+game cmd SETMESSAGE pack 4 fn Game.SetMessage(int message, char32[] str)
+game cmd SWAPSUBSCREENV pack 4 fn Game.SwapActiveSubscreens(int sub_id_1, int sub_id_2)
+game reg GAMEGRAVITY pack 4 var Game.Gravity[]
+game reg BUTTONHELD pack 3 var Game.ButtonHeld[]
+game reg GAMEMISCSFX pack 1 var Game.MiscSFX[]
+game reg SKIPCREDITS pack 1 var Game.SkipCredits
+game reg DISABLEDITEM pack 0 var Game.DisableItem[]
+game reg GAMEASUBOPEN pack 0 var Game.ActiveSubscreenOpen
+game reg GAMELAYERZTHRESHOLDS pack 0 var Game.LayerZThresholds[]
+game reg GAMEMAXCHEAT pack 0 var Game.MaxCheat
+game reg GAMEMAXMAPS pack 0 var Game.MapCount
+game reg GAMEMISCSPR pack 0 var Game.MiscSprites[]
+game reg GAMEMOUSECURSOR pack 0 var Game.MouseCursor
+game reg GAMEMSUBOPEN pack 0 var Game.MapSubscreenOpen
+game reg GAMENUMASUB pack 0 var Game.NumActiveSubscreens
+game reg GAMENUMMESSAGES pack 0 var Game.NumMessages
+game reg GAMENUMMSUB pack 0 var Game.NumMapSubscreens
+game reg GAMENUMOSUB pack 0 var Game.NumOverlaySubscreens
+game reg GAMENUMPSUB pack 0 var Game.NumPassiveSubscreens
+game reg GAMEOVERRIDEITEMS pack 0 var Game.OverrideItems[]
+game reg GAME_SAVED_PORTALS pack 0 var Game.SavedPortals[]
+game reg GAME_SAVEMENU_F6 pack 0 var Game.SaveMenuF6
+game reg GAME_SAVEMENU_GAMEOVER pack 0 var Game.SaveMenuGameOver
+game reg JOYPADPRESS pack 0 var Game.JoypadPress[]
+game reg SAVEDPORTALCOUNT pack 0 var Game.NumSavedPortals
+game reg TYPINGMODE pack 0 var Game.TypingMode
+game reg ZELDABETA pack 0 oldreg (no object)
+game reg ZELDABETATYPE pack 0 oldreg (no object)
+game reg ZELDABUILD pack 0 oldreg (no object)
+game reg ZSCRIPTVERSION pack 0 oldreg (no object)
+game reg INCQST pack 5 fn Game.IncrementQuest()
+misc cmd GAMEEXIT pack 5 skip: ends the game, writes files, waits or controls the script
+misc cmd LPOWERR pack 4 oldcmd LPOWERR D2 D2
+misc cmd PRINTFA pack 4 skip: not in upstream's bindings and its arguments can't be written
+misc cmd QUIT_NO_DEALLOC pack 4 skip: ends the game, writes files, waits or controls the script
+misc cmd SAVEMENU_OPEN pack 4 skip: ends the game, writes files, waits or controls the script
+misc cmd SHOWF6SCREEN pack 4 skip: ends the game, writes files, waits or controls the script
+misc cmd SPRINTFA pack 4 skip: not in upstream's bindings and its arguments can't be written
+misc cmd SRNDR pack 4 oldcmd SRNDR D2
+misc cmd SRNDRND pack 4 oldcmd SRNDRND D2
+misc cmd TRACELR pack 4 oldcmd TRACELR D2
+misc cmd COMPAREV2 pack 1 oldcmd COMPAREV2 1 D2
+misc cmd PAUSEMUSIC pack 1 skip: not in upstream's bindings and its arguments can't be written
+misc cmd RESUMEMUSIC pack 1 skip: not in upstream's bindings and its arguments can't be written
+misc cmd ATOI2 pack 0 skip: not in upstream's bindings and its arguments can't be written
+misc cmd BREAKPOINT pack 0 skip: ends the game, writes files, waits or controls the script
+misc cmd DMAPDATAGETINTROV pack 0 oldcmd DMAPDATAGETINTROV 1
+misc cmd DMAPDATAGETMUSICV pack 0 oldcmd DMAPDATAGETMUSICV 1
+misc cmd DMAPDATAGETNAMEV pack 0 oldcmd DMAPDATAGETNAMEV 1
+misc cmd DMAPDATAGETTITLEV pack 0 oldcmd DMAPDATAGETTITLEV 1
+misc cmd DMAPDATASETINTROV pack 0 oldcmd DMAPDATASETINTROV 1
+misc cmd DMAPDATASETMUSICV pack 0 oldcmd DMAPDATASETMUSICV 1
+misc cmd DMAPDATASETNAMEV pack 0 oldcmd DMAPDATASETNAMEV 1
+misc cmd DMAPDATASETTITLEV pack 0 oldcmd DMAPDATASETTITLEV 1
+misc cmd GREYSCALER pack 0 oldcmd GREYSCALER D2
+misc cmd GREYSCALEV pack 0 oldcmd GREYSCALEV 1
+misc cmd ILEN2 pack 0 skip: not in upstream's bindings and its arguments can't be written
+misc cmd LOAD_INTERNAL_ARRAY pack 0 skip: ends the game, writes files, waits or controls the script
+misc cmd LOAD_INTERNAL_ARRAY_REF pack 0 skip: ends the game, writes files, waits or controls the script
+misc cmd LPOWERV pack 0 oldcmd LPOWERV D2 1
+misc cmd LPOWERV2 pack 0 oldcmd LPOWERV2 1 D2
+misc cmd MAKEVARGARRAY pack 0 skip: ends the game, writes files, waits or controls the script
+misc cmd MODV2 pack 0 oldcmd MODV2 1 D2
+misc cmd MONOCHROMER pack 0 oldcmd MONOCHROMER D2
+misc cmd MONOCHROMEV pack 0 oldcmd MONOCHROMEV 1
+misc cmd PAUSESFX pack 0 skip: not in upstream's bindings and its arguments can't be written
+misc cmd PAUSESOUNDV pack 0 oldcmd PAUSESOUNDV 1
+misc cmd POWERV2 pack 0 oldcmd POWERV2 1 D2
+misc cmd REMCHR2 pack 0 skip: not in upstream's bindings and its arguments can't be written
+misc cmd RESUMESFX pack 0 skip: not in upstream's bindings and its arguments can't be written
+misc cmd RESUMESOUNDV pack 0 oldcmd RESUMESOUNDV 1
+misc cmd SETCONTINUESCREEN pack 0 oldcmd SETCONTINUESCREEN D2 D2
+misc cmd SETCONTINUESTRING pack 0 oldcmd SETCONTINUESTRING D2 D2
+misc cmd SRNDV pack 0 oldcmd SRNDV 1
+misc cmd STRCMPR pack 0 oldcmd STRCMPR D2 D2
+misc cmd STRICMPR pack 0 oldcmd STRICMPR D2 D2
+misc cmd TOBYTE pack 0 oldcmd TOBYTE D2
+misc cmd TOINTEGER pack 0 oldcmd TOINTEGER D2
+misc cmd TOSHORT pack 0 oldcmd TOSHORT D2
+misc cmd TOSIGNEDBYTE pack 0 oldcmd TOSIGNEDBYTE D2
+misc cmd TOWORD pack 0 oldcmd TOWORD D2
+misc cmd XLEN pack 0 skip: not in upstream's bindings and its arguments can't be written
+misc cmd XLEN2 pack 0 skip: not in upstream's bindings and its arguments can't be written
+misc cmd XTOI2 pack 0 oldcmd XTOI2 D2
+misc reg PC pack 0 skip: ends the game, writes files, waits or controls the script
+misc cmd PAUSESOUNDR pack 5 fn Audio.PauseSound(int sfx)
+misc cmd CONTINUESFX pack 4 fn Audio.ContinueSound(int sfx)
+misc cmd RESUMESOUNDR pack 4 fn Audio.ResumeSound(int sfx)
+misc reg AUDIOPAN pack 0 var Audio.PanStyle
+misc reg AUDIOVOLUME pack 0 var Audio.Volume[]
+misc cmd SUBPAGE_NEW_WIDG pack 5 fn subscreenpage.CreateWidget(int type)
+misc cmd SUBPAGE_DELETE pack 4 fn subscreenpage.Delete()
+misc cmd SUBPAGE_MOVE_SEL pack 4 fn subscreenpage.SelectorMove(int cursor_pos, int dir, int flags)
+misc cmd SUBPAGE_SWAP_WIDG pack 4 fn subscreenpage.SwapWidgets(int index1, int index2)
+misc cmd BOTTLENAMEGET pack 4 fn bottledata.GetName(char32[] str)
+misc cmd BOTTLENAMESET pack 4 fn bottledata.SetName(char32[] str)
+misc reg BOTTLEAMOUNT pack 0 var bottledata.Amount[]
+misc reg BOTTLECOUNTER pack 0 var bottledata.Counter[]
+misc reg BOTTLEFLAGS pack 0 var bottledata.Flags[]
+misc reg BOTTLENEXT pack 0 var bottledata.NextType
+misc reg BOTTLEPERCENT pack 0 var bottledata.IsPercent[]
+misc cmd BSHOPNAMEGET pack 4 fn bottleshopdata.GetName(char32[] str)
+misc cmd BSHOPNAMESET pack 4 fn bottleshopdata.SetName(char32[] str)
+misc reg BSHOPCOMBO pack 0 var bottleshopdata.Combo[]
+misc reg BSHOPCSET pack 0 var bottleshopdata.CSet[]
+misc reg BSHOPFILL pack 0 var bottleshopdata.Fill[]
+misc reg BSHOPPRICE pack 0 var bottleshopdata.Price[]
+misc reg BSHOPSTR pack 0 var bottleshopdata.InfoString[]
+misc cmd CONVERTFROMRGB pack 4 fn Graphics.ConvertFromRGB(int[] buf, rgb color, int color_space)
+misc cmd CONVERTTORGB pack 4 fn Graphics.ConvertToRGB(int color_space, int[] arr)
+misc reg GRAPHICS_SPRITE_LAYER_TARGET pack 0 var Graphics.SpriteLayerTarget
+misc reg IS8BITTILE pack 0 var Graphics.Is8BitTile[]
+misc reg ISBLANKTILE pack 0 var Graphics.IsBlankTile[]
+misc reg MAXDRAWS pack 0 var Graphics.MaxDraws
+misc reg NUMDRAWS pack 0 var Graphics.NumDraws
+misc cmd MESSAGEHEIGHTR pack 4 fn Text.MessageHeight(int msg)
+misc cmd MESSAGEWIDTHR pack 4 fn Text.MessageWidth(int msg)
+misc cmd MODULEGETIC pack 4 fn ZInfo.GetItemType(char32[] buffer, int itemclass_id)
+misc cmd OBJ_OWN_ARRAY pack 4 fn sprite.OwnArray(untyped array)
+misc cmd OBJ_OWN_BITMAP pack 4 fn sprite.Own(bitmap b)
+misc cmd OBJ_OWN_DIR pack 4 skip: arguments can't be made (directory b)
+misc cmd OBJ_OWN_FILE pack 4 skip: arguments can't be made (file b)
+misc cmd OBJ_OWN_PALDATA pack 4 fn sprite.Own(paldata b)
+misc cmd OBJ_OWN_RNG pack 4 fn sprite.Own(randgen b)
+misc cmd OBJ_OWN_STACK pack 4 fn sprite.Own(stack b)
+misc cmd PALDATALOADBITMAP pack 4 fn paldata.LoadBitmapPalette(int pal)
+misc cmd PALDATAWRITESPRITE pack 4 fn paldata.WriteSpritePalette(int pal)
+misc cmd PALDATAWRITESPRITECS pack 4 fn paldata.WriteSpriteCSet(int pal, int cset)
+misc reg LONGDISTANCE pack 4 oldreg (no object)
+misc reg LONGDISTANCESCALE pack 4 oldreg (no object)
+misc reg DROPSETITEMS pack 1 var dropsetdata.Items[]
+misc reg DROPSETCHANCES pack 0 var dropsetdata.Chances[]
+misc reg DROPSETNULLCHANCE pack 0 var dropsetdata.NothingChance
+misc reg FFCINDEX pack 0 var ffc.ScreenFFCIndex
+misc reg FFCLASTCHANGERX pack 0 var ffc.LastChangerX
+misc reg FFCLASTCHANGERY pack 0 var ffc.LastChangerY
+misc reg FFC_POSSTATE pack 0 var ffc.PosState[]
+misc reg KEYBINDINGS pack 0 var Input.KeyBindings[]
+misc reg RAWKEY pack 0 var Input.KeyRaw[]
+misc reg SIMULATEKEYPRESS pack 0 oldreg (no object)
+misc reg SHOPDATASTRING pack 0 var shopdata.String[]
+misc reg SPRITEDATAFLAGS pack 0 var spritedata.Flags[]
+misc cmd STACKWRITEATRV pack 0 oldcmd STACKWRITEATRV D2 1
+hero reg HEROFALLCMB pack 5 oldreg (no object)
+hero reg SETITEMSLOT pack 5 fn hero.SetItemSlot(int itm_id, int slot, int force)
+hero cmd LINKEXPLODER pack 4 fn hero.Explode(int mode)
+hero cmd SWITCHCMB pack 4 fn hero.SwitchCombo(int pos, int effect)
+hero reg LINKOTILE pack 4 fn hero.GetOriginalTile(int hero_sprite_id, int dir)
+hero reg LINKOFLIP pack 3 oldreg (no object)
+hero reg HERODROWNCLK pack 1 oldreg (no object)
+hero reg CLOCKCLK pack 0 var hero.ClockTimer
+hero reg HEROCOYOTETIME pack 0 var hero.CoyoteTime
+hero reg HERODROWNCMB pack 0 oldreg (no object)
+hero reg HEROFLASHINGCSET pack 0 var hero.FlashingCSet
+hero reg HEROFLICKERCOLOR pack 0 var hero.FlickerColor
+hero reg HEROFLICKERTRANSP pack 0 var hero.FlickerTransparencyPasses
+hero reg HEROFORCEDRESPAWN pack 0 var hero.ForcedHazardRespawn
+hero reg HEROHAMMERSTATE pack 0 var hero.HammerState
+hero reg HEROHEALTHBEEP pack 0 var hero.HealthBeep
+hero reg HEROICECMB pack 0 var hero.IceCombo
+hero reg HEROICEENTRYFRAMES pack 0 var hero.IceEntryFrames
+hero reg HEROICEENTRYMAXFRAMES pack 0 var hero.IceEntryMaxFrames
+hero reg HEROICEVX pack 0 var hero.IceVx
+hero reg HEROICEVY pack 0 var hero.IceVy
+hero reg HEROITEMCOOLDOWN pack 0 var hero.ItemCooldown[]
+hero reg HEROJUMPCOUNT pack 0 var hero.JumpCount
+hero reg HEROLIFTFLAGS pack 0 var hero.LiftFlags[]
+hero reg HEROLIFTHEIGHT pack 0 var hero.LiftHeight
+hero reg HEROLIFTMAXTIMER pack 0 var hero.LiftMaxTimer
+hero reg HEROLIFTTIMER pack 0 var hero.LiftTimer
+hero reg HERONOSTEPFORWARD pack 0 var hero.NoStepForward
+hero reg HEROPULLCLK pack 0 var hero.PitPullTimer
+hero reg HEROPULLDIR pack 0 var hero.PitPullDir
+hero reg HERORESPAWNDMAP pack 0 var hero.RespawnDMap
+hero reg HERORESPAWNDMSCR pack 0 var hero.RespawnDMapScreen
+hero reg HERORESPAWNSCR pack 0 var hero.RespawnScreen
+hero reg HERORESPAWNX pack 0 var hero.RespawnX
+hero reg HERORESPAWNY pack 0 var hero.RespawnY
+hero reg HEROSCRICECMB pack 0 var hero.ScriptIceCombo
+hero reg HEROSHOVEOFFSET pack 0 var hero.ShoveOffset
+hero reg HEROSLIDING pack 0 var hero.Sliding
+hero reg HEROSTEPS pack 0 var hero.Steps[]
+hero reg HEROSWITCHMAXTIMER pack 0 var hero.SwitchMaxTimer
+hero reg HEROSWITCHTIMER pack 0 var hero.SwitchTimer
+hero reg HEROTOTALDYOFFS pack 0 var hero.TotalDYOffset
+hero reg HERO_HAMMER_POS pack 0 var hero.HammerPos
+hero reg HERO_ITEMBOX_HEIGHT pack 0 var hero.ItemBoxHeight
+hero reg HERO_ITEMBOX_WIDTH pack 0 var hero.ItemBoxWidth
+hero reg HERO_ITEMBOX_XOFF pack 0 var hero.ItemBoxXOffset
+hero reg HERO_ITEMBOX_YOFF pack 0 var hero.ItemBoxYOffset
+hero reg LINKDEFENCE pack 0 var hero.Defense[]
+hero reg LINKENGINEANIMATE pack 0 oldreg (no object)
+hero reg LINKGRAVITY pack 0 oldreg (no object)
+screendata cmd BITMAPEXR pack 4 fn screendata.DrawBitmapEx(int layer, int bitmap_id, int source_x, int source)
+screendata cmd COMBOARRAYR pack 4 fn screendata.DrawCombos(int layer, int ptr)
+screendata cmd COMBOBLIT pack 4 fn screendata.ComboBlit(int layer, int combo, int cset, int source_x, int )
+screendata cmd DRAWCOMBOCLOAKEDR pack 4 fn screendata.DrawComboCloaked(int layer, int x, int y, int combo, int tilewidth,)
+screendata cmd DRAWTILECLOAKEDR pack 4 fn screendata.DrawTileCloaked(int layer, int x, int y, int tile, int blockw, int)
+screendata cmd FRAMER pack 4 fn screendata.DrawFrame(int layer, int x, int y, int tile, int cset, int w)
+screendata cmd ISSOLIDLAYER pack 4 fn screendata.isSolidLayer(int x, int y, int layer)
+screendata cmd LINESARRAY pack 4 fn screendata.Lines(int layer, int ptr)
+screendata cmd LOADPORTAL pack 4 fn screendata.LoadPortal(int n)
+screendata cmd PIXELARRAYR pack 4 fn screendata.PutPixels(int layer, int ptr, int rx, int ry, int rot_degree)
+screendata cmd REGION_TRIGGER_SECRETS pack 4 fn screendata.TriggerSecrets(int screen)
+screendata cmd SCREENDOSPAWN pack 4 fn screendata.SpawnScreenEnemies()
+screendata cmd TILEARRAYR pack 4 fn screendata.DrawTiles(int layer, int ptr)
+screendata cmd TILEBLIT pack 4 fn screendata.TileBlit(int layer, int tile, int cset, int source_x, int s)
+screendata reg CREATELWPNDX pack 4 fn screendata.CreateLWeaponDx(int type, int baseitem)
+screendata cmd DRAWMAPDATA pack 3 fn screendata.DrawMapdata(int layer, mapdata source, int x, int y, int opaci)
+screendata cmd DRAWMINITILE pack 3 fn screendata.DrawMiniTile(int layer, int x, int y, int tile, CornerIndex qua)
+screendata reg COMBODATAD pack 0 var screendata.ComboData[]
+screendata reg PORTALCOUNT pack 0 var screendata.NumPortals
+screendata reg SCREENCOMBOPOSSTATE pack 0 var screendata.PosState[]
+screendata reg SCREENDATABOSSSFX pack 0 var screendata.BossSFX
+screendata reg SCREENDATACOLOUR pack 0 var screendata.Palette
+screendata reg SCREENDATACSENSITIVE pack 0 var screendata.CSensitive
+screendata reg SCREENDATADOOR pack 0 oldreg (no object)
+screendata reg SCREENDATADOORCOMBOSET pack 0 var screendata.DoorComboSet
+screendata reg SCREENDATAENEMYFLAGS pack 0 var screendata.EnemyFlags
+screendata reg SCREENDATAEXCARRY pack 0 var screendata.ExStateCarry[]
+screendata reg SCREENDATAEXITDIR pack 0 var screendata.ExitDir
+screendata reg SCREENDATAEXRESET pack 0 var screendata.ExStateReset[]
+screendata reg SCREENDATAFFINITIALISED pack 0 oldreg (no object)
+screendata reg SCREENDATAFLAGS pack 0 var screendata.ScreenFlags[]
+screendata reg SCREENDATAGUY pack 0 var screendata.Guy
+screendata reg SCREENDATAGUYCOUNT pack 0 var screendata.GuyCount
+screendata reg SCREENDATAHOLDUPSFX pack 0 var screendata.ItemSFX
+screendata reg SCREENDATALAYEROPACITY pack 0 var screendata.LayerOpacity[]
+screendata reg SCREENDATALENSLAYER pack 0 var screendata.LensLayer
+screendata reg SCREENDATANEXTMAP pack 0 var screendata.NextMap
+screendata reg SCREENDATANEXTSCREEN pack 0 var screendata.NextScreen
+screendata reg SCREENDATANOCARRY pack 0 var screendata.NoCarry
+screendata reg SCREENDATANOCARRYARR pack 0 var screendata.NoCarryState[]
+screendata reg SCREENDATANORESET pack 0 var screendata.NoReset
+screendata reg SCREENDATANORESETARR pack 0 var screendata.NoResetState[]
+screendata reg SCREENDATANUMFF pack 0 oldreg (no object)
+screendata reg SCREENDATAPATH pack 0 var screendata.MazePath[]
+screendata reg SCREENDATAPATTERN pack 0 var screendata.Pattern
+screendata reg SCREENDATAROOM pack 0 oldreg (no object)
+screendata reg SCREENDATASCREENMIDI pack 0 var screendata.MIDI
+screendata reg SCREENDATASCRIPTDRAWS pack 0 var screendata.ScriptDraws[]
+screendata reg SCREENDATASIDEWARPDMAP pack 0 var screendata.SideWarpDMap[]
+screendata reg SCREENDATASIDEWARPINDEX pack 0 var screendata.SideWarpIndex
+screendata reg SCREENDATASIDEWARPOVFLAGS pack 0 var screendata.SideWarpOverlay[]
+screendata reg SCREENDATASIDEWARPSC pack 0 var screendata.SideWarpScreen[]
+screendata reg SCREENDATASIDEWARPTYPE pack 0 var screendata.SideWarpType[]
+screendata reg SCREENDATASTAIRX pack 0 var screendata.StairsX
+screendata reg SCREENDATASTAIRY pack 0 var screendata.StairsY
+screendata reg SCREENDATATILEWARPOVFLAGS pack 0 var screendata.TileWarpOverlay[]
+screendata reg SCREENDATATIMEDWARPTICS pack 0 var screendata.TimedWarpTimer
+screendata reg SCREENDATAVALID pack 0 var screendata.Valid
+screendata reg SCREENDATAWARPARRIVALX pack 0 var screendata.WarpArrivalX
+screendata reg SCREENDATAWARPARRIVALY pack 0 var screendata.WarpArrivalY
+screendata reg SCREENDATAWARPRETURNC pack 0 oldreg (no object)
+screendata reg SCREENDATA_GRAVITY_STRENGTH pack 0 var screendata.GravityStrength
+screendata reg SCREENDATA_TERMINAL_VELOCITY pack 0 var screendata.TerminalVelocity
+screendata reg SCREENLENSHIDES pack 0 var screendata.LensHides[]
+screendata reg SCREENLENSSHOWS pack 0 var screendata.LensShows[]
+screendata reg SCREENSCRIPT pack 0 var screendata.Script
+screendata reg SCREEN_EWEAPONS pack 0 var screendata.EWeapons[]
+screendata reg SCREEN_FFCS pack 0 var screendata.FFCs[]
+screendata reg SCREEN_INDEX pack 0 var screendata.Index
+screendata reg SCREEN_ITEMS pack 0 var screendata.Items[]
+screendata reg SCREEN_LWEAPONS pack 0 var screendata.LWeapons[]
+screendata reg SCREEN_NPCS pack 0 var screendata.NPCs[]
+screendata reg SCREEN_PORTALS pack 0 var screendata.Portals[]
+screendata cmd CLOSEWIPE pack 4 fn screendata.ClosingWipe()
+screendata cmd CLOSEWIPESHAPE pack 4 fn screendata.ClosingWipe(int effect)
+screendata cmd CREATEPORTAL pack 4 fn screendata.CreatePortal()
+screendata cmd OPENWIPE pack 4 fn screendata.OpeningWipe()
+screendata cmd OPENWIPESHAPE pack 4 fn screendata.OpeningWipe(int effect)
+bitmap cmd BMPCOMBOBLIT pack 4 fn bitmap.ComboBlit(int layer, int combo, int cset, int source_x, int )
+bitmap cmd BMPDRAWCOMBOCLOAKEDR pack 4 fn bitmap.DrawComboCloaked(int layer, int x, int y, int combo, int tilewidth,)
+bitmap cmd BMPDRAWLAYERCFLAGR pack 4 fn bitmap.DrawLayerComboFlags(int layer, int source_map, int source_screen, int )
+bitmap cmd BMPDRAWLAYERCIFLAGR pack 4 fn bitmap.DrawLayerComboIFlags(int layer, int source_map, int source_screen, int )
+bitmap cmd BMPDRAWLAYERCTYPER pack 4 fn bitmap.DrawLayerComboTypes(int layer, int source_map, int source_screen, int )
+bitmap cmd BMPDRAWLAYERSOLIDITYR pack 4 fn bitmap.DrawLayerSolidity(int layer, int source_map, int source_screen, int )
+bitmap cmd BMPDRAWLAYERSOLIDR pack 4 fn bitmap.DrawLayerSolid(int layer, int source_map, int source_screen, int )
+bitmap cmd BMPDRAWSCREENCOMBOIR pack 4 fn bitmap.DrawScreenComboIFlags(int layer, int map, int source_screen, int x, int )
+bitmap cmd BMPDRAWSCREENCOMBOTR pack 4 fn bitmap.DrawScreenComboTypes(int layer, int map, int source_screen, int x, int )
+bitmap cmd BMPDRAWSCREENSOLID2R pack 4 fn bitmap.DrawScreenSolid(int layer, int map, int source_screen, int x, int )
+bitmap cmd BMPDRAWSCREENSOLIDR pack 4 fn bitmap.DrawScreenSolidity(int layer, int map, int source_screen, int x, int )
+bitmap cmd BMPDRAWTILECLOAKEDR pack 4 fn bitmap.DrawTileCloaked(int layer, int x, int y, int tile, int blockw, int)
+bitmap cmd BMPFRAMER pack 4 fn bitmap.DrawFrame(int layer, int x, int y, int tile, int cset, int w)
+bitmap cmd BMPMODE7 pack 4 fn bitmap.DrawPlane(int layer, untyped src, int src_x, int src_y, int )
+bitmap cmd BMPQUAD3DR pack 4 fn bitmap.Quad3D(int layer, int pos, int uv, int cset, int size, in)
+bitmap cmd BMPTILEBLIT pack 4 fn bitmap.TileBlit(int layer, int tile, int cset, int source_x, int s)
+bitmap cmd BMPTRIANGLE3DR pack 4 fn bitmap.Triangle3D(int layer, int pos, int uv, int csets, int size, i)
+bitmap cmd GRAPHICSCOUNTCOLOR pack 4 fn bitmap.CountColor(bitmap mask, int x, int y, int checkColor, int mas)
+bitmap cmd BMPDRAWMAPDATA pack 3 fn bitmap.DrawMapdata(int layer, mapdata source, int x, int y, int opaci)
+bitmap cmd BMPDRAWMINITILE pack 3 fn bitmap.DrawMiniTile(int layer, int x, int y, int tile, CornerIndex qua)
+dmapdata cmd DMAPDATAGETINTROR pack 4 fn dmapdata.GetIntro(char32[] buffer)
+dmapdata cmd DMAPDATAGETMUSICR pack 4 fn dmapdata.GetMusic(char32[] buffer)
+dmapdata cmd DMAPDATAGETNAMER pack 4 fn dmapdata.GetName(char32[] buffer)
+dmapdata cmd DMAPDATAGETTITLER pack 4 fn dmapdata.GetTitle(char32[] buf)
+dmapdata cmd DMAPDATANSETITROR pack 4 fn dmapdata.SetIntro(char32[] buffer)
+dmapdata cmd DMAPDATASETMUSICR pack 4 fn dmapdata.SetMusic(char32[] filename)
+dmapdata cmd DMAPDATASETNAMER pack 4 fn dmapdata.SetName(char32[] buffer)
+dmapdata cmd DMAPDATASETTITLER pack 4 fn dmapdata.SetTitle(char32[] buf)
+dmapdata reg DMAPDATAMAPSCRIPT pack 1 var dmapdata.MapScript
+dmapdata reg DMAPDATASUBSCRP pack 1 var dmapdata.PassiveSubscreen
+dmapdata reg DMAPDATACHARTED pack 0 var dmapdata.Charted[]
+dmapdata reg DMAPDATAFLOOR pack 0 var dmapdata.Floor
+dmapdata reg DMAPDATAINTROSTRINGID pack 0 var dmapdata.IntroStringID
+dmapdata reg DMAPDATALARGEMAPCSET pack 0 var dmapdata.MapCSet[]
+dmapdata reg DMAPDATALARGEMAPTILE pack 0 var dmapdata.MapTile[]
+dmapdata reg DMAPDATALOOPEND pack 0 var dmapdata.MusicLoopEnd
+dmapdata reg DMAPDATALOOPSTART pack 0 var dmapdata.MusicLoopStart
+dmapdata reg DMAPDATAMINIMAPCSET pack 0 var dmapdata.MiniMapCSet[]
+dmapdata reg DMAPDATAMINIMAPTILE pack 0 var dmapdata.MiniMapTile[]
+dmapdata reg DMAPDATAMIRRDMAP pack 0 var dmapdata.MirrorDMap
+dmapdata reg DMAPDATAMUISCTRACK pack 0 var dmapdata.MusicTrack
+dmapdata reg DMAPDATAPSUBINITD pack 0 var dmapdata.PassiveSubInitD[]
+dmapdata reg DMAPDATAPSUBSCRIPT pack 0 var dmapdata.PSubScript
+dmapdata reg DMAPDATASUBINITD pack 0 var dmapdata.SubInitD[]
+dmapdata reg DMAPDATASUBSCRM pack 0 var dmapdata.MapSubscreen
+dmapdata reg DMAPDATASUBSCRO pack 0 var dmapdata.OverlaySubscreen
+dmapdata reg DMAPDATAXFADEIN pack 0 var dmapdata.MusicCrossfadeIn
+dmapdata reg DMAPDATAXFADEOUT pack 0 var dmapdata.MusicCrossfadeOut
+dmapdata reg DMAPDATA_GRAVITY_STRENGTH pack 0 var dmapdata.GravityStrength
+dmapdata reg DMAPDATA_MUSIC pack 0 var dmapdata.Music
+dmapdata reg DMAPDATA_TERMINAL_VELOCITY pack 0 var dmapdata.TerminalVelocity
+dmapdata reg DMAPDATA_VIEWPORT_DEADZONE_HEIGHT pack 0 var dmapdata.ViewportDeadzoneHeight
+dmapdata reg DMAPDATA_VIEWPORT_DEADZONE_WIDTH pack 0 var dmapdata.ViewportDeadzoneWidth
+dmapdata reg DMAPDATA_VIEWPORT_LOOKAHEAD_SPEED pack 0 var dmapdata.ViewportLookaheadSpeed
+dmapdata reg DMAPDATA_VIEWPORT_LOOKAHEAD_X pack 0 var dmapdata.ViewportLookaheadX
+dmapdata reg DMAPDATA_VIEWPORT_LOOKAHEAD_Y pack 0 var dmapdata.ViewportLookaheadY
+dmapdata reg DMAPDATA_VIEWPORT_RECENTER_DELAY pack 0 var dmapdata.ViewportRecenterDelay
+dmapdata reg DMAPDATA_VIEWPORT_RECENTER_SPEED pack 0 var dmapdata.ViewportRecenterSpeed
+eweapon cmd EWEAPONEXPLODER pack 4 fn eweapon.Explode(int mode)
+eweapon cmd SWITCHEW pack 4 fn eweapon.Switch(int effect)
+eweapon reg EWPNENGINEANIMATE pack 2 oldreg (REFEWPN)
+eweapon reg EWPNFALLCLK pack 1 oldreg (REFEWPN)
+eweapon reg EWPNPARENTUID pack 1 var eweapon.ParentUID
+eweapon reg EWPNBURNLIGHTOFFSET pack 0 var eweapon.BurnLightOffset[]
+eweapon reg EWPNBURNLIGHTRADIUS pack 0 var eweapon.BurnLightRadius[]
+eweapon reg EWPNDEATHDROPSET pack 0 var eweapon.DeathDropset
+eweapon reg EWPNDEATHIPICKUP pack 0 var eweapon.DeathItemPFlags
+eweapon reg EWPNDEATHITEM pack 0 var eweapon.DeathItem
+eweapon reg EWPNDEATHSFX pack 0 var eweapon.DeathSFX
+eweapon reg EWPNDEATHSPRITE pack 0 var eweapon.DeathSprite
+eweapon reg EWPNDROWNCLK pack 0 oldreg (REFEWPN)
+eweapon reg EWPNDROWNCMB pack 0 oldreg (REFEWPN)
+eweapon reg EWPNFALLCMB pack 0 oldreg (REFEWPN)
+eweapon reg EWPNLIFTHEIGHT pack 0 var eweapon.LiftHeight
+eweapon reg EWPNLIFTLEVEL pack 0 var eweapon.LiftLevel
+eweapon reg EWPNLIFTTIME pack 0 var eweapon.LiftTime
+eweapon reg EWPNPIERCE pack 0 var eweapon.PierceCount
+eweapon reg EWPNSPRITES pack 0 var eweapon.Sprites[]
+eweapon reg EWPNTOTALDYOFFS pack 0 var eweapon.TotalDYOffset
+eweapon reg EWPNVX pack 0 var eweapon.Vx
+eweapon reg EWPNVY pack 0 var eweapon.Vy
+eweapon reg EWPN_BOUNCE_ADD pack 0 var eweapon.BounceAdd
+eweapon reg EWPN_BOUNCE_MULT pack 0 var eweapon.BounceMult
+eweapon reg EWPN_NO_TRIGGERS pack 0 var eweapon.DisableTriggers
+eweapon reg EWSWHOOKED pack 0 oldreg (REFEWPN)
+itemsprite cmd ITEMEXPLODER pack 4 fn itemsprite.Explode(int mode)
+itemsprite cmd SWITCHITM pack 4 fn itemsprite.Switch(int effect)
+itemsprite reg ITEMFORCEGRAB pack 1 var itemsprite.ForceGrab
+itemsprite reg ITEMGRAVITY pack 1 oldreg (REFITEM)
+itemsprite reg ITEMACLK pack 0 var itemsprite.AClock
+itemsprite reg ITEMDIR pack 0 oldreg (REFITEM)
+itemsprite reg ITEMDROPPEDBY pack 0 var itemsprite.DroppedBy
+itemsprite reg ITEMDROWNCLK pack 0 oldreg (REFITEM)
+itemsprite reg ITEMDROWNCMB pack 0 oldreg (REFITEM)
+itemsprite reg ITEMENGINEANIMATE pack 0 oldreg (REFITEM)
+itemsprite reg ITEMFAKEJUMP pack 0 oldreg (REFITEM)
+itemsprite reg ITEMFAKEZ pack 0 oldreg (REFITEM)
+itemsprite reg ITEMFALLCLK pack 0 oldreg (REFITEM)
+itemsprite reg ITEMFALLCMB pack 0 oldreg (REFITEM)
+itemsprite reg ITEMLEVEL pack 0 var itemsprite.Level
+itemsprite reg ITEMNOHOLDSOUND pack 0 var itemsprite.NoHoldSound
+itemsprite reg ITEMNOSOUND pack 0 var itemsprite.NoSound
+itemsprite reg ITEMPICKUPEXSTATE pack 0 var itemsprite.PickupExState
+itemsprite reg ITEMPSTRINGFLAGS pack 0 var itemsprite.PickupStringFlags
+itemsprite reg ITEMSCRIPTUID pack 0 var itemsprite.UID
+itemsprite reg ITEMTYPE pack 0 var itemsprite.Type
+itemsprite reg ITMSWHOOKED pack 0 oldreg (REFITEM)
+lweapon cmd LWEAPONEXPLODER pack 4 fn lweapon.Explode(int mode)
+lweapon cmd SWITCHLW pack 4 fn lweapon.Switch(int effect)
+lweapon reg LWPNUSEDEFENCE pack 3 var lweapon.Defense
+lweapon reg LWPNAUTOROTATE pack 2 var lweapon.AutoRotate
+lweapon reg LWPNGRAVITY pack 2 oldreg (REFLWPN)
+lweapon reg LWPNDROWNCLK pack 1 oldreg (REFLWPN)
+lweapon reg LWPNENGINEANIMATE pack 1 oldreg (REFLWPN)
+lweapon reg LWPNVX pack 1 var lweapon.Vx
+lweapon reg LWPNVY pack 1 var lweapon.Vy
+lweapon reg LWPNBURNLIGHTOFFSET pack 0 var lweapon.BurnLightOffset[]
+lweapon reg LWPNBURNLIGHTRADIUS pack 0 var lweapon.BurnLightRadius[]
+lweapon reg LWPNDEATHDROPSET pack 0 var lweapon.DeathDropset
+lweapon reg LWPNDEATHIPICKUP pack 0 var lweapon.DeathItemPFlags
+lweapon reg LWPNDEATHITEM pack 0 var lweapon.DeathItem
+lweapon reg LWPNDEATHSFX pack 0 var lweapon.DeathSFX
+lweapon reg LWPNDEATHSPRITE pack 0 var lweapon.DeathSprite
+lweapon reg LWPNDROWNCMB pack 0 oldreg (REFLWPN)
+lweapon reg LWPNFALLCMB pack 0 oldreg (REFLWPN)
+lweapon reg LWPNPIERCE pack 0 var lweapon.PierceCount
+lweapon reg LWPNSPECIAL pack 0 var lweapon.Special
+lweapon reg LWPNSPRITES pack 0 var lweapon.Sprites[]
+lweapon reg LWPNTOTALDYOFFS pack 0 var lweapon.TotalDYOffset
+lweapon reg LWPN_BOUNCE_ADD pack 0 var lweapon.BounceAdd
+lweapon reg LWPN_BOUNCE_MULT pack 0 var lweapon.BounceMult
+lweapon reg LWPN_NO_TRIGGERS pack 0 var lweapon.DisableTriggers
+lweapon reg LWSWHOOKED pack 0 oldreg (REFLWPN)
+mapdata cmd MAPDATAISSOLIDLYR pack 4 fn mapdata.isSolidLayer(int x, int y, int layer)
+mapdata reg MAPDATAEXDOOR pack 4 fn mapdata.GetExDoor(int dir, int index)
+mapdata reg MAPDATASCREENSTATED pack 3 var mapdata.State[]
+mapdata reg MAPDATADOOR pack 2 var mapdata.Door[]
+mapdata reg MAPDATAFFCSET pack 1 var mapdata.FFCCSet[]
+mapdata reg MAPDATAFFDATA pack 1 var mapdata.FFCData[]
+mapdata reg MAPDATAFFDELAY pack 1 var mapdata.FFCDelay[]
+mapdata reg MAPDATAFFEFFECTHEIGHT pack 1 var mapdata.FFCEffectHeight[]
+mapdata reg MAPDATAFFEFFECTWIDTH pack 1 var mapdata.FFCEffectWidth[]
+mapdata reg MAPDATAFFFLAGS pack 1 var mapdata.FFCFlags[]
+mapdata reg MAPDATAFFHEIGHT pack 1 var mapdata.FFCTileHeight[]
+mapdata reg MAPDATAFFWIDTH pack 1 var mapdata.FFCTileWidth[]
+mapdata reg MAPDATAFFXDELTA pack 1 var mapdata.FFCVx[]
+mapdata reg MAPDATAFFXDELTA2 pack 1 var mapdata.FFCAx[]
+mapdata reg MAPDATAFFYDELTA pack 1 var mapdata.FFCVy[]
+mapdata reg MAPDATAFFYDELTA2 pack 1 var mapdata.FFCAy[]
+mapdata reg MAPDATANUMFF pack 1 oldreg (REFMAPDATA)
+mapdata reg MAPDATACOMBODATAD pack 0 var mapdata.ComboData[]
+mapdata reg MAPDATACOMBOPOSSTATE pack 0 var mapdata.PosState[]
+mapdata reg MAPDATACSENSITIVE pack 0 var mapdata.CSensitive
+mapdata reg MAPDATADOORCOMBOSET pack 0 var mapdata.DoorComboSet
+mapdata reg MAPDATAENEMYFLAGS pack 0 var mapdata.EnemyFlags
+mapdata reg MAPDATAENTRYX pack 0 var mapdata.EntryX
+mapdata reg MAPDATAENTRYY pack 0 var mapdata.EntryY
+mapdata reg MAPDATAEXCARRY pack 0 var mapdata.ExStateCarry[]
+mapdata reg MAPDATAEXRESET pack 0 var mapdata.ExStateReset[]
+mapdata reg MAPDATAEXSTATED pack 0 var mapdata.ExState[]
+mapdata reg MAPDATAFFCPOSSTATE pack 0 var mapdata.FFCPosState[]
+mapdata reg MAPDATAFFINITIALISED pack 0 var mapdata.FFCRunning[]
+mapdata reg MAPDATAFFLINK pack 0 var mapdata.FFCLink[]
+mapdata reg MAPDATAGUYCOUNT pack 0 var mapdata.GuyCount
+mapdata reg MAPDATAHASITEM pack 0 var mapdata.HasItem
+mapdata reg MAPDATAHOLDUPSFX pack 0 var mapdata.ItemSFX
+mapdata reg MAPDATALAYERINVIS pack 0 var mapdata.LayerInvisible[]
+mapdata reg MAPDATALENSHIDES pack 0 var mapdata.LensHides[]
+mapdata reg MAPDATALENSLAYER pack 0 var mapdata.LensLayer
+mapdata reg MAPDATALENSSHOWS pack 0 var mapdata.LensShows[]
+mapdata reg MAPDATAMAP pack 0 var mapdata.Map
+mapdata reg MAPDATANEXTMAP pack 0 var mapdata.NextMap
+mapdata reg MAPDATANEXTSCREEN pack 0 var mapdata.NextScreen
+mapdata reg MAPDATANOCARRY pack 0 var mapdata.NoCarry
+mapdata reg MAPDATANOCARRYARR pack 0 var mapdata.NoCarryState[]
+mapdata reg MAPDATANORESET pack 0 var mapdata.NoReset
+mapdata reg MAPDATANORESETARR pack 0 var mapdata.NoResetState[]
+mapdata reg MAPDATAREGIONID pack 0 var mapdata.RegionID
+mapdata reg MAPDATASCREEN pack 0 var mapdata.Screen
+mapdata reg MAPDATASCREENFLAGSD pack 0 var mapdata.SFlags[]
+mapdata reg MAPDATASCREENHEIGHT pack 0 oldreg (REFMAPDATA)
+mapdata reg MAPDATASCREENMIDI pack 0 var mapdata.MIDI
+mapdata reg MAPDATASCREENWIDTH pack 0 oldreg (REFMAPDATA)
+mapdata reg MAPDATASCRIPT pack 0 var mapdata.Script
+mapdata reg MAPDATASCRIPTDRAWS pack 0 var mapdata.ScriptDraws[]
+mapdata reg MAPDATASCRIPTENTRY pack 0 oldreg (REFMAPDATA)
+mapdata reg MAPDATASCRIPTEXIT pack 0 oldreg (REFMAPDATA)
+mapdata reg MAPDATASCRIPTOCCUPANCY pack 0 oldreg (REFMAPDATA)
+mapdata reg MAPDATASECRETSFX pack 0 var mapdata.SecretSFX
+mapdata reg MAPDATASIDEWARPINDEX pack 0 var mapdata.SideWarpIndex
+mapdata reg MAPDATASWARPRETSQR pack 0 var mapdata.SideWarpReturnSquare[]
+mapdata reg MAPDATATIMEDWARPTICS pack 0 var mapdata.TimedWarpTimer
+mapdata reg MAPDATATWARPRETSQR pack 0 var mapdata.TileWarpReturnSquare[]
+mapdata reg MAPDATAUNDERCOMBO pack 0 var mapdata.UnderCombo
+mapdata reg MAPDATAUNDERCSET pack 0 var mapdata.UnderCSet
+mapdata reg MAPDATAVALID pack 0 var mapdata.Valid
+mapdata reg MAPDATAVIEWX pack 0 oldreg (REFMAPDATA)
+mapdata reg MAPDATAVIEWY pack 0 oldreg (REFMAPDATA)
+mapdata reg MAPDATAWARPRETURNC pack 0 oldreg (REFMAPDATA)
+mapdata reg MAPDATA_FLAG pack 0 var mapdata.Flag[]
+mapdata reg MAPDATA_GRAVITY_STRENGTH pack 0 var mapdata.GravityStrength
+mapdata reg MAPDATA_MUSIC pack 0 var mapdata.Music
+mapdata reg MAPDATA_TERMINAL_VELOCITY pack 0 var mapdata.TerminalVelocity
+npc cmd NPCCANMOVE pack 4 fn npc.CanMove(int array)
+npc cmd NPCCANPLACE pack 4 fn npc.CanPlace(int nx, int ny, int special = SPW_NONE, bool knock)
+npc cmd NPCCANSLIDE pack 4 fn npc.CanSlide()
+npc cmd NPCEXPLODER pack 4 fn npc.Explode(int mode)
+npc cmd NPCFIREBREATH pack 4 fn npc.BreathAttack(bool seeklink = false)
+npc cmd NPCFLOATWALK pack 4 fn npc.FloatingWalk(int arr)
+npc cmd NPCHALTWALK pack 4 fn npc.HaltingWalk(int arr)
+npc cmd NPCHALTWALK8 pack 4 fn npc.HaltingWalk8(int arr)
+npc cmd NPCHITWITH pack 4 fn npc.SimulateHit(int array)
+npc cmd NPCKNOCKBACK pack 4 fn npc.Knockback(int time, int dir, int speed = 4)
+npc cmd NPCVARWALK pack 4 fn npc.VariableWalk(int arr)
+npc cmd NPCVARWALK8 pack 4 fn npc.VariableWalk8(int arr)
+npc cmd REPAIRSHIELD pack 4 fn npc.RepairShield()
+npc cmd SWITCHNPC pack 4 fn npc.Switch(int effect)
+npc reg NPCCOLLISION pack 4 fn npc.Collision(int obj_type, untyped obj_pointer)
+npc reg NPCSUBMERGED pack 4 fn npc.Submerged()
+npc cmd NPC_SUMMON_MINION_LAYER pack 3 fn npc.SummonMinionFromLayer(int summon_limit)
+npc reg NPCENGINEANIMATE pack 2 oldreg (REFNPC)
+npc reg NPCDROWNCLK pack 1 oldreg (REFNPC)
+npc reg NPCRINGLEAD pack 1 var npc.Ringleader
+npc reg NPCCANFLICKER pack 0 var npc.InvFlicker
+npc reg NPCDEATHEXSTATE pack 0 var npc.DeathExState
+npc reg NPCDROWNCMB pack 0 oldreg (REFNPC)
+npc reg NPCFADING pack 0 var npc.Fading
+npc reg NPCFALLCMB pack 0 oldreg (REFNPC)
+npc reg NPCFIRESFXSECONDARY pack 0 var npc.WeaponSecondarySFX
+npc reg NPCFLICKERCOLOR pack 0 var npc.FlickerColor
+npc reg NPCFLICKERTRANSP pack 0 var npc.FlickerTransparencyPasses
+npc reg NPCFROZEN pack 0 var npc.Frozen
+npc reg NPCFROZENCSET pack 0 var npc.FrozenCSet
+npc reg NPCFROZENTILE pack 0 var npc.FrozenTile
+npc reg NPCGRAVITY pack 0 oldreg (REFNPC)
+npc reg NPCHASITEM pack 0 var npc.HasItem
+npc reg NPCMOVESTATUS pack 0 var npc.MoveStatus
+npc reg NPCORIGINALHP pack 0 oldreg (REFNPC)
+npc reg NPCPARENTUID pack 0 var npc.Parent
+npc reg NPCSCRDEFENSED pack 0 var npc.ScriptDefense[]
+npc reg NPCSLIDECLK pack 0 var npc.SlideClock
+npc reg NPCSUPERMAN pack 0 var npc.Invincible
+npc reg NPCSWHOOKED pack 0 oldreg (REFNPC)
+npc reg NPCTOTALDYOFFS pack 0 var npc.TotalDYOffset
+npc reg NPC_SUMMONER_PARENT pack 0 var npc.ParentSummoner
+npc reg NPC_WEAPONDATA pack 0 var npc.WeaponData
+npcdata cmd NPCDATAGETNAME pack 4 fn npcdata.GetName(char32[] ptr)
+npcdata reg NPCDATATOUCHDAMAGE pack 2 var npcdata.TouchDamage
+npcdata reg NPCDATACSET pack 1 var npcdata.CSet
+npcdata reg NPCDATAETILE pack 1 var npcdata.ExTile
+npcdata reg NPCDATAHOMING pack 1 var npcdata.Homing
+npcdata reg NPCDATAATTRIBUTE pack 0 var npcdata.Attributes[]
+npcdata reg NPCDATABEHAVIOUR pack 0 var npcdata.BFlags[]
+npcdata reg NPCDATABGSFX pack 0 var npcdata.BGSFX
+npcdata reg NPCDATADEFENSE pack 0 var npcdata.Defense[]
+npcdata reg NPCDATADROPSET pack 0 var npcdata.Dropset
+npcdata reg NPCDATAEFRAMERATE pack 0 var npcdata.ExFramerate
+npcdata reg NPCDATAEHEIGHT pack 0 var npcdata.ExHeight
+npcdata reg NPCDATAEWIDTH pack 0 var npcdata.ExWidth
+npcdata reg NPCDATAFIRESFX pack 0 var npcdata.WeaponSFX
+npcdata reg NPCDATAFIRESFXSECONDARY pack 0 var npcdata.WeaponSecondarySFX
+npcdata reg NPCDATAFLAG pack 0 var npcdata.Flags[]
+npcdata reg NPCDATAFLAGS1 pack 0 oldreg (REFNPCDATA)
+npcdata reg NPCDATAFLAGS2 pack 0 oldreg (REFNPCDATA)
+npcdata reg NPCDATAFRAMERATE pack 0 var npcdata.Framerate
+npcdata reg NPCDATAFROZENCSET pack 0 var npcdata.FrozenCSet
+npcdata reg NPCDATAFROZENTILE pack 0 var npcdata.FrozenTile
+npcdata reg NPCDATAHALT pack 0 var npcdata.Haltrate
+npcdata reg NPCDATAHEIGHT pack 0 var npcdata.Height
+npcdata reg NPCDATAHITHEIGHT pack 0 var npcdata.HitHeight
+npcdata reg NPCDATAHITWIDTH pack 0 var npcdata.HitWidth
+npcdata reg NPCDATAHITZ pack 0 var npcdata.HitZHeight
+npcdata reg NPCDATAHUNGER pack 0 var npcdata.Hunger
+npcdata reg NPCDATAHXOFS pack 0 var npcdata.HitXOffset
+npcdata reg NPCDATAHYOFS pack 0 var npcdata.HitYOffset
+npcdata reg NPCDATAINITD pack 0 var npcdata.InitD[]
+npcdata reg NPCDATAMOVEFLAGS pack 0 var npcdata.MoveFlags[]
+npcdata reg NPCDATARANDOM pack 0 var npcdata.Random
+npcdata reg NPCDATASCRIPT pack 0 var npcdata.Script
+npcdata reg NPCDATASHEIGHT pack 0 var npcdata.SHeight
+npcdata reg NPCDATASHIELD pack 0 var npcdata.Shield[]
+npcdata reg NPCDATASIZEFLAG pack 0 var npcdata.SizeFlags
+npcdata reg NPCDATASWIDTH pack 0 var npcdata.SWidth
+npcdata reg NPCDATATILEHEIGHT pack 0 var npcdata.TileHeight
+npcdata reg NPCDATATILEWIDTH pack 0 var npcdata.TileWidth
+npcdata reg NPCDATATYPE pack 0 var npcdata.Type
+npcdata reg NPCDATAWEAPONINITD pack 0 var npcdata.WeaponInitD[]
+npcdata reg NPCDATAWEAPONSCRIPT pack 0 var npcdata.WeaponScript
+npcdata reg NPCDATAWIDTH pack 0 var npcdata.Width
+npcdata reg NPCDATAWMOVEFLAGS pack 0 var npcdata.WeaponMoveFlags[]
+npcdata reg NPCDATAXOFS pack 0 var npcdata.DrawXOffset
+npcdata reg NPCDATAYOFS pack 0 var npcdata.DrawYOffset
+npcdata reg NPCDATAZOFS pack 0 var npcdata.DrawZOffset
+npcdata reg NPCDATA_WEAPONDATA pack 0 var npcdata.WeaponData
+npcdata reg NPCDDEATHSPR pack 0 var npcdata.DeathSprite
+npcdata reg NPCDSHADOWSPR pack 0 var npcdata.ShadowSprite
+npcdata reg NPCDSPAWNSPR pack 0 var npcdata.SpawnSprite
+portal cmd PORTALREMOVE pack 4 fn portal.Remove()
+portal cmd PORTALUSESPRITE pack 4 fn portal.UseSprite(int sprite_id)
+portal reg PORTALACLK pack 0 var portal.AClk
+portal reg PORTALAFRM pack 0 var portal.AFrame
+portal reg PORTALASPD pack 0 var portal.ASpeed
+portal reg PORTALCLOSEDIS pack 0 var portal.CloseDisabled
+portal reg PORTALDMAP pack 0 var portal.DMap
+portal reg PORTALFRAMES pack 0 var portal.Frames
+portal reg PORTALOTILE pack 0 var portal.OriginalTile
+portal reg PORTALSAVED pack 0 var portal.SavedPortal
+portal reg PORTALSCREEN pack 0 var portal.Screen
+portal reg PORTALWARPSFX pack 0 var portal.WarpSFX
+portal reg PORTALWARPVFX pack 0 var portal.WarpEffect
+portal reg PORTALX pack 0 var portal.X
+portal reg PORTALY pack 0 var portal.Y
+savedportal cmd SAVEDPORTALGENERATE pack 4 fn savedportal.Generate()
+savedportal cmd SAVEDPORTALREMOVE pack 4 fn savedportal.Remove()
+savedportal reg SAVEDPORTALDESTDMAP pack 0 var savedportal.DestDMap
+savedportal reg SAVEDPORTALDSTSCREEN pack 0 var savedportal.DestScreen
+savedportal reg SAVEDPORTALPORTAL pack 0 var savedportal.Portal
+savedportal reg SAVEDPORTALSPRITE pack 0 var savedportal.Sprite
+savedportal reg SAVEDPORTALSRCDMAP pack 0 var savedportal.SrcDMap
+savedportal reg SAVEDPORTALSRCSCREEN pack 0 var savedportal.SrcScreen
+savedportal reg SAVEDPORTALWARPSFX pack 0 var savedportal.WarpSFX
+savedportal reg SAVEDPORTALWARPVFX pack 0 var savedportal.WarpEffect
+savedportal reg SAVEDPORTALX pack 0 var savedportal.X
+savedportal reg SAVEDPORTALY pack 0 var savedportal.Y
+save_menu cmd SAVEMENU_ADD_OPT pack 4 fn save_menu.AddOption(int index = -1)
+save_menu cmd SAVEMENU_GETNAME pack 4 fn save_menu.GetName(char32[] buffer)
+save_menu cmd SAVEMENU_OPT_GET_STRING pack 4 fn save_menu.GetString(int index, char32[] buffer)
+save_menu cmd SAVEMENU_OPT_SET_STRING pack 4 fn save_menu.SetString(int index, char32[] buffer)
+save_menu cmd SAVEMENU_REMOVE_OPT pack 4 fn save_menu.RemoveOption(int index)
+save_menu cmd SAVEMENU_SETNAME pack 4 fn save_menu.SetName(char32[] buffer)
+save_menu cmd SAVEMENU_SWAP_OPT pack 4 fn save_menu.SwapOptions(int index_1, int index_2)
+save_menu cmd SAVEMENU_ADD_MISCTEXT pack 2 fn save_menu.AddMiscText(int index = -1)
+save_menu cmd SAVEMENU_MISCTEXT_GET_STRING pack 2 fn save_menu.GetMiscTextString(int index, char32[] buffer)
+save_menu cmd SAVEMENU_MISCTEXT_SET_STRING pack 2 fn save_menu.SetMiscTextString(int index, char32[] buffer)
+save_menu cmd SAVEMENU_REMOVE_MISCTEXT pack 2 fn save_menu.RemoveMiscText(int index)
+save_menu cmd SAVEMENU_SWAP_MISCTEXT pack 2 fn save_menu.SwapMiscTexts(int index_1, int index_2)
+save_menu reg SAVEMENU_BGCOLOR pack 0 var save_menu.BGColor
+save_menu reg SAVEMENU_BGCSET pack 0 var save_menu.BGCSet
+save_menu reg SAVEMENU_BGTH pack 0 var save_menu.BGTileHeight
+save_menu reg SAVEMENU_BGTILE pack 0 var save_menu.BGTile
+save_menu reg SAVEMENU_BGTW pack 0 var save_menu.BGTileWidth
+save_menu reg SAVEMENU_CLOSE_FLASH_RATE pack 0 var save_menu.CloseFlashRate
+save_menu reg SAVEMENU_CLOSE_FRAMES pack 0 var save_menu.CloseFrames
+save_menu reg SAVEMENU_CURSORCSET pack 0 var save_menu.CursorCSet
+save_menu reg SAVEMENU_CURSORTILE pack 0 var save_menu.CursorTile
+save_menu reg SAVEMENU_FLAGS pack 0 var save_menu.Flags[]
+save_menu reg SAVEMENU_HSPACE pack 0 var save_menu.HSpace
+save_menu reg SAVEMENU_ID pack 0 var save_menu.ID
+save_menu reg SAVEMENU_MIDI pack 0 var save_menu.MIDI
+save_menu reg SAVEMENU_MISCTEXT_COLOR pack 0 var save_menu.MiscTextColors[]
+save_menu reg SAVEMENU_MISCTEXT_FONT pack 0 var save_menu.MiscTextFonts[]
+save_menu reg SAVEMENU_MISCTEXT_SHADOW_COLOR pack 0 var save_menu.MiscTextShadowColors[]
+save_menu reg SAVEMENU_MISCTEXT_SHADOW_TYPE pack 0 var save_menu.MiscTextShadowTypes[]
+save_menu reg SAVEMENU_MISCTEXT_TEXT_ALIGN pack 0 var save_menu.MiscTextAlign[]
+save_menu reg SAVEMENU_MISCTEXT_X pack 0 var save_menu.MiscTextX[]
+save_menu reg SAVEMENU_MISCTEXT_Y pack 0 var save_menu.MiscTextY[]
+save_menu reg SAVEMENU_MUSIC pack 0 var save_menu.Music
+save_menu reg SAVEMENU_NUM_MISCTEXTS pack 0 var save_menu.NumMiscTexts
+save_menu reg SAVEMENU_NUM_OPTIONS pack 0 var save_menu.NumOptions
+save_menu reg SAVEMENU_OPTX pack 0 var save_menu.X
+save_menu reg SAVEMENU_OPTY pack 0 var save_menu.Y
+save_menu reg SAVEMENU_OPT_COLOR_PICKED pack 0 var save_menu.PickedColors[]
+save_menu reg SAVEMENU_OPT_COLOR_SHADOW pack 0 var save_menu.ShadowColors[]
+save_menu reg SAVEMENU_OPT_COLOR_SHADOW_PICKED pack 0 var save_menu.PickedShadowColors[]
+save_menu reg SAVEMENU_OPT_COLOR_TEXT pack 0 var save_menu.Colors[]
+save_menu reg SAVEMENU_OPT_FLAGS pack 0 var save_menu.OptionFlags[]
+save_menu reg SAVEMENU_OPT_FONTS pack 0 var save_menu.Fonts[]
+save_menu reg SAVEMENU_OPT_FRZSCR pack 0 var save_menu.FrozenScripts[]
+save_menu reg SAVEMENU_OPT_SHADOW_TYPE pack 0 var save_menu.ShadowTypes[]
+save_menu reg SAVEMENU_SEL_OPT_OFFSET_X pack 0 var save_menu.SelectedXOffset
+save_menu reg SAVEMENU_SEL_OPT_OFFSET_Y pack 0 var save_menu.SelectedYOffset
+save_menu reg SAVEMENU_SFX_CHOOSE pack 0 var save_menu.SFXChoose
+save_menu reg SAVEMENU_SFX_CURSOR pack 0 var save_menu.SFXCursor
+save_menu reg SAVEMENU_TEXT_ALIGN pack 0 var save_menu.TextAlign
+save_menu reg SAVEMENU_TEXT_BOX_ALIGN pack 0 var save_menu.TextBoxAlign
+save_menu reg SAVEMENU_VSPACE pack 0 var save_menu.VSpace
+subscreendata cmd SUBDATA_CLOSE pack 4 fn subscreendata.Close()
+subscreendata cmd SUBDATA_SWAP_PAGES pack 4 fn subscreendata.SwapPages(int index1, int index2)
+subscreendata reg SUBDATATRANSARGS pack 1 var subscreendata.TransArgs[]
+subscreendata reg SUBDATABTNLEFT pack 0 var subscreendata.BtnPageLeft[]
+subscreendata reg SUBDATABTNRIGHT pack 0 var subscreendata.BtnPageRight[]
+subscreendata reg SUBDATAFLAGS pack 0 var subscreendata.Flags[]
+subscreendata reg SUBDATAINITD pack 0 var subscreendata.InitD[]
+subscreendata reg SUBDATASCRIPT pack 0 var subscreendata.Script
+subscreendata reg SUBDATASELECTORASPD pack 0 var subscreendata.SelectorASpeed[]
+subscreendata reg SUBDATASELECTORCSET pack 0 var subscreendata.SelectorCSet[]
+subscreendata reg SUBDATASELECTORDELAY pack 0 var subscreendata.SelectorDelay[]
+subscreendata reg SUBDATASELECTORDSTH pack 0 var subscreendata.SelectorDestH
+subscreendata reg SUBDATASELECTORDSTW pack 0 var subscreendata.SelectorDestW
+subscreendata reg SUBDATASELECTORDSTX pack 0 var subscreendata.SelectorDestX
+subscreendata reg SUBDATASELECTORDSTY pack 0 var subscreendata.SelectorDestY
+subscreendata reg SUBDATASELECTORFLASHCSET pack 0 var subscreendata.SelectorFlashCSet[]
+subscreendata reg SUBDATASELECTORFRM pack 0 var subscreendata.SelectorFrames[]
+subscreendata reg SUBDATASELECTORHEI pack 0 var subscreendata.SelectorHei[]
+subscreendata reg SUBDATASELECTORTILE pack 0 var subscreendata.SelectorTile[]
+subscreendata reg SUBDATASELECTORWID pack 0 var subscreendata.SelectorWid[]
+subscreendata reg SUBDATATRANSFLAGS pack 0 var subscreendata.TransFlags[]
+subscreendata reg SUBDATATRANSLEFTARGS pack 0 var subscreendata.TransLeftArgs[]
+subscreendata reg SUBDATATRANSLEFTFLAGS pack 0 var subscreendata.TransLeftFlags[]
+subscreendata reg SUBDATATRANSLEFTSFX pack 0 var subscreendata.TransLeftSFX
+subscreendata reg SUBDATATRANSLEFTTY pack 0 var subscreendata.TransLeftType
+subscreendata reg SUBDATATRANSRIGHTARGS pack 0 var subscreendata.TransRightArgs[]
+subscreendata reg SUBDATATRANSRIGHTFLAGS pack 0 var subscreendata.TransRightFlags[]
+subscreendata reg SUBDATATRANSRIGHTSFX pack 0 var subscreendata.TransRightSFX
+subscreendata reg SUBDATATRANSRIGHTTY pack 0 var subscreendata.TransRightType
+subscreendata cmd SUBDATA_OPEN pack 4 fn subscreendata.Open()
+subscreenwidget cmd SUBWIDG_CHECK_CONDITIONS pack 4 fn subscreenwidget.CheckConditions()
+subscreenwidget cmd SUBWIDG_CHECK_VISIBLE pack 4 fn subscreenwidget.CheckVisible()
+subscreenwidget cmd SUBWIDG_GET_SELTEXT_OVERRIDE pack 4 fn subscreenwidget.GetSelTextOverride(char32[] buf)
+subscreenwidget cmd SUBWIDG_SET_SELTEXT_OVERRIDE pack 4 fn subscreenwidget.SetSelTextOverride(char32[] str)
+subscreenwidget reg SUBWIDGBTNPG pack 0 var subscreenwidget.BtnPageChange[]
+subscreenwidget reg SUBWIDGBTNPRESS pack 0 var subscreenwidget.BtnPressScript[]
+subscreenwidget reg SUBWIDGDISPITM pack 0 var subscreenwidget.DisplayItem
+subscreenwidget reg SUBWIDGPGMODE pack 0 var subscreenwidget.PageMode
+subscreenwidget reg SUBWIDGPGTARG pack 0 var subscreenwidget.TargetPage
+subscreenwidget reg SUBWIDGPOSES pack 0 var subscreenwidget.PosDirs[]
+subscreenwidget reg SUBWIDGPRESSINITD pack 0 var subscreenwidget.PressInitD[]
+subscreenwidget reg SUBWIDGPRESSSCRIPT pack 0 var subscreenwidget.PressScript
+subscreenwidget reg SUBWIDGREQCOUNTER pack 0 var subscreenwidget.RequiredCounter
+subscreenwidget reg SUBWIDGREQCOUNTERCOND pack 0 var subscreenwidget.RequiredCounterCond
+subscreenwidget reg SUBWIDGREQCOUNTERVAL pack 0 var subscreenwidget.RequiredCounterValue
+subscreenwidget reg SUBWIDGREQLITEMLEVEL pack 0 var subscreenwidget.RequiredLItemLevel
+subscreenwidget reg SUBWIDGREQLITEMS pack 0 var subscreenwidget.RequiredLItems
+subscreenwidget reg SUBWIDGREQOWNITEMS pack 0 var subscreenwidget.RequiredOwnedItems[]
+subscreenwidget reg SUBWIDGREQSCRIPTDISABLED pack 0 var subscreenwidget.ScriptDisabled
+subscreenwidget reg SUBWIDGREQUNOWNITEMS pack 0 var subscreenwidget.RequiredUnownedItems[]
+subscreenwidget reg SUBWIDGREQ_DMAP pack 0 var subscreenwidget.RequiredDMaps[]
+subscreenwidget reg SUBWIDGREQ_DMAP_FLOOR pack 0 var subscreenwidget.RequiredDMapFloors[]
+subscreenwidget reg SUBWIDGREQ_DMAP_LEVEL pack 0 var subscreenwidget.RequiredDMapLevels[]
+subscreenwidget reg SUBWIDGREQ_LEVEL_STATE pack 0 var subscreenwidget.RequiredLStates[]
+subscreenwidget reg SUBWIDGREQ_LEVEL_STATE_LEVEL pack 0 var subscreenwidget.RequiredLStateLevel
+subscreenwidget reg SUBWIDGREQ_MAP pack 0 var subscreenwidget.RequiredMaps[]
+subscreenwidget reg SUBWIDGREQ_SCREEN pack 0 var subscreenwidget.RequiredScreens[]
+subscreenwidget reg SUBWIDGREQ_SCRSTATE_EXSTATE pack 0 var subscreenwidget.RequiredScreenExStates[]
+subscreenwidget reg SUBWIDGREQ_SCRSTATE_MAP pack 0 var subscreenwidget.RequiredScreenStateMap
+subscreenwidget reg SUBWIDGREQ_SCRSTATE_SCREEN pack 0 var subscreenwidget.RequiredScreenStateScreen
+subscreenwidget reg SUBWIDGREQ_SCRSTATE_STATE pack 0 var subscreenwidget.RequiredScreenStates[]
+subscreenwidget reg SUBWIDGSELECTORASPD pack 0 var subscreenwidget.SelectorASpeed[]
+subscreenwidget reg SUBWIDGSELECTORCSET pack 0 var subscreenwidget.SelectorCSet[]
+subscreenwidget reg SUBWIDGSELECTORDELAY pack 0 var subscreenwidget.SelectorDelay[]
+subscreenwidget reg SUBWIDGSELECTORDSTH pack 0 var subscreenwidget.SelectorDestH
+subscreenwidget reg SUBWIDGSELECTORDSTW pack 0 var subscreenwidget.SelectorDestW
+subscreenwidget reg SUBWIDGSELECTORDSTX pack 0 var subscreenwidget.SelectorDestX
+subscreenwidget reg SUBWIDGSELECTORDSTY pack 0 var subscreenwidget.SelectorDestY
+subscreenwidget reg SUBWIDGSELECTORFLASHCSET pack 0 var subscreenwidget.SelectorFlashCSet[]
+subscreenwidget reg SUBWIDGSELECTORFRM pack 0 var subscreenwidget.SelectorFrames[]
+subscreenwidget reg SUBWIDGSELECTORHEI pack 0 var subscreenwidget.SelectorHei[]
+subscreenwidget reg SUBWIDGSELECTORTILE pack 0 var subscreenwidget.SelectorTile[]
+subscreenwidget reg SUBWIDGSELECTORWID pack 0 var subscreenwidget.SelectorWid[]
+subscreenwidget reg SUBWIDGTRANSPGARGS pack 0 var subscreenwidget.PageTransArgs[]
+subscreenwidget reg SUBWIDGTRANSPGFLAGS pack 0 var subscreenwidget.PageTransFlags[]
+subscreenwidget reg SUBWIDGTRANSPGSFX pack 0 var subscreenwidget.PageTransSFX
+subscreenwidget reg SUBWIDGTRANSPGTY pack 0 var subscreenwidget.PageTransType
+subscreenwidget reg SUBWIDGTY_ANIMVAL pack 0 var subscreenwidget.AnimVal
+subscreenwidget reg SUBWIDGTY_BUTTON pack 0 var subscreenwidget.Button
+subscreenwidget reg SUBWIDGTY_COLOR_BG2 pack 0 var subscreenwidget.ColorFullBG
+subscreenwidget reg SUBWIDGTY_COLOR_CMPBLNK pack 0 var subscreenwidget.ColorCompassBlink
+subscreenwidget reg SUBWIDGTY_COLOR_CMPOFF pack 0 var subscreenwidget.ColorCompassOff
+subscreenwidget reg SUBWIDGTY_COLOR_PLAYER pack 0 var subscreenwidget.ColorPlayer
+subscreenwidget reg SUBWIDGTY_COLOR_ROOM pack 0 var subscreenwidget.ColorRoom
+subscreenwidget reg SUBWIDGTY_COLOR_SHD2 pack 0 var subscreenwidget.ColorFullShadow
+subscreenwidget reg SUBWIDGTY_COLOR_TXT2 pack 0 var subscreenwidget.ColorFullText
+subscreenwidget reg SUBWIDGTY_COLOR_UNVISITED pack 0 var subscreenwidget.ColorUnvisited
+subscreenwidget reg SUBWIDGTY_COLOR_VISITED pack 0 var subscreenwidget.ColorVisited
+subscreenwidget reg SUBWIDGTY_CONTAINER pack 0 var subscreenwidget.Container
+subscreenwidget reg SUBWIDGTY_COSTIND pack 0 var subscreenwidget.CostIndex
+subscreenwidget reg SUBWIDGTY_COUNTERS pack 0 var subscreenwidget.Counter[]
+subscreenwidget reg SUBWIDGTY_DELAY pack 0 var subscreenwidget.Delay
+subscreenwidget reg SUBWIDGTY_FRAMECSET pack 0 var subscreenwidget.FrameCSet
+subscreenwidget reg SUBWIDGTY_FRAMES pack 0 var subscreenwidget.Frames
+subscreenwidget reg SUBWIDGTY_FRAMETILE pack 0 var subscreenwidget.FrameTile
+subscreenwidget reg SUBWIDGTY_GAUGE_HEI pack 0 var subscreenwidget.GaugeHei
+subscreenwidget reg SUBWIDGTY_GAUGE_WID pack 0 var subscreenwidget.GaugeWid
+subscreenwidget reg SUBWIDGTY_GRIDX pack 0 var subscreenwidget.GridX
+subscreenwidget reg SUBWIDGTY_GRIDY pack 0 var subscreenwidget.GridY
+subscreenwidget reg SUBWIDGTY_HSPACE pack 0 var subscreenwidget.HSpace
+subscreenwidget reg SUBWIDGTY_INFCHAR pack 0 var subscreenwidget.InfiniteChar
+subscreenwidget reg SUBWIDGTY_INFITM pack 0 var subscreenwidget.InfiniteItem
+subscreenwidget reg SUBWIDGTY_ITEMCLASS pack 0 var subscreenwidget.ItemType
+subscreenwidget reg SUBWIDGTY_ITEMID pack 0 var subscreenwidget.ItemID
+subscreenwidget reg SUBWIDGTY_LITEMS pack 0 var subscreenwidget.LItems
+subscreenwidget reg SUBWIDGTY_MAXDIG pack 0 var subscreenwidget.MaxDigits
+subscreenwidget reg SUBWIDGTY_MINDIG pack 0 var subscreenwidget.MinDigits
+subscreenwidget reg SUBWIDGTY_NUMBER pack 0 var subscreenwidget.Number
+subscreenwidget reg SUBWIDGTY_PERCONTAINER pack 0 var subscreenwidget.PerContainer
+subscreenwidget reg SUBWIDGTY_PIECECSET pack 0 var subscreenwidget.PieceCSet
+subscreenwidget reg SUBWIDGTY_PIECETILE pack 0 var subscreenwidget.PieceTile
+subscreenwidget reg SUBWIDGTY_SHOWDRAIN pack 0 var subscreenwidget.ShowDrain
+subscreenwidget reg SUBWIDGTY_SPEED pack 0 var subscreenwidget.Speed
+subscreenwidget reg SUBWIDGTY_TOTAL pack 0 var subscreenwidget.Total
+subscreenwidget reg SUBWIDGTY_UNITS pack 0 var subscreenwidget.Units
+subscreenwidget reg SUBWIDGTY_VSPACE pack 0 var subscreenwidget.VSpace
+subscreenwidget reg SUBWIDG_DISPH pack 0 var subscreenwidget.DispH
+subscreenwidget reg SUBWIDG_DISPW pack 0 var subscreenwidget.DispW
+subscreenwidget reg SUBWIDG_DISPX pack 0 var subscreenwidget.DispX
+subscreenwidget reg SUBWIDG_DISPY pack 0 var subscreenwidget.DispY
+websocket cmd WEBSOCKET_ERROR pack 4 skip: ends the game, writes files, waits or controls the script
+websocket cmd WEBSOCKET_FREE pack 4 skip: ends the game, writes files, waits or controls the script
+websocket cmd WEBSOCKET_LOAD pack 4 skip: ends the game, writes files, waits or controls the script
+websocket cmd WEBSOCKET_OWN pack 4 skip: ends the game, writes files, waits or controls the script
+websocket cmd WEBSOCKET_RECEIVE pack 4 skip: ends the game, writes files, waits or controls the script
+websocket cmd WEBSOCKET_SEND pack 4 skip: ends the game, writes files, waits or controls the script
+websocket reg WEBSOCKET_HAS_MESSAGE pack 0 skip: ends the game, writes files, waits or controls the script
+websocket reg WEBSOCKET_MESSAGE_TYPE pack 0 skip: ends the game, writes files, waits or controls the script
+websocket reg WEBSOCKET_STATE pack 0 skip: ends the game, writes files, waits or controls the script
+websocket reg WEBSOCKET_URL pack 0 skip: ends the game, writes files, waits or controls the script
+weapondata cmd CREATEWEAPDATA pack 3 skip: not in upstream's bindings and its arguments can't be written
+weapondata cmd WEAPDATA_APPLY pack 3 fn weapondata.ApplyTo(lweapon weap)
+weapondata cmd WEAPDATA_COPY pack 3 fn weapondata.CopyTo(weapondata target)
+weapondata reg WEAPDATA_BOUNCE_ADD pack 0 var weapondata.BounceAdd
+weapondata reg WEAPDATA_BOUNCE_MULT pack 0 var weapondata.BounceMult
+weapondata reg WEAPDATA_BURN_LIGHTOFFSET pack 0 var weapondata.BurnLightOffset[]
+weapondata reg WEAPDATA_BURN_LIGHTRAD pack 0 var weapondata.BurnLightRadius[]
+weapondata reg WEAPDATA_BURN_SPRITES pack 0 var weapondata.BurnSprites[]
+weapondata reg WEAPDATA_HIT_HEIGHT pack 0 var weapondata.HitHeight
+weapondata reg WEAPDATA_HIT_OFFSET_X pack 0 var weapondata.HitXOffset
+weapondata reg WEAPDATA_HIT_OFFSET_Y pack 0 var weapondata.HitYOffset
+weapondata reg WEAPDATA_HIT_WIDTH pack 0 var weapondata.HitWidth
+weapondata reg WEAPDATA_HIT_ZHEIGHT pack 0 var weapondata.HitZHeight
+weapondata reg WEAPDATA_INITD pack 0 var weapondata.InitD[]
+weapondata reg WEAPDATA_LIFTHEIGHT pack 0 var weapondata.LiftHeight
+weapondata reg WEAPDATA_LIFTLEVEL pack 0 var weapondata.LiftLevel
+weapondata reg WEAPDATA_LIFTTIME pack 0 var weapondata.LiftTime
+weapondata reg WEAPDATA_LIGHT_SHAPE pack 0 var weapondata.LightShape
+weapondata reg WEAPDATA_MISC_FLAGS pack 0 var weapondata.MiscFlags[]
+weapondata reg WEAPDATA_MOVE_FLAGS pack 0 var weapondata.MoveFlags[]
+weapondata reg WEAPDATA_PIERCE pack 0 var weapondata.PierceCount
+weapondata reg WEAPDATA_SCRIPT pack 0 var weapondata.Script
+weapondata reg WEAPDATA_SIZE_BITFLAGS pack 0 var weapondata.SizeFlags
+weapondata reg WEAPDATA_STEP pack 0 var weapondata.Step
+weapondata reg WEAPDATA_TILE_H pack 0 var weapondata.TileHeight
+weapondata reg WEAPDATA_TILE_W pack 0 var weapondata.TileWidth
+weapondata reg WEAPDATA_TIMEOUT pack 0 var weapondata.Timeout
+weapondata reg WEAPDATA_UNBLOCKABLE pack 0 var weapondata.Unblockable
+weapondata reg WEAPDATA_USEDEFENCE pack 0 var weapondata.Defense
+weapondata reg WEAPDATA_USEWEAPON pack 0 var weapondata.Weapon
+weapondata reg WEAPDATA_VALID pack 0 var weapondata.Valid
+weapondata reg WEAPDATA_VIEWPORT_DESPAWN_RANGE pack 0 var weapondata.ViewportDespawnRange
+weapondata reg WEAPDATA_VIEWPORT_SUSPEND_RANGE pack 0 var weapondata.ViewportSuspendRange
+weapondata reg WEAPDATA_WEAP_FLAGS pack 0 var weapondata.Flags[]
+weapondata reg WEAPDATA_X_OFFSET pack 0 var weapondata.DrawXOffset
+weapondata reg WEAPDATA_Y_OFFSET pack 0 var weapondata.DrawYOffset
+itemdata reg IDATACOST2 pack 2 var itemdata.Cost2
+itemdata reg IDATACOSTCOUNTER pack 2 var itemdata.CostCounter
+itemdata reg IDATACOSTCOUNTER2 pack 2 var itemdata.CostCounter2
+itemdata reg IDATAMAGCOST pack 2 var itemdata.Cost
+itemdata reg IDATAUSEWPN pack 2 var itemdata.Weapon
+itemdata reg IDATAHYSZ pack 1 var itemdata.HitHeight
+itemdata reg IDATAJINXIMMUNE pack 1 var itemdata.JinxImmune
+itemdata reg IDATAPSCRIPT pack 1 var itemdata.PScript
+itemdata reg IDATATILEH pack 1 var itemdata.TileHeight
+itemdata reg IDATAUSESOUND2 pack 1 var itemdata.UseSound2
+itemdata reg IDATAWPNINITD pack 1 var itemdata.WeaponInitD[]
+itemdata reg IDATAATTRIB_L pack 0 var itemdata.LAttributes[]
+itemdata reg IDATABURNINGLIGHTRAD pack 0 var itemdata.BurnLightRadius[]
+itemdata reg IDATABURNINGSPR pack 0 var itemdata.BurnSprites[]
+itemdata reg IDATACOLLECTFLAGS pack 0 var itemdata.CollectFlags
+itemdata reg IDATACOLLECTINITD pack 0 var itemdata.PickupInitD[]
+itemdata reg IDATACOMBINE pack 0 var itemdata.Combine
+itemdata reg IDATACONSTSCRIPT pack 0 var itemdata.ConstantScript
+itemdata reg IDATACOOLDOWN pack 0 var itemdata.Cooldown
+itemdata reg IDATADOWNGRADE pack 0 var itemdata.Downgrade
+itemdata reg IDATADRAWLAYER pack 0 var itemdata.DrawLayer
+itemdata reg IDATADUPLICATES pack 0 var itemdata.Duplicates
+itemdata reg IDATADURATION pack 0 var itemdata.Duration
+itemdata reg IDATADXOFS pack 0 var itemdata.DrawXOffset
+itemdata reg IDATADYOFS pack 0 var itemdata.DrawYOffset
+itemdata reg IDATAEDIBLE pack 0 var itemdata.Edible
+itemdata reg IDATAFLAGUNUSED pack 0 var itemdata.Unused
+itemdata reg IDATAFLASHCSET pack 0 var itemdata.FlashCSet
+itemdata reg IDATAGAINLOWER pack 0 var itemdata.GainLower
+itemdata reg IDATAGRADUAL pack 0 var itemdata.Gradual
+itemdata reg IDATAHXOFS pack 0 var itemdata.HitXOffset
+itemdata reg IDATAHXSZ pack 0 var itemdata.HitWidth
+itemdata reg IDATAHYOFS pack 0 var itemdata.HitYOffset
+itemdata reg IDATAHZSZ pack 0 var itemdata.HitZHeight
+itemdata reg IDATAJINXSWAP pack 0 var itemdata.JinxSwapped
+itemdata reg IDATAKEEPOLD pack 0 var itemdata.KeepOld
+itemdata reg IDATAMAGICTIMER pack 0 var itemdata.CostTimer
+itemdata reg IDATAMAGICTIMER2 pack 0 var itemdata.CostTimer2
+itemdata reg IDATAMISC pack 0 var itemdata.MiscFlags
+itemdata reg IDATAMISCD pack 0 var itemdata.WeaponMisc[]
+itemdata reg IDATAMOVEFLAGS pack 0 var itemdata.MoveFlags[]
+itemdata reg IDATAOVERRIDEFLWEAP pack 0 var itemdata.WeaponSizeFlags
+itemdata reg IDATAPFLAGS pack 0 var itemdata.PickupStringFlags
+itemdata reg IDATAPICKUP pack 0 var itemdata.Pickup
+itemdata reg IDATAPICKUPLITEMLEVEL pack 0 var itemdata.PickupLItemLevel
+itemdata reg IDATAPICKUPLITEMS pack 0 var itemdata.PickupLItems
+itemdata reg IDATAPSOUND pack 0 var itemdata.PickupSound
+itemdata reg IDATAPSTRING pack 0 var itemdata.PString
+itemdata reg IDATARUPEECOST pack 0 var itemdata.RupeeCost
+itemdata reg IDATASPRITEINITD pack 0 var itemdata.SpriteInitD[]
+itemdata reg IDATASPRSCRIPT pack 0 var itemdata.SpriteScript
+itemdata reg IDATASSWIMDISABLED pack 0 var itemdata.SideSwimDisabled
+itemdata reg IDATATILEHWEAP pack 0 var itemdata.WeaponTileHeight
+itemdata reg IDATATILEW pack 0 var itemdata.TileWidth
+itemdata reg IDATATILEWWEAP pack 0 var itemdata.WeaponTileWidth
+itemdata reg IDATAUSEBURNSPR pack 0 var itemdata.UseBurnSprites
+itemdata reg IDATAUSEDEF pack 0 var itemdata.Defense
+itemdata reg IDATAVALIDATE pack 0 var itemdata.Validate
+itemdata reg IDATAVALIDATE2 pack 0 var itemdata.Validate2
+itemdata reg IDATAWEAPHXOFS pack 0 var itemdata.WeaponHitXOffset
+itemdata reg IDATAWEAPHXSZ pack 0 var itemdata.WeaponHitWidth
+itemdata reg IDATAWEAPHYOFS pack 0 var itemdata.WeaponHitYOffset
+itemdata reg IDATAWEAPHYSZ pack 0 var itemdata.WeaponHitHeight
+itemdata reg IDATAWEAPHZSZ pack 0 var itemdata.WeaponHitZHeight
+itemdata reg IDATAWEAPONSCRIPT pack 0 var itemdata.WeaponScript
+itemdata reg IDATAWEAPXOFS pack 0 var itemdata.WeaponDrawXOffset
+itemdata reg IDATAWEAPYOFS pack 0 var itemdata.WeaponDrawYOffset
+itemdata reg IDATAWEAPZOFS pack 0 oldreg (REFITEMDATA)
+itemdata reg IDATAWMOVEFLAGS pack 0 var itemdata.WeaponMoveFlags[]
+itemdata reg IDATAWRANGE pack 0 var itemdata.Range
+itemdata reg IDATA_WEAPONDATA pack 0 var itemdata.WeaponData
+viewport cmd VIEWPORT_RESET_FOLLOW_SETTINGS pack 1 fn Viewport.ResetFollowSettings()
+viewport reg VIEWPORT_DEADZONE_HEIGHT pack 0 var Viewport.DeadzoneHeight
+viewport reg VIEWPORT_DEADZONE_WIDTH pack 0 var Viewport.DeadzoneWidth
+viewport reg VIEWPORT_LOOKAHEAD_SPEED pack 0 var Viewport.LookaheadSpeed
+viewport reg VIEWPORT_LOOKAHEAD_X pack 0 var Viewport.LookaheadX
+viewport reg VIEWPORT_LOOKAHEAD_Y pack 0 var Viewport.LookaheadY
+viewport reg VIEWPORT_RECENTER_DELAY pack 0 var Viewport.RecenterDelay
+viewport reg VIEWPORT_RECENTER_SPEED pack 0 var Viewport.RecenterSpeed
+viewport reg VIEWPORT_TARGET pack 0 var Viewport.Target
+messagedata reg MESSAGEDATANEXT pack 1 var messagedata.Next
+messagedata reg MESSAGEDATAPORTTILE pack 1 var messagedata.PortraitTile
+messagedata reg MESSAGEDATAPORTY pack 1 var messagedata.PortraitY
+messagedata reg MESSAGEDATAY pack 1 var messagedata.Y
+messagedata reg MESSAGEDATACSET pack 0 var messagedata.CSet
+messagedata reg MESSAGEDATAFLAGS pack 0 var messagedata.Flag
+messagedata reg MESSAGEDATAFLAGSARR pack 0 var messagedata.Flags[]
+messagedata reg MESSAGEDATAFONT pack 0 var messagedata.Font
+messagedata reg MESSAGEDATAH pack 0 var messagedata.Height
+messagedata reg MESSAGEDATAHSPACE pack 0 var messagedata.HSpace
+messagedata reg MESSAGEDATALISTPOS pack 0 var messagedata.ListPosition
+messagedata reg MESSAGEDATAMARGINS pack 0 var messagedata.Margins[]
+messagedata reg MESSAGEDATAPORTCSET pack 0 var messagedata.PortraitCSet
+messagedata reg MESSAGEDATAPORTHEI pack 0 var messagedata.PortraitTileHeight
+messagedata reg MESSAGEDATAPORTWID pack 0 var messagedata.PortraitTileWidth
+messagedata reg MESSAGEDATAPORTX pack 0 var messagedata.PortraitX
+messagedata reg MESSAGEDATASEGMENTS pack 0 var messagedata.Segments[]
+messagedata reg MESSAGEDATASFX pack 0 var messagedata.Sound
+messagedata reg MESSAGEDATATEXTHEI pack 0 var messagedata.TextHeight
+messagedata reg MESSAGEDATATEXTWID pack 0 var messagedata.TextWidth
+messagedata reg MESSAGEDATATILE pack 0 var messagedata.Tile
+messagedata reg MESSAGEDATATRANS pack 0 var messagedata.Transparent
+messagedata reg MESSAGEDATAVSPACE pack 0 var messagedata.VSpace
+messagedata reg MESSAGEDATAW pack 0 var messagedata.Width
+messagedata reg MESSAGEDATAX pack 0 var messagedata.X
+messagedata reg MESSAGEDATA_ADVSFX pack 0 var messagedata.SoundAdvance
+messagedata reg MESSAGEDATA_ICON_MORE_ANCHOR pack 0 var messagedata.MoreIconAnchor
+messagedata reg MESSAGEDATA_ICON_MORE_SPRITE pack 0 var messagedata.MoreIconSprite
+messagedata reg MESSAGEDATA_ICON_MORE_X pack 0 var messagedata.MoreIconX
+messagedata reg MESSAGEDATA_ICON_MORE_Y pack 0 var messagedata.MoreIconY
+messagedata reg MESSAGEDATA_ICON_SCROLLDOWN_ANCHOR pack 0 var messagedata.ScrollDownIconAnchor
+messagedata reg MESSAGEDATA_ICON_SCROLLDOWN_SPRITE pack 0 var messagedata.ScrollDownIconSprite
+messagedata reg MESSAGEDATA_ICON_SCROLLDOWN_X pack 0 var messagedata.ScrollDownIconX
+messagedata reg MESSAGEDATA_ICON_SCROLLDOWN_Y pack 0 var messagedata.ScrollDownIconY
+messagedata reg MESSAGEDATA_ICON_SCROLLUP_ANCHOR pack 0 var messagedata.ScrollUpIconAnchor
+messagedata reg MESSAGEDATA_ICON_SCROLLUP_SPRITE pack 0 var messagedata.ScrollUpIconSprite
+messagedata reg MESSAGEDATA_ICON_SCROLLUP_X pack 0 var messagedata.ScrollUpIconX
+messagedata reg MESSAGEDATA_ICON_SCROLLUP_Y pack 0 var messagedata.ScrollUpIconY
+messagedata reg MESSAGEDATA_MENUCLOSE_SFX pack 0 var messagedata.SoundMenuClose
+messagedata reg MESSAGEDATA_MENUMOVE_SFX pack 0 var messagedata.SoundMenuMove
+messagedata reg MESSAGEDATA_SCROLL_SPEED_ACTIVE pack 0 var messagedata.ScrollSpeedActive
+messagedata reg MESSAGEDATA_SCROLL_SPEED_PASSIVE pack 0 var messagedata.ScrollSpeedPassive
+messagedata reg MESSAGEDATA_SHADOW_COLOR pack 0 var messagedata.ShadowColor
+messagedata reg MESSAGEDATA_SHADOW_TYPE pack 0 var messagedata.ShadowType
+combodata reg COMBODACLK pack 0 var combodata.AClk
+combodata reg COMBODATA_CSET2_FLASH_DURATION pack 0 var combodata.CSet2FlashDuration
+combodata reg COMBODATA_DELAY pack 0 var combodata.Delay
+combodata reg COMBODATA_LIFT_WEAPONDATA pack 0 var combodata.LiftWeaponData
+combodata reg COMBODATA_MISC_WEAPONDATA pack 0 var combodata.MiscWeaponData
+combodata reg COMBODCSET2FLAGS pack 0 var combodata.CSet2Flags
+combodata reg COMBODLIFTBREAKSFX pack 0 var combodata.LiftBreakSFX
+combodata reg COMBODLIFTBREAKSPRITE pack 0 var combodata.LiftBreakSprite
+combodata reg COMBODLIFTDAMAGE pack 0 var combodata.LiftDamage
+combodata reg COMBODLIFTFLAGS pack 0 var combodata.LiftFlags[]
+combodata reg COMBODLIFTGFXCCSET pack 0 var combodata.LiftGFXCSet
+combodata reg COMBODLIFTGFXCOMBO pack 0 var combodata.LiftGFXCombo
+combodata reg COMBODLIFTGFXSPRITE pack 0 var combodata.LiftGFXSprite
+combodata reg COMBODLIFTGFXTYPE pack 0 var combodata.LiftGFXType
+combodata reg COMBODLIFTHEIGHT pack 0 var combodata.LiftHeight
+combodata reg COMBODLIFTITEM pack 0 var combodata.LiftItem
+combodata reg COMBODLIFTLEVEL pack 0 var combodata.LiftLevel
+combodata reg COMBODLIFTLIGHTRAD pack 0 var combodata.LiftLightRadius
+combodata reg COMBODLIFTLIGHTSHAPE pack 0 var combodata.LiftLightShape
+combodata reg COMBODLIFTSFX pack 0 var combodata.LiftSFX
+combodata reg COMBODLIFTTIME pack 0 var combodata.LiftTime
+combodata reg COMBODLIFTUNDERCMB pack 0 var combodata.LiftUnderCombo
+combodata reg COMBODLIFTUNDERCS pack 0 var combodata.LiftUnderCSet
+combodata reg COMBODLIFTWEAPONITEM pack 0 var combodata.LiftWeaponItem
+combodata reg COMBOD_LARGECOMBO_DIRS pack 0 var combodata.LargeComboDirs[]

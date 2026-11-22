@@ -1,0 +1,9 @@
+# S1 (z3 saved as newest 3.0 by our ZQuest, then these): FFC ranges in region map 2 0x1C (2x2), enemy and weapon despawn in region 0x28 (3x3)
+screen 165 ffc0.vpsuspend 16
+screen 181 ffc0.vpdespawn 16
+enemy 20 vpdespawn 32
+enemy 20 wd.vpdespawn 8
+screen 177 enemy0 0
+screen 192 enemy0 0
+screen 192 enemy1 0
+enemy 20 vpsuspend 400

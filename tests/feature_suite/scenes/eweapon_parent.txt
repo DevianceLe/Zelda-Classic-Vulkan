@@ -1,0 +1,15 @@
+# r11wp (item 2): a Rock Shooter (155) at 0x39 row 4 col 12 (flag 37); its weapon data: as the quest has it (suspend 48)
+# the shooter itself never suspended; the other screens emptied (no Tektite, Stalfos or Zora)
+screen 193 enemy0 155
+screen 193 enemy1 0
+screen 193 enemy2 0
+screen 193 pattern 0
+screen 193 sflag.76 37
+screen 194 enemy0 0
+enemy 155 vpsuspend 0
+screen 176 enemy0 0
+screen 176 enemy1 0
+screen 177 enemy0 0
+screen 192 enemy0 0
+screen 192 enemy1 0
+screen 194 enemyflags 0

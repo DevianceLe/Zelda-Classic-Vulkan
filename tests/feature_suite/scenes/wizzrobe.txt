@@ -1,0 +1,8 @@
+# S2: Stalfos (enemy 41, on 0x28 and 0x38 of region map 2 0x28) made teleporting Wizzrobes that do not fire or hurt
+enemy 41 family 21
+enemy 41 weapon 0
+enemy 41 dp 0
+screen 177 enemy0 0
+enemy 20 weapon 0
+enemy 20 dp 0
+enemy 20 step 0

@@ -1,0 +1,23 @@
+# r11lev (item 1): Leevers (26, still: step 0) on 0x38; 0x39 row 5 cols 2-4 "no enemy" (flag 96), so a Leever
+# can't come up right of Link standing at 0x39 x 16: it comes up left of him, on 0x38 across the seam (they start under the ground at
+# 0x38 x 224, rows 1, 2 and 9: placement flags 37-39, inside the suspend range)
+screen 193 enemy0 0
+screen 193 enemy1 0
+screen 193 enemy2 0
+screen 193 pattern 0
+screen 193 sflag.82 96
+screen 193 sflag.83 96
+screen 193 sflag.84 96
+screen 192 enemy0 26
+screen 192 enemy1 26
+screen 192 enemy2 26
+screen 192 pattern 0
+screen 192 sflag.30 37
+screen 192 sflag.46 38
+screen 192 sflag.158 39
+enemy 26 step 0
+screen 176 enemy0 0
+screen 176 enemy1 0
+screen 177 enemy0 0
+screen 194 enemy0 0
+screen 194 enemyflags 0

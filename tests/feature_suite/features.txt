@@ -1,0 +1,79 @@
+# Feature table of the suite (one feature per line, fields split by "|"):
+#   name | dmap | screen | scene | script | keys | frames | snaps | check | what it shows
+# scene:  "-" the DMap's own map as the quest has it; "@script" the script room map (map 1 copy, screen
+#         0x14 emptied); else edit files in scenes\ ("a.txt+b.txt") applied to a copy of map 1 (z3's
+#         3x3 region 0x28-0x4A, 2x2 region 0x1C, raft region 0x5D); build_quest.py makes the map, the
+#         DMap (a copy of DMap 0 on it) and remaps the edits' screens and enemies to the copy.
+# script: "-" or a .zs in scripts\ or coverage\, run by the suite's global script on this DMap.
+# keys:   "frame:+KEY" / "frame:-KEY" (UP DOWN LEFT RIGHT A B START L R EX1 EX2); "-" none.
+# snaps:  frames compared as pictures (upstream snapshot N = our frame dump N).
+# check:  hero (Link's region position every frame), lines (script lines "T?:"/"C:"), rows=N (our
+#         picture is N rows lower: upstream's 232-row view in a scrolling region), crop=x0,y0,x1,y1
+#         (upstream picture coordinates; default the play field), png=N (the frame kept as a picture),
+#         hero=A-B (only those frames), random (the scene has random parts: a difference shows as DIFF~).
+# Sources: r10region, r11region, r12script, r12hero scenes (their scene notes) and
+# r10play / r11script / r12script / r12hero tests (...\work\tests).
+
+# --- 3.0 scrolling regions (z3 quest, DMap 0 map 1 copies) ---------------------------------------
+raft_seam      | 0   | 94 | - | - | 100:+DOWN 110:-DOWN 111:+RIGHT 181:-RIGHT 182:+UP 200:-UP 290:+RIGHT 330:-RIGHT | 520 | 300 368 450 516 | hero rows=56 | Link rafts up from the dock on 0x5E, then right across the 0x5E/0x5F seam; the hand-off to 0x5F at 368
+ffc_ranges     | 300 | 28 | ffc_ranges.txt | - | 220:+RIGHT 330:-RIGHT | 430 | 300 320 340 360 380 420 | hero rows=56 | 2x2 region 0x1C: 0x1D's FFC suspend range 16 (resumes 16 px from the view), 0x2D's FFC despawn range 16 (never shows)
+despawn        | 301 | 57 | despawn.txt | - | 100:+LEFT 330:-LEFT | 480 | 200 260 300 400 | hero rows=28 | still harmless Octoroks (despawn 32, suspend 400) die 32 px past the view, silently, no drop
+wizzrobe       | 302 | 57 | wizzrobe.txt | - | 100:+LEFT 250:-LEFT | 720 | - | hero=0-220 random rows=28 | 0x28/0x38 Stalfos made teleporting Wizzrobes stay on their own screens (random spots: hero only)
+leever         | 303 | 57 | leever.txt | - | 100:+LEFT 175:-LEFT | 600 | 200 250 300 400 500 | hero rows=28 | still Leevers under 0x38 come up left of Link across the seam (0x39's no-enemy cells)
+wallmaster     | 304 | 57 | wallmaster.txt | - | 100:+RIGHT 340:-RIGHT | 600 | 340 360 400 440 505 | hero rows=28 | Wall Masters of 0x3A come out of the region's right wall, drawn without the viewport; the grab ~507
+eweapon_despawn| 305 | 57 | eweapon_despawn.txt | - | 890:+UP 891:-UP | 900 | 150 200 236 238 240 300 | hero rows=28 | Rock Shooter rocks (weapon despawn 8) live 70 frames, removed 8 px past the view (extra death frame)
+eweapon_parent | 306 | 57 | eweapon_parent.txt | - | 890:+UP 891:-UP | 900 | 200 300 400 600 | hero rows=28 | rocks with suspend 48 fly on: the firing enemy in view keeps its weapons in view
+eweapon_suspend| 307 | 57 | eweapon_suspend.txt | - | 890:+UP 891:-UP | 900 | 200 300 400 600 | hero rows=28 | the same with weapon suspend 8
+boss_flag      | 308 | 57 | boss_flag.txt | - | 100:+RIGHT 172:-RIGHT 180:+A 183:-A 220:+LEFT 400:-LEFT | 520 | 200 450 500 | hero rows=28 | sword kills 0x3A's 1-HP Octorok across the seam; 0x38's boss-room Stalfos don't come; death puff
+raised_combo   | 309 | 57 | raised_combo.txt | - | 100:+RIGHT 230:-RIGHT | 300 | 150 176 178 180 182 184 186 190 200 250 | hero rows=28 | Link steps up onto a raised strip (height 8), walks over the 0x39/0x3A seam on it and steps down
+shooter        | 310 | 57 | shooter.txt | - | 100:+RIGHT 220:-RIGHT | 400 | 214 215 216 230 250 300 | hero rows=28 | shooter combo fires the Magic Book's magic (suspend 8): first shot at 215, flying across the seam
+summoner       | 311 | 57 | summoner.txt | summon.zs | 100:+RIGHT 170:-RIGHT | 400 | 240 300 390 | hero lines rows=28 | npc->SummonMinion at script frames 130 and 230 on 0x3A; every npc's place printed
+shop_walk      | 312 | 57 | shop.txt | - | 250:+UP 362:-UP 370:+LEFT 530:-LEFT | 700 | 360 520 | hero rows=28 | merchant on 0x39 sets up the origin 0x28's shop; Link walks up out of 0x39 and left into 0x28
+shop_buy       | 313 | 57 | shop.txt | shop_buy.zs | 250:+UP 362:-UP 370:+LEFT 530:-LEFT | 760 | 450 520 600 750 | hero lines rows=28 | the same with wares from a script: prices kept across the hand-off, item 32 bought at 524
+no_enemy_spawn | 314 | 57 | no_enemy_spawn.txt | - | 230:+UP 231:-UP | 240 | 69 72 | hero random rows=28 | flag 163 on every ground cell but one: all four random Octoroks come out on row 2 col 3 at 68
+
+# --- hero, enemies, sideview (script rooms; the scripts build the room and press the buttons) -----
+sideswim       | 330 | 20 | @script | sideswim.zs | - | 1700 | 1650 | lines | sideview swimming, Game->Generic[] swim rates, leaving the water, drowning, sideview ladders
+dive           | 331 | 20 | @script | dive.zs | - | 760 | 740 | lines | diving under a solid combo with a dive-under level; the dive lasts while Link is under it
+dive2          | 332 | 20 | @script | dive2.zs | - | 760 | - | lines | dive button, length and wait from the flippers' attributes; flag 2 ends a dive early
+dive4          | 333 | 20 | @script | dive4.zs | - | 760 | - | lines | dive held while Link would come up under a dive-under rock (diveclk 1 -> 2)
+swim_speed     | 334 | 20 | @script | swim2.zs | - | 400 | - | lines | top-down swimming 1 px/frame, out of the water without a hop, wading through shallow water
+pit_knockback  | 335 | 20 | @script | pitkb.zs | - | 600 | 590 | lines | a sword hit knocks a Stalfos into a pit: falls 70 frames (fall sprite) and is gone
+pit_drop       | 336 | 20 | @script | pitdrop.zs | - | 400 | - | lines random | enemies falling into a pit leave no item; killed on the ground they drop (spawn/death timing)
+eweapon_frame  | 337 | 20 | @script | wpn.zs | - | 900 | - | lines random | Octorok rocks from their first frame: place against the Octorok, frames lived
+holdup_tilemod | 338 | 20 | @script | holdup.zs | - | 260 | 150 | lines | Hero->ScriptTile set to a tile + Hero->TileMod (a ring's modifier) while Link holds an item up
+subscreen_sel  | 339 | 20 | @script | - | 100:+START 106:-START 160:+RIGHT 162:-RIGHT 190:+RIGHT 192:-RIGHT 220:+DOWN 222:-DOWN 250:+LEFT 252:-LEFT 280:+UP 282:-UP 310:+A 312:-A 340:+B 342:-B | 400 | 150 200 230 260 290 320 350 | - | the active subscreen opens; the selector moves over its widgets (items and other kinds)
+
+# --- script values (r10play / r12script tests) ---------------------------------------------------
+start_state    | 347 | 20 | @script | start_state.zs | - | 80 | - | lines | life/magic (3.0 HP per heart) and counters a new game of the z3 quest starts with
+script_regs    | 340 | 20 | @script | regs.zs | - | 120 | - | lines | Hero->LiftedWeapon, sprite->Gravity, SwitchHooked, trigger TrigGlobalState/TrigChange
+script_trig    | 341 | 20 | @script | trig.zs | - | 140 | 130 | lines | combo trigger fields (tint, buttons, flags, Triggers[]), a script-set tint used in play
+script_plain   | 342 | 20 | @script | plain.zs | - | 120 | - | lines | mapdata/Screen warp and item fields, shopdata, itemdata TileMod/AFrames
+script_bitmaps | 343 | 20 | @script | bitmaps.zs | - | 200 | 150 | lines | bitmap Write/Read, combodata Script/InitD, dmapdata InitD, Game->Generic[]
+script_files   | 344 | 20 | @script | files.zs | - | 200 | - | lines | File, directory and FileSystem commands
+script_heights | 345 | 20 | @script | heights.zs | - | 700 | 650 | lines | combodata ZHeight/ZStepHeight/GenFlags[], Link walking onto combos a script raised
+script_stack   | 346 | 20 | @script | stack.zs | - | 200 | - | lines | stack push/pop/peek/get/set, sizes and limits
+
+# --- coverage: every command/register of gaps.txt (coverage\items.txt says how each is called) ---
+cov_bitmap     | 400 | 20 | @script | cov_bitmap.zs | - | auto | - | lines | 20 items of group bitmap
+cov_combodata  | 401 | 20 | @script | cov_combodata.zs | - | auto | - | lines | 25 items of group combodata
+cov_dmapdata   | 402 | 20 | @script | cov_dmapdata.zs | - | auto | - | lines | 38 items of group dmapdata
+cov_eweapon    | 403 | 20 | @script | cov_eweapon.zs | - | auto | - | lines | 27 items of group eweapon
+cov_game       | 404 | 20 | @script | cov_game.zs | - | auto | - | lines | 45 items of group game
+cov_hero       | 405 | 20 | @script | cov_hero.zs | - | auto | - | lines | 50 items of group hero
+cov_itemdata   | 406 | 20 | @script | cov_itemdata.zs | - | auto | - | lines | 71 items of group itemdata
+cov_itemsprite | 407 | 20 | @script | cov_itemsprite.zs | - | auto | - | lines | 22 items of group itemsprite
+cov_lweapon    | 408 | 20 | @script | cov_lweapon.zs | - | auto | - | lines | 26 items of group lweapon
+cov_mapdata    | 409 | 20 | @script | cov_mapdata.zs | - | auto | - | lines | 70 items of group mapdata
+cov_messagedata| 410 | 20 | @script | cov_messagedata.zs | - | auto | - | lines | 44 items of group messagedata
+cov_misc       | 411 | 20 | @script | cov_misc.zs | - | auto | - | lines | 90 items of group misc
+cov_npc        | 412 | 20 | @script | cov_npc.zs | - | auto | - | lines | 43 items of group npc
+cov_npcdata    | 413 | 20 | @script | cov_npcdata.zs | - | auto | - | lines | 51 items of group npcdata
+cov_portal     | 414 | 20 | @script | cov_portal.zs | - | auto | - | lines | 15 items of group portal
+cov_save_menu  | 415 | 20 | @script | cov_save_menu.zs | - | auto | - | lines | 52 items of group save_menu
+cov_savedportal| 416 | 20 | @script | cov_savedportal.zs | - | auto | - | lines | 12 items of group savedportal
+cov_screendata | 417 | 20 | @script | cov_screendata.zs | - | auto | - | lines | 78 items of group screendata
+cov_subscreendata| 418 | 20 | @script | cov_subscreendata.zs | - | auto | - | lines | 30 items of group subscreendata
+cov_subscreenwidget| 419 | 20 | @script | cov_subscreenwidget.zs | - | auto | - | lines | 90 items of group subscreenwidget
+cov_viewport   | 420 | 20 | @script | cov_viewport.zs | - | auto | - | lines | 9 items of group viewport
+cov_weapondata | 421 | 20 | @script | cov_weapondata.zs | - | auto | - | lines | 35 items of group weapondata

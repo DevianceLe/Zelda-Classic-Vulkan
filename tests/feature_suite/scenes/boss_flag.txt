@@ -1,0 +1,19 @@
+# r11boss (item 2): 0x3A boss room (enemyflags 128) with one still 1-HP Octorok (20) at its row 5 col 0
+# (placement flag 37); 0x38 a boss room too (its two Stalfos); 0x39 and 0x28/0x29 emptied
+screen 193 enemy0 0
+screen 193 enemy1 0
+screen 193 enemy2 0
+screen 193 pattern 0
+screen 194 enemy0 20
+screen 194 pattern 0
+screen 194 enemyflags 128
+screen 194 sflag.80 37
+screen 192 enemyflags 128
+screen 192 pattern 0
+enemy 20 step 0
+enemy 20 weapon 0
+enemy 20 hp 1
+enemy 20 dp 0
+screen 176 enemy0 0
+screen 176 enemy1 0
+screen 177 enemy0 0

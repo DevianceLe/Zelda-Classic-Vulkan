@@ -1,0 +1,22 @@
+# r11wm (item 1): Wall Masters (enemy 48) on 0x3A with a block at its row 5 col 14 (Link stops at x 208 there:
+# the region's right wall, upstream's hero_on_wall), Leevers (26) on 0x38, 0x39 and 0x28-0x2A emptied
+screen 193 enemy0 0
+screen 193 enemy1 0
+screen 193 enemy2 0
+screen 193 pattern 0
+screen 194 enemy0 48
+screen 194 enemy1 48
+screen 194 pattern 0
+combo 3001 copy 16
+combo 3001 type 0
+combo 3001 flag 0
+combo 3001 walk 255
+screen 194 data.94 3001
+screen 192 enemy0 26
+screen 192 enemy1 26
+screen 192 enemy2 26
+screen 192 pattern 0
+screen 176 enemy0 0
+screen 176 enemy1 0
+screen 177 enemy0 0
+screen 194 enemyflags 0

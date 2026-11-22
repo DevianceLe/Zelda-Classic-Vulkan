@@ -1,0 +1,28 @@
+# r12sum (B.3): a Rock Shooter (155) on 0x3A row 5 col 2 (placement flag 37) set to summon a fixed enemy:
+# shot type 11 (e1tSUMMON), Octorok (20), one at a time (attributes 1, 3, 4); never suspended. Link stays on 0x39
+# near its right edge, so 0x3A's left part is in view. 0x39 and the other screens emptied.
+screen 193 enemy0 0
+screen 193 enemy1 0
+screen 193 enemy2 0
+screen 193 pattern 0
+screen 194 enemy0 155
+screen 194 enemy1 0
+screen 194 pattern 0
+screen 194 enemyflags 0
+screen 194 sflag.82 37
+enemy 155 attr0 11
+enemy 155 attr2 20
+enemy 155 attr3 1
+enemy 155 vpsuspend 0
+enemy 20 weapon 0
+enemy 20 dp 0
+screen 176 enemy0 0
+screen 176 enemy1 0
+screen 177 enemy0 0
+screen 192 enemy0 0
+screen 192 enemy1 0
+# r12sum2 (B.3): r12sum with the shooter's own summons off (count 0) and still Octoroks (step 0); a global script
+# (sum2.zs, compiled into the quest) makes the shooter summon one Octorok at script frames 130 and 230
+# (npc->SummonMinion: upstream's summon_enemy without the random count) and prints every npc's position.
+enemy 155 attr3 0
+enemy 20 step 0
