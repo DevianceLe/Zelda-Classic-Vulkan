@@ -1030,8 +1030,7 @@ void q30_run_lweapon_scripts(bool waitdraw)
         long uid = spr->getUID();
         Zasm30SpriteState *st = zasm30_lweapon_state((weapon *)spr);
 
-        if(!waitdraw && (st->move_flags & 1) && !(st->move_flags & (1 << 8)))
-            zasm30_fake_gravity(*st);
+        // (FakeZ falls in weapon::animate: q30_weapon_fall)
 
         if(st->script)
             zasm30_run_sprite(SCRIPT_LWPN, st->script, uid, waitdraw);
@@ -1052,8 +1051,7 @@ void q30_run_eweapon_scripts(bool waitdraw)
         long uid = spr->getUID();
         Zasm30SpriteState *st = zasm30_eweapon_state((weapon *)spr);
 
-        if(!waitdraw && (st->move_flags & 1) && !(st->move_flags & (1 << 8)))
-            zasm30_fake_gravity(*st);
+        // (FakeZ falls in weapon::animate: q30_weapon_fall)
 
         if(st->script && !q30_vp_frozen(&Ewpns, uid))
             zasm30_run_sprite(SCRIPT_EWPN, st->script, uid, waitdraw);

@@ -96,6 +96,11 @@ int q30_weapon_pierce(weapon *w, int set); // its PierceCount (set >= -1 writes 
 void q30_weapon_clear_lift(weapon *w);
 void q30_weapon_burn_frame(weapon *w);     // the burning sprite for the fire it burns with
 void q30_weapon_clear_script(weapon *w);   // its script ends (qr_BOMB_BOOMS_CLEAR_SCRIPTS)
+void q30_weapon_default_moveflags(weapon *w);  // q30_weapon_fx.h: 3.0 height, gravity, landing and solids
+void q30_weapon_fall(weapon *w);
+void q30_weapon_solid(weapon *w);
+bool q30_weapon_no_collision(weapon *w);
+void q30_weapon_blast_flags(weapon *w, int how);
 
 // 2.55/3.0 without qr_BROKEN_HORIZONTAL_WEAPON_ANIM (236): a weapon facing sideways animates from
 // its sideways tile (upstream's _handle_loadsprite: o_tile = tile after each update_weapon_frame)
@@ -1321,7 +1326,10 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
     }
     
     if(q30_active())
+    {
+        q30_weapon_default_moveflags(this); // (upstream: the weapons that fall by default)
         q30_enemy_weapon_made(this);    // the enemy's weapon data (upstream's load_weap_data)
+    }
     // 2.55/3.0: a weapon an item makes takes on the item's weapon data (upstream's load_weap_data)
     if(parentitem > -1 && q30_active())
         q30_weapon_load_item_data(this);
@@ -1628,8 +1636,10 @@ bool weapon::animate_body(int)
     // do special timing stuff
     bool hooked=false;
     
-    // fall down
-    switch(id)
+    // fall down (2.55/3.0: as the move flags say, upstream's weapon::animate)
+    if(q30_active())
+        q30_weapon_fall(this);
+    else switch(id)
     {
     case wFire:
     
@@ -2190,7 +2200,10 @@ bool weapon::animate_body(int)
         {
           dead=1;
         }*/
-        if(clk==(misc-2) && step==0)
+        // 2.55/3.0: a moving bomb goes off as well, and stops, unless qr_BROKEN_MOVING_BOMBS (upstream's canboom)
+        const bool q30_boom = q30_active() && !q30_quest_rule(410);
+
+        if(clk==(misc-2) && (step==0 || q30_boom))
         {
             const bool q30_lw = id < wEnemyWeapons;
             id = (id>wEnemyWeapons ? (id==ewLitSBomb||id==ewSBomb ? ewSBomb : ewBomb)
@@ -2202,7 +2215,9 @@ bool weapon::animate_body(int)
             // script set it to as it dies (upstream's rundeath: weapon::do_death_fx this frame)
             if(q30_active())
             {
+                step = 0;
                 q30_weapon_timeout_clear(this);
+                q30_weapon_blast_flags(this, 1);
 
                 if(q30_lw)
                 {
@@ -2216,8 +2231,17 @@ bool weapon::animate_body(int)
             }
         }
         
-        if(clk==(misc-1) && step==0)
+        if(clk==(misc-1) && (step==0 || q30_boom))
     {
+            if(q30_active())
+            {
+                step = 0;
+                q30_weapon_blast_flags(this, 2);
+
+                if(id < wEnemyWeapons)
+                    q30_weapon_clear_lift(this);
+            }
+
             sfx((id>=wEnemyWeapons || parentitem<0) ? WAV_BOMB :
                 itemsbuf[parentitem].usesound,pan(int(x)));
                 
@@ -2238,9 +2262,18 @@ bool weapon::animate_body(int)
         int boomend = (misc+(((id == wBomb || id == wSBomb || id == wLitBomb || id == wLitSBomb) &&
                               (parentitem>-1 && itemsbuf[parentitem].flags & ITEM_FLAG1)) ? 35 : 31));
                               
-        if(clk==boomend && step==0)
+        if(clk==boomend && (step==0 || q30_boom))
         {
             hxofs=2000;
+
+            if(q30_active())
+            {
+                step = 0;
+                q30_weapon_blast_flags(this, 2);
+
+                if(id < wEnemyWeapons)
+                    q30_weapon_clear_lift(this);
+            }
         }
         
         if(id<wEnemyWeapons)
@@ -3500,6 +3533,10 @@ mirrors:
         }
     }
     
+    // 2.55/3.0: WFLAG_BREAK_ON_SOLID / WFLAG_STOP_WHEN_HIT_SOLID (upstream weapon::animate)
+    if(q30_active())
+        q30_weapon_solid(this);
+
     if(bounce)
     {
         switch(dir)
@@ -3558,6 +3595,8 @@ void weapon::q30_kill_special()
             clk = misc - 3;
             q30_weapon_timeout_clear(this);
         }
+
+        q30_weapon_blast_flags(this, 0);    // (it broke already, by going off)
         break;
 
     default:
@@ -3951,6 +3990,9 @@ offscreenCheck:
 bool weapon::hit(sprite *s)
 {
     if(!(scriptcoldet&1)) return false;
+
+    if(q30_active() && q30_weapon_no_collision(this))
+        return false;
     
     if(id==ewBrang && misc)
         return false;
@@ -3961,6 +4003,9 @@ bool weapon::hit(sprite *s)
 bool weapon::hit(int tx,int ty,int tz,int txsz2,int tysz2,int tzsz2)
 {
     if(!(scriptcoldet&1)) return false;
+
+    if(q30_active() && q30_weapon_no_collision(this))
+        return false;
     
     if(id==ewBrang && misc)
         return false;

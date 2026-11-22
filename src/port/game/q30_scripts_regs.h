@@ -123,6 +123,18 @@ static long z30_fl(fix f) { return (long)(double(f) * 10000.0); }
 static long z30_fake_jump_read(long raw) { return raw / -100; }
 static long z30_fake_jump_write(long value) { return (long)(int64_t(value) * -100); }
 
+// a weapon's FakeZ as upstream's lweapon/eweapon registers: whole pixels (zfix's rounding) unless
+// qr_SPRITEXY_IS_FLOAT
+static long z30_wpn_fakez_read(long raw)
+{
+    if(q30_quest_rule(644))
+        return raw;
+
+    return (raw / 10000 + vbound((raw % 10000) / 5000, raw < 0 ? -1 : 0, raw < 0 ? 0 : 1)) * 10000;
+}
+
+static long z30_wpn_fakez_write(long value) { return zc_max(q30_quest_rule(644) ? value : value / 10000 * 10000, 0L); }
+
 // ---- SPRITE_* ----------------------------------------------------------------------------------
 
 static long &z30_hero_moveflags();
@@ -193,7 +205,9 @@ static bool zasm30_sprite_read(const long arg, long &ret, const Z30Sprite &r)
         if(isffc) ret = 0;
         else ret = z30_fixreg(s->z, r.kind == Z30S_HERO && q30_quest_rule(644));
         return true;
-    case Z30R_SPRITE_FAKE_Z: ret = st ? st->fakez : 0; return true;
+    case Z30R_SPRITE_FAKE_Z:
+        ret = st ? ((r.kind == Z30S_LWPN || r.kind == Z30S_EWPN) ? z30_wpn_fakez_read(st->fakez) : st->fakez) : 0;
+        return true;
     case Z30R_SPRITE_X_OFFSET: ret = s ? long(int(s->xofs)) * 10000 : 0; return true;
     case Z30R_SPRITE_Y_OFFSET: ret = s ? (int(s->yofs) - playing_field_offset) * 10000 : 0; return true;
     case Z30R_SPRITE_Z_OFFSET: ret = s ? long(int(s->zofs)) * 10000 : 0; return true;
@@ -380,7 +394,9 @@ static bool zasm30_sprite_write(const long arg, const long value, const Z30Sprit
         s->z = fix(value / 10000);
         if(s->z < 0) s->z = 0;
         return true;
-    case Z30R_SPRITE_FAKE_Z: if(st) st->fakez = value; return true;
+    case Z30R_SPRITE_FAKE_Z:
+        if(st) st->fakez = (r.kind == Z30S_LWPN || r.kind == Z30S_EWPN) ? z30_wpn_fakez_write(value) : value;
+        return true;
     case Z30R_SPRITE_X_OFFSET: if(s) s->xofs = value / 10000; return true;
     case Z30R_SPRITE_Y_OFFSET: if(s) s->yofs = value / 10000 + playing_field_offset; return true;
     case Z30R_SPRITE_Z_OFFSET: if(s) s->zofs = value / 10000; return true;
@@ -2885,9 +2901,9 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_LWPNSCRIPTFLIP: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); ret = st ? st->script_flip * 10000 : -10000; return true; }
     case Z30R_EWPNSCRIPTTILE: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); ret = st ? st->script_tile * 10000 : -10000; return true; }
     case Z30R_EWPNSCRIPTFLIP: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); ret = st ? st->script_flip * 10000 : -10000; return true; }
-    case Z30R_EWPNFAKEZ: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); ret = st ? st->fakez : -10000; return true; }
+    case Z30R_EWPNFAKEZ: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); ret = st ? z30_wpn_fakez_read(st->fakez) : -10000; return true; }
     case Z30R_EWPNFAKEJUMP: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); ret = st ? z30_fake_jump_read(st->fakefall) : -10000; return true; }
-    case Z30R_LWPNFAKEZ: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); ret = st ? st->fakez : -10000; return true; }
+    case Z30R_LWPNFAKEZ: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); ret = st ? z30_wpn_fakez_read(st->fakez) : -10000; return true; }
     case Z30R_LWPNFAKEJUMP: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); ret = st ? z30_fake_jump_read(st->fakefall) : -10000; return true; }
     case Z30R_EWPNMOVEFLAGS: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); ret = (st && z30_flag_get(st->move_flags, Z30_INDEX, 32)) ? 10000 : 0; return true; }
     case Z30R_EWPNFLAGS: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); ret = (st && z30_flag_get(st->weapon_flags, Z30_INDEX, 32)) ? 10000 : 0; return true; }
@@ -3967,9 +3983,9 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     case Z30R_LWPNSCRIPTFLIP: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); if(st) st->script_flip = vbound(value / 10000, -1, 127); return true; }
     case Z30R_EWPNSCRIPTTILE: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); if(st) st->script_tile = vbound(value / 10000, -1, NEWMAXTILES - 1); return true; }
     case Z30R_EWPNSCRIPTFLIP: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); if(st) st->script_flip = vbound(value / 10000, -1, 127); return true; }
-    case Z30R_EWPNFAKEZ: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); if(st) st->fakez = zc_max(value, 0L); return true; }
+    case Z30R_EWPNFAKEZ: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); if(st) st->fakez = z30_wpn_fakez_write(value); return true; }
     case Z30R_EWPNFAKEJUMP: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); if(st) st->fakefall = z30_fake_jump_write(value); return true; }
-    case Z30R_LWPNFAKEZ: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); if(st) st->fakez = zc_max(value, 0L); return true; }
+    case Z30R_LWPNFAKEZ: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); if(st) st->fakez = z30_wpn_fakez_write(value); return true; }
     case Z30R_LWPNFAKEJUMP: { Zasm30SpriteState *st = z30_state_of(z30_lwpn_ref()); if(st) st->fakefall = z30_fake_jump_write(value); return true; }
     case Z30R_EWPNMOVEFLAGS: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); if(st) z30_flag_set(st->move_flags, Z30_INDEX, 32, value != 0); return true; }
     case Z30R_EWPNFLAGS: { Zasm30SpriteState *st = z30_state_of(z30_ewpn_ref()); if(st) z30_flag_set(st->weapon_flags, Z30_INDEX, 32, value != 0); return true; }

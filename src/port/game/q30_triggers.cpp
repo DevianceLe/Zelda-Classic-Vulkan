@@ -59,6 +59,7 @@ extern int (*zc_cs2_cset)(int cset, int cofs);     // tiles.cpp
 int q30_weapon_data_burn(long uid);         // q30_weapon_fx.h: the levels a weapon's flags burn with
 int q30_wpn_trigger_burn(long uid);         // below: the levels combo triggers lit it with
 int q30_weapon_lift_data(weapon *w, int *time, long *height);  // q30_weapon_fx.h: its LiftLevel, LiftTime, LiftHeight
+extern bool q30_weapon_still_hits;  // q30_weapon_fx.h: WFLAG_NO_COLL_WHEN_STILL is ignored while set
 
 namespace
 {
@@ -9742,7 +9743,14 @@ static bool lift_weapon(int glove)
         long height = 0;
         const int level = q30_weapon_lift_data(w, &time, &height);
 
-        if(!level || level > itemsbuf[glove].fam_type || !w->hit(hx, hy, 0, hw, hh, 1))
+        if(!level || level > itemsbuf[glove].fam_type)
+            continue;
+
+        q30_weapon_still_hits = true;   // (upstream: WFLAG_NO_COLL_WHEN_STILL doesn't stop the lift)
+        const bool reach = w->hit(hx, hy, 0, hw, hh, 1);
+        q30_weapon_still_hits = false;
+
+        if(!reach)
             continue;
 
         if(itemsbuf[glove].usesound)
