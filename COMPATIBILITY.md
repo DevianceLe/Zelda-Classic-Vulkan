@@ -41,9 +41,10 @@ The final run was stopped before its last 11 quests. Their results are from the 
 
 **Not built yet**
 
-- A script-moved viewport, and saving global script variables past 255. No quest in this collection needs the second one.
+- A script-moved viewport outside scrolling regions, and saving global script variables past 255. No quest in this collection needs the second one.
 - Quests made in ZC 1.00 and 1.50 can't be opened. None are in this collection.
-- Script commands and values that no quest in this collection uses (about 565 of 3.0's), and keeping script portals in the save file.
+- About 240 of 3.0's script commands and values, none of them used by a quest in this collection: mostly item, enemy and DMap data fields the quest readers don't keep yet, and type-specific subscreen widget fields.
+- In a tall scrolling region with 3.0's extended view, the field's slide while scrolling in or out (it switches when the scroll ends).
 
 **Built, but tried in only a few quests**
 
@@ -62,7 +63,7 @@ The final run was stopped before its last 11 quests. Their results are from the 
 - Save menus (a quest's own game over and F6 menus): Mystical Harps' and OOT1986's menus load as in 3.0, and a game over menu and an F6 menu were seen opening in this player; they haven't been compared with 3.0's on screen.
 - A quest's own HP per heart, magic per block and damage multipliers: tried in 3.0's z3 test quest and in quests with 32 HP per heart and 16 magic per block, against 3.0.
 - Sideview ladders: tried on Mystical Harps' ladders. Diving with the flippers' own settings and enemies falling into pits: tried on test scenes against 3.0.
-- Script portals, websockets (they stay "connecting", as in 3.0 without a network) and subscreen widgets made by scripts: checked with test scripts only.
+- Script portals and saved portals (kept in the save file), websockets (they stay "connecting", as in 3.0 without a network), the script viewport and subscreen widgets made by scripts: checked with test scripts only.
 - Subscreens with more than one page, their page-turn animations and 3.0 widget conditions: tried in Tales of Zelsteria, Tales of Murdoch and Tranquil Expression. Pages that a script turns (barato's card game) haven't been played through, and the B and A items set on a later page haven't been checked after saving and reloading.
 - The Moon Pearl and bunny form: tried in Kirby's Castle Epic. The magic mirror: tried in Link's Rise 2 DX; its portal and mirror-continue DMaps haven't been seen in a quest yet.
 - The bug net: tried in Kirby's Castle, catching a dropped item. Catching a fairy in a bottle hasn't been seen.
@@ -78,9 +79,8 @@ The final run was stopped before its last 11 quests. Their results are from the 
 
 **Known bugs**
 
-- Mystical Harps: the cloud layer sits a little off, and dark rooms are brown where ZC 3.0's are black. Its "GAME OVER" text was missing; the game over menus added in 2.53.444.10 may bring it back, but that hasn't been checked yet.
 - A save made with an older version of this player, for a 2.55 or 3.0 quest whose hearts aren't 16 HP, keeps the old life amount. Starting a new save fixes it. The title screen's save list shows hearts using the loaded quest's HP per heart.
-- On 2.55 and 3.0 Nightly quests the feature test suite still differs from 3.0 in a few spots: FFC ranges in a region, one boss-room frame, the bottom rows of a raft scene and one subscreen item; in The Rosemaster the subscreen cursor starts one slot to the right of 3.0's.
+- On 2.55 and 3.0 Nightly quests the feature test suite still differs from 3.0 in two spots: the bottom rows of a raft scene and a corner of one subscreen on a DMap with the extended view. In Mystical Harps a Thwomp in one dark region (379/0x72) doesn't fall as it does in 3.0, and the temple's sleeping Link tile differs.
 - A 3.0 quest's starting B item can differ from ZC 3.0's: the 1st Quest Master and Hero Mode remakes start with B empty where 3.0 puts the bomb there.
 - ZQuest's Save As leaves out the editor names a quest keeps in a separate `.zinfo` file.
 

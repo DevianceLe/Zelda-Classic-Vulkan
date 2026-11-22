@@ -86,8 +86,8 @@ What that means in practice:
 
 **Still to do**
 
-- Script commands no quest in the collection uses (about 565 of 3.0's), and keeping script portals in the save file
-- The few spots where the feature suite still differs from 3.0: FFC ranges in a region, one boss-room frame, the bottom rows of a raft scene and one subscreen item
+- About 240 of 3.0's script commands, none of them used by a quest in the collection: mostly item, enemy and DMap data fields the quest readers don't keep yet, and type-specific subscreen widget fields
+- The two spots where the feature suite still differs from 3.0: the bottom rows of a raft scene and a corner of one subscreen on a DMap with the extended view; and the field's slide when scrolling into or out of a tall region
 
 The [compatibility page](COMPATIBILITY.md#what-still-doesnt-work) has the full list of what still doesn't work, including known bugs.
 
@@ -182,7 +182,7 @@ cmake --build build-switch --target zplayer_nro
 | 2.53.1 and earlier | Plays exactly as before | Opens and saves as 2.53 |
 | 2.55 and 3.0 Nightlies | Plays; never saved as an older quest | Edits and saves in its own version, or as 3.0 Nightly; compiles its ZScript |
 
-Every change has to pass the 2.53 checks. Re-saved reference quests must match byte for byte, and [replays](tests/replay/) must produce identical frames. For 2.55 and 3.0 Nightly quests, the openings of the 93 newer quests in the collection are compared with ZC 3.0's own player after every change, and the [feature test suite](tests/feature_suite/README.txt) checks each ported feature against 3.0 on the same input: 22 of its 34 features match 3.0 exactly, 7 more differ only where the scene is random, and 354 of the 939 3.0 script commands it calls behave as 3.0's (nearly all the rest are used by no quest in the collection).
+Every change has to pass the 2.53 checks. Re-saved reference quests must match byte for byte, and [replays](tests/replay/) must produce identical frames. For 2.55 and 3.0 Nightly quests, the openings of the 93 newer quests in the collection are compared with ZC 3.0's own player after every change, and the [feature test suite](tests/feature_suite/README.txt) checks each ported feature against 3.0 on the same input: 25 of its 34 features match 3.0 exactly, 7 more differ only where the scene is random, and 695 of the 939 3.0 script commands it calls behave as 3.0's (none of the rest is used by a quest in the collection).
 
 ## Repository layout
 
