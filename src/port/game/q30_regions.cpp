@@ -1312,14 +1312,18 @@ int q30_region_view_screens(Q30ViewScreen *out, int extra)
     return n;
 }
 
+extern bool q30_draw_region_round;    // sprite.cpp
+
 void q30_region_begin_sprites()
 {
     q30_region_camera(int(Link.getX()), int(Link.getY()), &q30_draw_cam_x, &q30_draw_cam_y);
+    q30_draw_region_round = g_reg.on;
 }
 
 void q30_region_end_sprites()
 {
     q30_draw_cam_x = q30_draw_cam_y = 0;
+    q30_draw_region_round = false;
 }
 
 extern sprite_list guys, items, Lwpns, Ewpns;

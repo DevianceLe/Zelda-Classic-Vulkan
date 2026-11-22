@@ -1312,8 +1312,20 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
     }
 }
 
+// A 3.0 shooter combo's weapon sprite (q30_triggers.cpp, while it makes the weapon): it replaces
+// the sprite the weapon would load, before the weapon's own direction handling, as upstream's
+// use_sprite does. -1 otherwise; q30_shooter_sprite_used says it was taken.
+int q30_shooter_sprite = -1;
+bool q30_shooter_sprite_used = false;
+
 void weapon::LOADGFX(int wpn)
 {
+    if(q30_shooter_sprite >= 0)
+    {
+        wpn = q30_shooter_sprite;
+        q30_shooter_sprite_used = true;
+    }
+    
     if(wpn<0)
         return;
         
@@ -1430,21 +1442,33 @@ bool weapon::clip()
         c[3] = d2?208:(224+nb1);
     }
 
-    // a 3.0 scrolling region: enemy weapons stop at the region's edges, Link's at the camera's
-    // window (upstream's weapon::clip)
-    if(q30_region_on())
+    // a 3.0 scrolling region (upstream's weapon::clip): the edges are the region's (rl..rr,
+    // rt..rb in this screen's pixels), and Link's weapons also go once wholly out of the camera's
+    // window. Flames, fire trails and wind keep their numbers as region-wide places.
+    int rl = 0, rt = 0, rr = 256, rb = 176;
+    const bool region = q30_region_on();
+
+    if(region)
     {
-        int l, t, r, b;
+        q30_region_bounds(&rl, &rt, &rr, &rb);
 
-        if(id>wEnemyWeapons)
-            q30_region_bounds(&l, &t, &r, &b);
-        else
-            q30_region_view_bounds(&l, &t, &r, &b);
+        if(x < rl || y < rt || x > rr - 16 || y > rb)
+            return true;
 
-        c[0] += t;
-        c[1] += b - 176;
-        c[2] += l;
-        c[3] += r - 256;
+        if(id<wEnemyWeapons)
+        {
+            int vl, vt, vr, vb;
+            q30_region_view_bounds(&vl, &vt, &vr, &vb);
+
+            if(x + txsz*16 < vl || y + tysz*16 < vt || x > vr || y > vb)
+                return true;
+        }
+
+        const bool fixed = id==ewFlame || id==ewFireTrail || id==ewWind;
+        c[0] += rt;
+        c[1] += fixed ? rt : rb - 176;
+        c[2] += rl;
+        c[3] += fixed ? rl : rr - 256;
     }
     
     if(x < c[2])
@@ -1465,14 +1489,14 @@ bool weapon::clip()
             
     if(id>wEnemyWeapons)
     {
-        if((x<(8-nb2) && dir==left)
-                || (y<(8-nb2) && dir==up)
-                || (x>(232+nb2) && dir==right)
-                || (y>(168+nb2) && dir==down))
+        if((x<(8-nb2)+rl && dir==left)
+                || (y<(8-nb2)+rt && dir==up)
+                || (x>(rr-24+nb2) && dir==right)
+                || (y>(rb-8+nb2) && dir==down))
             return true;
     }
     
-    if(x<0||y<0||x>240||y>176)
+    if(!region && (x<0||y<0||x>240||y>176))
         return true;
         
     return false;

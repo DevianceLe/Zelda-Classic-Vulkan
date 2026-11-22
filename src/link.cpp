@@ -4553,6 +4553,17 @@ bool LinkClass::animate(int)
 {
     int lsave=0;
 
+    // 3.0 scrolling region: once Link's centre is past a border inside it (checkscroll saw it last
+    // frame), he goes on to that screen now, at the start of the frame, as upstream's hero screen
+    // changes (HeroClass::animate's update_current_screen)
+    if(q30_region_on())
+    {
+        int ndx, ndy;
+
+        if(q30_region_crossed(int(x), int(y), &ndx, &ndy) >= 0)
+            q30_region_handoff(ndx, ndy);
+    }
+
     q30_cutscene_input();
     q30_slopes_begin();
 
@@ -16074,16 +16085,14 @@ void LinkClass::checkscroll()
         return;
         
     // 3.0 scrolling region: once Link's centre is past a border inside it, he goes on to that
-    // screen with no scroll (q30_regions.h); its other borders scroll as usual
+    // screen with no scroll at the start of the next frame (animate; q30_regions.h); its other
+    // borders scroll as usual
     if(q30_region_on())
     {
         int ndx, ndy;
 
         if(q30_region_crossed(int(x), int(y), &ndx, &ndy) >= 0)
-        {
-            q30_region_handoff(ndx, ndy);
             return;
-        }
     }
     
     if(toogam)

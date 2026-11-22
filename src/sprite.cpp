@@ -285,10 +285,18 @@ bool sprite::animate(int)
 // pixel all the time (Link's 1.5 pixel step, the swim steps), so it shows.
 extern word quest_header_zelda_version;     // qst.cpp
 
-static inline int q30_sprite_pixel(fix f)
+// Drawing a 3.0 scrolling region (q30_regions.cpp sets it around the play field's sprites): there
+// upstream's x and y are region-wide, never below 0, so a half rounds up, also where this screen's
+// own coordinates are below 0 (a sprite on a screen left of or above the current one).
+bool q30_draw_region_round = false;
+
+static inline int q30_sprite_pixel(fix f, bool region_axis = false)
 {
     if(quest_header_zelda_version < 0x255)
         return f.v>>16;
+
+    if(region_axis && q30_draw_region_round)
+        return (int)((f.v + 32768) >> 16);
 
     int r = f.v / 65536, rem = f.v % 65536;
 
@@ -302,7 +310,7 @@ static inline int q30_sprite_pixel(fix f)
 
 int sprite::real_x(fix fx)
 {
-    int rx=q30_sprite_pixel(fx);
+    int rx=q30_sprite_pixel(fx, true);
     
     switch(dir)
     {
@@ -319,7 +327,7 @@ int sprite::real_x(fix fx)
 
 int sprite::real_y(fix fy)
 {
-    return q30_sprite_pixel(fy);
+    return q30_sprite_pixel(fy, true);
 }
 
 int sprite::real_z(fix fz)

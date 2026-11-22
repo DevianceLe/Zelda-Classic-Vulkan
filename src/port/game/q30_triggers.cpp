@@ -38,6 +38,9 @@ void playLevelMusic();
 bool usekey();
 extern word msg_count;
 extern bool darkroom, naturaldark;
+extern int directWpn;               // link.cpp: the item Link attacks with directly (-1: none)
+extern int q30_shooter_sprite;      // weapons.cpp
+extern bool q30_shooter_sprite_used;
 
 static bool msgstr_blocking_step()
 {
@@ -4213,14 +4216,18 @@ weapon *fire_shooter_wpn(const Q30Combo *c, int wx, int wy, double radians, bool
 
     bool boss = (c->usrflags & 0x80) != 0;
     weapon *wpn;
+    int pitem = lw ? a_int(c->attributes[14]) : -1;
+
+    if(pitem <= 0 || pitem >= q30_items_end())
+        pitem = -1;
+
+    // (upstream passes attribute 10 as the weapon's sprite, 0 too: it replaces the default one,
+    // and the weapon's direction picks its tile from it)
+    q30_shooter_sprite = weapspr < MAXWPNS ? weapspr : -1;
+    q30_shooter_sprite_used = false;
 
     if(lw)
     {
-        int pitem = a_int(c->attributes[14]);
-
-        if(pitem <= 0 || pitem >= q30_items_end())
-            pitem = -1;
-
         int plvl = pitem > -1 ? itemsbuf[pitem].fam_type : 0;
         wpn = new weapon((fix)wx, (fix)wy, (fix)0, weapid, plvl, damage, dir, pitem, Link.getUID());
         Lwpns.add(wpn);
@@ -4231,13 +4238,15 @@ weapon *fire_shooter_wpn(const Q30Combo *c, int wx, int wy, double radians, bool
         Ewpns.add(wpn);
     }
 
-    if(weapspr > 0 && weapspr < MAXWPNS)
+    q30_shooter_sprite = -1;
+
+    if(!q30_shooter_sprite_used && weapspr >= 0 && weapspr < MAXWPNS)
         wpn->LOADGFX(weapspr);
 
     wpn->angular = angular;
     wpn->angle = radians;
     wpn->dir = dir;
-    wpn->step = (fix)steprate / 100.f * 1.f;
+    wpn->step = (fix)(steprate / 10000.0);     // (attribute 2: hundredths of a pixel; upstream's zfix c_attributes[2]/100)
     wpn->xofs = 0;
     wpn->yofs = playing_field_offset;
 
@@ -4401,8 +4410,29 @@ bool trigger_shooter(const Q30Combo *c, int wx, int wy)
                 if(d.override_flags & 0x8) hh = d.hysz;
             }
         }
-        else if(pitem > -1)
-            q30_vp_item_weapon_get(pitem, &suspend, &despawn);
+        else
+        {
+            // upstream's get_weapon_data_for_id: magic takes the book's weapon data (else the
+            // parent item's, else the wand Link uses), sparkles only with "sparkles inherit
+            // properties" (qr 355), the rest the parent item's
+            int wd_item = pitem;
+
+            if(weapid == wMagic)
+            {
+                wd_item = current_item_id(itype_book);
+
+                if(wd_item < 0 || wd_item >= q30_items_end())
+                    wd_item = pitem;
+
+                if(wd_item < 0 || wd_item >= q30_items_end())
+                    wd_item = directWpn > -1 ? directWpn : current_item_id(itype_wand);
+            }
+            else if((weapid == wSSparkle || weapid == wFSparkle) && !rule(355))
+                wd_item = -1;
+
+            if(wd_item > -1 && wd_item < q30_items_end())
+                q30_vp_item_weapon_get(wd_item, &suspend, &despawn);
+        }
 
         if(q30_vp_shot_held(suspend, despawn, tx, ty, tw, th, hx, hy, hw, hh))
             return false;

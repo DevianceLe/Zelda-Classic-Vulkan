@@ -30,10 +30,12 @@
 #include "link.h"
 #include "q30_regions.h"
 #include "q30_triggers.h"
+#include "zc_sys.h"
 
 extern LinkClass Link;
 extern sprite_list guys, items, Ewpns, Lwpns;
 extern bool Playing;
+extern int directWpn;               // link.cpp: the item Link attacks with directly (-1: none)
 
 // sprite.cpp (ZQuest builds it too, so it calls these only when the player has set them)
 extern bool (*q30_sprite_frozen_hook)(sprite_list *list, int index);
@@ -94,11 +96,28 @@ Range weapon_range(sprite *s)
 
     weapon *w = (weapon *)s;
     Range r = { w->id > wEnemyWeapons ? 48 : 0, 0 };
+    int item = w->parentitem;
+    const bool sparkle = w->id == wSSparkle || w->id == wFSparkle;
 
-    if(w->parentitem >= 0 && w->parentitem < q30_items_end())
+    // (magic: the book's weapon data, else its item's, else the wand Link uses; sparkles have
+    // none unless "sparkles inherit properties", qr 355)
+    if(w->id == wMagic)
     {
-        r.suspend = range_of(g_item_wsuspend, w->parentitem, 0);
-        r.despawn = range_of(g_item_wdespawn, w->parentitem, 0);
+        item = current_item_id(itype_book);
+
+        if(item < 0 || item >= q30_items_end())
+            item = w->parentitem;
+
+        if(item < 0 || item >= q30_items_end())
+            item = directWpn > -1 ? directWpn : current_item_id(itype_wand);
+    }
+
+    if(sparkle && !q30_quest_rule(355))
+        ;
+    else if(item >= 0 && item < q30_items_end())
+    {
+        r.suspend = range_of(g_item_wsuspend, item, 0);
+        r.despawn = range_of(g_item_wdespawn, item, 0);
     }
     else if(w->parentid > -1)
     {
@@ -190,7 +209,9 @@ bool within(const sprite *s, long range)
 }
 
 // upstream's is_sprite_in_view: itself, or (an enemy made of several sprites: the core and, after
-// it in the list, its segments, ids from 0x1000) any other part of it
+// it in the list, its segments, ids from 0x1000) any other part of it, or (an enemy's weapon: the
+// enemy is its parent, as upstream's weapon constructor makes it) the enemy that fired it or
+// another weapon of that enemy
 bool in_view(sprite_list *list, int index, int kind)
 {
     sprite *s = list->spr(index);
@@ -198,6 +219,30 @@ bool in_view(sprite_list *list, int index, int kind)
 
     if(range <= 0 || within(s, range))
         return true;
+
+    if(kind == K_EWPNS)
+    {
+        const long parent = ((weapon *)s)->parentid;
+        sprite *e = parent > -1 ? guys.getByUID(parent) : NULL;
+
+        if(!e)
+            return false;
+
+        const long er = suspend_range(K_GUYS, e);
+
+        if(er <= 0 || within(e, er))
+            return true;
+
+        for(int i = 0; i < list->Count(); ++i)
+        {
+            sprite *o = list->spr(i);
+
+            if(i != index && ((weapon *)o)->parentid == parent && (suspend_range(kind, o) <= 0 || within(o, suspend_range(kind, o))))
+                return true;
+        }
+
+        return false;
+    }
 
     if(kind != K_GUYS)
         return false;
@@ -214,7 +259,7 @@ bool in_view(sprite_list *list, int index, int kind)
         if(i > first && !(o->id & 0xF000))
             break;
 
-        if(i != index && suspend_range(kind, o) > 0 && within(o, suspend_range(kind, o)))
+        if(i != index && (suspend_range(kind, o) <= 0 || within(o, suspend_range(kind, o))))
             return true;
     }
 
@@ -569,6 +614,15 @@ void q30_region_sprlog()
             if(k == K_GUYS && getenv("ZC_REGION_SPRLOG_FLOOR"))
                 fprintf(f, "[floor %d clk %d]", int(((enemy *)s)->floor_y) + oy, s->clk);
         }
+
+    // (ZC_REGION_SPRLOG_LW: Link's weapons too, L)
+    static const bool lw = getenv("ZC_REGION_SPRLOG_LW") != NULL;
+
+    for(int i = 0; lw && i < Lwpns.Count(); ++i)
+    {
+        sprite *s = Lwpns.spr(i);
+        fprintf(f, " L%d,%d,%d,%d,%d%s", s->id, int(s->x) + ox, int(s->y) + oy, int(s->z), s->dir, g_frozen[K_LWPNS].count(s->getUID()) ? "*" : "");
+    }
 
     fputc('\n', f);
     fflush(f);

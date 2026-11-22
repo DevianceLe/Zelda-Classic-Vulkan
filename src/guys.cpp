@@ -2174,11 +2174,25 @@ void enemy::masked_draw(BITMAP *dest,int mx,int my,int mw,int mh)
     
     if(sub!=NULL)
     {
+        // A 3.0 scrolling region: upstream's sprite::draw takes the viewport off only on the frame
+        // and scroll buffers, so a sprite drawn into this window shows at its region-wide place, as
+        // if the camera stood at the region's top-left (a Wall Master out of the wall is seen only
+        // in the region's top-left screen).
+        const int ocx = q30_draw_cam_x, ocy = q30_draw_cam_y;
+        
+        if(q30_region_on())
+        {
+            q30_draw_cam_x = -q30_region_offset_x();
+            q30_draw_cam_y = -q30_region_offset_y();
+        }
+        
         xofs-=mx;
         yofs-=my;
         enemy::draw(sub);
         xofs+=mx;
         yofs+=my;
+        q30_draw_cam_x = ocx;
+        q30_draw_cam_y = ocy;
         destroy_bitmap(sub);
     }
     else
