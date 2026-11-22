@@ -36,6 +36,8 @@ extern int directItemB;
 
 bool q30_subscreen_anim_draw(BITMAP *dest, int dx, int dy);    // q30_scripts_subscr.h
 bool q30_sub_none_active();                                       // q30_scripts_subscr.h
+bool q30_run_subscreen_script();                                   // q30_scripts_subscr.h
+void q30_subscreen_script_reset();
 bool q30_sub_move_cursor(int dir, int &pos);                      // q30_scripts_subscr.h
 bool q30_sub_move_legacy(int dir, int &pos);                      // q30_scripts_subscr.h
 bool q30_subscreen_widget_script(int btns, int pos);              // q30_scripts_subscr.h
@@ -352,8 +354,15 @@ void dosubscr(miscQdata *misc)
 
     q30_subscreen_cursor(true, Bpos);   // 2.55/3.0: a page keeps its cursor (with the newer subscreens the first too)
 
-    for(ay=-distance; ay<=0; ay+=step)
+    // 2.55/3.0: the subscreen's own script runs once a frame while it is open (upstream's
+    // run_active_subscript; Waitdraw is invalid there, so its second call never runs it); it
+    // can close the subscreen
+    bool q30_exit = false;
+    q30_subscreen_script_reset();
+
+    for(ay=-distance; ay<=0 && !q30_exit; ay+=step)
     {
+        q30_exit = q30_run_subscreen_script();
         do_dcounters();
         Link.refill();
         //fill in the screen with black to prevent the hall of mirrors effect
@@ -385,6 +394,8 @@ void dosubscr(miscQdata *misc)
     do
     {
         load_control_state();
+        if(!q30_exit && (q30_exit = q30_run_subscreen_script()))
+            break;
         int pos = Bpos;
 
         // 2.55 and 3.0 quests: the buttons pressed this frame (not held from before), for page
@@ -545,13 +556,15 @@ void dosubscr(miscQdata *misc)
         if(rSbtn())
             done=true;
     }
-    while(!done);
+    while(!done && !q30_exit);
 
     q30_subscreen_cursor(false, Bpos);
 
     // (upstream starts closing from where the opening stopped, at most 0)
     for(ay=zc_min(ay,0); ay>=-distance; ay-=step)
     {
+        if(!q30_exit)
+            q30_exit = q30_run_subscreen_script();
         do_dcounters();
         Link.refill();
         //fill in the screen with black to prevent the hall of mirrors effect

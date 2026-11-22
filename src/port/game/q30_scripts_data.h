@@ -231,6 +231,275 @@ static void z30d_set_dmap_music_path(int id, const std::string &path)
     }
 }
 
+// A DMap's gravity and terminal velocity (DMAP v23+ with dmfCUSTOM_GRAVITY; zfix values, x10000),
+// which only scripts look at here; the reader keeps them (q255_maps.cpp).
+static std::map<int, std::pair<long, long> > zasm30_dmap_gravity;
+
+void q30_set_dmap_gravity(int dmap, long gravity, long terminal_v)
+{
+    if(dmap < 0)
+        zasm30_dmap_gravity.clear();
+    else
+        zasm30_dmap_gravity[dmap] = std::make_pair(gravity, terminal_v);
+}
+
+enum { Z30D_QR_SCRIPTS_SHARE_INITD = 604 };     // upstream's qr_SCRIPTS_SHARE_INITD
+
+// A DMap's script slot: its script and InitD (none: 0s).
+static Q30ScriptRef z30d_dmap_slot(long id, int kind)
+{
+    const Q30ScriptRef *r = unsigned(id) < MAXDMAPS ? q30_dmap_script((int)id, kind) : NULL;
+    return r ? *r : Q30ScriptRef();
+}
+
+// the rest of dmapdata.cpp: the fields 2.53's dmap has (map tiles, track), the tables beside it
+// (floor, mirror, subscreens, intro string, music object, camera, gravity), the subscreen scripts
+// and Charted[] (game->bmaps)
+static bool z30d_dmap_more_reg(const long arg, long &ret, const long value, const bool write)
+{
+    const long id = Z30_REF(DMAPDATA);
+    const bool ok = unsigned(id) < MAXDMAPS;
+    long n = 0;
+
+    switch(arg)
+    {
+    case Z30R_DMAPDATAFLOOR:
+        if(!write) ret = ok ? (byte)q30_dmap_floor((int)id) * 10000 : 0;
+        else if(z30d_dmap_ok(id)) q30_set_dmap_floor((int)id, (byte)(value / 10000));
+        return true;
+    case Z30R_DMAPDATAINTROSTRINGID:
+        if(!write) ret = ok ? q30_dmap_intro_string((int)id) * 10000 : 0;
+        else if(z30d_dmap_ok(id))
+            q30_set_dmap_texts((int)id, z30d_dmap_title((int)id).c_str(), (long)(dword)(value / 10000));
+        return true;
+    case Z30R_DMAPDATAMIRRDMAP:
+        if(!write) ret = ok ? q30_dmap_mirror((int)id) * 10000 : 0;
+        else if(z30d_dmap_ok(id)) q30_set_dmap_mirror((int)id, (int)z30d_bound(value / 10000, -1, MAXDMAPS - 1));
+        return true;
+    case Z30R_DMAPDATASUBSCRO:
+    case Z30R_DMAPDATASUBSCRM:
+    {
+        const bool map = arg == Z30R_DMAPDATASUBSCRM;
+
+        if(!write)
+        {
+            ret = ok ? (byte)(map ? q30_dmap_map_subscreen((int)id) : q30_dmap_overlay_subscreen((int)id)) * 10000 : 0;
+            return true;
+        }
+
+        if(!z30d_dmap_ok(id))
+            return true;
+
+        int overlay = q30_dmap_overlay_subscreen((int)id), mapsub = q30_dmap_map_subscreen((int)id);
+        const int v = (byte)(value / 10000);
+        const bool changed = map ? mapsub != v : overlay != v;
+        (map ? mapsub : overlay) = v;
+        q30_set_dmap_subscreens((int)id, overlay, mapsub);
+
+        if(changed && id == currdmap)
+            update_subscreens(-1);
+        return true;
+    }
+    case Z30R_DMAPDATAMINIMAPTILE: case Z30R_DMAPDATAMINIMAPCSET:
+    case Z30R_DMAPDATALARGEMAPTILE: case Z30R_DMAPDATALARGEMAPCSET:
+    {
+        if(!ok || !z30d_index(Z30_INDEX, 2, false, n))
+        {
+            if(!write)
+                ret = z30_array_default(-10000);
+            return true;
+        }
+
+        dmap &d = DMaps[id];
+        const bool tile = arg == Z30R_DMAPDATAMINIMAPTILE || arg == Z30R_DMAPDATALARGEMAPTILE;
+        const bool mini = arg == Z30R_DMAPDATAMINIMAPTILE || arg == Z30R_DMAPDATAMINIMAPCSET;
+
+        if(tile)
+        {
+            tile_id &t = mini ? (n ? d.minimap_2_tile : d.minimap_1_tile) : (n ? d.largemap_2_tile : d.largemap_1_tile);
+            if(!write) ret = t * 10000;
+            else t = (tile_id)(value / 10000);
+        }
+        else
+        {
+            byte &c = mini ? (n ? d.minimap_2_cset : d.minimap_1_cset) : (n ? d.largemap_2_cset : d.largemap_1_cset);
+            if(!write) ret = c * 10000;
+            else c = (byte)(value / 10000);
+        }
+        return true;
+    }
+    // the DMap's music object (upstream's find_or_make_dmap_music); a DMap that plays 2.53's
+    // fields has only its track here
+    case Z30R_DMAPDATALOOPSTART: case Z30R_DMAPDATALOOPEND: case Z30R_DMAPDATAXFADEIN:
+    case Z30R_DMAPDATAXFADEOUT: case Z30R_DMAPDATAMUISCTRACK:
+    {
+        const int field = arg == Z30R_DMAPDATALOOPSTART ? q30md_LOOPSTART : arg == Z30R_DMAPDATALOOPEND ? q30md_LOOPEND
+                          : arg == Z30R_DMAPDATAXFADEIN ? q30md_XFADEIN : arg == Z30R_DMAPDATAXFADEOUT ? q30md_XFADEOUT : q30md_TRACK;
+        const long m = ok ? q30_dmap_music((int)id) : 0;
+
+        if(!write)
+            ret = m > 0 ? q30_musicdata_get(m, field) : (ok && field == q30md_TRACK) ? DMaps[id].tmusictrack * 10000 : 0;
+        else if(m > 0)
+            q30_musicdata_set(m, field, field == q30md_TRACK ? (byte)(value / 10000) * 10000L : value);
+        else if(ok && field == q30md_TRACK)
+            DMaps[id].tmusictrack = (byte)(value / 10000);
+        return true;
+    }
+    case Z30R_DMAPDATA_MUSIC:
+        if(!write) ret = ok ? q30_dmap_music((int)id) : 0;
+        else if(z30d_dmap_ok(id)) q30_set_dmap_music_script((int)id, value);
+        return true;
+    case Z30R_DMAPDATA_GRAVITY_STRENGTH:
+    case Z30R_DMAPDATA_TERMINAL_VELOCITY:
+    {
+        const bool g = arg == Z30R_DMAPDATA_GRAVITY_STRENGTH;
+
+        if(!write)
+        {
+            std::map<int, std::pair<long, long> >::const_iterator it = zasm30_dmap_gravity.find((int)id);
+            ret = (!ok || it == zasm30_dmap_gravity.end()) ? 0 : g ? it->second.first : it->second.second;
+        }
+        else if(z30d_dmap_ok(id))
+        {
+            std::pair<long, long> &p = zasm30_dmap_gravity[(int)id];
+            (g ? p.first : p.second) = value;
+        }
+        return true;
+    }
+    // the DMap's own camera follow settings (in effect with dmfCUSTOM_VIEWPORT_FOLLOW; q30_regions.cpp)
+    case Z30R_DMAPDATA_VIEWPORT_DEADZONE_WIDTH: case Z30R_DMAPDATA_VIEWPORT_DEADZONE_HEIGHT:
+    case Z30R_DMAPDATA_VIEWPORT_LOOKAHEAD_X: case Z30R_DMAPDATA_VIEWPORT_LOOKAHEAD_Y:
+    case Z30R_DMAPDATA_VIEWPORT_LOOKAHEAD_SPEED: case Z30R_DMAPDATA_VIEWPORT_RECENTER_SPEED:
+    case Z30R_DMAPDATA_VIEWPORT_RECENTER_DELAY:
+    {
+        const int which = arg == Z30R_DMAPDATA_VIEWPORT_DEADZONE_WIDTH ? Q30_VP_DEADZONE_W
+                          : arg == Z30R_DMAPDATA_VIEWPORT_DEADZONE_HEIGHT ? Q30_VP_DEADZONE_H
+                          : arg == Z30R_DMAPDATA_VIEWPORT_LOOKAHEAD_X ? Q30_VP_LOOKAHEAD_X
+                          : arg == Z30R_DMAPDATA_VIEWPORT_LOOKAHEAD_Y ? Q30_VP_LOOKAHEAD_Y
+                          : arg == Z30R_DMAPDATA_VIEWPORT_LOOKAHEAD_SPEED ? Q30_VP_LOOKAHEAD_SPEED
+                          : arg == Z30R_DMAPDATA_VIEWPORT_RECENTER_SPEED ? Q30_VP_RECENTER_SPEED : Q30_VP_RECENTER_DELAY;
+        const bool speed = which == Q30_VP_LOOKAHEAD_SPEED || which == Q30_VP_RECENTER_SPEED;
+
+        if(!write)
+        {
+            ret = ok ? q30_dmap_viewport_follow((int)id, which) : 0;
+            if(!speed)
+                ret *= 10000;
+            return true;
+        }
+
+        if(!ok)
+            return true;
+
+        if(speed)
+        {
+            // fractional pixels a frame, 0 to 240 (upstream's validate_viewport_follow_speed)
+            if(value < 0 || value > 240 * 10000)
+                Z_scripterrlog("Invalid value: %ld.%04ld - must be >= 0 and <= 240\n", value / 10000, labs(value % 10000));
+            else
+                q30_set_dmap_viewport_follow((int)id, which, value);
+            return true;
+        }
+
+        const long v = value / 10000;
+        const long hi = which == Q30_VP_DEADZONE_W ? 240 : which == Q30_VP_DEADZONE_H ? 160 : which == Q30_VP_RECENTER_DELAY ? 65535 : 127;
+        const long lo = which == Q30_VP_LOOKAHEAD_X || which == Q30_VP_LOOKAHEAD_Y ? -128 : 0;
+
+        if(v < lo || v > hi)
+            Z_scripterrlog("Invalid value: %ld - must be >= %ld and <= %ld\n", v, lo, hi);
+        else
+            q30_set_dmap_viewport_follow((int)id, which, v);
+        return true;
+    }
+    case Z30R_DMAPDATAPSUBSCRIPT:
+    {
+        Q30ScriptRef r = z30d_dmap_slot(id, q30_dmap_passive_subscreen);
+
+        if(!write)
+        {
+            ret = r.script * 10000;
+            return true;
+        }
+
+        if(!z30d_dmap_ok(id))
+            return true;
+
+        const word v = (word)z30d_bound(value / 10000, 0, Q30_DMAP_SLOTS - 1);
+
+        // (upstream deallocates what the script owned; the same script running on this DMap goes on)
+        if(id == currdmap && v != r.script)
+            zasm30_drop_instance(SCRIPT_PASSIVESUB, 0);
+
+        q30_set_dmap_script((int)id, q30_dmap_passive_subscreen, v, r.initd);
+        return true;
+    }
+    case Z30R_DMAPDATASUBINITD:
+    case Z30R_DMAPDATAPSUBINITD:
+    {
+        const int kind = arg == Z30R_DMAPDATASUBINITD ? q30_dmap_active_subscreen : q30_dmap_passive_subscreen;
+
+        if(!ok || !z30d_index(Z30_INDEX, 8, false, n))
+        {
+            if(!write)
+                ret = z30_array_default(-10000);
+            return true;
+        }
+
+        Q30ScriptRef r = z30d_dmap_slot(id, kind);
+
+        if(!write)
+        {
+            ret = r.initd[n];
+            return true;
+        }
+
+        r.initd[n] = value;
+        q30_set_dmap_script((int)id, kind, r.script, r.initd);
+
+        if(kind == q30_dmap_active_subscreen && q30_compat_rule(Z30D_QR_SCRIPTS_SHARE_INITD))
+        {
+            Q30ScriptRef p = z30d_dmap_slot(id, q30_dmap_passive_subscreen);
+            p.initd[n] = value;
+            q30_set_dmap_script((int)id, q30_dmap_passive_subscreen, p.script, p.initd);
+        }
+        return true;
+    }
+    // Charted[128]: the map marks of the DMap's screens as 2.53 keeps them (game->bmaps, 8 x 8 a
+    // DMap, placed as markBmap places them); a column that layout has no room for reads unmarked
+    case Z30R_DMAPDATACHARTED:
+    {
+        if(!ok || !z30d_index(Z30_INDEX, MAPSCRSNORMAL, false, n))
+        {
+            if(!write)
+                ret = z30_array_default(-10000);
+            return true;
+        }
+
+        const dmap &d = DMaps[id];
+        const bool overw = (d.type & dmfTYPE) == dmOVERW;
+        const int col = (int)(n & 15) - (overw ? 0 : d.xoff);
+
+        if(overw ? unsigned(col) > 15 : unsigned(col) > 7)
+        {
+            if(!write)
+                ret = -10000;
+            return true;
+        }
+
+        const long di = ((id - 1) << 6) + ((n >> 4) << 3) + col;
+        const bool stored = col < 8 && di >= 0 && di < MAXDMAPS * 64;
+
+        if(!write)
+            ret = stored ? game->bmaps[di] * 10000 : 0;
+        else if(stored)
+            game->bmaps[di] = (byte)z30d_bound(value / 10000, 0, 0x8F);
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
 static bool z30d_dmap_reg(const long arg, long &ret, const long value, const bool write)
 {
     const long id = Z30_REF(DMAPDATA);
@@ -274,7 +543,7 @@ static bool z30d_dmap_reg(const long arg, long &ret, const long value, const boo
         return true;
     }
     default:
-        return false;
+        return z30d_dmap_more_reg(arg, ret, value, write);
     }
 }
 
@@ -480,31 +749,25 @@ static bool z30d_item_reg(const long arg, long &ret, const long value, const boo
             return true;
         }
 
-        // (an item whose weapon has no script keeps its arguments here, as the weapon table
-        // keeps only scripted ones)
-        static std::map<int, std::vector<long> > unscripted;
-        const Q30ScriptRef *r = q30_item_weapon_script((int)id);
-        std::vector<long> &u = unscripted[(int)id];
+        // (the item's weapon data has them: the item reader's record, which the weapons the
+        // item makes take on; the weapon script table follows it)
+        Q30ItemRec *rec = q30_item_rec((int)id);
 
-        if(u.size() != 8)
-            u.assign(8, 0);
+        if(!rec)
+        {
+            if(!write)
+                ret = 0;
+            return true;
+        }
 
         if(!write)
         {
-            ret = r ? r->initd[n] : u[n];
+            ret = rec->weap.initd[n];
             return true;
         }
 
-        if(!r)
-        {
-            u[n] = value;
-            return true;
-        }
-
-        long initd[8];
-        memcpy(initd, r->initd, sizeof(initd));
-        initd[n] = value;
-        q30_set_item_weapon_script((int)id, r->script, initd);
+        rec->weap.initd[n] = value;
+        q30_set_item_weapon_script((int)id, rec->weap.script, rec->weap.initd);
         return true;
     }
     }
@@ -572,7 +835,7 @@ static bool z30d_msg_reg(const long arg, long &ret, const long value, const bool
     case Z30R_MESSAGEDATA_ICON_SCROLLDOWN_ANCHOR: case Z30R_MESSAGEDATA_ICON_SCROLLDOWN_X: case Z30R_MESSAGEDATA_ICON_SCROLLDOWN_Y:
     case Z30R_MESSAGEDATA_SCROLL_SPEED_ACTIVE: case Z30R_MESSAGEDATA_SCROLL_SPEED_PASSIVE: case Z30R_MESSAGEDATA_ADVSFX:
     case Z30R_MESSAGEDATA_MENUMOVE_SFX: case Z30R_MESSAGEDATA_MENUCLOSE_SFX: case Z30R_MESSAGEDATAMARGINS:
-    case Z30R_MESSAGEDATAFLAGSARR:
+    case Z30R_MESSAGEDATAFLAGSARR: case Z30R_MESSAGEDATATEXTWID:
         break;
     default:
         return false;
@@ -650,6 +913,14 @@ static bool z30d_msg_reg(const long arg, long &ret, const long value, const bool
         case Z30R_MESSAGEDATAPORTY: r = s.portrait_y; break;
         case Z30R_MESSAGEDATASFX: r = s.sfx; break;
         case Z30R_MESSAGEDATATEXTHEI: r = text_height(get_zc_font(s.font)); break;
+        case Z30R_MESSAGEDATATEXTWID:       // (upstream's do_msgwidth: the text as it is, trailing spaces off)
+        {
+            std::string t = q ? s.text : std::string(m.s);
+            const size_t last = t.find_last_not_of(' ');
+            t = last == std::string::npos ? std::string() : t.substr(0, last + 1);
+            r = text_length(get_zc_font(q ? s.font : m.font), t.c_str());
+            break;
+        }
         case Z30R_MESSAGEDATATILE: r = s.tile; break;
         case Z30R_MESSAGEDATATRANS: r = s.trans ? 1 : 0; break;
         case Z30R_MESSAGEDATAVSPACE: r = s.vspace; break;
@@ -702,7 +973,7 @@ static bool z30d_msg_reg(const long arg, long &ret, const long value, const bool
         s.sfx = (word)z30d_bound(v, 0, Q30_MAX_SFX);
         m.sfx = (byte)(s.sfx < 256 ? s.sfx : 0);
         break;
-    case Z30R_MESSAGEDATATEXTHEI: break;
+    case Z30R_MESSAGEDATATEXTHEI: case Z30R_MESSAGEDATATEXTWID: break;
     case Z30R_MESSAGEDATATILE: s.tile = z30d_bound(v, 0, NEWMAXTILES); m.tile = (tile_id)(s.tile < NEWMAXTILES ? s.tile : 0); break;
     case Z30R_MESSAGEDATATRANS: m.trans = s.trans = value != 0; break;
     case Z30R_MESSAGEDATAVSPACE: m.vspace = s.vspace = (byte)z30d_bound(v, 0, 255); break;
@@ -1583,7 +1854,7 @@ static word *z30d_combo_aclk(long id)
 
 // weapondata objects that are views of a combo's weapon data (upstream's wdata_type): one ref
 // per (type, index), as upstream's make_new_user_weapondata reuses them
-enum { Z30D_WDV_COMBO_MISC = 1, Z30D_WDV_COMBO_LIFT };
+enum { Z30D_WDV_COMBO_MISC = 1, Z30D_WDV_COMBO_LIFT, Z30D_WDV_NPCDATA, Z30D_WDV_NPC, Z30D_WDV_ITEM };
 static std::map<std::pair<int, long>, long> zasm30_weapdata_view_refs;
 static std::map<long, std::pair<int, long> > zasm30_weapdata_views;
 
@@ -1600,12 +1871,22 @@ static long z30d_weapdata_view(int type, long index)
     return ref;
 }
 
+static Q30WeaponData *z30d_guy_weap_view(bool npc, long index);    // (r17, below)
+
 static Q30WeaponData *z30d_weapdata_view_data(long ref)
 {
     std::map<long, std::pair<int, long> >::iterator it = zasm30_weapdata_views.find(ref);
 
     if(it == zasm30_weapdata_views.end())
         return NULL;
+
+    if(it->second.first == Z30D_WDV_NPCDATA || it->second.first == Z30D_WDV_NPC)
+        return z30d_guy_weap_view(it->second.first == Z30D_WDV_NPC, it->second.second);
+    if(it->second.first == Z30D_WDV_ITEM)  // an item's weapon data (the item reader's record)
+    {
+        Q30ItemRec *r = q30_item_rec((int)it->second.second);
+        return r ? &r->weap : NULL;
+    }
 
     Q30Combo *c = q30_combo_for_write((int)it->second.second);
 
@@ -2018,6 +2299,300 @@ static bool z30d_scr_reg(const long arg, long &ret, const long value, const bool
     return true;
 }
 
+// What 2.53's mapscr has no room for (index map*MAPSCRS+screen): the lens layers (MAP v28+), the
+// hidden layers and hidden script draw layers (v22+), the gravity (v35+, zfix values, x10000) and
+// entry_x / entry_y (only scripts set them). Only scripts look at them here.
+struct Z30dScreenExtra
+{
+    byte lens_show, lens_hide, hidelayers, hidescriptlayers, entry_x, entry_y;
+    long gravity, terminal_v;
+};
+static std::map<int, Z30dScreenExtra> zasm30_screen_extras;
+
+void q30_set_screen_extras(int index, byte lens_show, byte lens_hide, byte hidelayers, byte hidescriptlayers,
+                           long gravity, long terminal_v, int which)
+{
+    if(index < 0)
+    {
+        zasm30_screen_extras.clear();
+        return;
+    }
+
+    Z30dScreenExtra &e = zasm30_screen_extras[index];
+
+    if(which & 1) { e.lens_show = lens_show; e.lens_hide = lens_hide; }
+    if(which & 2) { e.hidelayers = hidelayers; e.hidescriptlayers = hidescriptlayers; }
+    if(which & 4) { e.gravity = gravity; e.terminal_v = terminal_v; }
+}
+
+enum { Z30D_QR_CLEARINITDONSCRIPTCHANGE = 655 };     // upstream's qr_CLEARINITDONSCRIPTCHANGE
+bool q30_get_exstate(int index, int bit);   // q30_triggers.cpp
+void q30_set_exstate(int index, int bit, bool on);
+static int zasm30_portal_count();            // q30_scripts_sys.h
+static long zasm30_portal_uid(int i);
+static long zasm30_load_ffc(long id);       // q30_scripts_region.h
+
+// A sprite list's UIDs, read only (upstream's Screen->NPCs[] and the others)
+static bool z30d_uid_array(sprite_list &l, long &ret, bool write)
+{
+    long n;
+
+    if(!write)
+        ret = z30_array_index(Z30_INDEX, l.Count(), n) ? l.spr((int)n)->getUID() : 0;
+    else
+        Z_scripterrlog("Tried to write to a read-only array\n");
+    return true;
+}
+
+// upstream's mapdata-> and Screen-> fields of these, the screen's flag bits and warp return
+// squares, its region id and script, and the screen's sprite lists
+static bool z30d_scr_more_reg(const long arg, long &ret, const long value, const bool write)
+{
+    enum { X_NONE, X_ENTRYX, X_ENTRYY, X_GRAV, X_TERMV, X_LENSHIDE, X_LENSSHOW, X_HIDE, X_HIDESCR, X_SWRET, X_TWRET,
+           X_FLAG, X_FLAGS, X_SCRFLAGSD, X_REGION, X_SCRIPT, X_EXSTATE };
+    int f = X_NONE;
+    bool screen = false;
+
+    switch(arg)
+    {
+    case Z30R_SCREEN_NPCS: return z30d_uid_array(guys, ret, write);
+    case Z30R_SCREEN_ITEMS: return z30d_uid_array(items, ret, write);
+    case Z30R_SCREEN_LWEAPONS: return z30d_uid_array(Lwpns, ret, write);
+    case Z30R_SCREEN_EWEAPONS: return z30d_uid_array(Ewpns, ret, write);
+    case Z30R_SCREEN_PORTALS:
+    {
+        long n;
+        if(write)
+            Z_scripterrlog("Tried to write to a read-only array\n");
+        else
+            ret = z30_array_index(Z30_INDEX, zasm30_portal_count(), n) ? zasm30_portal_uid((int)n) : 0;
+        return true;
+    }
+    case Z30R_PORTALCOUNT:
+        if(!write)
+            ret = zasm30_portal_count() * 10000;
+        return true;
+    // Screen->FFCs[]: each FFC's reference, as this engine numbers them (upstream gives the sprite UID)
+    case Z30R_SCREEN_FFCS:
+    {
+        long n;
+        if(write)
+            Z_scripterrlog("Tried to write to a read-only array\n");
+        else
+            ret = z30_array_index(Z30_INDEX, Q30_MAXFFCS * (q30_region_id() ? 64 : 1), n) ? zasm30_load_ffc(n) : 0;
+        return true;
+    }
+    // Screen->NumFFCs[id]: the FFC has a combo (an id with none reads false)
+    case Z30R_SCREENDATANUMFF:
+    {
+        if(write)
+            return true;
+
+        const long id = Z30_INDEX;
+        ret = 0;
+
+        if(id >= 0 && id < Q30_MAXFFCS && tmpscr->ffdata[id])
+            ret = 10000;
+        return true;
+    }
+    case Z30R_MAPDATAENTRYX: f = X_ENTRYX; break;
+    case Z30R_MAPDATAENTRYY: f = X_ENTRYY; break;
+    case Z30R_MAPDATA_GRAVITY_STRENGTH: f = X_GRAV; break;       case Z30R_SCREENDATA_GRAVITY_STRENGTH: f = X_GRAV; screen = true; break;
+    case Z30R_MAPDATA_TERMINAL_VELOCITY: f = X_TERMV; break;     case Z30R_SCREENDATA_TERMINAL_VELOCITY: f = X_TERMV; screen = true; break;
+    case Z30R_MAPDATALENSHIDES: f = X_LENSHIDE; break;           case Z30R_SCREENLENSHIDES: f = X_LENSHIDE; screen = true; break;
+    case Z30R_MAPDATALENSSHOWS: f = X_LENSSHOW; break;           case Z30R_SCREENLENSSHOWS: f = X_LENSSHOW; screen = true; break;
+    case Z30R_MAPDATALAYERINVIS: f = X_HIDE; break;
+    case Z30R_MAPDATASCRIPTDRAWS: f = X_HIDESCR; break;          case Z30R_SCREENDATASCRIPTDRAWS: f = X_HIDESCR; screen = true; break;
+    case Z30R_MAPDATASWARPRETSQR: f = X_SWRET; break;
+    case Z30R_MAPDATATWARPRETSQR: f = X_TWRET; break;
+    case Z30R_MAPDATA_FLAG: f = X_FLAG; break;
+    case Z30R_SCREENDATAFLAGS: f = X_FLAGS; screen = true; break;
+    case Z30R_MAPDATASCREENFLAGSD: f = X_SCRFLAGSD; break;
+    case Z30R_MAPDATAREGIONID: f = X_REGION; break;
+    case Z30R_MAPDATASCRIPT: f = X_SCRIPT; break;                case Z30R_SCREENSCRIPT: f = X_SCRIPT; screen = true; break;
+    case Z30R_MAPDATAEXSTATED: f = X_EXSTATE; break;
+    default:
+        return false;
+    }
+
+    const long ref = Z30_REF(MAPDATA);
+    mapscr *m = screen ? tmpscr : z30_mapdata(ref);
+    const int index = z30d_screen_index(ref, screen);
+
+    if(!m)
+    {
+        if(!write)
+            ret = (f == X_GRAV || f == X_TERMV) ? -10000 : 0;
+        return true;
+    }
+
+    // the arrays: their index first
+    long size = 0, n = 0;
+
+    switch(f)
+    {
+    case X_LENSHIDE: case X_LENSSHOW: case X_HIDE: case X_HIDESCR: size = 7; break;
+    case X_SWRET: case X_TWRET: size = 4; break;
+    case X_FLAG: size = 8 * 11; break;
+    case X_FLAGS: size = 11; break;
+    case X_SCRFLAGSD: size = 10; break;
+    case X_EXSTATE: size = 32; break;
+    default: break;
+    }
+
+    if(size && !z30d_index(Z30_INDEX, size, f == X_SCRFLAGSD, n))
+    {
+        if(!write)
+            ret = (f == X_SWRET || f == X_TWRET || f == X_FLAGS) ? z30_array_default(-10000) : 0;
+        return true;
+    }
+
+    static Z30dScreenExtra none;
+    memset(&none, 0, sizeof(none));
+    Z30dScreenExtra &e = index >= 0 ? zasm30_screen_extras[index] : none;
+    const long v = value / 10000;
+
+    switch(f)
+    {
+    case X_ENTRYX: case X_ENTRYY:
+    {
+        byte &b = f == X_ENTRYX ? e.entry_x : e.entry_y;
+        if(!write) ret = b * 10000;
+        else b = (byte)v;
+        return true;
+    }
+    case X_GRAV: case X_TERMV:
+    {
+        long &g = f == X_GRAV ? e.gravity : e.terminal_v;
+        if(!write) ret = g;
+        else g = value;
+        return true;
+    }
+    case X_LENSHIDE: case X_LENSSHOW: case X_HIDE: case X_HIDESCR:
+    {
+        byte &b = f == X_LENSHIDE ? e.lens_hide : f == X_LENSSHOW ? e.lens_show : f == X_HIDE ? e.hidelayers : e.hidescriptlayers;
+
+        if(!write)
+        {
+            ret = (b & (1 << n)) ? 10000 : 0;
+            return true;
+        }
+
+        b = (byte)(value ? (b | (1 << n)) : (b & ~(1 << n)));
+
+        if(value && f == X_LENSHIDE)        // (a layer the lens hides it doesn't also show)
+            e.lens_show &= (byte)~(1 << n);
+        else if(value && f == X_LENSSHOW)
+            e.lens_hide &= (byte)~(1 << n);
+        return true;
+    }
+    case X_SWRET: case X_TWRET:
+    {
+        const int shift = (f == X_SWRET ? 8 : 0) + (int)n * 2;
+
+        if(!write)
+            ret = ((m->warpreturnc >> shift) & 3) * 10000;
+        else
+            m->warpreturnc = (word)((m->warpreturnc & ~(3 << shift)) | (z30d_bound(v, 0, 3) << shift));
+        return true;
+    }
+    case X_FLAG: case X_FLAGS:
+    {
+        // (this engine's screen has 10 flag bytes; upstream's 11th reads 0)
+        const long byte_i = f == X_FLAG ? n / 8 : n;
+        byte dummy = 0;
+        byte &b = byte_i < 10 ? (&m->flags)[byte_i] : dummy;
+
+        if(f == X_FLAGS)
+        {
+            if(!write) ret = b * 10000;
+            else b = (byte)v;
+        }
+        else if(!write)
+            ret = (b & (1 << (n % 8))) ? 10000 : 0;
+        else
+            b = (byte)(value ? (b | (1 << (n % 8))) : (b & ~(1 << (n % 8))));
+        return true;
+    }
+    case X_SCRFLAGSD:
+        if(!write)
+            ret = get_screenflags(m, (int)n);
+        else
+            Z_scripterrlog("Tried to write to a read-only array\n");
+        return true;
+    case X_REGION:
+    {
+        const int map = index >= 0 ? index / MAPSCRS : currmap, scr = index >= 0 ? index % MAPSCRS : currscr;
+        int id = 0;
+
+        if(map < (int)q255_map_region_ids.size() && scr < 128 && q255_map_region_ids[map].size() >= 64)
+        {
+            const byte b = q255_map_region_ids[map][(scr / 16) * 8 + (scr % 16) / 2];
+            id = (scr & 1) ? (b & 0xF) : ((b >> 4) & 0xF);
+        }
+
+        if(!write)
+            ret = id * 10000;
+        else if(v < 0 || v > 9)
+            Z_scripterrlog("Invalid value: %ld - must be >= 0 and <= 9\n", v);
+        else if(map < (int)q255_map_region_ids.size() && scr < 128 && q255_map_region_ids[map].size() >= 64)
+        {
+            // (the regions are worked out again when a screen next loads)
+            byte &b = q255_map_region_ids[map][(scr / 16) * 8 + (scr % 16) / 2];
+            b = (byte)((scr & 1) ? ((b & 0xF0) | v) : ((b & 0x0F) | (v << 4)));
+        }
+        return true;
+    }
+    case X_SCRIPT:
+    {
+        std::map<int, Zasm30ScreenScript>::iterator it = index >= 0 ? zasm30_screen_scripts.find(index) : zasm30_screen_scripts.end();
+
+        if(!write)
+        {
+            ret = it != zasm30_screen_scripts.end() ? it->second.script * 10000 : 0;
+            return true;
+        }
+
+        if(index < 0)
+            return true;
+
+        Zasm30ScreenScript &s = zasm30_screen_scripts[index];
+
+        if(it == zasm30_screen_scripts.end())
+            memset(s.initd, 0, sizeof(s.initd));
+
+        if(q30_quest_rule(Z30D_QR_CLEARINITDONSCRIPTCHANGE))
+            memset(s.initd, 0, sizeof(s.initd));
+
+        s.script = (word)z30d_bound(v, 0, 255);
+
+        // the current screen's script starts again (upstream's on_reassign_script_engine_data)
+        if(index == currmap * MAPSCRS + currscr)
+            zasm30_screen_index = -1;
+        return true;
+    }
+    case X_EXSTATE:     // (upstream's get_mi: the screen's state, as the triggers keep it)
+    {
+        const int mi = z30_mapdata_mi(ref);
+
+        if(mi < 0)
+        {
+            if(!write)
+                ret = 0;
+            return true;
+        }
+
+        if(!write)
+            ret = q30_get_exstate(mi, (int)n) ? 10000 : 0;
+        else
+            q30_set_exstate(mi, (int)n, value != 0);
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
 // npcdata-> fields 2.53's guydata holds (upstream's GET/SET_NPCDATA_VAR_*)
 static bool z30d_npcdata_plain_reg(const long arg, long &ret, const long value, const bool write)
 {
@@ -2069,7 +2644,836 @@ static bool z30d_npcdata_plain_reg(const long arg, long &ret, const long value, 
     return true;
 }
 
+// ---- r17: npcdata fields guydata has no room for, an enemy's weapon data ------------------------
+
+int q30_guy_death_sprite(int guy);                              // guys.cpp
+int q30_guy_spawn_sprite(int guy);
+void q30_set_guy_death_sprite(int guy, int death, int spawn);
+byte q255_guy_defense_253(byte d);                              // q255_guys.cpp: 2.53's outcome for a stored one
+int q30_guy_defense(int guy, int slot);                         // q30_triggers.cpp
+
+// what the 2.55/3.0 enemy reader keeps of each enemy (q255_guys.cpp)
+static std::map<int, Q30GuyData> zasm30_guy_data;
+// each enemy's own copy of its weapon data (upstream's enemy::weap_data), by uid
+static std::map<long, Q30WeaponData> zasm30_npc_weapdata;
+
+void q30_set_guy_data(int guy, const Q30GuyData &d)
+{
+    zasm30_guy_data[guy] = d;
+}
+
+static Q30GuyData &z30d_guy(long id)
+{
+    std::map<int, Q30GuyData>::iterator it = zasm30_guy_data.find((int)id);
+
+    if(it == zasm30_guy_data.end())
+        it = zasm30_guy_data.insert(std::make_pair((int)id, Q30GuyData())).first;
+
+    return it->second;
+}
+
+// upstream's enemy constructor: weap_data = d->weap_data
+void q30_npc_weapdata_made(sprite *e)
+{
+    const int id = e->id & 0xFFF;
+    std::map<int, Q30GuyData>::const_iterator it = zasm30_guy_data.find(id);
+
+    if(it != zasm30_guy_data.end())
+        zasm30_npc_weapdata[e->getUID()] = it->second.weap;
+    else
+        zasm30_npc_weapdata.erase(e->getUID());
+}
+
+static void z30d_npc_weapdata_released(long uid)
+{
+    zasm30_npc_weapdata.erase(uid);
+}
+
+static Q30WeaponData *z30d_guy_weap_view(bool npc, long index)
+{
+    if(!npc)
+        return unsigned(index) < MAXGUYS ? &z30d_guy(index).weap : NULL;
+
+    if(!guys.getByUID(index))
+        return NULL;
+
+    std::map<long, Q30WeaponData>::iterator it = zasm30_npc_weapdata.find(index);
+
+    if(it == zasm30_npc_weapdata.end())
+        it = zasm30_npc_weapdata.insert(std::make_pair(index, Q30WeaponData())).first;
+
+    return &it->second;
+}
+
+// upstream weapon::load_weap_data for a weapon an enemy fires (the weapon constructor's
+// get_weapon_data_for_id), as far as this engine's weapons have the fields. The weapon's
+// script comes from the guy's weapon script table (zasm30_eweapon_state), which is the same data.
+void q30_enemy_weapon_made(weapon *w)
+{
+    if(w->parentid < 0 || !(w->id > wEnemyWeapons || (w->id >= wScript1 && w->id <= wScript10)))
+        return;
+
+    enemy *e = (enemy *)guys.getByUID(w->parentid);
+    std::map<long, Q30WeaponData>::const_iterator it = e ? zasm30_npc_weapdata.find(e->getUID()) : zasm30_npc_weapdata.end();
+
+    if(it == zasm30_npc_weapdata.end())
+        return;
+
+    const Q30WeaponData &d = it->second;
+    const int id = w->id;
+    Zasm30SpriteState &st = zasm30_sprite_state(w->getUID());
+
+    st.move_flags = (long)d.moveflags;
+    st.glow_shape = d.glow_shape;
+
+    if(d.flags & Z30D_WD_GLOW_RAD)
+    {
+        st.glow_rad = d.light_rads[0];
+        st.glow_ofs = d.light_offsets[0];
+    }
+
+    enum { O_TILE_W = 0x1, O_TILE_H = 0x2, O_HIT_W = 0x4, O_HIT_H = 0x8, O_HIT_Z = 0x10, O_HIT_X = 0x20, O_HIT_Y = 0x40,
+           O_DRAW_X = 0x80, O_DRAW_Y = 0x100 };
+
+    // (calculate_weapon_size: every enemy weapon; only the script weapons are extended, unless
+    // qr_CUSTOM_WEAPON_BROKEN_SIZE)
+    if(d.override_flags)
+    {
+        if(id >= wScript1 && id <= wScript10 && !q30_quest_rule(423))
+            w->extend = 3;
+
+        if(d.override_flags & O_TILE_W) w->txsz = (int)d.tilew;
+        if(d.override_flags & O_TILE_H) w->tysz = (int)d.tileh;
+        if(d.override_flags & O_HIT_W) w->hxsz = (int)d.hxsz;
+        if(d.override_flags & O_HIT_H) w->hysz = (int)d.hysz;
+        if(d.override_flags & O_HIT_Z) w->hzsz = (int)d.hzsz;
+        if(d.override_flags & O_HIT_X) w->hxofs = (int)d.hxofs;
+        if(d.override_flags & O_HIT_Y) w->hyofs = (int)d.hyofs;
+        if(d.override_flags & O_DRAW_X) w->xofs = (int)d.xofs;
+        if(d.override_flags & O_DRAW_Y) w->yofs = (int)d.yofs + (q30_quest_rule(319) ? playing_field_offset : original_playing_field_offset);   // qr_OLD_DRAWOFFSET
+    }
+
+    // (an enemy's fire keeps the speed its firing code gives it: upstream doubles or slows it there)
+    if((d.flags & Z30D_WD_SET_STEP) && id != ewFlame && id != ewFlame2)
+        w->step = d.step / 10000.0;
+
+    st.unblockable = d.unblockable;
+    st.weap_timeout = d.timeout;
+    st.weapon_flags = d.wflags;
+}
+
+// npcdata-> registers of the data above (upstream npcdata.cpp, its GET/SET_NPCDATA_VAR_* and
+// arrays)
+static bool z30d_npcdata_ex_reg(const long arg, long &ret, const long value, const bool write)
+{
+    long Q30GuyData::*l32 = NULL;
+    short Q30GuyData::*s8 = NULL;       // (bytes: firesfx)
+    long size = 0;                      // an array's
+    long dflt = -10000;                 // its compat default
+
+    switch(arg)
+    {
+    case Z30R_NPCDATAFROZENCSET: l32 = &Q30GuyData::frozencset; break;
+    case Z30R_NPCDATAFROZENTILE: l32 = &Q30GuyData::frozentile; break;
+    case Z30R_NPCDATAHITHEIGHT: l32 = &Q30GuyData::hysz; break;
+    case Z30R_NPCDATAHITWIDTH: l32 = &Q30GuyData::hxsz; break;
+    case Z30R_NPCDATAHITZ: l32 = &Q30GuyData::hzsz; break;
+    case Z30R_NPCDATAHXOFS: l32 = &Q30GuyData::hxofs; break;
+    case Z30R_NPCDATAHYOFS: l32 = &Q30GuyData::hyofs; break;
+    case Z30R_NPCDATASIZEFLAG: l32 = &Q30GuyData::sizeflags; break;
+    case Z30R_NPCDATATILEHEIGHT: l32 = &Q30GuyData::tysz; break;
+    case Z30R_NPCDATATILEWIDTH: l32 = &Q30GuyData::txsz; break;
+    case Z30R_NPCDATAXOFS: l32 = &Q30GuyData::xofs; break;
+    case Z30R_NPCDATAYOFS: l32 = &Q30GuyData::yofs; break;
+    case Z30R_NPCDATAZOFS: l32 = &Q30GuyData::zofs; break;
+    case Z30R_NPCDATAFIRESFX: s8 = &Q30GuyData::firesfx; break;
+    case Z30R_NPCDATAFIRESFXSECONDARY: s8 = &Q30GuyData::firesfx_secondary; break;
+    case Z30R_NPCDATAATTRIBUTE: size = 32; break;
+    case Z30R_NPCDATADEFENSE: size = 41; break;
+    case Z30R_NPCDATAINITD: case Z30R_NPCDATAWEAPONINITD: size = 8; break;
+    case Z30R_NPCDATAFLAG: size = 64; break;
+    case Z30R_NPCDATASHIELD: size = 5; break;
+    case Z30R_NPCDATABEHAVIOUR: case Z30R_NPCDATAMOVEFLAGS: size = 16; dflt = 0; break;
+    case Z30R_NPCDATAWMOVEFLAGS: size = 11; dflt = 0; break;
+    case Z30R_NPCDATAFLAGS1: case Z30R_NPCDATAFLAGS2: case Z30R_NPCDATASCRIPT: case Z30R_NPCDATAWEAPONSCRIPT:
+    case Z30R_NPCDATA_WEAPONDATA: case Z30R_NPCDDEATHSPR: case Z30R_NPCDSHADOWSPR: case Z30R_NPCDSPAWNSPR:
+        break;
+    default:
+        return false;
+    }
+
+    const long id = Z30_REF(NPCDATA);
+
+    if(unsigned(id) >= MAXGUYS)
+    {
+        Z_scripterrlog("Invalid npcdata ID: %ld\n", id);
+        if(!write)
+            ret = size ? z30_array_default(dflt) : -10000;
+        return true;
+    }
+
+    guydata &g = guysbuf[id];
+    Q30GuyData &x = z30d_guy(id);
+    const long v = value / 10000;
+
+    if(l32)
+    {
+        if(write) x.*l32 = z30d_bound(v, 0, 214747); else ret = x.*l32 * 10000;
+        return true;
+    }
+
+    if(s8)
+    {
+        if(write) x.*s8 = (short)z30d_bound(v, 0, 255); else ret = x.*s8 * 10000;
+        return true;
+    }
+
+    long n = 0;
+
+    if(size && !z30_array_index(Z30_INDEX, size, n))
+    {
+        if(!write)
+            ret = z30_array_default(dflt);
+        return true;
+    }
+
+    switch(arg)
+    {
+    case Z30R_NPCDATAATTRIBUTE:
+        if(!write)
+        {
+            ret = x.attributes[n] * 10000;
+            return true;
+        }
+
+        x.attributes[n] = v;
+
+        switch(n)       // (2.53's misc fields the enemies use)
+        {
+        case 0: g.misc1 = v; break; case 1: g.misc2 = v; break; case 2: g.misc3 = v; break; case 3: g.misc4 = v; break;
+        case 4: g.misc5 = v; break; case 5: g.misc6 = v; break; case 6: g.misc7 = v; break; case 7: g.misc8 = v; break;
+        case 8: g.misc9 = v; break; case 9: g.misc10 = v; break; case 10: g.misc11 = v; break; case 11: g.misc12 = v; break;
+        case 12: g.misc13 = v; break; case 13: g.misc14 = v; break; case 14: g.misc15 = v; break;
+        }
+        return true;
+
+    case Z30R_NPCDATADEFENSE:
+    {
+        byte defs[41];
+
+        for(int q = 0; q < 41; ++q)
+            defs[q] = (byte)q30_guy_defense((int)id, q);
+
+        if(!write)
+        {
+            ret = defs[n] * 10000;
+            return true;
+        }
+
+        defs[n] = (byte)z30d_bound(v, 0, 214747);
+        q30_set_guy_defenses((int)id, defs);
+
+        if(n < edefQUAKE)
+            g.defense[n] = q255_guy_defense_253(defs[n]);
+        else if(n == 19)        // (the file's Quake slot)
+            g.defense[edefQUAKE] = q255_guy_defense_253(defs[n]);
+        return true;
+    }
+
+    case Z30R_NPCDATAINITD: case Z30R_NPCDATAWEAPONINITD:
+    {
+        const bool wpn = arg == Z30R_NPCDATAWEAPONINITD;
+        const Q30ScriptRef *r = wpn ? q30_guy_weapon_script((int)id) : q30_guy_script((int)id);
+        long initd[8];
+        word script = r ? r->script : 0;
+
+        if(r)
+            memcpy(initd, r->initd, sizeof(initd));
+        else
+            memset(initd, 0, sizeof(initd));
+
+        if(!write)
+        {
+            ret = initd[n];
+            return true;
+        }
+
+        initd[n] = z30d_bound(value, 0, 214747);
+
+        if(wpn)
+        {
+            q30_set_guy_weapon_script((int)id, script, initd);
+            x.weap.initd[n] = initd[n];
+        }
+        else
+            q30_set_guy_script((int)id, script, initd);
+        return true;
+    }
+
+    case Z30R_NPCDATAFLAG:      // (upstream's 64-bit flags: 2.53's flags, then flags2)
+    {
+        dword &f = n < 32 ? g.flags : g.flags2;
+        const dword bit = 1u << (n & 31);
+
+        if(write) f = value ? (f | bit) : (f & ~bit);
+        else ret = (f & bit) ? 10000 : 0;
+        return true;
+    }
+
+    case Z30R_NPCDATASHIELD:    // guy_shield_front, _left, _right, _back, guy_bkshield
+    {
+        const dword bit = 0x01000000u << n;
+
+        if(write) g.flags = value ? (g.flags | bit) : (g.flags & ~bit);
+        else ret = (g.flags & bit) ? 10000 : 0;
+        return true;
+    }
+
+    case Z30R_NPCDATABEHAVIOUR:
+    {
+        const dword bit = 1u << n;
+
+        if(write) x.editorflags = value ? (x.editorflags | bit) : (x.editorflags & ~bit);
+        else ret = (x.editorflags & bit) ? 10000 : 0;
+        return true;
+    }
+
+    case Z30R_NPCDATAMOVEFLAGS:
+    {
+        const dword bit = 1u << n, f = q30_guy_moveflags((int)id);
+
+        if(write) q30_set_guy_moveflags((int)id, value ? (f | bit) : (f & ~bit));
+        else ret = (f & bit) ? 10000 : 0;
+        return true;
+    }
+
+    case Z30R_NPCDATAWMOVEFLAGS:
+    {
+        const dword bit = 1u << n;
+
+        if(write) x.weap.moveflags = value ? (x.weap.moveflags | bit) : (x.weap.moveflags & ~bit);
+        else ret = (x.weap.moveflags & bit) ? 10000 : 0;
+        return true;
+    }
+
+    case Z30R_NPCDATAFLAGS1: case Z30R_NPCDATAFLAGS2:
+        if(write)
+        {
+            g.flags = (dword)z30d_bound(v, 0, 32767);   // (upstream sets the whole of its flags from either)
+            g.flags2 = 0;
+        }
+        else
+            ret = (long)(int)(dword)((arg == Z30R_NPCDATAFLAGS1 ? g.flags : g.flags2) * 10000u);
+        return true;
+
+    case Z30R_NPCDATASCRIPT: case Z30R_NPCDATAWEAPONSCRIPT:
+    {
+        const bool wpn = arg == Z30R_NPCDATAWEAPONSCRIPT;
+        const Q30ScriptRef *r = wpn ? q30_guy_weapon_script((int)id) : q30_guy_script((int)id);
+
+        if(!write)
+        {
+            ret = (r ? r->script : 0) * 10000;
+            return true;
+        }
+
+        long initd[8];
+
+        if(r && !q30_quest_rule(516))   // qr_CLEARINITDONSCRIPTCHANGE
+            memcpy(initd, r->initd, sizeof(initd));
+        else
+            memset(initd, 0, sizeof(initd));
+
+        const word script = (word)z30d_bound(v, 0, wpn ? NUMSCRIPTWEAPONS - 1 : NUMSCRIPTGUYS - 1);
+
+        if(wpn)
+        {
+            q30_set_guy_weapon_script((int)id, script, initd);
+            x.weap.script = script;
+            memcpy(x.weap.initd, initd, sizeof(initd));
+        }
+        else
+            q30_set_guy_script((int)id, script, initd);
+        return true;
+    }
+
+    case Z30R_NPCDATA_WEAPONDATA:
+        if(!write)
+            ret = Z30_REF(WEAPDATA) = z30d_weapdata_view(Z30D_WDV_NPCDATA, id);
+        return true;
+
+    case Z30R_NPCDDEATHSPR: case Z30R_NPCDSPAWNSPR:
+    {
+        const bool death = arg == Z30R_NPCDDEATHSPR;
+
+        if(!write)
+            ret = (death ? q30_guy_death_sprite((int)id) : q30_guy_spawn_sprite((int)id)) * 10000;
+        else
+        {
+            const int s = (int)z30d_bound(v, 0, MAXWPNS - 1);
+            q30_set_guy_death_sprite((int)id, death ? s : q30_guy_death_sprite((int)id), death ? q30_guy_spawn_sprite((int)id) : s);
+        }
+        return true;
+    }
+
+    default:    // Z30R_NPCDSHADOWSPR
+        if(write) x.spr_shadow = (word)z30d_bound(v, 0, MAXWPNS - 1); else ret = x.spr_shadow * 10000;
+        return true;
+    }
+}
+
 // ---- the entry points -------------------------------------------------------------------------
+
+// ---- r17: itemdata's 3.0 fields (itemdata.cpp) and its weapon data ---------------------------
+// The item reader's record (q30_item_rec) has what 2.53's itemdata has no room for; the plain
+// fields of itemsbuf and the 32 flag bits are read and written where the other itemdata
+// registers do it.
+
+// upstream's item_flags past what IDATAFLAGS covers (bits of q30_item_flags)
+enum
+{
+    Z30D_IF_GAMEDATA = 1u << 0, Z30D_IF_EDIBLE = 1u << 1, Z30D_IF_COMBINE = 1u << 2, Z30D_IF_DOWNGRADE = 1u << 3,
+    Z30D_IF_KEEP_OLD = 1u << 6, Z30D_IF_RUPEE_MAGIC = 1u << 7, Z30D_IF_UNUSED = 1u << 8, Z30D_IF_GAIN_OLD = 1u << 9,
+    Z30D_IF_PASSIVE_SCRIPT = 1u << 23, Z30D_IF_VALIDATE = 1u << 24, Z30D_IF_SIDESWIM_DISABLED = 1u << 25,
+    Z30D_IF_VALIDATE_2 = 1u << 27, Z30D_IF_FLIP_JINX = 1u << 29
+};
+enum { Z30D_WF_UPDATE_IGNITE_SPRITE = 1u << 9 };     // WFLAG_UPDATE_IGNITE_SPRITE
+
+static dword z30d_item_flags(long id)
+{
+    return (q30_item_flags((int)id) & ~0xFFFFu) | Q30_IDATA(id).flags;
+}
+
+static void z30d_set_item_flag(long id, dword bit, bool on)
+{
+    const dword f = on ? (z30d_item_flags(id) | bit) : (z30d_item_flags(id) & ~bit);
+    Q30_IDATA(id).flags = (word)(f & 0xFFFF);
+    q30_set_item_flags32((int)id, f);
+
+    if(bit == Z30D_IF_PASSIVE_SCRIPT)
+        q30_set_item_passive_script((int)id, on);
+}
+
+static Q30ItemRec &z30d_item_rec(long id)
+{
+    static Q30ItemRec none;
+    Q30ItemRec *r = q30_item_rec((int)id);
+    return r ? *r : none;
+}
+
+// the item's sprite script's InitD (the engine runs the script from q30_item_sprite_script; an
+// item with no script keeps its InitD here)
+static std::map<int, std::vector<long> > zasm30_item_sprite_initd;
+
+static long *z30d_item_sprite_initd(long id)
+{
+    std::vector<long> &v = zasm30_item_sprite_initd[(int)id];
+
+    if(v.size() != 8)
+    {
+        const Q30ScriptRef *r = q30_item_sprite_script((int)id);
+        v.assign(8, 0);
+
+        if(r)
+            v.assign(r->initd, r->initd + 8);
+    }
+
+    return &v[0];
+}
+
+void q30_set_item_moveflags(int id, long flags);    // q30_scripts_sys.h
+
+static bool z30d_item30_reg(const long arg, long &ret, const long value, const bool write)
+{
+    dword flag = 0;
+    bool zero_default = false;
+
+    switch(arg)
+    {
+    case Z30R_IDATACOMBINE: flag = Z30D_IF_COMBINE; break;
+    case Z30R_IDATACONSTSCRIPT: flag = Z30D_IF_PASSIVE_SCRIPT; break;
+    case Z30R_IDATADOWNGRADE: flag = Z30D_IF_DOWNGRADE; break;
+    case Z30R_IDATAEDIBLE: flag = Z30D_IF_EDIBLE; break;
+    case Z30R_IDATAFLAGUNUSED: flag = Z30D_IF_UNUSED; break;
+    case Z30R_IDATAGAINLOWER: flag = Z30D_IF_GAIN_OLD; break;
+    case Z30R_IDATAJINXSWAP: flag = Z30D_IF_FLIP_JINX; break;
+    case Z30R_IDATAKEEPOLD: flag = Z30D_IF_KEEP_OLD; break;
+    case Z30R_IDATARUPEECOST: flag = Z30D_IF_RUPEE_MAGIC; break;
+    case Z30R_IDATASSWIMDISABLED: flag = Z30D_IF_SIDESWIM_DISABLED; break;
+    case Z30R_IDATAVALIDATE: flag = Z30D_IF_VALIDATE; break;
+    case Z30R_IDATAVALIDATE2: flag = Z30D_IF_VALIDATE_2; break;
+    case Z30R_IDATACOLLECTFLAGS: case Z30R_IDATAOVERRIDEFLWEAP: case Z30R_IDATAPFLAGS: case Z30R_IDATAPICKUPLITEMLEVEL:
+    case Z30R_IDATAPICKUPLITEMS: case Z30R_IDATAUSEBURNSPR: case Z30R_IDATAWEAPZOFS:
+        zero_default = true;
+        break;
+    case Z30R_IDATACOOLDOWN: case Z30R_IDATADRAWLAYER: case Z30R_IDATADUPLICATES: case Z30R_IDATADURATION:
+    case Z30R_IDATAFLASHCSET: case Z30R_IDATAGRADUAL: case Z30R_IDATAMAGICTIMER: case Z30R_IDATAMAGICTIMER2:
+    case Z30R_IDATAMISC: case Z30R_IDATAPICKUP: case Z30R_IDATAPSOUND: case Z30R_IDATAPSTRING: case Z30R_IDATASPRSCRIPT:
+    case Z30R_IDATATILEHWEAP: case Z30R_IDATATILEWWEAP: case Z30R_IDATAWEAPHXOFS: case Z30R_IDATAWEAPHXSZ:
+    case Z30R_IDATAWEAPHYOFS: case Z30R_IDATAWEAPHYSZ: case Z30R_IDATAWEAPHZSZ: case Z30R_IDATAWEAPONSCRIPT:
+    case Z30R_IDATAWEAPXOFS: case Z30R_IDATAWEAPYOFS: case Z30R_IDATAWRANGE: case Z30R_IDATA_WEAPONDATA:
+    case Z30R_IDATAATTRIB_L: case Z30R_IDATABURNINGLIGHTRAD: case Z30R_IDATABURNINGSPR: case Z30R_IDATACOLLECTINITD:
+    case Z30R_IDATAMISCD: case Z30R_IDATAMOVEFLAGS: case Z30R_IDATAWMOVEFLAGS: case Z30R_IDATASPRITEINITD:
+        break;
+    default:
+        return false;
+    }
+
+    const long id = ri->idata, v = value / 10000;
+
+    if(arg == Z30R_IDATAWEAPZOFS)
+    {
+        Z_scripterrlog("itemdata::WeaponDrawZOffset is not implemented\n");
+
+        if(!write)
+            ret = 0;
+        return true;
+    }
+
+    if(unsigned(id) >= unsigned(q30_items_end()))
+    {
+        Z_scripterrlog("Invalid itemdata access: %ld\n", id);
+
+        if(!write)
+        {
+            switch(arg)     // the arrays: their failed read
+            {
+            case Z30R_IDATAATTRIB_L: ret = z30_array_default(-1); break;
+            case Z30R_IDATAMOVEFLAGS: case Z30R_IDATAWMOVEFLAGS: ret = 0; break;
+            case Z30R_IDATABURNINGLIGHTRAD: case Z30R_IDATABURNINGSPR: case Z30R_IDATACOLLECTINITD:
+            case Z30R_IDATAMISCD: case Z30R_IDATASPRITEINITD:
+                ret = z30_array_default(-10000);
+                break;
+            default: ret = (flag || zero_default) ? 0 : -10000; break;
+            }
+        }
+        return true;
+    }
+
+    if(flag)
+    {
+        if(write)
+            z30d_set_item_flag(id, flag, value != 0);
+        else
+            ret = (z30d_item_flags(id) & flag) ? 10000 : 0;
+        return true;
+    }
+
+    itemdata &it = Q30_IDATA(id);
+    Q30ItemRec &r = z30d_item_rec(id);
+    Q30WeaponData &wd = r.weap;
+    long n = 0;
+
+    switch(arg)
+    {
+    case Z30R_IDATACOLLECTFLAGS: if(write) r.collectflags = z30d_bound(v, 0, 214747); else ret = r.collectflags * 10000; break;
+    case Z30R_IDATACOOLDOWN: if(write) r.cooldown = v > 0 ? v : 0; else ret = r.cooldown * 10000; break;
+    case Z30R_IDATADRAWLAYER: if(write) r.drawlayer = (byte)z30d_bound(v, 0, 7); else ret = r.drawlayer * 10000; break;
+    case Z30R_IDATADUPLICATES: if(write) r.duplicates = z30d_bound(v, 0, 255); else ret = r.duplicates * 10000; break;
+    case Z30R_IDATADURATION: if(write) r.weapduration = z30d_bound(v, 0, 255); else ret = r.weapduration * 10000; break;
+    case Z30R_IDATAWRANGE: if(write) r.weaprange = z30d_bound(v, 0, 255); else ret = r.weaprange * 10000; break;
+    case Z30R_IDATAFLASHCSET:
+        if(write) it.csets = (byte)((it.csets & 0xF) | (z30d_bound(v, 0, 15) << 4)); else ret = (it.csets >> 4) * 10000;
+        break;
+    case Z30R_IDATAGRADUAL:
+        if(write) it.amount = value ? (it.amount | 0x8000) : (it.amount & 0x7FFF); else ret = (it.amount & 0x8000) ? 10000 : 0;
+        break;
+    case Z30R_IDATAMAGICTIMER: case Z30R_IDATAMAGICTIMER2:
+    {
+        long &t = r.magiccosttimer[arg == Z30R_IDATAMAGICTIMER2 ? 1 : 0];
+        if(write) t = z30d_bound(v, 0, 214747); else ret = t * 10000;
+        break;
+    }
+    case Z30R_IDATAMISC: if(write) it.misc = (byte)v; else ret = it.misc * 10000; break;
+    case Z30R_IDATAPICKUP: case Z30R_IDATAPSTRING: case Z30R_IDATAPFLAGS:
+    {
+        long pickup;
+        int mode, pstring, psflags;
+        q30_item_pickup_info((int)id, &pickup, &mode, &pstring, &psflags);
+
+        if(!write)
+        {
+            ret = (arg == Z30R_IDATAPICKUP ? pickup : arg == Z30R_IDATAPSTRING ? pstring : psflags) * 10000;
+            break;
+        }
+
+        if(arg == Z30R_IDATAPICKUP)
+            pickup = v;
+        else if(arg == Z30R_IDATAPSTRING)
+            pstring = (int)z30d_bound(v, 1, 255);
+        else
+            psflags = (int)z30d_bound(v, 0, 214748);
+
+        q30_set_item_pickup((int)id, pickup, mode, pstring, psflags);
+        break;
+    }
+    case Z30R_IDATAPICKUPLITEMLEVEL:
+        if(write) r.pickup_litem_level = (short)z30d_bound(v, -1, MAXLEVELS - 1); else ret = r.pickup_litem_level * 10000;
+        break;
+    case Z30R_IDATAPICKUPLITEMS:    // & LI_ALL
+        if(write) r.pickup_litems = (word)(z30d_bound(v, 0, 214748) & 0xFFFF); else ret = r.pickup_litems * 10000;
+        break;
+    case Z30R_IDATAPSOUND: if(write) it.playsound = (byte)z30d_bound(v, 0, Q30_MAX_SFX); else ret = it.playsound * 10000; break;
+    case Z30R_IDATASPRSCRIPT:
+    {
+        const Q30ScriptRef *sr = q30_item_sprite_script((int)id);
+
+        if(!write)
+            ret = (sr ? sr->script : 0) * 10000;
+        else
+        {
+            long *initd = z30d_item_sprite_initd(id);
+            q30_set_item_sprite_script((int)id, (word)z30d_bound(v, 0, 256), initd);   // NUMSCRIPTSITEMSPRITE
+        }
+        break;
+    }
+    case Z30R_IDATASPRITEINITD: case Z30R_IDATACOLLECTINITD:
+    {
+        if(!z30d_index(Z30_INDEX, 8, false, n))
+        {
+            if(!write)
+                ret = z30_array_default(-10000);
+            break;
+        }
+
+        if(arg == Z30R_IDATACOLLECTINITD)
+        {
+            if(write) r.collect_initd[n] = value; else ret = r.collect_initd[n];
+            break;
+        }
+
+        long *initd = z30d_item_sprite_initd(id);
+
+        if(!write)
+            ret = initd[n];
+        else
+        {
+            initd[n] = value;
+            const Q30ScriptRef *sr = q30_item_sprite_script((int)id);
+
+            if(sr)
+                q30_set_item_sprite_script((int)id, sr->script, initd);
+        }
+        break;
+    }
+    case Z30R_IDATAOVERRIDEFLWEAP: if(write) wd.override_flags = v; else ret = wd.override_flags * 10000; break;
+    case Z30R_IDATATILEWWEAP: if(write) wd.tilew = v; else ret = wd.tilew * 10000; break;
+    case Z30R_IDATATILEHWEAP: if(write) wd.tileh = v; else ret = wd.tileh * 10000; break;
+    case Z30R_IDATAWEAPHXOFS: if(write) wd.hxofs = v; else ret = wd.hxofs * 10000; break;
+    case Z30R_IDATAWEAPHYOFS: if(write) wd.hyofs = v; else ret = wd.hyofs * 10000; break;
+    case Z30R_IDATAWEAPHXSZ: if(write) wd.hxsz = v; else ret = wd.hxsz * 10000; break;
+    case Z30R_IDATAWEAPHYSZ: if(write) wd.hysz = v; else ret = wd.hysz * 10000; break;
+    case Z30R_IDATAWEAPHZSZ: if(write) wd.hzsz = v; else ret = wd.hzsz * 10000; break;
+    case Z30R_IDATAWEAPXOFS: if(write) wd.xofs = v; else ret = wd.xofs * 10000; break;
+    case Z30R_IDATAWEAPYOFS: if(write) wd.yofs = v; else ret = wd.yofs * 10000; break;
+    case Z30R_IDATAWEAPONSCRIPT:
+        if(!write)
+            ret = wd.script * 10000;
+        else
+        {
+            wd.script = (word)z30d_bound(v, 0, 255);
+            q30_set_item_weapon_script((int)id, wd.script, wd.initd);
+        }
+        break;
+    case Z30R_IDATAUSEBURNSPR:
+        if(write) wd.wflags = value ? (wd.wflags | Z30D_WF_UPDATE_IGNITE_SPRITE) : (wd.wflags & ~Z30D_WF_UPDATE_IGNITE_SPRITE);
+        else ret = (wd.wflags & Z30D_WF_UPDATE_IGNITE_SPRITE) ? 10000 : 0;
+        break;
+    case Z30R_IDATA_WEAPONDATA: if(!write) ret = z30d_weapdata_view(Z30D_WDV_ITEM, id); break;
+    case Z30R_IDATAATTRIB_L:    // itemdata->LAttributes[10]: the attributes, raw
+    {
+        if(!z30d_index(Z30_INDEX, 10, true, n))
+        {
+            if(!write)
+                ret = z30_array_default(-1);
+            break;
+        }
+
+        long *const misc[10] = { &it.misc1, &it.misc2, &it.misc3, &it.misc4, &it.misc5, &it.misc6, &it.misc7, &it.misc8, &it.misc9, &it.misc10 };
+
+        if(write) *misc[n] = value; else ret = *misc[n];
+        break;
+    }
+    case Z30R_IDATAMISCD:       // itemdata->WeaponMisc[32]
+        if(!z30d_index(Z30_INDEX, 32, true, n))
+        {
+            if(!write)
+                ret = z30_array_default(-10000);
+            break;
+        }
+
+        if(write) r.wpn_misc_d[n] = v; else ret = r.wpn_misc_d[n] * 10000;
+        break;
+    case Z30R_IDATAMOVEFLAGS: case Z30R_IDATAWMOVEFLAGS:
+    {
+        if(!z30d_index(Z30_INDEX, 11, false, n))
+        {
+            if(!write)
+                ret = 0;
+            break;
+        }
+
+        if(arg == Z30R_IDATAWMOVEFLAGS)
+        {
+            if(write) wd.moveflags = value ? (wd.moveflags | (1u << n)) : (wd.moveflags & ~(1u << n));
+            else ret = (wd.moveflags & (1u << n)) ? 10000 : 0;
+            break;
+        }
+
+        long f = q30_item_moveflags_of((int)id);
+
+        if(!write)
+            ret = (f & (1L << n)) ? 10000 : 0;
+        else
+        {
+            f = value ? (f | (1L << n)) : (f & ~(1L << n));
+            q30_set_item_moveflags((int)id, f);
+        }
+        break;
+    }
+    case Z30R_IDATABURNINGSPR: case Z30R_IDATABURNINGLIGHTRAD:
+        if(!z30d_index(Z30_INDEX, 5, false, n))
+        {
+            if(!write)
+                ret = z30_array_default(-10000);
+            break;
+        }
+
+        if(arg == Z30R_IDATABURNINGSPR)
+        {
+            if(write) wd.burnsprs[n] = (word)z30d_bound(v, 0, 255); else ret = wd.burnsprs[n] * 10000;    // MAXSPRITES-1
+        }
+        else if(write)
+            wd.light_rads[n] = (byte)z30d_bound(v, 0, 255);
+        else
+            ret = wd.light_rads[n] * 10000;
+        break;
+    }
+
+    return true;
+}
+
+// upstream's weapon::load_weap_data, from the weapon constructor (get_weapon_data_for_id): a
+// weapon an item makes takes on the item's weapon data, for what this engine's weapons have
+// (pierce, bounce and lifting are 3.0 weapon behaviours 2.53's weapons don't have; burning
+// sprites neither). Magic takes the Book of Magic's, sparkles their item's only under
+// qr_SPARKLES_INHERIT_PROPERTIES.
+static void z30_lf_set(long uid, long reg, long idx, long v);     // q30_scripts_live.h's weapon fields:
+enum { Z30D_LF_PIERCE = 1 + 10, Z30D_LF_BOUNCE_MULT = 1 + 15, Z30D_LF_BOUNCE_ADD = 1 + 16 };   // 1 + Z30W_PIERCE, _BMULT, _BADD
+
+void q30_weapon_load_item_data(weapon *w)
+{
+    enum { QR_OLD_DRAWOFFSET = 319, QR_SPARKLES_INHERIT_PROPERTIES = 355, QR_CUSTOM_WEAPON_BROKEN_SIZE = 460 };
+    enum { O_TILE_W = 0x1, O_TILE_H = 0x2, O_HIT_W = 0x4, O_HIT_H = 0x8, O_HIT_Z = 0x10, O_HIT_X = 0x20, O_HIT_Y = 0x40,
+           O_DRAW_X = 0x80, O_DRAW_Y = 0x100 };
+
+    if(!q30_active() || w->id >= wEnemyWeapons)
+        return;
+
+    const int id = w->id;
+    int itemid = w->parentitem;
+
+    if(id == wMagic)
+    {
+        const int book = current_item_id(itype_book);
+
+        if(book >= 0)
+            itemid = book;
+    }
+    else if((id == wSSparkle || id == wFSparkle) && !q30_quest_rule(QR_SPARKLES_INHERIT_PROPERTIES))
+        return;
+
+    const Q30ItemRec *rec = itemid >= 0 ? q30_item_rec(itemid) : NULL;
+
+    if(!rec)
+        return;
+
+    const Q30WeaponData &d = rec->weap;
+    Zasm30SpriteState &st = zasm30_sprite_state(w->getUID());
+    const bool melee = id == wSword || id == wHammer || id == wWand || id == wBomb || id == wSBomb || id == wWhistle || id == wCatching
+                       || id == wHookshot || id == wHSHandle || id == wHSChain || id == wSSparkle || id == wFSparkle || id == wSmack
+                       || id == wPhantom || id == wStomp;
+
+    if(!melee)
+        st.move_flags = (long)d.moveflags;
+
+    if(d.flags & Z30D_WD_GLOW_RAD)
+    {
+        st.glow_rad = d.light_rads[0];
+        st.glow_ofs = d.light_offsets[0];
+    }
+
+    st.glow_shape = d.glow_shape;
+
+    // compute_do_size: the weapons that take the item's sizes
+    const bool scripted = (id >= wScript1 && id <= wScript10);
+    bool sized = false;
+
+    switch(id)
+    {
+    case wSword: case wWand: case wHammer: case wCByrna: case wWhistle: case wWind: case wArrow: case wFire:
+    case wLitBomb: case wBomb: case wLitSBomb: case wSBomb: case wBait: case wMagic: case wBrang:
+        sized = d.override_flags != 0;
+        break;
+    default:
+        sized = scripted && d.override_flags != 0;
+        break;
+    }
+
+    if(sized && (!scripted || !q30_quest_rule(QR_CUSTOM_WEAPON_BROKEN_SIZE)))
+        w->extend = 3;
+
+    if(sized)   // calculate_weapon_size
+    {
+        const long f = d.override_flags;
+        int xofs = (int)d.xofs, yofs = (int)d.yofs + (q30_quest_rule(QR_OLD_DRAWOFFSET) ? playing_field_offset : original_playing_field_offset);
+
+        if(id == wSword)
+        {
+            if(w->dir == up && (f & O_DRAW_Y)) yofs -= 16;
+            if(w->dir == left && (f & O_DRAW_X)) xofs -= 16;
+        }
+        else if(id == wArrow && (w->dir == left || w->dir == l_down || w->dir == right) && (f & O_DRAW_Y))
+            yofs += 1;
+        else if(id == wFire && BSZ && (f & O_DRAW_Y))
+            yofs += 2;
+
+        if(f & O_DRAW_X) w->xofs = xofs;
+        if(f & O_DRAW_Y) w->yofs = yofs;
+        if(f & O_TILE_W) w->txsz = (int)d.tilew;
+        if(f & O_TILE_H) w->tysz = (int)d.tileh;
+        if(f & O_HIT_X) w->hxofs = (int)d.hxofs;
+        if(f & O_HIT_Y) w->hyofs = (int)d.hyofs;
+        if(f & O_HIT_W) w->hxsz = (int)d.hxsz;
+        if(f & O_HIT_H) w->hysz = (int)d.hysz;
+        if(f & O_HIT_Z) w->hzsz = (int)d.hzsz;
+    }
+
+    if((d.flags & Z30D_WD_SET_STEP) && !(id == wSword || id == wHammer || id == wWand || id == wHSHandle || id == wHSChain || id == wWhistle))
+        w->step = d.step / 10000.0;
+
+    // (a lit bomb keeps them for its explosion, which takes them from the item itself)
+    if(id != wLitBomb && id != wLitSBomb)
+    {
+        zasm30_store_set(Z30R_LWPNUSEWEAPON, w->getUID(), 0, d.imitate_weapon * 10000);   // (kept as written)
+        zasm30_store_set(Z30R_LWPNUSEDEFENCE, w->getUID(), 0, d.default_defense);
+    }
+
+    // lifting, piercing and bouncing: kept for scripts (lweapon->LiftLevel, Pierce, BounceMult ...)
+    zasm30_store_set(Z30R_LWPNLIFTLEVEL, w->getUID(), 0, d.lift_level * 10000);
+    zasm30_store_set(Z30R_LWPNLIFTTIME, w->getUID(), 0, d.lift_time * 10000);
+    zasm30_store_set(Z30R_LWPNLIFTHEIGHT, w->getUID(), 0, d.lift_height);
+    z30_lf_set(w->getUID(), Z30D_LF_PIERCE, 0, d.pierce_count);
+    z30_lf_set(w->getUID(), Z30D_LF_BOUNCE_MULT, 0, d.bounce_mult);
+    z30_lf_set(w->getUID(), Z30D_LF_BOUNCE_ADD, 0, d.bounce_add);
+    st.unblockable = d.unblockable;
+    st.weap_timeout = d.timeout;
+    zasm30_store_set(Z30R_LWPNTIMEOUT, w->getUID(), 0, d.timeout * 10000);   // (read by lweapon->Timeout; not counted down here yet)
+    st.weapon_flags = d.wflags;
+    st.script = d.script;
+    memcpy(st.initd, d.initd, sizeof(st.initd));
+    st.script_started = true;   // (zasm30_lweapon_state: the script is the item's, as made)
+}
 
 static bool zasm30_data_reg(const long arg, long &ret, const long value, const bool write)
 {
@@ -2079,7 +3483,10 @@ static bool zasm30_data_reg(const long arg, long &ret, const long value, const b
     return z30d_ffc_reg(arg, ret, value, write) || z30d_mapdata_reg(arg, ret, value, write) || z30d_item_reg(arg, ret, value, write)
            || z30d_msg_reg(arg, ret, value, write) || z30d_npcdata_reg(arg, ret, value, write) || z30d_dmap_reg(arg, ret, value, write)
            || z30d_bottle_reg(arg, ret, value, write) || z30d_weapdata_reg(arg, ret, value, write)
-           || z30d_combo_lift_reg(arg, ret, value, write) || z30d_scr_reg(arg, ret, value, write) || z30d_npcdata_plain_reg(arg, ret, value, write);
+           || z30d_combo_lift_reg(arg, ret, value, write) || z30d_scr_reg(arg, ret, value, write) || z30d_npcdata_plain_reg(arg, ret, value, write)
+           || z30d_scr_more_reg(arg, ret, value, write)
+           || z30d_npcdata_ex_reg(arg, ret, value, write)
+           || z30d_item30_reg(arg, ret, value, write);
 }
 
 static bool zasm30_data_command(word cmd)

@@ -435,6 +435,8 @@ static bool zasm30_prepare_type(byte type, word script, long key)
 
 static const Zasm30Instance *zasm30_cur_inst_const() { return zasm30_cur_inst; }
 
+static void zasm30_engsub_init(Zasm30Instance *in);     // q30_scripts_subscr.h
+
 // `this` and the InitD values when a script of a new type first runs.
 static void zasm30_init_type(byte type, Zasm30Instance *in)
 {
@@ -507,6 +509,11 @@ static void zasm30_init_type(byte type, Zasm30Instance *in)
         in->frame.inst[0] = cid;
         if(ref)
             memcpy(in->ri.d, ref->initd, sizeof(ref->initd));
+        break;
+    }
+    case SCRIPT_ENGINESUB:
+    {
+        zasm30_engsub_init(in);     // q30_scripts_subscr.h
         break;
     }
     case SCRIPT_GENERIC:

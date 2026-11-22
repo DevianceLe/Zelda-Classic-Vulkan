@@ -569,6 +569,8 @@ static Z30SavedPortal *z30_saved_portal(long uid, bool quiet = false)
 // q30_scripts_live.h: Game->NumSavedPortals and Game->SavedPortals[] (upstream's game->user_portals)
 static long zasm30_saved_portal_count() { return (long)zasm30_user_portals.size(); }
 static long zasm30_saved_portal_uid(long i) { return (i >= 0 && i < (long)zasm30_user_portals.size()) ? zasm30_user_portals[i].uid : 0; }
+static int zasm30_portal_count() { return zasm30_portals.Count(); }     // (Screen->NumPortals, Portals[]: q30_scripts_data.h)
+static long zasm30_portal_uid(int i) { return zasm30_portals.spr(i)->getUID(); }
 
 // upstream's loadportal: a portal standing on the saved one's screen, if Link is there
 static Z30Portal *z30_load_portal(const Z30SavedPortal &s)
@@ -1338,7 +1340,7 @@ static bool z30_sub_sys_command(word cmd)
             zasm30_queued_sub_ty = ty;
             zasm30_queued_sub = sub;
         }
-        else    // only a subscreen's own engine script can close it, and none runs here
+        else if(!z30_engsub_closes(ref))     // only the open subscreen's own script can close it
             Z_scripterrlog("This function can only be used on the currently-open Active or Map subscreen.\n");
         return true;
     }
@@ -1636,8 +1638,6 @@ static bool z30_sub_trans_args(bool write, long &ret, long value)
 // subscreendata-> fields upstream's subscreendata.cpp has (its registers and internal arrays):
 // the page buttons and their animations, the selector, flags, and the subscreen's script, which
 // is kept here (upstream's scrconfig; the reader keeps none, so it starts at 0 as z3's does).
-struct Z30SubScrConfig { long script, initd[8]; };
-static std::map<long, Z30SubScrConfig> zasm30_sub_scrconfig;     // by subscreendata ref (page 0)
 
 static long z30_tr_arg_scale(int type, long idx)     // SubscrTransition::argScale (a slide's speed)
 {
@@ -1730,7 +1730,7 @@ static bool z30_subdata_reg(const long arg, long &ret, const long value, const b
         return true;
 
     const long v = value / 10000;
-    Z30SubScrConfig &cfg = zasm30_sub_scrconfig[z30_subref(sub, ty, 0, 0)];
+    Z30SubScrConfig &cfg = s->scr;
     Q30SubTrans &tr = (arg == Z30R_SUBDATATRANSRIGHTTY || arg == Z30R_SUBDATATRANSRIGHTSFX || arg == Z30R_SUBDATATRANSRIGHTARGS ||
                        arg == Z30R_SUBDATATRANSRIGHTFLAGS) ? s->tr_right : s->tr_left;
 
@@ -2839,6 +2839,27 @@ bool q30_item_force_grab(long uid)
 
 // save_menu's fields (upstream's savemenu_get_register / _set_register and its arrays): -1 when
 // the menu isn't valid; an array index past the options or texts reads 0.
+
+// upstream find_or_make_midi_music: the quest's music object "MIDI <midi>" of that MIDI and no
+// enhanced music, made if there is none; its id (0 for midi 0)
+static long z30_find_or_make_midi_music(int midi)
+{
+    if(midi == 0)
+        return 0;
+
+    char name[32];
+    sprintf(name, "MIDI %d", midi);
+
+    for(int q = 1; q <= q30_music_count(); ++q)
+    {
+        if(!q30_musicdata_get(q, q30md_IS_ENHANCED) && q30_musicdata_get(q, q30md_MIDI) / 10000 == midi &&
+           !strcmp(q30_musicdata_name(q), name))
+            return q;
+    }
+
+    return q30_music_add(name, "", 0, 0, 0, 0, 0, (short)midi);
+}
+
 static bool z30_savemenu_reg(const long arg, long &ret, const long value, const bool write)
 {
     Q30SaveMenu *m = NULL;
@@ -2908,9 +2929,26 @@ static bool z30_savemenu_reg(const long arg, long &ret, const long value, const 
         else
             ret = m->music;
         return true;
-    case Z30R_SAVEMENU_MIDI:    // (no midi musics made here: reads 0 with no music, else what upstream gives none)
-        if(!write)
-            ret = m->music ? -10000 : 0;
+    case Z30R_SAVEMENU_MIDI:
+        if(write)
+        {
+            // upstream: vbound(value, MAXMIDIS - MIDIOFFSET_ZSCRIPT, -4) (its vbound swaps the bounds),
+            // convert_from_old_midi_id, then find_or_make_midi_music
+            const int old = (int)vbound(value / 10000, -4L, 513L);
+            const int midi = old == -3 ? 0 : old == -4 ? -3 : old == -2 ? -5 : old == -1 ? -1 : old == 0 ? -4 : old;
+            m->music = z30_find_or_make_midi_music(midi);
+        }
+        else if(!m->music)
+            ret = 0;
+        else if(q30_music_exists(m->music))
+        {
+            // convert_to_old_midi_id
+            const int midi = (int)(q30_musicdata_get(m->music, q30md_MIDI) / 10000);
+            const int old = midi == 0 ? -3 : midi == -3 ? -4 : midi == -5 ? -2 : midi == -1 ? -1 : midi == -4 ? 0 : midi < 0 ? 0 : midi;
+            ret = old * 10000L;
+        }
+        else
+            ret = -10000;
         return true;
     case Z30R_SAVEMENU_NUM_OPTIONS:
         if(!write) ret = (long)m->options.size() * 10000;

@@ -65,8 +65,11 @@
 #include "q255.h"
 #include "q30_triggers.h"
 #include "q30_regions.h"
+#include "sfx.h"
 #ifdef ZC_PLAYER_BUILD
 void q30_set_guy_death_sprite(int guy, int death, int spawn);    // guys.cpp
+void q30_set_guy_data(int guy, const Q30GuyData &d);            // q30_scripts_data.h
+bool q30_quest_rule(int id);
 #endif
 
 extern guydata *guysbuf;
@@ -133,6 +136,10 @@ static byte map_defense(byte d)
 // Upstream's animations 51-55 are the big-enemy forms of 2.53's a4FRM8EYE,
 // a4FRM4EYE, a4FRM8DIRF, a4FRM4DIR and a4FRM4DIRF. a4FRM8DIRB has the same
 // tile layout (2x2 per frame) in the four cardinal directions.
+#ifdef ZC_PLAYER_BUILD
+byte q255_guy_defense_253(byte d) { return map_defense(d); }     // npcdata->Defense[] writes
+#endif
+
 static short map_anim(short a)
 {
     if(a >= aMAX && a <= aMAX + 4)
@@ -225,37 +232,50 @@ static long g_npc_vp_suspend, g_npc_vp_despawn;     // viewport ranges (q30_regi
 static long g_npc_wvp_suspend, g_npc_wvp_despawn;   // its weapons' (the weapon data block)
 static long g_npc_initd[8], g_npc_weapon_initd[8];
 static byte g_npc_raw_defense[FILE_DEFENSES_ALL];    // as stored: the switch hook's and edSWITCH need them
+static Q30GuyData g_npc_data;   // the rest 2.53's guydata has no room for (player side)
 
 // read_weap_data: every field of the block, which carries its own version.
 static void skip_weapon_data(Q255Section &s)
 {
     word *script_out = &g_npc_weapon_script;
     long *initd_out = g_npc_weapon_initd;
+    Q30WeaponData &d = g_npc_data.weap;
 
     word v = s.igetw();
+    d.data_version = v;
 
-    s.skip(2);      // flags
-    s.skip(4);      // moveflags
-    s.skip(2);      // wflags
+    d.flags = s.igetw();
+    d.moveflags = s.igetl();
+    d.wflags = s.igetw();
 
     for(int q = 0; q < FILE_WPNSPR_MAX && !s.failed; ++q)
     {
-        s.skip(v < 1 ? 1 : 2);     // burn sprite
-        s.skip(1);                 // light radius
+        d.burnsprs[q] = (v < 1) ? (word)s.getc() : s.igetw();     // burn sprite
+        d.light_rads[q] = s.getc();                                // light radius
 
         if(v >= 3)
-            s.skip(4);             // light offset
+            d.light_offsets[q] = s.igetl_s();                      // light offset
     }
 
-    s.skip(1);      // glow shape
-    s.skip(4);      // override flags
-    s.skip(9 * 4);  // tile and hit sizes, hit and draw offsets
-    s.skip(4);      // step
-    s.skip(1);      // unblockable
-    s.skip(4);      // timeout
-    s.skip(2);      // imitate weapon, default defense
-    s.skip(2);      // lift level, lift time
-    s.skip(4);      // lift height
+    d.glow_shape = s.getc();
+    d.override_flags = s.igetl_s();
+    d.tilew = s.igetl_s();      // tile and hit sizes, hit and draw offsets
+    d.tileh = s.igetl_s();
+    d.hxsz = s.igetl_s();
+    d.hysz = s.igetl_s();
+    d.hzsz = s.igetl_s();
+    d.hxofs = s.igetl_s();
+    d.hyofs = s.igetl_s();
+    d.xofs = s.igetl_s();
+    d.yofs = s.igetl_s();
+    d.step = s.igetl_s();
+    d.unblockable = s.getc();
+    d.timeout = s.igetl_s();
+    d.imitate_weapon = s.getc();
+    d.default_defense = s.getc();
+    d.lift_level = s.getc();
+    d.lift_time = s.getc();
+    d.lift_height = s.igetl_s();
 
     if(v < 5)
     {
@@ -266,15 +286,20 @@ static void skip_weapon_data(Q255Section &s)
     else
         read_script_config(s, script_out, initd_out);
 
-    s.skip(2);      // pierce count
+    d.pierce_count = s.igetw_s();
 
     if(v >= 2)
-        s.skip(2 * 4);         // bounce mult, bounce add
+    {
+        d.bounce_mult = s.igetl_s();
+        d.bounce_add = s.igetl_s();
+    }
 
     if(v >= 4)
     {
         g_npc_wvp_suspend = s.igetl_s();     // viewport suspend, despawn ranges
         g_npc_wvp_despawn = s.igetl_s();
+        d.viewport_suspend_range = g_npc_wvp_suspend;
+        d.viewport_despawn_range = g_npc_wvp_despawn;
     }
 }
 
@@ -297,6 +322,133 @@ static void read_names(Q255Section &s)
             strcpy(guy_string[i], old_guy_string[i]);
     }
 }
+
+#ifdef ZC_PLAYER_BUILD
+// ---- upstream's reader fixes of the data kept player side (qst_guys.cpp) ----------------------
+
+static short legacy_weapon_firesfx(int weapon)
+{
+    switch(weapon)
+    {
+    case ewFireTrail: case ewFlame: case ewFlame2Trail: case ewFlame2: return WAV_FIRE;
+    case ewWind: case ewMagic: return WAV_WAND;
+    case ewIce: return WAV_ZN1ICE;
+    case ewRock: return WAV_ZN1ROCK;
+    case ewFireball2: case ewFireball: return WAV_ZN1FIREBALL;
+    case ewBrang: return WAV_BRANG;
+    case ewBomb: case ewSBomb: case ewLitBomb: case ewLitSBomb: return WAV_BOMB;
+    }
+
+    return 0;
+}
+
+// the weapon the 'Fire Octo' death effect fires (secondary_fire_weapon)
+static int secondary_fire_weapon(const guydata &g, const Q30GuyData &x)
+{
+    if(g.family != eeWALK || x.attributes[1] != e2tFIREOCTO)
+        return 0;
+    if(!g.weapon || g.weapon == ewBrang)
+        return 0;
+
+    int weapon = g.weapon + x.attributes[2];
+    if(weapon <= wEnemyWeapons || weapon >= wMax)
+        weapon = g.weapon;
+    return weapon;
+}
+
+static bool firesfx_played_for_weapon(int weapon)
+{
+    switch(weapon)
+    {
+    case wScript1: case wScript2: case wScript3: case wScript4: case wScript5: case wScript6: case wScript7:
+    case wScript8: case wScript9: case wScript10: case ewFireTrail: case ewFlame: case ewFlame2Trail: case ewFlame2:
+    case ewWind: case ewMagic: case ewIce:
+        return true;
+    case ewRock: case ewFireball2: case ewFireball:
+        return q30_quest_rule(106);     // qr_MORESOUNDS
+    }
+
+    return false;
+}
+
+static void guy_data_fixes(int v, const guydata &g, Q30GuyData &x)
+{
+    const bool summon = (g.family == eeWALK || g.family == eePROJECTILE)
+                        && (x.attributes[0] == e1tSUMMON || x.attributes[0] == e1tSUMMONLAYER);
+
+    if(v < 51)      // guy_update_firesfx
+    {
+        x.firesfx = 0;
+
+        if(g.family == eeWIZZ)
+        {
+            switch(x.attributes[1])
+            {
+            case 0: x.firesfx = WAV_WAND; break;
+            case 1:
+                if(!q30_quest_rule(277))    // qr_8WAY_SHOT_SFX_DEP
+                {
+                    x.firesfx = legacy_weapon_firesfx(g.weapon);
+                    break;
+                }
+                // fall through
+            case 2: x.firesfx = WAV_FIRE; break;
+            case 3: x.firesfx = q30_quest_rule(106) ? WAV_ZN1SUMMON : WAV_FIRE; break;
+            }
+        }
+        else if(summon)
+            x.firesfx = q30_quest_rule(106) ? WAV_ZN1SUMMON : WAV_FIRE;
+        else
+            x.firesfx = legacy_weapon_firesfx(g.weapon);
+
+        x.firesfx_secondary = legacy_weapon_firesfx(secondary_fire_weapon(g, x));
+    }
+    else if(v < 60)
+        x.firesfx_secondary = x.firesfx;
+
+    if(v < 60)      // guy_silence_unplayed_firesfx
+    {
+        if(!(g.family == eeWIZZ || summon) && !firesfx_played_for_weapon(g.weapon))
+            x.firesfx = 0;
+        if(!firesfx_played_for_weapon(secondary_fire_weapon(g, x)))
+            x.firesfx_secondary = 0;
+    }
+
+    Q30WeaponData &d = x.weap;
+
+    if(v < 52)      // guy_update_weaponflags
+    {
+        d.unblockable = 0;
+        d.moveflags = (g.weapon == ewFlame || g.weapon == ewFireTrail) ? (0x01 | 0x02) : 0;   // obeys gravity, can pitfall
+        d.override_flags = 0;
+        d.hxofs = d.hyofs = d.hxsz = d.hysz = d.hzsz = d.xofs = d.yofs = d.tilew = d.tileh = 0;
+
+        switch(g.weapon)
+        {
+        case ewFireball: case ewFireball2: d.step = 17500; break;
+        case ewSword: case ewLitBomb: case ewLitSBomb: case ewRock: case ewMagic: case ewWind: d.step = 30000; break;
+        case ewArrow: d.step = 20000; break;
+        case ewFlame: case ewFlame2: d.step = 10000; break;
+        default: d.step = 0; break;
+        }
+
+        memset(d.burnsprs, 0, sizeof(d.burnsprs));
+        memset(d.light_rads, 0, sizeof(d.light_rads));
+    }
+
+    if(v < 54)
+    {
+        if(g.flags & 0x40)          // guy_burning_sprites -> WFLAG_UPDATE_IGNITE_SPRITE
+            d.wflags |= 0x0200;
+        d.flags |= 0x02;            // wdata_set_step
+        if(g.weapon == ewRock)
+            d.wflags |= 0x0004;     // WFLAG_BREAK_ON_SOLID
+    }
+
+    d.script = g_npc_weapon_script;     // (weap_data.scrconfig)
+    memcpy(d.initd, g_npc_weapon_initd, sizeof(d.initd));
+}
+#endif
 
 static void read_guy(Q255Section &s, guydata &g)
 {
@@ -380,25 +532,49 @@ static void read_guy(Q255Section &s, guydata &g)
         }
     }
 
+    Q30GuyData &x = g_npc_data;
+
     if(v > 25)
-        s.skip(5 * 4);     // tile and hit sizes
+    {
+        x.txsz = s.igetl_s();     // tile and hit sizes
+        x.tysz = s.igetl_s();
+        x.hxsz = s.igetl_s();
+        x.hysz = s.igetl_s();
+        x.hzsz = s.igetl_s();
+    }
 
     if(v > 26)
-        s.skip(5 * 4);     // hit and draw offsets
+    {
+        x.hxofs = s.igetl_s();    // hit and draw offsets
+        x.hyofs = s.igetl_s();
+        x.xofs = s.igetl_s();
+        x.yofs = s.igetl_s();
+        x.zofs = s.igetl_s();
+    }
 
     if(v > 27)
         g_npc_wpnsprite = s.igetl_s();     // wpnsprite
 
     if(v > 28)
-        s.skip(4);         // SIZEflags
+        x.sizeflags = s.igetl_s();         // SIZEflags
 
     if(v >= 30)
-        s.skip(3 * 4 + 10 * 2);    // frozen tile, cset, clock, misc
+    {
+        x.frozentile = s.igetl_s();        // frozen tile, cset, clock, misc
+        x.frozencset = s.igetl_s();
+        x.frozenclock = s.igetl_s();
+
+        for(int q = 0; q < 10; ++q)
+            x.frozenmisc[q] = s.igetw_s();
+    }
 
     if(v >= 34)
     {
-        s.skip(2);         // firesfx
-        s.skip(17 * 4);    // attributes 15-31
+        x.firesfx = s.igetw_s();           // firesfx
+
+        for(int q = 15; q < 32; ++q)
+            x.attributes[q] = s.igetl_s(); // attributes 15-31
+
         s.skip(32 * 4);    // movement
         s.skip(32 * 4);    // new_weapon
 
@@ -416,7 +592,7 @@ static void read_guy(Q255Section &s, guydata &g)
     }
 
     if(v >= 37)
-        s.skip(4);         // editorflags
+        x.editorflags = s.igetl();         // editorflags
 
     if(v >= 38)
     {
@@ -450,28 +626,47 @@ static void read_guy(Q255Section &s, guydata &g)
 
     if(v > 55)
     {
-        s.skip(2);          // shadow, death and spawn sprites
+        x.spr_shadow = s.igetw();          // shadow, death and spawn sprites
         g_npc_death_spr = s.igetw();
         g_npc_spawn_spr = s.igetw();
     }
     else if(v > 44)
     {
-        s.skip(1);
+        x.spr_shadow = s.getc();
         g_npc_death_spr = s.getc();
         g_npc_spawn_spr = s.getc();
     }
+    else
+        x.spr_shadow = (g.family == eeROCK && g.misc10 == 1) ? iwLargeShadow : iwShadow;
 
     if(v >= 52 && v < 54)
     {
-        s.skip(1);                         // unblockable
-        s.skip(12 * 4);                    // moveflags, override flags, sizes, offsets, step
-        s.skip(FILE_WPNSPR_MAX * (2 + 2)); // burn sprites, light radii
+        Q30WeaponData &d = x.weap;         // the inline form (upstream's reader)
+        d.unblockable = s.getc();
+        d.moveflags = s.igetl();
+        d.override_flags = s.igetl_s();
+        d.tilew = s.igetl_s();
+        d.tileh = s.igetl_s();
+        d.hxsz = s.igetl_s();
+        d.hysz = s.igetl_s();
+        d.hzsz = s.igetl_s();
+        d.hxofs = s.igetl_s();
+        d.hyofs = s.igetl_s();
+        d.xofs = s.igetl_s();
+        d.yofs = s.igetl_s();
+        d.step = s.igetl_s() * 100;
+
+        for(int q = 0; q < FILE_WPNSPR_MAX; ++q)
+        {
+            d.burnsprs[q] = s.igetw();
+            d.light_rads[q] = (byte)s.igetw();
+        }
     }
 
     if(v >= 55)
-        s.skip(2);         // specialsfx
+        x.specialsfx = s.igetw_s();        // specialsfx
     else if(v >= 53)
-        s.skip(1);
+        x.specialsfx = s.getc();
 
     if(v >= 54)
         skip_weapon_data(s);
@@ -483,7 +678,15 @@ static void read_guy(Q255Section &s, guydata &g)
     }
 
     if(v >= 60)
-        s.skip(2);         // firesfx_secondary
+        x.firesfx_secondary = s.igetw_s(); // firesfx_secondary
+
+    x.attributes[0] = g.misc1; x.attributes[1] = g.misc2; x.attributes[2] = g.misc3; x.attributes[3] = g.misc4;
+    x.attributes[4] = g.misc5; x.attributes[5] = g.misc6; x.attributes[6] = g.misc7; x.attributes[7] = g.misc8;
+    x.attributes[8] = g.misc9; x.attributes[9] = g.misc10; x.attributes[10] = g.misc11; x.attributes[11] = g.misc12;
+    x.attributes[12] = g.misc13; x.attributes[13] = g.misc14; x.attributes[14] = g.misc15;
+#ifdef ZC_PLAYER_BUILD
+    guy_data_fixes(v, g, x);
+#endif
 
     // Older quests relied on the hardcoded hit sound (WAV_EHIT).
     if((s.header->zelda_version <= 0x250 || v < 35) && g.hitsfx == 0)
@@ -585,6 +788,7 @@ int q255_read_guys(Q255Section &s)
         g_npc_wvp_despawn = 0;
         memset(g_npc_initd, 0, sizeof(g_npc_initd));
         memset(g_npc_weapon_initd, 0, sizeof(g_npc_weapon_initd));
+        g_npc_data = Q30GuyData();
         read_guy(s, g);
 
         if(s.failed)
@@ -601,6 +805,7 @@ int q255_read_guys(Q255Section &s)
 #ifdef ZC_PLAYER_BUILD
 
             q30_set_guy_death_sprite(i, g_npc_death_spr, g_npc_spawn_spr);
+            q30_set_guy_data(i, g_npc_data);
 
             if(g_npc_vp_suspend != 48 || g_npc_vp_despawn != 0)
                 q30_vp_guy_ranges(i, g_npc_vp_suspend, g_npc_vp_despawn);

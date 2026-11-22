@@ -87,6 +87,9 @@ void q30_viewport_set_target(long uid);
 long q30_viewport_follow(int which);
 void q30_viewport_set_follow(int which, long v);
 void q30_viewport_reset_follow_settings();
+// dmapdata->Viewport*: a DMap's own follow settings (distances in pixels, speeds as stored)
+long q30_dmap_viewport_follow(int dmap, int which);
+void q30_set_dmap_viewport_follow(int dmap, int which, long v);
 // Once a frame from the game loop, after Link moved: the camera follows him (upstream's
 // tick_viewport_follow: dead zone, lookahead and recentering, from init data or the DMap).
 // Nothing for 2.53 quests.

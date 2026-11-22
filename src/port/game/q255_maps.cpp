@@ -162,6 +162,12 @@ static int g_screen_index = -1;
 #ifdef ZC_PLAYER_BUILD
 // the high bits of noreset / nocarry and the exstate carry-overs, for scripts (q30_scripts_data.h)
 void q30_set_screen_carry(int index, dword noreset, dword nocarry, dword exreset, dword excarry);
+// what 2.53's mapscr has no room for, for scripts (q30_scripts_data.h): lens_show / lens_hide,
+// hidelayers / hidescriptlayers, screen_gravity / screen_terminal_v (index -1 forgets them all)
+void q30_set_screen_extras(int index, byte lens_show, byte lens_hide, byte hidelayers, byte hidescriptlayers,
+                           long gravity, long terminal_v, int which);
+void q30_set_dmap_gravity(int dmap, long gravity, long terminal_v);
+enum { Q30_SCREEN_EXTRA_LENS = 1, Q30_SCREEN_EXTRA_HIDE = 2, Q30_SCREEN_EXTRA_GRAVITY = 4 };
 #endif
 
 static void read_words(Q255Section &s, word *dst, int n)
@@ -624,6 +630,17 @@ static void read_screen_new(Q255Section &s, mapscr *t, int screen, const word *a
     for(int i = 0; i < 4; ++i)
         t->sidewarptype[i] = wtSCROLL;
 
+#ifdef ZC_PLAYER_BUILD
+    // upstream's mDEF_NORESET and mDEF_NOCARRYOVER, for a screen that stores neither (scripts read
+    // them; with no next screen nothing carries over, so play is the same); ZQuest keeps the file's
+    if(s.keep && g_screen_index >= 0)
+    {
+        t->noreset = 0x4080;
+        t->nocarry = 0x40CF;
+        q30_set_screen_carry(g_screen_index, 0x4080, 0x140CF, 0, 0);
+    }
+#endif
+
     if(has & HAS_ROOMDATA)
     {
         t->guy = s.getc();
@@ -709,7 +726,14 @@ static void read_screen_new(Q255Section &s, mapscr *t, int screen, const word *a
         s.read(t->layermap, 6);
         s.read(t->layerscreen, 6);
         s.read(t->layeropacity, 6);
-        s.skip(2);      // hidelayers, hidescriptlayers
+        const byte hidelayers = s.getc(), hidescriptlayers = s.getc();
+#ifdef ZC_PLAYER_BUILD
+        if(s.keep && g_screen_index >= 0 && (hidelayers || hidescriptlayers))
+            q30_set_screen_extras(g_screen_index, 0, 0, hidelayers, hidescriptlayers, 0, 0, Q30_SCREEN_EXTRA_HIDE);
+#else
+        (void)hidelayers;
+        (void)hidescriptlayers;
+#endif
     }
 
     if(has & HAS_MAZE)
@@ -859,6 +883,10 @@ static void read_screen_new(Q255Section &s, mapscr *t, int screen, const word *a
             const byte show = s.getc();
             const byte hide = s.getc();
             t->lens_layer = map_lens(t->lens_layer, show, hide);
+#ifdef ZC_PLAYER_BUILD
+            if(s.keep && g_screen_index >= 0 && (show || hide))
+                q30_set_screen_extras(g_screen_index, show, hide, 0, 0, 0, 0, Q30_SCREEN_EXTRA_LENS);
+#endif
         }
     }
 
@@ -903,7 +931,16 @@ static void read_screen_new(Q255Section &s, mapscr *t, int screen, const word *a
     }
 
     if(s.version >= 35 && (flags10 & SCREEN_GRAVITY_BITS))
-        s.skip(8);      // screen_gravity, screen_terminal_v
+    {
+        const long gravity = s.igetl_s(), terminal_v = s.igetl_s();     // zfix values (x10000)
+#ifdef ZC_PLAYER_BUILD
+        if(s.keep && g_screen_index >= 0 && !s.failed)
+            q30_set_screen_extras(g_screen_index, 0, 0, 0, 0, gravity, terminal_v, Q30_SCREEN_EXTRA_GRAVITY);
+#else
+        (void)gravity;
+        (void)terminal_v;
+#endif
+    }
 }
 
 // For ZQuest's map writer (src/port/zqeditor/zqw_maps.cpp), which checks that what it writes
@@ -1066,7 +1103,10 @@ int q255_read_maps(Q255Section &s)
     mapscr scratch;
 #ifdef ZC_PLAYER_BUILD
     if(s.keep)
+    {
         q30_set_screen_carry(-1, 0, 0, 0, 0);
+        q30_set_screen_extras(-1, 0, 0, 0, 0, 0, 0, 0);
+    }
 #endif
 
     for(int i = 0; i < count; ++i)
@@ -1407,7 +1447,16 @@ static void read_dmap(Q255Section &s, dmap &d, int index)
         s.skip(REGION_IDS_SIZE);
 
     if(s.version > 22 && (d.flags & DMF_CUSTOM_GRAVITY))
-        s.skip(4 + 4);  // dmap_gravity, dmap_terminal_v
+    {
+        const long gravity = s.igetl_s(), terminal_v = s.igetl_s();     // zfix values (x10000)
+#ifdef ZC_PLAYER_BUILD
+        if(keep && !s.failed)
+            q30_set_dmap_gravity(index, gravity, terminal_v);
+#else
+        (void)gravity;
+        (void)terminal_v;
+#endif
+    }
 
     // A DMap's own camera follow settings for scrolling regions (q30_regions.cpp); without them
     // it uses init data's.
@@ -1488,6 +1537,9 @@ int q255_read_dmaps(Q255Section &s)
 #endif
         g_dmap_scripts.clear();
         g_dmap_extras.clear();
+#ifdef ZC_PLAYER_BUILD
+        q30_set_dmap_gravity(-1, 0, 0);
+#endif
 
         for(int i = 0; i < MAXDMAPS; ++i)
         {

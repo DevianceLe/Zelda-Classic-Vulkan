@@ -10170,23 +10170,56 @@ void q30_set_item_size_value(int item, int which, long v)
         it->second.v[which] = v;
 }
 
-// An item's weapon's imitate_weapon and default_defense (upstream's weap_data), for scripts.
-static std::map<int, std::pair<int, int> > g_item_weapon_use;
+// Each item's 3.0 record (the item reader's; upstream keeps these fields in itemsbuf).
+Q30ItemRec::Q30ItemRec()
+{
+    weaprange = weapduration = duplicates = 0;
+    drawlayer = 0;
+    magiccosttimer[0] = magiccosttimer[1] = 0;
+    pickup_litems = 0;
+    pickup_litem_level = -1;
+    cooldown = collectflags = 0;
+    memset(wpn_misc_d, 0, sizeof(wpn_misc_d));
+    memset(collect_initd, 0, sizeof(collect_initd));
+}
 
+static std::vector<Q30ItemRec> g_item_recs;
+
+void q30_set_item_rec(int item, const Q30ItemRec *r)
+{
+    if(item < 0 || !r)
+        g_item_recs.clear();
+    else if(item < Q30_MAX_ITEMS)
+    {
+        if(g_item_recs.size() <= (size_t)item)
+            g_item_recs.resize(item + 1);
+
+        g_item_recs[item] = *r;
+    }
+}
+
+Q30ItemRec *q30_item_rec(int item)
+{
+    return (q30_active() && item >= 0 && (size_t)item < g_item_recs.size()) ? &g_item_recs[item] : NULL;
+}
+
+// An item's weapon's imitate_weapon and default_defense (upstream's weap_data), for scripts:
+// the item's record has them.
 void q30_set_item_weapon_use(int item, int weapon, int defense)
 {
-    if(item < 0)
-        g_item_weapon_use.clear();
-    else if(weapon || defense)
-        g_item_weapon_use[item] = std::make_pair(weapon, defense);
-    else
-        g_item_weapon_use.erase(item);
+    Q30ItemRec *r = item >= 0 ? q30_item_rec(item) : NULL;
+
+    if(r)
+    {
+        r->weap.imitate_weapon = (byte)weapon;
+        r->weap.default_defense = (byte)defense;
+    }
 }
 
 int q30_item_weapon_use(int item, bool defense)
 {
-    std::map<int, std::pair<int, int> >::const_iterator it = g_item_weapon_use.find(item);
-    return it == g_item_weapon_use.end() ? 0 : (defense ? it->second.second : it->second.first);
+    const Q30ItemRec *r = q30_item_rec(item);
+    return !r ? 0 : (defense ? r->weap.default_defense : r->weap.imitate_weapon);
 }
 
 // upstream's item::item (and putitem, in_place: drawn where it's put, with no playing field
@@ -12506,6 +12539,19 @@ static void q30_add_combo_sprite(int x, int y, int spr)
 {
     decorations.add(new q30_sprite_deco(x, y, spr, zc_max(1, (int)wpnsbuf[spr].frames) * zc_max(1, (int)wpnsbuf[spr].speed), false,
                                         playing_field_offset - (q30_compat_rule(344) ? 2 : 0)));
+}
+
+void q30_combo_sprite_at(int x, int y, int spr)     // (a weapon's death sprite, q30_scripts_live.h)
+{
+    switch(spr)
+    {
+    case -2: decorations.add(new dBushLeaves((fix)x, (fix)y, dBUSHLEAVES, 0)); break;
+    case -3: decorations.add(new dFlowerClippings((fix)x, (fix)y, dFLOWERCLIPPINGS, 0)); break;
+    case -4: decorations.add(new dGrassClippings((fix)x, (fix)y, dGRASSCLIPPINGS, 0)); break;
+    default:
+        if(spr >= 0 && spr < MAXWPNS)
+            q30_add_combo_sprite(x, y, spr);
+    }
 }
 
 // Upstream's breakable: the switched combo shown where Link stood until the switch ends,

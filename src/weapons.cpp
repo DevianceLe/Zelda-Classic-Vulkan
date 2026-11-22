@@ -88,6 +88,8 @@ byte boomframe[16] = {0,0,1,0,2,0,1,1,0,1,1,3,2,2,1,2};
 byte bszboomflip[4] = {0,2,3,1};
 
 void q30_lighting(bool existslight, bool stay);    // pal.cpp
+void q30_enemy_weapon_made(weapon *w);     // q30_scripts_data.h: an enemy's weapon data for the weapon it fires
+void q30_weapon_death_fx(weapon *w);       // q30_scripts_live.h: a weapon's death item, dropset, sprite, sound
 
 //light up the screen if there is at least one "lit" weapon
 //otherwise darken the screen
@@ -1308,6 +1310,12 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
         break;
     }
     
+    if(q30_active())
+        q30_enemy_weapon_made(this);    // the enemy's weapon data (upstream's load_weap_data)
+    // 2.55/3.0: a weapon an item makes takes on the item's weapon data (upstream's load_weap_data)
+    if(parentitem > -1 && q30_active())
+        q30_weapon_load_item_data(this);
+
     if(id>wEnemyWeapons && id!=ewBrang && (Type&4)!=0)  // Increase speed of Aquamentus 2 fireballs
     {
         step *=2;
@@ -1568,7 +1576,10 @@ bool weapon::animate(int index)
     if(q30_dying_frame)
     {
         if(dead == 0)
+        {
+            q30_weapon_death_fx(this);
             return true;
+        }
 
         q30_dying_frame = false;    // (a script brought it back)
     }
@@ -1592,6 +1603,9 @@ bool weapon::animate(int index)
             return false;
         }
     }
+
+    if(gone && q30_active())
+        q30_weapon_death_fx(this);
 
     return gone;
 }

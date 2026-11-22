@@ -174,8 +174,10 @@ int z_int(int64_t v)
 // upstream's get_viewport_follow_settings (no script overrides)
 Follow follow_settings()
 {
+    // (upstream: the DMap's own while it has dmfCUSTOM_VIEWPORT_FOLLOW, which a script may change)
     std::map<int, Follow>::const_iterator it = g_follow_dmap.find(currdmap);
-    Follow s = it != g_follow_dmap.end() ? it->second : g_follow_init;
+    const bool custom = unsigned(currdmap) < MAXDMAPS && (DMaps[currdmap].flags & 0x1000000);
+    Follow s = !custom ? g_follow_init : it != g_follow_dmap.end() ? it->second : FOLLOW_DEFAULT;
     // a script's overrides, already range checked
     if(g_ovr_has[Q30_VP_DEADZONE_W]) s.deadzone_w = g_ovr[Q30_VP_DEADZONE_W];
     if(g_ovr_has[Q30_VP_DEADZONE_H]) s.deadzone_h = g_ovr[Q30_VP_DEADZONE_H];
@@ -1119,6 +1121,49 @@ void q30_set_viewport_follow(int dmap, bool custom, int deadzone_w, int deadzone
         g_follow_dmap[dmap] = f;
     else
         g_follow_dmap.erase(dmap);
+}
+
+// dmapdata->Viewport* (upstream's dmap.viewport_follow: a DMap without its own settings holds the
+// defaults); distances in pixels, speeds in 1/10000 pixels a frame
+long q30_dmap_viewport_follow(int dmap, int which)
+{
+    std::map<int, Follow>::const_iterator it = g_follow_dmap.find(dmap);
+    const Follow &f = it != g_follow_dmap.end() ? it->second : FOLLOW_DEFAULT;
+
+    switch(which)
+    {
+    case Q30_VP_DEADZONE_W: return f.deadzone_w;
+    case Q30_VP_DEADZONE_H: return f.deadzone_h;
+    case Q30_VP_LOOKAHEAD_X: return f.lookahead_x;
+    case Q30_VP_LOOKAHEAD_Y: return f.lookahead_y;
+    case Q30_VP_LOOKAHEAD_SPEED: return f.lookahead_speed;
+    case Q30_VP_RECENTER_SPEED: return f.recenter_speed;
+    case Q30_VP_RECENTER_DELAY: return f.recenter_delay;
+    }
+
+    return 0;
+}
+
+void q30_set_dmap_viewport_follow(int dmap, int which, long v)
+{
+    if(dmap < 0 || dmap >= MAXDMAPS)
+        return;
+
+    if(g_follow_dmap.find(dmap) == g_follow_dmap.end())
+        g_follow_dmap[dmap] = FOLLOW_DEFAULT;
+
+    Follow &f = g_follow_dmap[dmap];
+
+    switch(which)
+    {
+    case Q30_VP_DEADZONE_W: f.deadzone_w = (int)v; break;
+    case Q30_VP_DEADZONE_H: f.deadzone_h = (int)v; break;
+    case Q30_VP_LOOKAHEAD_X: f.lookahead_x = (int)v; break;
+    case Q30_VP_LOOKAHEAD_Y: f.lookahead_y = (int)v; break;
+    case Q30_VP_LOOKAHEAD_SPEED: f.lookahead_speed = v; break;
+    case Q30_VP_RECENTER_SPEED: f.recenter_speed = v; break;
+    case Q30_VP_RECENTER_DELAY: f.recenter_delay = (int)v; break;
+    }
 }
 
 // upstream's tick_viewport_follow, run by the game loop once a frame after Link moved (not while

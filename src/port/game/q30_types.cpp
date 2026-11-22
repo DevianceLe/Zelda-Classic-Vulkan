@@ -92,6 +92,21 @@ Q30WeaponData::Q30WeaponData()
     data_version = -1;
 }
 
+Q30GuyData::Q30GuyData()
+{
+    txsz = tysz = 1;
+    hxsz = hysz = 16;
+    hzsz = 1;
+    hxofs = hyofs = xofs = yofs = zofs = 0;
+    sizeflags = 0;
+    frozentile = frozencset = frozenclock = 0;
+    memset(frozenmisc, 0, sizeof(frozenmisc));
+    firesfx = firesfx_secondary = specialsfx = 0;
+    memset(attributes, 0, sizeof(attributes));
+    editorflags = 0;
+    spr_shadow = 0;
+}
+
 Q30Combo::Q30Combo()
 {
     type = 0;

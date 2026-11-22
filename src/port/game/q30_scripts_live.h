@@ -62,6 +62,7 @@ static void zasm30_live_reset()
     zasm30_script_kb.clear();
     zasm30_owned.clear();
     zasm30_live_fields.clear();
+    zasm30_npc_weapdata.clear();
     q30_hero_shove = q30_init_shove;  // (upstream's HeroClass::init)
     q30_set_pit_combo(0);       // (upstream's HeroClass::init)
 
@@ -351,6 +352,7 @@ void zasm30_live_sprite_released(long uid)
     zasm30_script_kb.erase(uid);
     zasm30_ewpn_parent.erase(uid);
     zasm30_live_fields.erase(uid);
+    z30d_npc_weapdata_released(uid);
 
     for(std::map<long, long>::iterator it = zasm30_owned.begin(); it != zasm30_owned.end(); )
     {
@@ -579,6 +581,45 @@ enum
     Z30W_LIFTL, Z30W_LIFTT, Z30W_PIERCE, Z30W_SPRITES, Z30W_LRAD, Z30W_LOFS, Z30W_DY, Z30W_BMULT, Z30W_BADD,
     Z30W_NOTRIG, Z30W_HOOKED, Z30W_SPECIAL, Z30W_DROWNCLK, Z30W_VX, Z30W_VY
 };
+
+void q30_combo_sprite_at(int x, int y, int spr);   // q30_triggers.cpp: upstream's comboSprite, or clippings (-2 to -4)
+
+// upstream weapon::do_death_fx: what a script set a weapon to leave as it dies (DeathItem,
+// DeathDropset, DeathItemPFlags, DeathSprite, DeathSFX), once, as weapon::animate says it's gone
+void q30_weapon_death_fx(weapon *w)
+{
+    const long uid = w->getUID();
+
+    if(zasm30_live_fields.find(uid) == zasm30_live_fields.end())
+        return;
+
+    const int x = (int)w->x, y = (int)w->y, z = (int)w->z;
+    const long ditem = z30_lf_get(uid, 1 + Z30W_DITEM, 0, -1), dset = z30_lf_get(uid, 1 + Z30W_DROPSET, 0, -1);
+    const long pflags = z30_lf_get(uid, 1 + Z30W_IPICKUP, 0, 0), dspr = z30_lf_get(uid, 1 + Z30W_DSPR, 0, -1);
+    const long dsfx = z30_lf_get(uid, 1 + Z30W_DSFX, 0, 0);
+
+    if(ditem >= 0 && ditem < q30_items_end())
+        items.add(new item(w->x, w->y, w->z, (int)ditem, (int)pflags, 0));
+
+    if(dset > -1)
+    {
+        const int itid = select_dropitem((int)dset, x, y);
+
+        if(itid >= 0 && itid < q30_items_end())
+            items.add(new item(w->x, w->y, w->z, itid, (int)pflags, 0));
+    }
+
+    q30_combo_sprite_at(x, y - z, (int)dspr);
+
+    if(dsfx > 0)
+        sfx((int)dsfx, pan(x));
+
+    z30_lf_set(uid, 1 + Z30W_DITEM, 0, -1);     // (upstream clears them: the effects run once)
+    z30_lf_set(uid, 1 + Z30W_IPICKUP, 0, 0);
+    z30_lf_set(uid, 1 + Z30W_DROPSET, 0, -1);
+    z30_lf_set(uid, 1 + Z30W_DSPR, 0, -1);
+    z30_lf_set(uid, 1 + Z30W_DSFX, 0, 0);
+}
 
 static bool z30_live_wpn(const long arg, bool write, long value, long &ret)
 {
@@ -861,7 +902,9 @@ static bool z30_live_npc_reg(const long arg, bool write, long value, long &ret)
             ret = (p && (arg == Z30R_NPCPARENTUID ? z30_sprite(p).s != NULL : guys.getByUID(p) != NULL)) ? p : 0;
         }
         return true;
-    case Z30R_NPC_WEAPONDATA:   // (upstream gives a weapondata object of the enemy's own; not kept here)
+    case Z30R_NPC_WEAPONDATA:   // a weapondata object of the enemy's own weap_data (upstream's wdata_type::npc)
+        if(!write)
+            ret = Z30_REF(WEAPDATA) = z30d_weapdata_view(Z30D_WDV_NPC, uid);
         return true;
     case Z30R_NPCHASITEM:
         if(write) e->itemguy = (value / 10000) != 0;

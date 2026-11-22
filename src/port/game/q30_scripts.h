@@ -125,15 +125,33 @@ struct Q30SubCond
     int scrstate_map, scrstate_scr;                 // map + 1 (0: current), screen (-1: current)
     dword scrstate, exstate, lvlstate;
     int lstate_level;                               // -1: current
+    bool disabled;                                  // SubscrWidget is_disabled (set by script)
 };
 inline bool q30_sub_cond_used(const Q30SubCond &c)  // false when nothing is asked
 {
     return !c.owned.empty() || !c.unowned.empty() || (c.counter != -1 && c.counter_cond != 0) || c.litems ||
            !c.floors.empty() || !c.levels.empty() || !c.dmaps.empty() || !c.maps.empty() || !c.screens.empty() ||
-           ((c.scrstate_map || c.scrstate_scr < 0) && (c.scrstate || c.exstate)) || c.lvlstate;
+           ((c.scrstate_map || c.scrstate_scr < 0) && (c.scrstate || c.exstate)) || c.lvlstate || c.disabled;
 }
 // The objects [first, end) of the page being read come from a widget with these conditions.
 void q30_sub_widget_cond(int list, int first, int end, const Q30SubCond &c);
+// The last widget's type-specific values as the quest has them (upstream's SW_* members the
+// SUBWIDGTY_ registers read), colours as type/colour pairs (SubscrColorInfo).
+struct Q30SubTy
+{
+    int anim_val, container, frames, speed, delay, units, gauge_wid, gauge_hei, hspace, vspace, grid_x, grid_y;
+    long inf_item, per_container, total, showdrain;
+    int btn, costind, infchar, mindig, maxdig, number, frame_cset, piece_cset, litems;
+    long infitm, iclass, iid, frame_tile, piece_tile;
+    int ctrs[3];                    // a counter's counters, a misc gauge's or percent bar's counter
+    enum { C_TXT2, C_SHD2, C_BG2, C_PLR, C_CMPBLNK, C_CMPOFF, C_ROOM, C_VIS, C_UNVIS, C_COUNT };
+    byte ctype[C_COUNT];
+    short color[C_COUNT];
+};
+void q30_sub_ty_defaults(Q30SubTy &t);
+// The last widget's: type values, all of its display conditions (and whether it is disabled), its
+// cursor neighbours (up, down, left, right) and the objects [first, end) it became.
+void q30_sub_widget_more(int list, const Q30SubTy &ty, const Q30SubCond &req, bool disabled, const int *dirs, int first, int end);
 // The last widget's selected text override (upstream override_text: what a selected text widget
 // shows while the cursor is on it, in place of an item's name).
 void q30_sub_widget_seltext(int list, const char *text);
@@ -152,6 +170,13 @@ void q30_sub_selector(int list, const Q30SubSel &sel);      // the subscreen bei
 // buttons (INT_BTN_* bits) is pressed with the cursor on it.
 void q30_sub_widget_script(int list, int script, int btns, const long *initd);
 void q30_sub_widget_digits(int list, int maxdigits);       // the last counter widget's max digits
+// The subscreen being read's own script (upstream ZCSubscreen scrconfig) and its InitD.
+void q30_sub_script(int list, int script, const long *initd);
+// dosubscr (zc_subscr.cpp): the open active subscreen's own script, as upstream's
+// run_active_subscript; true when it closed the subscreen. _reset starts it afresh (upstream
+// initZScriptSubscreenScript on opening, ScopedScriptEngineDataClear on closing).
+bool q30_run_subscreen_script();
+void q30_subscreen_script_reset();
 
 // The screen script data (Screen->Data[]) a new game starts with, from the init data reader
 // (q30_scripts_save.h). key -1 only sets the size.

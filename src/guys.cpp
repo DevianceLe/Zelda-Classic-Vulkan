@@ -582,6 +582,12 @@ enemy::enemy(fix X,fix Y,int Id,int Clk) : sprite()
         if(q30_enemy_sprite_anims())    // (2.55/3.0, qr_HARDCODED_ENEMY_ANIMS off: its spawn sprite)
             q30_spawn_spr = q30_guy_spawn_sprite(id & 0xFFF);
     }
+    {
+        void q30_npc_weapdata_made(sprite *e);     // q30_scripts_data.h: its own copy of its weapon data
+
+        if(q30_active())
+            q30_npc_weapdata_made(this);
+    }
     canfreeze = count_enemy = true;
     mainguy = !(flags & guy_doesntcount);
     dir = rand()&3;
@@ -666,7 +672,7 @@ void q30_set_guy_death_sprite(int guy, int death, int spawn)
     }
 }
 
-static int q30_guy_death_sprite(int guy)
+int q30_guy_death_sprite(int guy)
 {
     return (guy >= 0 && guy < MAXGUYS && g_q30_guy_death_spr[guy]) ? g_q30_guy_death_spr[guy] - 1 : iwDeath;
 }

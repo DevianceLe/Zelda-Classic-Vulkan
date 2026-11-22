@@ -43,6 +43,10 @@ struct Z30SubWidget
     int script, script_btns;        // the generic script a press runs (generic_scrconfig) and its buttons
     long script_initd[8];
     int maxdigits;                  // a counter's max digits (its selector box)
+    Q30SubTy ty;                    // its type values (SUBWIDGTY_ registers), as upstream's SW_* members
+    Q30SubCond req;                 // all of its display conditions (SUBWIDGREQ_ registers)
+    int dirs[4];                    // pos_up, pos_down, pos_left, pos_right
+    int obj_end;                    // the objects [obj, obj_end) it became
 };
 
 // A page's button transition (upstream SubscrPageTransition), with its animation.
@@ -68,6 +72,8 @@ struct Z30SubPage
     std::vector<int> obj_cond;
 };
 
+struct Z30SubScrConfig { long script, initd[8]; };
+
 struct Z30Subscreen
 {
     int slot;               // custom_subscreen[] index, -1 if not kept
@@ -80,6 +86,7 @@ struct Z30Subscreen
     int def_btns[4];            // A, B, X, Y on a new game: pos << 8 | page (page 255: none)
     bool has_sel;               // its selector override (SUBFLAG_ACT_OVERRIDESEL, flag 0x2)
     Q30SubSel sel;
+    Z30SubScrConfig scr;        // its own script and InitD (upstream scrconfig)
 };
 
 // active, passive, overlay, map: upstream's sstACTIVE..sstMAP
@@ -161,7 +168,21 @@ void q30_sub_begin(int list, int slot, const char *name)
         s.def_btns[q] = 255;
     s.has_sel = false;
     memset(&s.sel, 0, sizeof(s.sel));
+    memset(&s.scr, 0, sizeof(s.scr));
     zasm30_subs[list].push_back(s);
+}
+
+void q30_sub_script(int list, int script, const long *initd)
+{
+    if(list < 0 || list >= 4 || zasm30_subs[list].empty())
+        return;
+
+    Z30SubScrConfig &c = zasm30_subs[list].back().scr;
+    c.script = script;
+    memcpy(c.initd, initd, sizeof(c.initd));
+
+    if(getenv("ZC_Q30_SUBLOG"))     // diagnostics only
+        al_trace("q30 subscreen: list %d sub %d script %d\n", list, (int)zasm30_subs[list].size() - 1, script);
 }
 
 void q30_sub_selector(int list, const Q30SubSel &sel)
@@ -383,12 +404,50 @@ void q30_sub_widget(int list, int type, const char *label, int obj, int posflags
     wd.script = wd.script_btns = 0;
     wd.maxdigits = 0;
     memset(wd.script_initd, 0, sizeof(wd.script_initd));
+    q30_sub_ty_defaults(wd.ty);
+    wd.req = Q30SubCond();
+    wd.req.genflags = genflags;
+    wd.req.counter = -1;
+    wd.req.litem_level = -1;
+    wd.req.lstate_level = -1;
+    memset(wd.dirs, 0, sizeof(wd.dirs));
+    wd.obj_end = obj >= 0 ? obj + 1 : -1;
     zasm30_subs[list].back().pages.back().widgets.push_back(wd);
 
     if(pg_mode && getenv("ZC_Q30_SUBLOG"))     // diagnostics only
         al_trace("q30 subscreen: list %d sub %d page %d widget %d (pos %d): page buttons 0x%02x mode %d target %d\n", list,
                  (int)zasm30_subs[list].size() - 1, (int)zasm30_subs[list].back().pages.size() - 1,
                  (int)zasm30_subs[list].back().pages.back().widgets.size() - 1, pos, pg_btns, pg_mode, pg_targ);
+}
+
+// Upstream's member defaults (new_subscr.h), for what a widget's type doesn't read.
+void q30_sub_ty_defaults(Q30SubTy &t)
+{
+    memset(&t, 0, sizeof(t));
+    t.frames = 1;
+    t.speed = 1;
+    t.inf_item = -1;
+    t.per_container = 1;
+    t.total = 16;
+    t.showdrain = -1;
+    t.infitm = -1;
+    t.iid = -1;
+    t.litems = 1;   // 1 << li_mcguffin
+}
+
+void q30_sub_widget_more(int list, const Q30SubTy &ty, const Q30SubCond &req, bool disabled, const int *dirs, int first, int end)
+{
+    if(list < 0 || list >= 4 || zasm30_subs[list].empty() || zasm30_subs[list].back().pages.empty() ||
+       zasm30_subs[list].back().pages.back().widgets.empty())
+        return;
+
+    Z30SubWidget &w = zasm30_subs[list].back().pages.back().widgets.back();
+    w.ty = ty;
+    w.req = req;
+    w.req.disabled = disabled;
+    for(int q = 0; q < 4; ++q)
+        w.dirs[q] = dirs[q];
+    w.obj_end = end > first ? end : -1;
 }
 
 // ---- references ------------------------------------------------------------------------------
@@ -604,6 +663,9 @@ static bool z30_cond_ok(const Q30SubCond &c)
         REQ_ANY_ITEM = 0x100, REQ_ANY_LITEM = 0x200, REQ_ANY_SCRSTATE = 0x400, REQ_INVERT_LSTATE = 0x800, REQ_ANY_LSTATE = 0x1000
     };
     const dword gf = c.genflags;
+
+    if(c.disabled)  // script-disable condition
+        return false;
 
     // items (upstream also checks the bunny form, which this engine doesn't have)
     bool pass = !(gf & REQ_ANY_ITEM);
@@ -2702,8 +2764,456 @@ static bool z30_sub_tile_field(const Z30SubWidget &w, subscreen_object &o, int w
     return false;
 }
 
+// ---- type values, display conditions, cursor neighbours, display item --------------------------
+// (upstream subscreenwidget.cpp: SUBWIDGTY_ANIMVAL...VSPACE, SUBWIDGREQ*, SUBWIDGPOSES, SUBWIDGDISPITM)
+
+// The 2.53 object i of widget page p (custom_subscreen[] for the page shown), NULL if none.
+static subscreen_object *z30_sub_page_obj(Z30Subscreen &s, Z30SubPage &p, int pg, int i)
+{
+    if(i < 0 || i >= MAXSUBSCREENITEMS || s.slot < 0 || s.slot >= MAXCUSTOMSUBSCREENS)
+        return NULL;
+    if(pg == s.curpage)
+        return &custom_subscreen[s.slot].objects[i];
+    if(p.stored && i < (int)p.objs.size())
+        return &p.objs[i];
+    return NULL;
+}
+
+// A script changed w's conditions: its objects follow them.
+static void z30_sub_req_sync(Z30SubPage &p, Z30SubWidget &w)
+{
+    if(w.obj < 0 || w.obj_end <= w.obj)
+        return;
+
+    int c = (w.obj < (int)p.obj_cond.size()) ? p.obj_cond[w.obj] : -1;
+
+    if(c < 0 || c >= (int)p.conds.size())
+    {
+        p.conds.push_back(w.req);
+        c = (int)p.conds.size() - 1;
+    }
+    else
+        p.conds[c] = w.req;
+
+    if((int)p.obj_cond.size() < w.obj_end)
+        p.obj_cond.resize(w.obj_end, -1);
+    for(int i = w.obj; i < w.obj_end; ++i)
+        p.obj_cond[i] = c;
+
+    z30_sub_any_cond = true;
+}
+
+static bool z30_set_has(const std::vector<int> &v, int x)
+{
+    return std::find(v.begin(), v.end(), x) != v.end();
+}
+
+static void z30_set_put(std::vector<int> &v, int x, bool on)
+{
+    std::vector<int>::iterator it = std::find(v.begin(), v.end(), x);
+    if(on && it == v.end())
+        v.push_back(x);
+    else if(!on && it != v.end())
+        v.erase(it);
+}
+
+// SubscrColorInfo::set_int_color, as it stores (no 2.53 conversion)
+static void z30_sub_raw_color(byte &type, short &color, long val)
+{
+    if(val > 255 || val < Z30_SUB_MIN_COLOR)
+        return;
+    if(val >= 0) { type = (byte)((val & 0xF0) >> 4); color = (short)(val & 0x0F); }
+    else if(val == Z30_SUB_TRANSPARENT) { type = ssctSYSTEM; color = -1; }
+    else if(val >= -Z30_SUB_SYS_COLORS) { type = ssctSYSTEM; color = (short)(-val - 1); }
+    else { type = ssctMISC; color = (short)(-val - 1 - Z30_SUB_SYS_COLORS); }
+}
+
+// SW_ItemSlot::getDisplayItem for a class slot (q30_subscreen_item does the rest)
+static int z30_sub_class_display(const subscreen_object &o)
+{
+    const int iclass = o.d10 > 0 ? o.d10 - 1 : o.d1;
+    const bool nosp = o.d9 != 0;
+    int family = -1;
+
+    switch(iclass)
+    {
+    case itype_bomb: if(z30_sub_check_bomb(-1, false)) family = itype_bomb; break;
+    case itype_bowandarrow: case itype_arrow: family = itype_arrow; break;
+    case itype_letterpotion:
+        if(current_item_id(itype_potion) > -1) family = itype_potion;
+        else if(current_item_id(itype_letter) > -1) family = itype_letter;
+        break;
+    case itype_sbomb: if(z30_sub_check_bomb(-1, true)) family = itype_sbomb; break;
+    case itype_map: if(nosp) break; return has_item(itype_map, -1) ? iMap : -1;
+    case itype_compass: if(nosp) break; return has_item(itype_compass, -1) ? iCompass : -1;
+    case itype_bosskey: if(nosp) break; return has_item(itype_bosskey, -1) ? iBossKey : -1;
+    case itype_heartpiece: if(nosp) break; if(QMisc.colors.HCpieces_tile) return iHCPiece; break;
+    default: family = iclass; break;
+    }
+
+    if(family < 0)
+        return -1;
+    const int id = o.d10 > 0 ? q30_current_item(family) : current_item_id(family);
+    return (id < 0 || item_disabled(id)) ? -1 : id;
+}
+
+static bool z30_subwidg_more(const long arg, long &ret, const long value, const bool write)
+{
+    long bad = 0;       // what a type without the value reads (upstream's ret after bad_subwidg_type)
+
+    switch(arg)
+    {
+    case Z30R_SUBWIDGTY_ANIMVAL: case Z30R_SUBWIDGTY_BUTTON: case Z30R_SUBWIDGTY_CONTAINER: case Z30R_SUBWIDGTY_DELAY:
+    case Z30R_SUBWIDGTY_FRAMES: case Z30R_SUBWIDGTY_GAUGE_HEI: case Z30R_SUBWIDGTY_GAUGE_WID: case Z30R_SUBWIDGTY_GRIDX:
+    case Z30R_SUBWIDGTY_GRIDY: case Z30R_SUBWIDGTY_HSPACE: case Z30R_SUBWIDGTY_INFITM: case Z30R_SUBWIDGTY_LITEMS:
+    case Z30R_SUBWIDGTY_MAXDIG: case Z30R_SUBWIDGTY_MINDIG: case Z30R_SUBWIDGTY_PERCONTAINER: case Z30R_SUBWIDGTY_SHOWDRAIN:
+    case Z30R_SUBWIDGTY_SPEED: case Z30R_SUBWIDGTY_TOTAL: case Z30R_SUBWIDGTY_UNITS: case Z30R_SUBWIDGTY_VSPACE:
+    case Z30R_SUBWIDGTY_COUNTERS:
+        bad = -10000;
+        break;
+    case Z30R_SUBWIDGTY_COSTIND:
+        bad = -1;
+        break;
+    case Z30R_SUBWIDGTY_COLOR_BG2: case Z30R_SUBWIDGTY_COLOR_CMPBLNK: case Z30R_SUBWIDGTY_COLOR_CMPOFF:
+    case Z30R_SUBWIDGTY_COLOR_PLAYER: case Z30R_SUBWIDGTY_COLOR_ROOM: case Z30R_SUBWIDGTY_COLOR_SHD2:
+    case Z30R_SUBWIDGTY_COLOR_TXT2: case Z30R_SUBWIDGTY_COLOR_VISITED: case Z30R_SUBWIDGTY_COLOR_UNVISITED:
+    case Z30R_SUBWIDGTY_FRAMECSET: case Z30R_SUBWIDGTY_FRAMETILE: case Z30R_SUBWIDGTY_INFCHAR: case Z30R_SUBWIDGTY_ITEMCLASS:
+    case Z30R_SUBWIDGTY_ITEMID: case Z30R_SUBWIDGTY_NUMBER: case Z30R_SUBWIDGTY_PIECECSET: case Z30R_SUBWIDGTY_PIECETILE:
+    case Z30R_SUBWIDGDISPITM: case Z30R_SUBWIDGPOSES:
+    case Z30R_SUBWIDGREQCOUNTER: case Z30R_SUBWIDGREQCOUNTERCOND: case Z30R_SUBWIDGREQCOUNTERVAL: case Z30R_SUBWIDGREQLITEMLEVEL:
+    case Z30R_SUBWIDGREQLITEMS: case Z30R_SUBWIDGREQOWNITEMS: case Z30R_SUBWIDGREQSCRIPTDISABLED: case Z30R_SUBWIDGREQUNOWNITEMS:
+    case Z30R_SUBWIDGREQ_DMAP: case Z30R_SUBWIDGREQ_DMAP_FLOOR: case Z30R_SUBWIDGREQ_DMAP_LEVEL: case Z30R_SUBWIDGREQ_LEVEL_STATE:
+    case Z30R_SUBWIDGREQ_LEVEL_STATE_LEVEL: case Z30R_SUBWIDGREQ_MAP: case Z30R_SUBWIDGREQ_SCREEN:
+    case Z30R_SUBWIDGREQ_SCRSTATE_EXSTATE: case Z30R_SUBWIDGREQ_SCRSTATE_MAP: case Z30R_SUBWIDGREQ_SCRSTATE_SCREEN:
+    case Z30R_SUBWIDGREQ_SCRSTATE_STATE:
+        break;
+    default:
+        return false;
+    }
+
+    ret = 0;
+    const long ref = Z30_REF(SUBSCREENWIDG);
+    subscreen_object *o = NULL;
+    Z30SubWidget *w = z30_subwidg(ref, &o);
+    Z30Subscreen *sd = z30_subdata(ref);
+    Z30SubPage *p = z30_subpage(ref);
+    int sub, sty, pg, ind;
+
+    if(!w || !sd || !p || !z30_from_subref(ref, sub, sty, pg, ind))
+    {
+        Z_scripterrlog("Invalid subscreenwidget pointer: %ld\n", ref);
+        return true;
+    }
+
+    const long v = value / 10000;
+    const int ty = w->type;
+    Q30SubTy &t = w->ty;
+    Q30SubCond &rq = w->req;
+    const bool gauge = ty == Z30W_LGAUGE || ty == Z30W_MGAUGE || ty == Z30W_MISCGAUGE || ty == Z30W_ITMCOOLDOWNGAUGE;
+    const bool og = o && (ty == Z30W_LGAUGE || ty == Z30W_MGAUGE);  // a gauge drawn as a 2.53 object
+    bool ok = true;     // the type has this value
+
+// a plain value of the type: get as is, set bounded (and into the object)
+#define Z30_TYV(cond, field, lo, hi, setobj) \
+    if(!(cond)) { ok = false; break; } \
+    if(write) { const long val = vbound(v, (long)(lo), (long)(hi)); field = val; setobj; } \
+    else ret = (long)(field) * 10000; \
+    break;
+
+    switch(arg)
+    {
+    // ---- type values ----
+    case Z30R_SUBWIDGTY_ANIMVAL:
+        Z30_TYV(gauge, t.anim_val, 0, 65535, if(og) o->d9 = (o->d9 & 0xFFFF) | (int)(val << 16))
+    case Z30R_SUBWIDGTY_CONTAINER:
+        Z30_TYV(gauge, t.container, 0, 65535, if(og) o->d1 = (int)val)
+    case Z30R_SUBWIDGTY_DELAY:
+        Z30_TYV(gauge, t.delay, 0, 65535, if(og) o->d8 = (int)val)
+    case Z30R_SUBWIDGTY_FRAMES:
+        Z30_TYV(gauge, t.frames, 1, 65535, if(og) o->d6 = (int)val)
+    case Z30R_SUBWIDGTY_SPEED:
+        Z30_TYV(gauge, t.speed, 1, 65535, if(og) o->d7 = (int)val)
+    case Z30R_SUBWIDGTY_GRIDX:
+        Z30_TYV(gauge, t.grid_x, -32768, 32767, if(og) o->color3 = (short)val)
+    case Z30R_SUBWIDGTY_GRIDY:
+        Z30_TYV(gauge, t.grid_y, -32768, 32767, if(og) o->frame = (word)(short)val)
+    case Z30R_SUBWIDGTY_HSPACE:
+        Z30_TYV(gauge, t.hspace, -128, 127, if(og) o->delay = (byte)(signed char)val)
+    case Z30R_SUBWIDGTY_VSPACE:
+        Z30_TYV(gauge, t.vspace, -128, 127, if(og) o->colortype3 = (byte)(signed char)val)
+    case Z30R_SUBWIDGTY_GAUGE_WID:
+    case Z30R_SUBWIDGTY_GAUGE_HEI:
+    case Z30R_SUBWIDGTY_UNITS:
+    {
+        if(!gauge) { ok = false; break; }
+        int &f = arg == Z30R_SUBWIDGTY_GAUGE_WID ? t.gauge_wid : arg == Z30R_SUBWIDGTY_GAUGE_HEI ? t.gauge_hei : t.units;
+        if(!write) { ret = (f + 1) * 10000; break; }
+        f = (int)vbound(v, 1L, arg == Z30R_SUBWIDGTY_UNITS ? 256L : 32L) - 1;
+        if(og && arg == Z30R_SUBWIDGTY_GAUGE_WID) o->frames = (byte)f;
+        else if(og && arg == Z30R_SUBWIDGTY_GAUGE_HEI) o->speed = (byte)f;
+        else if(og && (o->d10 & SSO_GAUGE_NEWER)) o->d10 = (o->d10 & 0x00FFFFFF) | (f << 24);
+        break;
+    }
+    case Z30R_SUBWIDGTY_BUTTON:
+    {
+        if(ty != Z30W_BTNITM && ty != Z30W_BTNCOUNTER && ty != Z30W_ITMCOOLDOWNGAUGE && ty != Z30W_ITMCOOLDOWNTEXT) { ok = false; break; }
+        if(!write) { ret = t.btn * 10000; break; }
+        const int val = (int)vbound(v, -1L, 3L);
+        t.btn = (ty == Z30W_BTNITM || ty == Z30W_BTNCOUNTER) ? zc_max(0, val) : val;
+        if(o && ty == Z30W_BTNITM) o->d1 = t.btn;
+        break;
+    }
+    case Z30R_SUBWIDGTY_COSTIND:
+        Z30_TYV(ty == Z30W_BTNCOUNTER, t.costind, 0, 1, (void)0)
+    case Z30R_SUBWIDGTY_INFCHAR:
+    {
+        if(ty != Z30W_COUNTER && ty != Z30W_OLDCTR && ty != Z30W_BTNCOUNTER) { ok = false; break; }
+        if(!write) { ret = (t.infchar & 0xFF) * 10000; break; }
+        t.infchar = (int)vbound(v, 0L, 255L);
+        if(o && ty == Z30W_COUNTER) o->d5 = (o->d5 & ~0xFF) | t.infchar;
+        else if(o && ty == Z30W_OLDCTR) o->d5 = t.infchar;
+        break;
+    }
+    case Z30R_SUBWIDGTY_INFITM:
+    {
+        const bool ctr = ty == Z30W_COUNTER || ty == Z30W_OLDCTR;
+        if(!ctr && ty != Z30W_LGAUGE && ty != Z30W_MGAUGE && ty != Z30W_MISCGAUGE) { ok = false; break; }
+        long &f = ctr ? t.infitm : t.inf_item;
+        if(!write) { ret = f * 10000; break; }
+        f = vbound(v, -1L, (long)Z30_MAX_ITEMS_UP - 1);
+        if(o && ctr) o->d10 = f < 0 ? 0 : (int)f;
+        break;
+    }
+    case Z30R_SUBWIDGTY_ITEMCLASS:
+    {
+        if(ty != Z30W_ITEMSLOT && ty != Z30W_ITMCOOLDOWNGAUGE && ty != Z30W_ITMCOOLDOWNTEXT) { ok = false; break; }
+        if(!write) { ret = t.iclass * 10000; break; }
+        t.iclass = vbound(v, 0L, 284L);      // itype_maxusable - 1
+        if(o && ty == Z30W_ITEMSLOT)
+        {
+            o->d1 = t.iclass >= itype_max ? (int)itype_misc : (int)t.iclass;
+            o->d10 = t.iclass >= itype_max ? (int)t.iclass + 1 : 0;
+        }
+        break;
+    }
+    case Z30R_SUBWIDGTY_ITEMID:
+    {
+        if(ty != Z30W_ITEMSLOT && ty != Z30W_ITMCOOLDOWNGAUGE && ty != Z30W_ITMCOOLDOWNTEXT) { ok = false; break; }
+        if(!write) { ret = t.iid * 10000; break; }
+        t.iid = vbound(v, -1L, (long)Z30_MAX_ITEMS_UP - 1);
+        if(o && ty == Z30W_ITEMSLOT)
+            o->d8 = (t.iid >= 0 && t.iid < Q30_MAXITEMS) ? (int)t.iid + 1 : 0;
+        break;
+    }
+    case Z30R_SUBWIDGTY_LITEMS:
+        Z30_TYV(ty == Z30W_MMAP, t.litems, 0, 255, (void)0)
+    case Z30R_SUBWIDGTY_MAXDIG:
+        Z30_TYV(ty == Z30W_COUNTER || ty == Z30W_BTNCOUNTER, t.maxdig, 0, 5, if(ty == Z30W_COUNTER) w->maxdigits = (int)val)
+    case Z30R_SUBWIDGTY_MINDIG:
+        Z30_TYV(ty == Z30W_COUNTER || ty == Z30W_BTNCOUNTER || ty == Z30W_OLDCTR, t.mindig, 0, 5,
+                if(o && ty != Z30W_BTNCOUNTER) o->d4 = (int)val)
+    case Z30R_SUBWIDGTY_NUMBER:
+        Z30_TYV(ty == Z30W_MCGUFF, t.number, 0, 255, if(o) o->d5 = (int)val)
+    case Z30R_SUBWIDGTY_PERCONTAINER:
+        if(ty != Z30W_MISCGAUGE && ty != Z30W_ITMCOOLDOWNGAUGE) { ok = false; break; }
+        if(write) t.per_container = zc_max(v, 1L); else ret = t.per_container * 10000;
+        break;
+    case Z30R_SUBWIDGTY_TOTAL:
+        if(ty != Z30W_ITMCOOLDOWNGAUGE) { ok = false; break; }
+        if(write) t.total = zc_max(v, 1L); else ret = t.total * 10000;
+        break;
+    case Z30R_SUBWIDGTY_SHOWDRAIN:
+        Z30_TYV(ty == Z30W_MGAUGE, t.showdrain, -1, 32767, if(o) o->d9 = (o->d9 & ~0xFFFF) | ((val == -1 ? 0 : (int)val) & 0xFFFF))
+    case Z30R_SUBWIDGTY_FRAMETILE:
+        Z30_TYV(ty == Z30W_MCGUFF_FRAME, t.frame_tile, 0, NEWMAXTILES - 1, if(o) o->d1 = (int)val)
+    case Z30R_SUBWIDGTY_PIECETILE:
+        Z30_TYV(ty == Z30W_MCGUFF_FRAME, t.piece_tile, 0, NEWMAXTILES - 1, if(o) o->d3 = (int)val)
+    case Z30R_SUBWIDGTY_FRAMECSET:
+        Z30_TYV(ty == Z30W_MCGUFF_FRAME, t.frame_cset, 0, 15, if(o) o->d2 = (int)val)
+    case Z30R_SUBWIDGTY_PIECECSET:
+        Z30_TYV(ty == Z30W_MCGUFF_FRAME, t.piece_cset, 0, 15, if(o) o->d4 = (int)val)
+    case Z30R_SUBWIDGTY_COUNTERS:
+    {
+        const long size = ty == Z30W_COUNTER ? 3 : (ty == Z30W_MISCGAUGE || ty == Z30W_COUNTERPERCBAR) ? 1 : 0;
+        long idx = 0;
+        if(!size)
+            Z_scripterrlog("Widget type %d does not have this value!\n", ty);
+        if(!size || !z30_array_index(Z30_INDEX, size, idx))
+        {
+            if(!write) ret = -10000;
+            return true;
+        }
+        if(!write) ret = t.ctrs[idx] * 10000;
+        else if(ty != Z30W_COUNTERPERCBAR) t.ctrs[idx] = (int)vbound(v, (long)Z30_SSC_MIN + 1, (long)Z30_MAX_COUNTERS_UP - 1);
+        return true;
+    }
+
+    // colours (SubscrColorInfo), and the 2.53 object's where it has them
+    case Z30R_SUBWIDGTY_COLOR_TXT2: case Z30R_SUBWIDGTY_COLOR_SHD2: case Z30R_SUBWIDGTY_COLOR_BG2:
+    case Z30R_SUBWIDGTY_COLOR_CMPBLNK: case Z30R_SUBWIDGTY_COLOR_CMPOFF: case Z30R_SUBWIDGTY_COLOR_PLAYER:
+    case Z30R_SUBWIDGTY_COLOR_ROOM: case Z30R_SUBWIDGTY_COLOR_VISITED: case Z30R_SUBWIDGTY_COLOR_UNVISITED:
+    {
+        int which = -1, slot = 0;   // slot: the 2.53 object's colour 1-3 it also is
+        switch(arg)
+        {
+        case Z30R_SUBWIDGTY_COLOR_TXT2: if(ty == Z30W_COUNTER || ty == Z30W_BTNCOUNTER) which = Q30SubTy::C_TXT2; break;
+        case Z30R_SUBWIDGTY_COLOR_SHD2: if(ty == Z30W_COUNTER || ty == Z30W_BTNCOUNTER) which = Q30SubTy::C_SHD2; break;
+        case Z30R_SUBWIDGTY_COLOR_BG2: if(ty == Z30W_COUNTER || ty == Z30W_BTNCOUNTER) which = Q30SubTy::C_BG2; break;
+        case Z30R_SUBWIDGTY_COLOR_CMPBLNK: if(ty == Z30W_MMAP) { which = Q30SubTy::C_CMPBLNK; slot = 2; } break;
+        case Z30R_SUBWIDGTY_COLOR_CMPOFF: if(ty == Z30W_MMAP) { which = Q30SubTy::C_CMPOFF; slot = 3; } break;
+        case Z30R_SUBWIDGTY_COLOR_PLAYER:
+            if(ty == Z30W_MMAP) { which = Q30SubTy::C_PLR; slot = 1; }
+            else if(ty == Z30W_LMAP) { which = Q30SubTy::C_PLR; slot = 2; }
+            break;
+        case Z30R_SUBWIDGTY_COLOR_ROOM: if(ty == Z30W_LMAP) { which = Q30SubTy::C_ROOM; slot = 1; } break;
+        case Z30R_SUBWIDGTY_COLOR_VISITED: if(ty == Z30W_MMAP) which = Q30SubTy::C_VIS; break;
+        case Z30R_SUBWIDGTY_COLOR_UNVISITED: if(ty == Z30W_MMAP) which = Q30SubTy::C_UNVIS; break;
+        }
+        if(which < 0) { ok = false; break; }
+        if(!write) { ret = z30_sub_int_color(t.ctype[which], t.color[which]) * 10000; break; }
+        const long val = vbound(v, (long)Z30_SUB_MIN_COLOR, 255L);
+        z30_sub_raw_color(t.ctype[which], t.color[which], val);
+        if(o && slot)
+        {
+            byte *ct;
+            short *cv;
+            z30_sub_color_ref(o, slot, ct, cv);
+            z30_sub_set_color(*ct, *cv, val);
+        }
+        else if(o && ty == Z30W_COUNTER && (o->d6 & SSO_COUNTER_FULLCOLORS))
+        {
+            // the full colours the reader keeps: text in frames/frame, shadow in speed/d6 >> 16,
+            // background in delay/d5 >> 16
+            byte ct = 0;
+            short cv = 0;
+            z30_sub_set_color(ct, cv, val);
+            if(which == Q30SubTy::C_TXT2) { o->frames = ct; o->frame = (word)cv; }
+            else if(which == Q30SubTy::C_SHD2) { o->speed = ct; o->d6 = (o->d6 & 0xFFFF) | (int)((unsigned)(word)cv << 16); }
+            else { o->delay = ct; o->d5 = (o->d5 & 0xFFFF) | (int)((unsigned)(word)cv << 16); }
+        }
+        break;
+    }
+
+    // ---- the item it shows ----
+    case Z30R_SUBWIDGDISPITM:
+    {
+        if(write)
+            break;      // read-only
+        int id = -1;
+        if(ty == Z30W_ITEMSLOT && o && !q30_subscreen_item(*o, &id))
+            id = z30_sub_class_display(*o);
+        ret = (ty == Z30W_ITEMSLOT && o ? id : -1) * 10000;
+        break;
+    }
+
+    // ---- cursor neighbours ----
+    case Z30R_SUBWIDGPOSES:
+    {
+        long idx = 0;
+        if(!z30_array_index(Z30_INDEX, 4, idx))
+        {
+            if(!write) ret = -10000;
+            return true;
+        }
+        if(!write) { ret = w->dirs[idx] * 10000; break; }
+        w->dirs[idx] = (int)vbound(v, 0L, 255L);
+        // the cursor's stops (item slots) take them
+        for(int i = w->obj; i >= 0 && i < w->obj_end; ++i)
+        {
+            subscreen_object *so = z30_sub_page_obj(*sd, *p, pg, i);
+            if(so && so->type == ssoCURRENTITEM && so->d3 >= 0)
+                *(idx == 0 ? &so->d4 : idx == 1 ? &so->d5 : idx == 2 ? &so->d6 : &so->d7) = w->dirs[idx];
+        }
+        break;
+    }
+
+    // ---- display conditions ----
+    case Z30R_SUBWIDGREQCOUNTER:
+    case Z30R_SUBWIDGREQCOUNTERCOND:
+    case Z30R_SUBWIDGREQCOUNTERVAL:
+    case Z30R_SUBWIDGREQLITEMLEVEL:
+    case Z30R_SUBWIDGREQLITEMS:
+    case Z30R_SUBWIDGREQ_LEVEL_STATE_LEVEL:
+    case Z30R_SUBWIDGREQ_SCRSTATE_MAP:
+    case Z30R_SUBWIDGREQ_SCRSTATE_SCREEN:
+    {
+        int *f;
+        long lo, hi;
+        switch(arg)
+        {
+        case Z30R_SUBWIDGREQCOUNTER: f = &rq.counter; lo = Z30_SSC_MIN; hi = Z30_MAX_COUNTERS_UP; break;
+        case Z30R_SUBWIDGREQCOUNTERCOND: f = &rq.counter_cond; lo = 0; hi = 6; break;
+        case Z30R_SUBWIDGREQCOUNTERVAL: f = &rq.counter_val; lo = 0; hi = 65535; break;
+        case Z30R_SUBWIDGREQLITEMLEVEL: f = &rq.litem_level; lo = -1; hi = Z30_MAX_LEVELS_UP; break;
+        case Z30R_SUBWIDGREQLITEMS: f = &rq.litems; lo = 0; hi = 0xFFFF; break;   // LI_ALL
+        case Z30R_SUBWIDGREQ_LEVEL_STATE_LEVEL: f = &rq.lstate_level; lo = -1; hi = Z30_MAX_LEVELS_UP; break;
+        case Z30R_SUBWIDGREQ_SCRSTATE_MAP: f = &rq.scrstate_map; lo = 0; hi = map_count; break;
+        default: f = &rq.scrstate_scr; lo = -1; hi = 127; break;   // MAPSCRSNORMAL - 1
+        }
+        if(!write) { ret = *f * 10000; break; }
+        *f = (int)vbound(v, lo, hi);
+        z30_sub_req_sync(*p, *w);
+        break;
+    }
+    case Z30R_SUBWIDGREQSCRIPTDISABLED:
+        if(!write) { ret = rq.disabled ? 10000 : 0; break; }
+        rq.disabled = value != 0;
+        z30_sub_req_sync(*p, *w);
+        break;
+    case Z30R_SUBWIDGREQOWNITEMS: case Z30R_SUBWIDGREQUNOWNITEMS: case Z30R_SUBWIDGREQ_DMAP_FLOOR:
+    case Z30R_SUBWIDGREQ_DMAP_LEVEL: case Z30R_SUBWIDGREQ_DMAP: case Z30R_SUBWIDGREQ_SCREEN: case Z30R_SUBWIDGREQ_MAP:
+    {
+        std::vector<int> *set;
+        long size;
+        switch(arg)
+        {
+        case Z30R_SUBWIDGREQOWNITEMS: set = &rq.owned; size = Z30_MAX_ITEMS_UP; break;
+        case Z30R_SUBWIDGREQUNOWNITEMS: set = &rq.unowned; size = Z30_MAX_ITEMS_UP; break;
+        case Z30R_SUBWIDGREQ_DMAP_FLOOR: set = &rq.floors; size = 256; break;
+        case Z30R_SUBWIDGREQ_DMAP_LEVEL: set = &rq.levels; size = Z30_MAX_LEVELS_UP; break;
+        case Z30R_SUBWIDGREQ_DMAP: set = &rq.dmaps; size = 512; break;
+        // upstream has these two the other way round: SCREEN is req_maps, MAP req_screens
+        case Z30R_SUBWIDGREQ_SCREEN: set = &rq.maps; size = 255; break;
+        default: set = &rq.screens; size = 128; break;
+        }
+        long idx = 0;
+        if(!z30_array_index(Z30_INDEX, size, idx))
+            return true;
+        if(!write) { ret = z30_set_has(*set, (int)idx) ? 10000 : 0; break; }
+        z30_set_put(*set, (int)idx, value != 0);
+        z30_sub_req_sync(*p, *w);
+        break;
+    }
+    case Z30R_SUBWIDGREQ_SCRSTATE_STATE: case Z30R_SUBWIDGREQ_SCRSTATE_EXSTATE: case Z30R_SUBWIDGREQ_LEVEL_STATE:
+    {
+        dword &f = arg == Z30R_SUBWIDGREQ_SCRSTATE_STATE ? rq.scrstate : arg == Z30R_SUBWIDGREQ_SCRSTATE_EXSTATE ? rq.exstate : rq.lvlstate;
+        long idx = 0;
+        if(!z30_array_index(Z30_INDEX, arg == Z30R_SUBWIDGREQ_SCRSTATE_STATE ? 17 : 32, idx))     // mMAXIND
+            return true;
+        if(!write) { ret = (f & (1u << idx)) ? 10000 : 0; break; }
+        if(value) f |= 1u << idx;
+        else f &= ~(1u << idx);
+        z30_sub_req_sync(*p, *w);
+        break;
+    }
+    }
+#undef Z30_TYV
+
+    if(!ok)
+    {
+        Z_scripterrlog("Widget type %d does not have this value!\n", ty);
+        if(!write)
+            ret = bad;
+    }
+
+    return true;
+}
+
 static bool zasm30_sub_get(const long arg, long &ret)
 {
+    if(z30_subwidg_more(arg, ret, 0, false))
+        return true;
+
     switch(arg)
     {
     // subscreendata->
@@ -2951,6 +3461,12 @@ static bool zasm30_sub_get(const long arg, long &ret)
 
 static bool zasm30_sub_set(const long arg, const long value)
 {
+    {
+        long unused = 0;
+        if(z30_subwidg_more(arg, unused, value, true))
+            return true;
+    }
+
     switch(arg)
     {
     case Z30R_SUBDATACURPG:
@@ -3338,6 +3854,62 @@ static bool zasm30_sub_command(word cmd)
     }
 
     return false;
+}
+
+// ---- the subscreen's own script (upstream run_active_subscript, ScriptType::EngineSubscreen) -------
+// One instance (upstream keeps one engine data for active and map), `this` the open subscreen
+// (get_subref(-1, sstACTIVE)), its InitD the subscreen's scrconfig.
+static bool z30_engsub_close = false;   // SUBDATA_CLOSE by that script: the subscreen closes
+
+static long z30_engsub_ref()
+{
+    Z30Subscreen *s = z30_shown_active();
+    for(size_t i = 0; s && i < zasm30_subs[0].size(); ++i)
+        if(&zasm30_subs[0][i] == s)
+            return z30_subref((int)i, 0, 0, 0);
+    return 0;
+}
+
+static void zasm30_engsub_init(Zasm30Instance *in)
+{
+    const long ref = z30_engsub_ref();
+    Z30Subscreen *s = z30_subdata(ref);
+    in->frame.refs[Z30REF_SUBSCREENDATA] = ref;
+    in->frame.inst[0] = ref;
+    if(s)
+        memcpy(in->ri.d, s->scr.initd, sizeof(s->scr.initd));
+}
+
+static bool z30_engsub_closes(long ref)    // SUBDATA_CLOSE (q30_scripts_sys.h)
+{
+    if(!zasm30_cur_inst || zasm30_cur_inst->type != SCRIPT_ENGINESUB || ref != z30_engsub_ref())
+        return false;
+    z30_engsub_close = true;
+    return true;
+}
+
+void q30_subscreen_script_reset()
+{
+    zasm30_drop_instance(SCRIPT_ENGINESUB, 0);
+    z30_engsub_close = false;
+}
+
+bool q30_run_subscreen_script()
+{
+    if(!q30_active() || !zasm30_ffscript_version)
+        return false;
+
+    Z30Subscreen *s = z30_shown_active();
+
+    if(!s || s->scr.script <= 0 || !zasm30_script_for(SCRIPT_ENGINESUB, (word)s->scr.script))
+        return false;
+
+    z30_engsub_close = false;
+    zasm30_run(SCRIPT_ENGINESUB, (word)s->scr.script, 0);
+
+    const bool closed = z30_engsub_close;
+    z30_engsub_close = false;
+    return closed;
 }
 
 #endif

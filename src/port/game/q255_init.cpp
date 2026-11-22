@@ -1699,6 +1699,18 @@ static word g_sub_script;       // and its generic script, the buttons that run 
 static byte g_sub_script_btns;
 static long g_sub_script_initd[8];
 static int g_sub_maxdigits = -1;    // the last counter widget's max digits
+#ifdef ZC_PLAYER_BUILD
+static Q30SubTy g_sub_ty;           // the last widget's type values (SUBWIDGTY_ registers)
+static void ty_color(int which, const SubColor255 &c)
+{
+    g_sub_ty.ctype[which] = c.type;
+    g_sub_ty.color[which] = c.color;
+}
+#define SUB_TY(stmt) do { stmt; } while(0)
+#endif
+#endif
+#ifndef ZC_PLAYER_BUILD
+#define SUB_TY(stmt) do { } while(0)
 #endif
 
 // What scripts can ask of each widget (q30_scripts_subscr.h): the last one's base and label.
@@ -1888,8 +1900,16 @@ static void read_gauge(Q255Section &s, const SubWidget255 &b, subscreen_object &
     }
     if(!no_anim)
         anim_val = s.igetw();
+    long inf_item = -1;
     if(!no_inf)
-        s.skip(s.version < 18 ? 2 : 4); // infinite item
+        inf_item = s.version < 18 ? (long)s.igetw_s() : s.igetl_s();   // infinite item
+
+    SUB_TY(g_sub_ty.frames = frames; g_sub_ty.speed = no_speed ? 1 : speed; g_sub_ty.delay = delay;
+           g_sub_ty.container = container; g_sub_ty.units = unit_per_frame; g_sub_ty.gauge_wid = wid;
+           g_sub_ty.gauge_hei = hei; g_sub_ty.hspace = (signed char)hspace; g_sub_ty.vspace = (signed char)vspace;
+           g_sub_ty.grid_x = grid_xoff; g_sub_ty.grid_y = grid_yoff; g_sub_ty.anim_val = anim_val;
+           g_sub_ty.inf_item = inf_item);
+    (void)inf_item;
 
     t.d1 = container;
     t.d2 = sub_minitile(tiles[0]);
@@ -2033,6 +2053,7 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
     case WIDG_BTNITM:
     {
         byte btn = s.getc();
+        SUB_TY(g_sub_ty.btn = btn);
         t.type = ssoBUTTONITEM;
         t.d1 = btn;
         t.d2 = f1;  // transparent
@@ -2051,15 +2072,18 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
         ctrs[0] = s.igetl_s();
         ctrs[1] = s.igetl_s();
         ctrs[2] = s.igetl_s();
+        SUB_TY(g_sub_ty.ctrs[0] = (int)ctrs[0]; g_sub_ty.ctrs[1] = (int)ctrs[1]; g_sub_ty.ctrs[2] = (int)ctrs[2]);
         t.d4 = s.getc();    // min digits
 #ifdef ZC_PLAYER_BUILD
         g_sub_maxdigits = s.getc();     // max digits (for the selector's box)
 #else
         s.skip(1);          // max digits
 #endif
-        t.d10 = sub_item(s.igetl_s());
+        const long infitm = s.igetl_s();
+        t.d10 = sub_item(infitm);
         t.d5 = s.getc();    // infinite character
         t.d6 = f1 | (f2 << 1);
+        SUB_TY(g_sub_ty.mindig = t.d4; g_sub_ty.maxdig = g_sub_maxdigits; g_sub_ty.infitm = infitm; g_sub_ty.infchar = t.d5);
 
         if(s.version >= 12)
         {
@@ -2067,6 +2091,7 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
             // ZQuest's own view keeps the widget as it is
             SubColor255 c2[3];
             get_sub_colors(s, c2, 3);
+            SUB_TY(ty_color(Q30SubTy::C_TXT2, c2[0]); ty_color(Q30SubTy::C_SHD2, c2[1]); ty_color(Q30SubTy::C_BG2, c2[2]));
 
             if(player_widgets())
             {
@@ -2110,17 +2135,38 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
         get_sub_colors(s, c, 3);
         put_sub_colors(t, c);
         t.d4 = s.getc();    // digits
-        t.d10 = sub_item(s.igetl_s());
+        {
+            const long infitm = s.igetl_s();
+            t.d10 = sub_item(infitm);
+            SUB_TY(g_sub_ty.infitm = infitm);
+        }
         t.d5 = s.getc();    // infinite character
         t.d2 = f1;          // show X
+        SUB_TY(g_sub_ty.mindig = t.d4; g_sub_ty.infchar = t.d5);
         break;
 
     case WIDG_BTNCOUNTER:
         read_text_style(s, t);
         get_sub_colors(s, c, 3);
+#ifdef ZC_PLAYER_BUILD
+        g_sub_ty.mindig = s.getc();
+        g_sub_ty.maxdig = s.getc();
+        g_sub_ty.infchar = s.getc();
+        g_sub_ty.btn = s.getc();
+        g_sub_ty.costind = s.getc();
+        {
+            SubColor255 c2[3] = { c[0], c[1], c[2] };   // upstream copies the first ones before 12
+            if(s.version >= 12)
+                get_sub_colors(s, c2, 3);
+            ty_color(Q30SubTy::C_TXT2, c2[0]);
+            ty_color(Q30SubTy::C_SHD2, c2[1]);
+            ty_color(Q30SubTy::C_BG2, c2[2]);
+        }
+#else
         s.skip(1 + 1 + 1 + 1 + 1);  // digits, infinite character, button, cost index
         if(s.version >= 12)
             s.skip(3 * 3);          // second colours
+#endif
         convert = false;
         break;
 
@@ -2147,6 +2193,27 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
 
     case WIDG_MMAP:
         t.type = ssoMINIMAP;
+#ifdef ZC_PLAYER_BUILD
+        if(s.version >= 13)
+            g_sub_ty.litems = s.version >= 15 ? s.igetw() : s.getc();  // compass level items
+        get_sub_colors(s, c, 3);
+        put_sub_colors(t, c);
+        ty_color(Q30SubTy::C_PLR, c[0]);
+        ty_color(Q30SubTy::C_CMPBLNK, c[1]);
+        ty_color(Q30SubTy::C_CMPOFF, c[2]);
+        {
+            SubColor255 c2[3];
+            memset(c2, 0, sizeof(c2));
+            if(s.version >= 19)
+                get_sub_color(s, c2[0]);        // visited room colour
+            if(s.version >= 20)
+                get_sub_colors(s, c2 + 1, 2);   // unvisited room and background colours
+            if(s.version >= 19)
+                ty_color(Q30SubTy::C_VIS, c2[0]);
+            if(s.version >= 20)
+                ty_color(Q30SubTy::C_UNVIS, c2[1]);
+        }
+#else
         if(s.version >= 13)
             s.skip(s.version >= 15 ? 2 : 1);    // compass level items
         get_sub_colors(s, c, 3);
@@ -2155,6 +2222,7 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
             s.skip(3);      // visited room colour
         if(s.version >= 20)
             s.skip(3 * 2);  // unvisited room and background colours
+#endif
         t.d1 = f1;
         t.d2 = f2;
         t.d3 = f4;
@@ -2165,6 +2233,7 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
         get_sub_colors(s, c, 2);
         put_sub_color(t.colortype1, t.color1, c[0]);
         put_sub_color(t.colortype2, t.color2, c[1]);
+        SUB_TY(ty_color(Q30SubTy::C_ROOM, c[0]); ty_color(Q30SubTy::C_PLR, c[1]));
         t.d1 = f1;
         t.d2 = f2;  // rooms
         t.d3 = f4;  // Link
@@ -2181,6 +2250,7 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
     {
         long iclass = s.igetl_s();
         long iid = s.igetl_s();
+        SUB_TY(g_sub_ty.iclass = iclass; g_sub_ty.iid = iid);
         bool selectable = (b.genflags & WIDG_SELECTABLE) != 0;
 
         t.type = ssoCURRENTITEM;
@@ -2215,6 +2285,8 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
         byte frame_cset = s.getc();
         byte piece_cset = s.getc();
         get_sub_colors(s, c, 2);
+        SUB_TY(g_sub_ty.frame_tile = frame_tile; g_sub_ty.piece_tile = piece_tile; g_sub_ty.frame_cset = frame_cset;
+               g_sub_ty.piece_cset = piece_cset);
 
         t.type = ssoTRIFRAME;
         t.d1 = sub_tile(frame_tile);
@@ -2235,6 +2307,7 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
         long number = s.igetl_s();
         byte flip = s.getc();
         get_sub_color(s, c[0]);
+        SUB_TY(g_sub_ty.number = (int)number);
 
         t.type = ssoTRIFORCE;
         t.d1 = sub_tile(tile);
@@ -2303,6 +2376,7 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
         t.type = ssoMAGICGAUGE;
         read_gauge(s, b, t);
         short show = s.igetw_s();
+        SUB_TY(g_sub_ty.showdrain = show);
         // -1 is "always" in the new format, 2.53 uses 0 for that
         t.d9 |= (show == -1 ? 0 : show) & 0xFFFF;
         break;
@@ -2310,20 +2384,39 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
 
     case WIDG_MISCGAUGE:
         read_gauge(s, b, t);
+#ifdef ZC_PLAYER_BUILD
+        g_sub_ty.ctrs[0] = s.igetw_s();     // counter
+        g_sub_ty.per_container = s.igetw();
+#else
         s.skip(2 + 2);  // counter, per container
+#endif
         convert = false;
         break;
 
     case WIDG_ITMCOOLDOWNGAUGE:
         read_gauge(s, b, t);
+#ifdef ZC_PLAYER_BUILD
+        g_sub_ty.iclass = s.igetl_s();
+        g_sub_ty.iid = s.igetl_s();
+        g_sub_ty.btn = (signed char)s.getc();
+        g_sub_ty.total = (long)s.igetl();
+        g_sub_ty.per_container = (long)s.igetl();
+#else
         s.skip(4 + 4 + 1 + 4 + 4);  // item class, item, button, points, per container
+#endif
         convert = false;
         break;
 
     case WIDG_ITMCOOLDOWNTEXT:
         read_text_style(s, t);
         get_sub_colors(s, c, 3);
+#ifdef ZC_PLAYER_BUILD
+        g_sub_ty.iclass = s.igetl_s();
+        g_sub_ty.iid = s.igetl_s();
+        g_sub_ty.btn = (signed char)s.getc();
+#else
         s.skip(4 + 4 + 1);  // item class, item, button
+#endif
         convert = false;
         break;
 
@@ -2347,7 +2440,11 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
         break;
 
     case WIDG_COUNTERPERCBAR:
+#ifdef ZC_PLAYER_BUILD
+        g_sub_ty.ctrs[0] = s.igetw_s();     // counter
+#else
         s.skip(2);          // counter
+#endif
         get_sub_colors(s, c, 2);
         convert = false;
         break;
@@ -2514,6 +2611,7 @@ static void read_sub_page(Q255Section &s, subscreen_group *dest, bool first)
 
         const int before = stored;
         memset(&g_sub_last, 0, sizeof(g_sub_last));
+        SUB_TY(q30_sub_ty_defaults(g_sub_ty));
 
         if(read_widget(s, ty, t, text) && into)
             store_sub_object(*into, stored, t, text);
@@ -2565,6 +2663,11 @@ static void read_sub_page(Q255Section &s, subscreen_group *dest, bool first)
 
             if(b.pg_mode)
                 q30_sub_trans(g_sub_list, 1, g_sub_widget_trans);
+
+#ifdef ZC_PLAYER_BUILD
+            const int dirs[4] = { b.pos_up, b.pos_down, b.pos_left, b.pos_right };
+            q30_sub_widget_more(g_sub_list, g_sub_ty, g_sub_cond, b.disabled, dirs, before, stored);
+#endif
         }
 
         if(s.keep && !s.failed && stored > before && q30_sub_cond_used(g_sub_cond))
@@ -2636,6 +2739,8 @@ struct SubHead255
     Q30SubTrans trans_lr[2];
 #ifdef ZC_PLAYER_BUILD
     Q30SubSel sel;      // the selector override (SUBFLAG_ACT_OVERRIDESEL)
+    word script;        // its own script (scrconfig) and InitD
+    long initd[8];
 #endif
 };
 
@@ -2650,6 +2755,8 @@ static void read_sub_head(Q255Section &s, SubHead255 &h)
     memset(h.trans_lr, 0, sizeof(h.trans_lr));
 #ifdef ZC_PLAYER_BUILD
     memset(&h.sel, 0, sizeof(h.sel));
+    h.script = 0;
+    memset(h.initd, 0, sizeof(h.initd));
 #endif
 
     if(h.file_type == 0 || h.file_type == 3)   // active and map subscreens
@@ -2670,6 +2777,24 @@ static void read_sub_head(Q255Section &s, SubHead255 &h)
         read_sub_transition(s, &h.trans_lr[0]);
         read_sub_transition(s, &h.trans_lr[1]);
 
+#ifdef ZC_PLAYER_BUILD
+        if(s.version >= 21)
+        {
+            h.script = s.igetw();   // p_getvar(scrconfig)
+            word n = s.igetw();
+            for(int q = 0; q < n && q < 8 && !s.failed; ++q)
+                h.initd[q] = s.igetl_s();
+            word m = s.igetw();
+            walk_items(s, m, 6);
+        }
+        else
+        {
+            h.script = s.igetw();
+            if(h.script)
+                for(int q = 0; q < 8; ++q)
+                    h.initd[q] = s.igetl_s();
+        }
+#else
         if(s.version >= 21)
             skip_script_config(s);
         else
@@ -2678,6 +2803,7 @@ static void read_sub_head(Q255Section &s, SubHead255 &h)
             if(script)
                 s.skip(8 * 4);
         }
+#endif
     }
 }
 
@@ -2723,6 +2849,8 @@ static void read_new_subscreen(Q255Section &s, int slot, byte ss_type)
 #ifdef ZC_PLAYER_BUILD
         if(flags & 2)       // SUBFLAG_ACT_OVERRIDESEL
             q30_sub_selector(ss_type, head.sel);
+        if(head.script)
+            q30_sub_script(ss_type, head.script, head.initd);
 #endif
     }
 

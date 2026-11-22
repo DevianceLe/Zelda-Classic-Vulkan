@@ -201,6 +201,23 @@ struct Q30WeaponData
     Q30WeaponData();
 };
 
+// An enemy's 2.55/3.0 data guydata has no room for (the GUY reader keeps it player side;
+// npcdata-> registers, the weapons it fires). As upstream's guydata after its reader's fixes.
+struct Q30GuyData
+{
+    long txsz, tysz, hxsz, hysz, hzsz, hxofs, hyofs, xofs, yofs, zofs;
+    long sizeflags;
+    long frozentile, frozencset, frozenclock;
+    short frozenmisc[10];
+    short firesfx, firesfx_secondary, specialsfx;
+    long attributes[32];        // upstream's attributes[]: misc1-15 as stored, then 15-31
+    dword editorflags;
+    word spr_shadow;
+    Q30WeaponData weap;         // weap_data (its script is the guy's weapon script table's too)
+
+    Q30GuyData();
+};
+
 // a combo's data newcombo has no room for
 struct Q30Combo
 {
@@ -313,6 +330,28 @@ void q30_set_item_size_value(int item, int which, long v);
 // an item's weapon's imitate_weapon and default_defense (upstream weap_data; item -1 clears)
 void q30_set_item_weapon_use(int item, int weapon, int defense);
 int q30_item_weapon_use(int item, bool defense);
+// An item's 3.0 data 2.53's itemdata has no room for (the player only): its weapon data
+// (upstream's weap_data, which the weapons the item makes take on) and the other fields
+// scripts' itemdata reads. The item reader keeps one for each item of a 2.55/3.0 quest.
+struct Q30ItemRec
+{
+    Q30WeaponData weap;
+    long weaprange, weapduration, duplicates;
+    byte drawlayer;
+    long magiccosttimer[2];
+    word pickup_litems;
+    short pickup_litem_level;
+    long cooldown, collectflags;
+    long wpn_misc_d[32];
+    long collect_initd[8];
+
+    Q30ItemRec();
+};
+void q30_set_item_rec(int item, const Q30ItemRec *r);  // item -1 clears them all
+Q30ItemRec *q30_item_rec(int item);     // NULL: none (a 2.53 quest, or past the quest's items)
+// upstream's weapon::load_weap_data in the weapon constructor: a weapon an item of a 2.55/3.0
+// quest makes takes on that item's weapon data (q30_scripts_data.h)
+void q30_weapon_load_item_data(weapon *w);
 // A DMap's disabled items past 255 (the DMap reader; dmap -1 clears them all), and whether the
 // current DMap disables such an item (item_disabled).
 void q30_set_dmap_item_disabled(int dmap, int item);

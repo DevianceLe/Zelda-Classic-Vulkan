@@ -1917,6 +1917,14 @@ void overtile8(BITMAP* dest,int tile,int x,int y,int cset,int flip)
             
             for(int i=0; i<8; ++i)
             {
+                // a 2.55/3.0 quest: a tile left of the edge is cut there, as upstream draws it (2.53
+                // drew it from column 0, whole)
+                if(x+i<0 && tiles_newer_combo_flags)
+                {
+                    flip&1 ? --si : ++si;
+                    continue;
+                }
+
                 if(x+i<dest->w)
                 {
                     if(*si)
@@ -1955,6 +1963,14 @@ void overtile8(BITMAP* dest,int tile,int x,int y,int cset,int flip)
             
             for(int i=0; i<8; ++i)
             {
+                // a 2.55/3.0 quest: a tile left of the edge is cut there, as upstream draws it (2.53
+                // drew it from column 0, whole)
+                if(x+i<0 && tiles_newer_combo_flags)
+                {
+                    flip&1 ? --si : ++si;
+                    continue;
+                }
+
                 if(x+i<dest->w)
                 {
                     if(*si)

@@ -2,7 +2,9 @@
 //
 // Kept beside itemsbuf (q30_triggers.cpp): usesound2 (v49+)
 //
-// Read and dropped, because 2.53's itemdata has no field for them:
+// Read and dropped, because 2.53's itemdata has no field for them (the player keeps the weapon
+// data and the other 3.0 fields in its item record, q30_set_item_rec, for scripts and for the
+// weapons the item makes; ZQuest keeps none of it):
 //   cost_amount[1] (v53), cost_counter[1] (v53), magiccosttimer[0..1] (v27+)
 //   weapon: imitate_weapon, default_defense (v26..62, then in the weapon block);
 //     weaprange, weapduration, weap_pattern[10] (v26+)
@@ -131,10 +133,54 @@ static word read_script_config(Q255Section &s, long *args)
 static int g_item_use_weapon = 0, g_item_use_defense = 0;
 #endif
 
-// read_weap_data
+#ifdef ZC_PLAYER_BUILD
+enum { Q255_ITYPE_LIFTGLOVE = 279 };    // upstream's itype_liftglove
+
+// The player's record of the item being read: its weapon data and the fields 2.53's itemdata
+// has no room for (q30_set_item_rec; ZQuest keeps none of it).
+static Q30ItemRec g_item_rec;
+#endif
+
+// read_weap_data (the player keeps it all in g_item_rec.weap)
 static void skip_weapon_data(Q255Section &s)
 {
     word v = s.igetw();
+#ifdef ZC_PLAYER_BUILD
+    Q30WeaponData &d = g_item_rec.weap;
+    d.data_version = v;
+    d.flags = s.igetw();
+    d.moveflags = s.igetl();
+    d.wflags = s.igetw();
+
+    for(int q = 0; q < 5; ++q)  // WPNSPR_MAX
+    {
+        d.burnsprs[q] = (v < 1) ? (word)s.getc() : s.igetw();
+        d.light_rads[q] = s.getc();
+
+        if(v >= 3)
+            d.light_offsets[q] = s.igetl_s();
+    }
+
+    d.glow_shape = s.getc();
+    d.override_flags = s.igetl_s();
+    d.tilew = s.igetl_s();
+    d.tileh = s.igetl_s();
+    d.hxsz = s.igetl_s();
+    d.hysz = s.igetl_s();
+    d.hzsz = s.igetl_s();
+    d.hxofs = s.igetl_s();
+    d.hyofs = s.igetl_s();
+    d.xofs = s.igetl_s();
+    d.yofs = s.igetl_s();
+    d.step = s.igetl_s();
+    d.unblockable = s.getc();
+    d.timeout = s.igetl_s();
+    g_item_use_weapon = d.imitate_weapon = s.getc();
+    g_item_use_defense = d.default_defense = s.getc();
+    d.lift_level = s.getc();
+    d.lift_time = s.getc();
+    d.lift_height = s.igetl_s();
+#else
     s.skip(2 + 4 + 2);          // flags, moveflags, wflags
 
     for(int q = 0; q < 5; ++q)  // WPNSPR_MAX
@@ -151,13 +197,9 @@ static void skip_weapon_data(Q255Section &s)
     s.skip(4);                  // step
     s.skip(1);                  // unblockable
     s.skip(4);                  // timeout
-#ifdef ZC_PLAYER_BUILD
-    g_item_use_weapon = s.getc();   // imitate_weapon, default_defense
-    g_item_use_defense = s.getc();
-#else
     s.skip(2);                  // imitate_weapon, default_defense
-#endif
     s.skip(2 + 4);              // lift level, time, height
+#endif
 
     if(v < 5)
     {
@@ -170,15 +212,31 @@ static void skip_weapon_data(Q255Section &s)
         g_item_weapon_script = read_script_config(s, g_item_weapon_initd);
     }
 
+#ifdef ZC_PLAYER_BUILD
+    d.script = g_item_weapon_script;
+    memcpy(d.initd, g_item_weapon_initd, sizeof(d.initd));
+    d.pierce_count = s.igetw_s();
+
+    if(v >= 2)
+    {
+        d.bounce_mult = s.igetl_s();
+        d.bounce_add = s.igetl_s();
+    }
+#else
     s.skip(2);                  // pierce count
 
     if(v >= 2)
         s.skip(4 + 4);          // bounce
+#endif
 
     if(v >= 4)
     {
         g_item_wvp_suspend = s.igetl_s();   // viewport suspend, despawn ranges
         g_item_wvp_despawn = s.igetl_s();
+#ifdef ZC_PLAYER_BUILD
+        d.viewport_suspend_range = g_item_wvp_suspend;
+        d.viewport_despawn_range = g_item_wvp_despawn;
+#endif
     }
 }
 
@@ -477,20 +535,29 @@ it.family = (byte)family;
         if(s.version < 63)
         {
 #ifdef ZC_PLAYER_BUILD
-            g_item_use_weapon = s.getc();   // imitate_weapon, default_defense
-            g_item_use_defense = s.getc();
+            g_item_rec.weap.imitate_weapon = g_item_use_weapon = s.getc();   // imitate_weapon, default_defense
+            g_item_rec.weap.default_defense = g_item_use_defense = s.getc();
 #else
             s.skip(2);          // imitate_weapon, default_defense
 #endif
         }
 
+#ifdef ZC_PLAYER_BUILD
+        g_item_rec.weaprange = s.igetl_s();
+        g_item_rec.weapduration = s.igetl_s();
+#else
         s.skip(4 + 4);          // weaprange, weapduration
+#endif
         s.skip(10 * 4);         // weap_pattern
     }
 
     if(s.version >= 27)
     {
+#ifdef ZC_PLAYER_BUILD
+        g_item_rec.duplicates = s.igetl_s();
+#else
         s.skip(4);              // duplicates
+#endif
 
         if(s.version < 63)
         {
@@ -501,7 +568,11 @@ it.family = (byte)family;
         if(s.version < 67)
             s.skip(2);          // weapon InitA
 
+#ifdef ZC_PLAYER_BUILD
+        g_item_rec.drawlayer = s.getc();
+#else
         s.skip(1);              // drawlayer
+#endif
 
         // item hit box and offsets: hxofs, hyofs, hxsz, hysz, hzsz, xofs, yofs (the player
         // uses them with the override flags below)
@@ -510,12 +581,29 @@ it.family = (byte)family;
 
         if(s.version < 63)
         {
+#ifdef ZC_PLAYER_BUILD
+            Q30WeaponData &d = g_item_rec.weap;     // weapon hit box and offsets
+            d.hxofs = s.igetl_s();
+            d.hyofs = s.igetl_s();
+            d.hxsz = s.igetl_s();
+            d.hysz = s.igetl_s();
+            d.hzsz = s.igetl_s();
+            d.xofs = s.igetl_s();
+            d.yofs = s.igetl_s();
+#else
             s.skip(7 * 4);      // weapon hit box and offsets
+#endif
             g_item_weapon_script = s.igetw();           // weapon script
         }
 
         s.skip(4);              // wpnsprite
+#ifdef ZC_PLAYER_BUILD
+        g_item_rec.magiccosttimer[0] = s.igetl_s();
+        if(s.version >= 53)
+            g_item_rec.magiccosttimer[1] = s.igetl_s();
+#else
         s.skip(s.version >= 53 ? 2 * 4 : 4);    // magiccosttimer
+#endif
     }
 
     if(s.version >= 28)
@@ -525,7 +613,15 @@ it.family = (byte)family;
         g_item_size[8] = s.igetl_s();           // tile height
     }
     if(s.version >= 29 && s.version < 63)
+    {
+#ifdef ZC_PLAYER_BUILD
+        g_item_rec.weap.override_flags = s.igetl_s();   // the same for the weapon
+        g_item_rec.weap.tilew = s.igetl_s();
+        g_item_rec.weap.tileh = s.igetl_s();
+#else
         s.skip(3 * 4);          // the same for the weapon
+#endif
+    }
     if(s.version >= 30)
         g_item_pickup = s.igetl_s();            // pickup (the item's own pickup flags)
     if(s.version >= 32)
@@ -583,6 +679,10 @@ it.family = (byte)family;
         it.collect_script = item_script_id(read_script_config(s, collect_args));
         g_item_sprite_script = read_script_config(s, g_item_sprite_initd);    // sprite script
 
+#ifdef ZC_PLAYER_BUILD
+        memcpy(g_item_rec.collect_initd, collect_args, sizeof(collect_args));
+#endif
+
         if(it.script == 0 && it.collect_script != 0)
             memcpy(it.initiald, collect_args, sizeof(collect_args));
     }
@@ -603,12 +703,29 @@ it.family = (byte)family;
         g_item_display_name = s.getcstr();     // display_name, kept for scripts and subscreens
 
     if(s.version >= 58 && s.version < 63)
+    {
+#ifdef ZC_PLAYER_BUILD
+        for(int q = 0; q < 5; ++q)  // burn sprites, light radii
+        {
+            g_item_rec.weap.burnsprs[q] = s.getc();
+
+            if(s.version >= 59)
+                g_item_rec.weap.light_rads[q] = s.getc();
+        }
+#else
         s.skip(5 * (s.version >= 59 ? 2 : 1));  // burn sprites, light radii
+#endif
+    }
 
     if(s.version >= 60)
     {
+#ifdef ZC_PLAYER_BUILD
+        g_item_rec.pickup_litems = s.version >= 65 ? s.igetw() : (word)s.getc();
+        g_item_rec.pickup_litem_level = (short)item_bound(s.igetw_s(), -1, MAXLEVELS - 1);
+#else
         s.skip(s.version >= 65 ? 2 : 1);        // pickup_litems
         s.skip(2);              // pickup_litem_level
+#endif
     }
 
     g_item_moveflags = 3;       // move_obeys_grav | move_can_pitfall
@@ -618,14 +735,62 @@ it.family = (byte)family;
         g_item_moveflags = s.igetl_s();     // moveflags (kept for scripts' item->Gravity)
 
         if(s.version < 63)
+        {
+#ifdef ZC_PLAYER_BUILD
+            g_item_rec.weap.moveflags = s.igetl();  // weapon moveflags
+#else
             s.skip(4);          // weapon moveflags
+#endif
+        }
     }
+#ifdef ZC_PLAYER_BUILD
+    else    // upstream: the weapons of these fall and drop into pits, the others don't
+    {
+        const long t = g_true_family;
+        const bool falls = t == itype_bomb || t == itype_sbomb || t == itype_bait || t == Q255_ITYPE_LIFTGLOVE
+                           || t == itype_candle || t == itype_book || (t == itype_dinsfire && (g_item_raw_flags & 0x400));    // item_flag3
+        g_item_rec.weap.moveflags = falls ? 3 : 0;  // move_obeys_grav | move_can_pitfall
+    }
+#endif
 
     if(s.version >= 63)
         skip_weapon_data(s);
+#ifdef ZC_PLAYER_BUILD
+    else    // upstream's weapon flags for older items (the item flags and attributes stay as they are here)
+    {
+        enum { WF_BREAK_WHEN_LANDING = 0x2, WF_STOP_WHEN_LANDING = 0x80, WF_STOP_WHEN_HIT_SOLID = 0x100, WF_UPDATE_IGNITE_SPRITE = 0x200 };
+        Q30WeaponData &d = g_item_rec.weap;
+
+        if(g_item_raw_flags & 0x40000000u)     // item_burning_sprites
+            d.wflags |= WF_UPDATE_IGNITE_SPRITE;
+
+        if(g_true_family == Q255_ITYPE_LIFTGLOVE)
+            d.wflags = WF_BREAK_WHEN_LANDING;
+        else if(g_true_family == itype_bomb || g_true_family == itype_sbomb)
+        {
+            if(g_item_raw_flags & 0x400)        // item_flag3
+                d.wflags |= WF_STOP_WHEN_LANDING;
+            if(g_item_raw_flags & 0x1000)       // item_flag5
+                d.wflags |= WF_STOP_WHEN_HIT_SOLID;
+
+            if(it.misc4)
+            {
+                d.lift_level = (byte)it.misc4;
+                d.lift_time = (byte)it.misc5;
+                d.lift_height = it.misc6;
+            }
+        }
+    }
+#endif
 
     if(s.version >= 64)
+    {
+#ifdef ZC_PLAYER_BUILD
+        g_item_rec.cooldown = s.igetl_s();
+#else
         s.skip(4);              // cooldown
+#endif
+    }
 
     if(s.version >= 70)
     {
@@ -650,6 +815,7 @@ int q255_read_items(Q255Section &s)
         q30_set_item_size(-1, 0, NULL);
         q30_keep_item_size_values(-1, NULL);
         q30_set_item_weapon_use(-1, 0, 0);
+        q30_set_item_rec(-1, NULL);
 #endif
     }
 
@@ -736,11 +902,23 @@ int q255_read_items(Q255Section &s)
         g_item_wvp_suspend = g_item_wvp_despawn = 0;
 #ifdef ZC_PLAYER_BUILD
         g_item_use_weapon = g_item_use_defense = 0;
+        g_item_rec = Q30ItemRec();
 #endif
         read_item(s, tempitem);
 
         if(s.failed)
             return qe_invalid;
+
+#ifdef ZC_PLAYER_BUILD
+        g_item_rec.weap.script = g_item_weapon_script;
+        memcpy(g_item_rec.weap.initd, g_item_weapon_initd, sizeof(g_item_weapon_initd));
+
+        if(s.version < 71)  // upstream: the collect and sprite scripts get the item's own InitD
+        {
+            memcpy(g_item_rec.collect_initd, tempitem.initiald, sizeof(g_item_rec.collect_initd));
+            memcpy(g_item_sprite_initd, tempitem.initiald, sizeof(g_item_sprite_initd));
+        }
+#endif
 
 #ifdef ZC_PLAYER_BUILD
         // (the items come before the enemies in a quest file: the last quest's ranges go here)
@@ -798,6 +976,7 @@ int q255_read_items(Q255Section &s)
 #ifdef ZC_PLAYER_BUILD
             q30_set_item_size(i, g_item_override_flags, g_item_size);
             q30_keep_item_size_values(i, g_item_size);
+            q30_set_item_rec(i, &g_item_rec);
             q30_set_item_weapon_use(i, g_item_use_weapon, g_item_use_defense);
 
             if(g_item_override_flags && getenv("ZC_Q30_ITEMDUMP"))
