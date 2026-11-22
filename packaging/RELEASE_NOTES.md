@@ -213,18 +213,18 @@
 ## How far it's been tested
 
 - **2.53 quests are unchanged:** the 1st, 2nd and 5th Quests and Dream's Realm re-save byte for byte as before, and a recorded 1st Quest run plays exactly the same on all 2,478 frames.
-- All 93 2.55 and 3.0 Nightly quests in the PureZC collection load. ZQuest opens and saves every quest in the collection that loads (836) and reloads the same data.
-- The new player features were each tried in one to four quests: Tales of Zelsteria, Tales of Murdoch, Tranquil Expression, Hyrule World 2.0, Kirby's Castle Epic, Link's Rise 2 DX, Nestastic Gaiden, The Deep, Face Hunt and Hero Mode.
+- All 93 2.55 and 3.0 Nightly quests in the PureZC collection load, and ZQuest re-saves each of them unchanged. ZQuest opens and saves every quest in the collection that loads (836) and reloads the same data.
+- 2.55 and 3.0 Nightly features are compared with ZC 3.0's own player on the same input: the openings of the 93 newer quests after every change, Mystical Harps screen by screen, and the feature test suite in `tests/feature_suite` (22 of its 34 features exactly as 3.0, 7 more differing only where the scene is random; 354 of 939 3.0 script commands behaving as 3.0's).
 - Running without Vulkan was tried on Windows (32-bit and 64-bit, player and ZQuest), with Vulkan hidden from the game: both came up on Direct3D 11 with their menus. Software drawing works too. Linux, macOS and Android haven't been tried without Vulkan.
-- **macOS** runs only on GitHub's build machines, where the player starts and loads the 1st Quest. Windows on ARM and Linux on ARM are still only built there.
+- Every platform has been run on real hardware: Windows (32-bit, 64-bit and ARM64), Linux (x86_64 and ARM64), macOS (Apple Silicon and Intel) and the Nintendo Switch.
 
 ## Still not working
 
-- Z-heights
+- 3.0 script commands that no quest in the collection uses (about 565), keeping script portals in the save file, and a script-moved viewport
+- A few spots where the feature test suite still differs from 3.0: FFC ranges in a region, one boss-room frame, the bottom rows of a raft scene and one subscreen item; in The Rosemaster the subscreen cursor starts one slot to the right of 3.0's
 - Pages that a quest's own script turns (barato's card game) haven't been played through, and B and A items set on a later page haven't been checked after saving and loading
-- In ZQuest, for 2.55 and 3.0 Nightly quests: the subscreen wizards and adding new subscreens, previewing a music track's loop, the autocombo preview under the cursor, remapping script variables, and `.zitem` and `.znpc` files
-- Swimming sprites in sideview areas, and the drawing order of FFCs on the overlay layer
-- Linux was tested only in virtual machines, Android hasn't been tried with 2.55 or 3.0 Nightly quests, and the Switch build only in the Eden emulator
+- A save made with an older version for a 2.55 or 3.0 quest whose hearts aren't 16 HP keeps its old life amount; a new save is right
+- Android hasn't been tried with 2.55 or 3.0 Nightly quests
 
 The full list is on the [compatibility page](https://github.com/DevianceLe/Zelda-Classic-Vulkan/blob/main/COMPATIBILITY.md#what-still-doesnt-work).
 
