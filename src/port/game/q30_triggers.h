@@ -480,6 +480,7 @@ double q30_walk_speed_scale(int x, int y, int z, double step);   // combo walk-s
 // link.cpp: the Hero step rate in 1/100 pixel a frame (upstream's steprate; Hero->Step), used
 // under qr_NEW_HERO_MOVEMENT/2; the quest's init data sets it as it loads, Link's init resets it.
 void q30_set_init_hero_step(int step);
+void q30_set_init_swim_step(int mult, int div);   // init data v34+: the swim step multiplier, divisor (-1: none)
 int q30_hero_step_rate();
 void q30_set_hero_step_rate(int rate);      // also the next game start's, unless rule 228
 int q30_hero_step_boost();                  // Hero->TempStepBoost, 0 at Link's init

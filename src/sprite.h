@@ -50,6 +50,9 @@ public:
     }
     fix x,y,z,fall;
     int tile,shadowtile,cs,flip,c_clk,clk,misc;
+    // 2.55/3.0 enemies without qr_HARDCODED_ENEMY_ANIMS: the spawn sprite and its frame (upstream's
+    // spr_spawn, spr_spawn_anim_clk / _frm); q30_spawn_spr -1: the 2.53 spawn puff
+    int q30_spawn_spr, q30_spawn_clk, q30_spawn_frm;
     
     fix xofs,yofs,zofs;
     // no hzofs - it's always equal to zofs.

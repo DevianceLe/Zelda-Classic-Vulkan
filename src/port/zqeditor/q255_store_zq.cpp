@@ -457,6 +457,7 @@ void q30_item_pickup_info(int, long *pickup, int *mode, int *pstring, int *psfla
 int q30_shop_string(int, int) { return 0; }             // (the same)
 void q30_set_bunny_ltm(long) {}                         // the player's (the bunny form)
 void q30_set_init_hero_step(int) {}                     // the player's (Link's walk step)
+void q30_set_init_swim_step(int, int) {}               // the player's (the swim step multiplier, divisor)
 void q30_set_init_sideswim(int, int, int, long, long) {} // the player's (sideview swimming)
 // Items 256 and up, as the player keeps them (q30_core.cpp): in itemsbuf, blank until read.
 void q30_clear_high_items()

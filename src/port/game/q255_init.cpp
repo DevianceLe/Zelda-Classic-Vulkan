@@ -498,7 +498,13 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
     long swim_grav = s.igetl_s();   // swim gravity (sideview swimming's sinking)
     temp.terminalv = s.igetw();
     temp.link_swim_speed = s.getc();
-    s.skip(2);  // swim multiplier and divisor
+    {
+        // the swim step's multiplier and divisor (upstream's hero_swim_mult, hero_swim_div)
+        const byte mult = s.getc(), div = s.getc();
+
+        if(s.keep && !s.failed)
+            q30_set_init_swim_step(mult, div);
+    }
     {
         // sideview swimming: the up, side and down steps, then the jump out of the water
         word ss_up = s.igetw(), ss_side = s.igetw(), ss_down = s.igetw();
@@ -943,7 +949,15 @@ int q255_read_initdata(Q255Section &s)
     }
 
     if(v > 33)
-        s.skip(2);  // swim multiplier and divisor
+    {
+        // the swim step's multiplier and divisor (upstream's hero_swim_mult, hero_swim_div)
+        const byte mult = s.getc(), div = s.getc();
+
+        if(s.keep && !s.failed)
+            q30_set_init_swim_step(mult, div);
+    }
+    else if(s.keep)
+        q30_set_init_swim_step(-1, -1);     // (from Link's swim speed, as upstream's herosprites reader)
 
     if(v > 34)
     {

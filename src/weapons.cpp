@@ -244,6 +244,7 @@ int weapon::seekEnemy2(int j)
 
 weapon::weapon(weapon const & other):
     sprite(other),
+    q30_dying_frame(other.q30_dying_frame),
     power(other.power),
     type(other.type),
     dead(other.dead),
@@ -360,6 +361,7 @@ weapon::~weapon()
 
 weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem, int prntid, bool isDummy) : sprite(), parentid(prntid)
 {
+    q30_dying_frame = false;
     x=X;
     y=Y;
     z=Z;
@@ -1559,7 +1561,37 @@ bool weapon::blocked(int xOffset, int yOffset)
     return false;
 }
 
-bool weapon::animate(int)
+// 2.55/3.0 qr_WEAPONS_EXTRA_DEATH_FRAME (upstream's weapon_dying_frame): a weapon that dies
+// stays one more frame, not drawn and touching nothing, then goes (melee weapons go at once).
+bool weapon::animate(int index)
+{
+    if(q30_dying_frame)
+    {
+        if(dead == 0)
+            return true;
+
+        q30_dying_frame = false;    // (a script brought it back)
+    }
+
+    const bool gone = animate_body(index);
+
+    if(gone && dead == 0 && q30_quest_rule(Q30_QR_WEAPONS_EXTRA_DEATH_FRAME))
+    {
+        switch(id)
+        {
+        case wSword: case wHammer: case wWand: case Q30W_BUGNET:
+            break;
+
+        default:
+            q30_dying_frame = true;
+            return false;
+        }
+    }
+
+    return gone;
+}
+
+bool weapon::animate_body(int)
 {
     // do special timing stuff
     bool hooked=false;
@@ -3811,6 +3843,9 @@ void weapon::update_weapon_frame(int change, int orig)
 
 void weapon::draw(BITMAP *dest)
 {
+    if(q30_dying_frame)     // (upstream: a weapon in its extra death frame isn't drawn)
+        return;
+
     if(flash==1)
     {
         if(!BSZ)

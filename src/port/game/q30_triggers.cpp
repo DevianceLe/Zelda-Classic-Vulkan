@@ -5465,6 +5465,14 @@ static double stand_state()
     return ret > STAND_MAX ? STAND_MAX : ret;
 }
 
+// upstream's iswaterex for Link: a combo with a "dive under" level that Link is diving deep
+// enough under is passed over (its solid water doesn't stop the check)
+bool q30_hero_dives_under(int cid)
+{
+    const Q30Combo *c = q30_active() ? q30_combo(cid) : NULL;
+    return c && c->dive_under_level && stand_state() <= -double(c->dive_under_level) * 10000.0;
+}
+
 bool _walkflag(int x, int y, int cnt);
 
 // _walkflag for Link (link.cpp)
@@ -10893,6 +10901,13 @@ bool q30_sideview_platform_at(int x, int y)
         return true;
 
     return flag_at_point(x, y, Q30MF_SIDEVIEWLADDER, 2) && !flag_at_point(x, y - 16, Q30MF_SIDEVIEWLADDER, 2);
+}
+
+// upstream's is_starting_pos: no enemy is placed where the screen or its combo has the "No Enemy
+// Spawn" flag (mfNOENEMYSPAWN, 163)
+bool q30_no_enemy_spawn_at(int x, int y)
+{
+    return q30_active() && flag_at_point(x, y, 163, 0);
 }
 
 // upstream's isSVLadder

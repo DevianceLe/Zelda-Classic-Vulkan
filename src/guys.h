@@ -116,7 +116,10 @@ public:
 
     // 2.55/3.0 enemies falling into pits (guys.cpp, q30_enemy_fall_hook)
     void q30_stop_knockback() { sclk = 0; }
-    void q30_leave_item() { leave_item(); }
+    void q30_fall_death();      // upstream's try_death(true) at the fall's end (no item)
+    bool q30_fall_blocked() const { return fading != 0 || q30_spawning; }  // (upstream's can_pitfall)
+    bool q30_spawning;          // upstream's isspawning: the last draw showed the spawn animation
+    int q30_death_clk, q30_death_frm;   // upstream's spr_death_anim_clk / _frm (the death sprite's frame)
 protected:
     int  clk2,sclk;
     int  starting_hp;

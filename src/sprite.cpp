@@ -36,6 +36,8 @@ extern void debugging_box(int x1, int y1, int x2, int y2);
 sprite::sprite()
 {
     uid = getNextUID();
+    q30_spawn_spr = -1;
+    q30_spawn_clk = q30_spawn_frm = 0;
     x=y=z=tile=shadowtile=cs=flip=c_clk=clk=xofs=yofs=zofs=hxofs=hyofs=fall=0;
     txsz=1;
     tysz=1;
@@ -86,6 +88,9 @@ sprite::sprite()
 }
 
 sprite::sprite(sprite const & other):
+    q30_spawn_spr(other.q30_spawn_spr),
+    q30_spawn_clk(other.q30_spawn_clk),
+    q30_spawn_frm(other.q30_spawn_frm),
     x(other.x),
     y(other.y),
     z(other.z),
@@ -158,6 +163,8 @@ sprite::sprite(fix X,fix Y,int T,int CS,int F,int Clk,int Yofs):
     x(X),y(Y),tile(T),cs(CS),flip(F),clk(Clk),yofs(Yofs)
 {
     uid = getNextUID();
+    q30_spawn_spr = -1;
+    q30_spawn_clk = q30_spawn_frm = 0;
     hxsz=hysz=16;
     hxofs=hyofs=xofs=0;
     txsz=1;
@@ -637,7 +644,36 @@ void sprite::draw(BITMAP* dest)
             int t  = wpnsbuf[iwSpawn].tile;
             int cs2 = wpnsbuf[iwSpawn].csets&15;
             
-            if(BSZ)
+            if(q30_spawn_spr >= 0 && q30_spawn_spr < MAXWPNS)
+            {
+                // 2.55/3.0 enemies without qr_HARDCODED_ENEMY_ANIMS (upstream sprite::draw): the
+                // enemy's spawn sprite plays once through; clk is held at -2/-1 meanwhile, and the
+                // enemy comes the frame after its last frame
+                const wpndata &ss = wpnsbuf[q30_spawn_spr];
+                t = ss.tile;
+                cs2 = ss.csets&15;
+
+                if(clk < -2)
+                {
+                    q30_spawn_clk = 0;
+                    clk = -1;
+                }
+
+                if(clk == -1 && q30_spawn_clk > -1)
+                {
+                    --clk;
+                    q30_spawn_frm = q30_spawn_clk / zc_max(ss.speed, 1);
+
+                    if(++q30_spawn_clk >= zc_max(1, ss.frames) * zc_max(1, ss.speed))
+                    {
+                        q30_spawn_clk = -1;
+                        clk = -1;
+                    }
+                }
+
+                t += q30_spawn_frm;
+            }
+            else if(BSZ)
             {
                 if(clk>=-10) ++t;
                 

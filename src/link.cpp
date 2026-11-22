@@ -153,6 +153,17 @@ void q30_set_hero_step_rate(int rate)
         q30_zinit_hero_step = q30_steprate;
 }
 
+// The swim step's multiplier and divisor under qr_NEW_HERO_MOVEMENT2 (upstream's game->swim_mult and
+// swim_div, from the init data's hero_swim_mult / hero_swim_div). Init data before v34 has none:
+// upstream's herosprites reader makes them 2/3 for a swim speed over 60, else 1/2 (-1 here).
+static int q30_swim_mult = 2, q30_swim_div = 3;
+
+void q30_set_init_swim_step(int mult, int div)
+{
+    q30_swim_mult = mult;
+    q30_swim_div = div;
+}
+
 static bool q30_new_hero_movement()
 {
     return q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT) || q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2);
@@ -284,6 +295,8 @@ static byte q30_layer_grid[2][22];
 // combo over it, solid water under qr_NO_SOLID_SWIM, and solid water Link can't swim (not enough
 // flippers, or lava without the flippers' flag 3) are not water. Returns the combo, 0 for none.
 // shallow: shallow water counts too (upstream's ShallowCheck: the combo type, or water with its flag 4).
+static bool q30_ignore_dive_under = false;  // (the water as it would be with Link at the surface)
+
 static int q30_ss_water_layer(int layer, int x, int y, bool shallow)   // layer -1: the screen; 0 and 1: layers 1 and 2
 {
     const int b = ((x & 8) ? 2 : 0) + ((y & 8) ? 1 : 0);    // the quarter of the combo
@@ -293,6 +306,11 @@ static int q30_ss_water_layer(int layer, int x, int y, bool shallow)   // layer 
         const int cid = MAPCOMBO2(m, x, y);
         const Q30Combo *c = q30_combo(cid);
         const int walk = c ? c->walk : (combobuf[cid].walk | 0xF0);
+
+        bool q30_hero_dives_under(int cid);     // (q30_triggers.cpp)
+
+        if(!q30_ignore_dive_under && q30_hero_dives_under(cid))     // (upstream: Link diving under this layer's combo)
+            continue;
 
         if(c && c->type == Q30C_BRIDGE && (q30_quest_rule(313) ? !(walk & (1 << b)) : (walk & (0x10 << b)) != 0))  // qr_OLD_BRIDGE_COMBOS
             return 0;
@@ -5263,6 +5281,20 @@ bool LinkClass::animate(int)
         if(frame&1)
             linkstep();
             
+        // 2.55/3.0 qr_NO_HOPPING (upstream's animate, swimming): out of the water as soon as a
+        // corner of his feet is on dry ground, unless the water he is in is solid
+        if(q30_quest_rule(Q30_QR_NO_HOPPING) && !q30_is_side_swim()
+           && !(_walkflag(x+7,y+(bigHitbox?6:11),1) || _walkflag(x+7,y+(bigHitbox?9:12),1) ||
+                _walkflag(x+8,y+(bigHitbox?6:11),1) || _walkflag(x+8,y+(bigHitbox?9:12),1))
+           && (!q30_ss_water(int(x)+4, int(y)+9) || !q30_ss_water(int(x)+4, int(y)+15) ||
+               !q30_ss_water(int(x)+11, int(y)+9) || !q30_ss_water(int(x)+11, int(y)+15)))
+        {
+            hopclk = 0;
+            q30_set_dive(0);
+            action = none;
+            hopdir = -1;
+        }
+
         // fall through
         
     default:
@@ -7758,8 +7790,10 @@ void LinkClass::movelink()
 
     // (with diagonal movement upstream's moveheroOld never looks at the gridlock rule, so
     // qr_NEW_HERO_MOVEMENT alone already means moveOld2's walk at the hero's step rate)
+    // (upstream's movehero, or moveheroOld's moveOld2 under qr_NEW_HERO_MOVEMENT, takes a
+    // swimming Link too; without either rule he swims as in 2.53)
     if((q30_no_gridlock() || (diagonalMovement && q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT)))
-       && action!=swimming && action!=casting && action!=drowning && !(ladderx+laddery))
+       && (action!=swimming || q30_new_hero_movement()) && action!=casting && action!=drowning && !(ladderx+laddery))
     {
         q30_free_walk(push);
         return;
@@ -8887,6 +8921,26 @@ bool LinkClass::q30_walk_solid(double wx, double wy, int d2)
        ((ix >= 112 && ix < 120) || (ix >= 136 && ix < 144)))
         solid = true;
 
+    // 2.55/3.0 top-down swimming under the new movement rules (upstream's scr_walkflag while
+    // swimming): solid water lets Link through, dry ground stops him until he has pushed at it a
+    // while (landswim; at once with qr_DROWN, qr_NO_HOPPING or 4-way movement), and with qr_DROWN
+    // he walks out unless the 2.53 walkflag just saw him push at it
+    if(action == swimming && !q30_is_side_swim())
+    {
+        const bool wet = q30_ss_water(ix, iy) != 0;
+
+        if(solid)
+            solid = !wet;
+        else
+        {
+            const bool drown = get_bit(quest_rules, qr_DROWN) != 0;
+            const int ls = (drown || !diagonalMovement || q30_quest_rule(Q30_QR_NO_HOPPING)) ? 1 : 22;
+
+            if(landswim < ls && ix >= 0 && iy >= 0 && ix < 256 && iy < 176 && !(drown && !ilswim))
+                solid = !wet;
+        }
+    }
+
     // 2.55/3.0 sideview swimming (upstream's scr_walkflag while swimming): solid water lets Link
     // through, and without qr_DROWN he can't leave the water
     if(q30_is_side_swim())
@@ -9357,21 +9411,49 @@ void LinkClass::q30_free_walk(int push)
     // Under the new movement rules Link walks (steprate + tmp_step_boost) / 100 pixels a frame
     // (upstream's moveOld2 and get_move); otherwise upstream's moveOld, about 1.5.
     const bool new_movement = q30_new_hero_movement();
+    // (top-down swimming comes here only under the new movement rules: upstream's movehero, or
+    // moveOld2)
+    const bool swim = action == swimming;
     double step = new_movement ? (q30_steprate + q30_step_boost) / 100.0 : 1.5;
     bool slowcombo = (combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement && (z == 0 || (tmpscr->flags2 & fAIRCOMBOS))) ||
                      (isSideview() && (ON_SIDEPLATFORM || q30_on_svladder) && combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement);
     bool slowcharging = charging > 0 &&     // (2.55/3.0: the sword's flag 10)
         q30_slow_charging((directWpn>-1 && itemsbuf[directWpn].family==itype_sword) ? directWpn : current_item_id(itype_sword));
 
-    if(slowcombo && slowcharging)
+    if(q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2))
+    {
+        // upstream's mod_steps: the combos' speed modifiers first (only qr_NEW_HERO_MOVEMENT2's
+        // movehero reads them; moveheroOld, which every other quest uses, never does), then
+        // swimming's multiplier and divisor, or the slow combo / slow charge: pix / div * mult
+        step = q30_walk_speed_scale(int(x), int(y), int(z), step);
+        int mult = 1, div = 1;
+
+        if(swim)
+        {
+            const bool fast = zinit.link_swim_speed > 60;   // (init data before v34)
+            mult = q30_swim_mult >= 0 ? q30_swim_mult : fast ? 2 : 1;
+            div = q30_swim_div >= 0 ? q30_swim_div : fast ? 3 : 2;
+        }
+        else if(slowcharging && slowcombo)
+            div = 2;
+        else if(slowcharging || slowcombo)
+        {
+            mult = 2;
+            div = 3;
+        }
+
+        if(!div)
+            div = 1;
+
+        if(mult != 1 || div != 1)
+            step = step / div * mult;
+    }
+    else if(swim)   // (moveOld2: 2/3 with a swim speed over 60, else 1/2; no slow combos)
+        step = zinit.link_swim_speed > 60 ? step / 3 * 2 : step / 2;
+    else if(slowcombo && slowcharging)
         step /= 2;
     else if(slowcombo || slowcharging)
         step = step * 2 / 3;
-
-    // Combo speed modifiers (upstream's mod_steps) only touch qr_NEW_HERO_MOVEMENT2's movehero;
-    // moveheroOld, which every other quest uses, never reads them.
-    if(q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2))
-        step = q30_walk_speed_scale(int(x), int(y), int(z), step);
 
     double diag = (diagonalMovement && shiftdir != -1) ? step * 0.7071 : step;
     double dx = 0, dy = 0;
@@ -9436,7 +9518,12 @@ void LinkClass::q30_free_walk(int push)
         else if(shiftdir == down) dy = side;
     }
 
-    if(!still)
+    if(swim)   // (upstream's new_engine_move: a swimming Link steps every other frame)
+    {
+        if(!(frame & 1) && !still && (dx != 0 || dy != 0))
+            linkstep();
+    }
+    else if(!still)
     {
         linkstep();
 
@@ -11206,15 +11293,17 @@ LinkClass::WalkflagInfo LinkClass::walkflag(int wx,int wy,int cnt,byte d2)
     //All problems related to exiting water are probably here. -Z
     if(action==swimming || q30_is_side_swim())
     {
-        // 2.55/3.0 sideview swimming: Link never hops out, unless the water he is in is solid
-        const bool q30_nohop = q30_can_side_swim() &&
+        // 2.55/3.0 sideview swimming, or qr_NO_HOPPING: Link never hops out, unless the water he
+        // is in is solid
+        const bool q30_no_hopping = q30_quest_rule(Q30_QR_NO_HOPPING);
+        const bool q30_nohop = (q30_can_side_swim() || q30_no_hopping) &&
             !(_walkflag(x+7,y+(bigHitbox?6:11),1) || _walkflag(x+7,y+(bigHitbox?9:12),1) ||
               _walkflag(x+8,y+(bigHitbox?6:11),1) || _walkflag(x+8,y+(bigHitbox?9:12),1));
 
         if(!wf)
         {
             if(landswim>= (get_bit(quest_rules,qr_DROWN) && isSwimming() ? 1
-                           : (!diagonalMovement) ? 1 : 22))
+                           : (!diagonalMovement) ? 1 : q30_no_hopping ? 1 : 22))
             {
                 //Check for out of bounds for swimming
                 bool changehop = true;
@@ -13612,6 +13701,19 @@ void LinkClass::checkspecial2(int *ls)
         if(q30_can_side_swim() && q30_quest_rule(217))
             water = q30_ss_water(x1,y1) && q30_ss_water(x1,y2) && q30_ss_water(x2,y1) && q30_ss_water(x2,y2)
                     && q30_ss_water((x1+x2)/2,(y1+y2)/2);
+
+        // 2.55/3.0 (upstream's checkspecial2): on the dive's last frame, a Link that would come up
+        // under something solid he dives under (water there only while he is down) stays under
+        if(water && diveclk == 31 && q30_quest_rule(217))
+        {
+            q30_ignore_dive_under = true;
+            const bool open = q30_ss_water(x1,y1) && q30_ss_water(x1,y2) && q30_ss_water(x2,y1) && q30_ss_water(x2,y2)
+                              && q30_ss_water((x1+x2)/2,(y1+y2)/2);
+            q30_ignore_dive_under = false;
+
+            if(!open)
+                diveclk = 32;
+        }
     }
     
     // Pits have a bigger 'hitbox' than stairs...

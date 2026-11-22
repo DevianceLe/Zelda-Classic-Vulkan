@@ -55,6 +55,8 @@ public:
     bool blocked();
     virtual bool blocked(int xOffset, int yOffset);
     virtual bool animate(int index);
+    bool animate_body(int index);   // (animate, without 2.55/3.0's extra death frame)
+    bool q30_dying_frame;           // upstream's weapon_dying_frame (qr_WEAPONS_EXTRA_DEATH_FRAME)
     virtual void onhit(bool clipped);
     virtual void onhit(bool clipped, int special, int linkdir);
     // override hit detection to check for invicibility, etc

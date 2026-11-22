@@ -65,6 +65,9 @@
 #include "q255.h"
 #include "q30_triggers.h"
 #include "q30_regions.h"
+#ifdef ZC_PLAYER_BUILD
+void q30_set_guy_death_sprite(int guy, int death, int spawn);    // guys.cpp
+#endif
 
 extern guydata *guysbuf;
 extern char *guy_string[eMAXGUYS];
@@ -216,6 +219,8 @@ static void skip_script_config(Q255Section &s)
 static word g_npc_script, g_npc_weapon_script;
 static dword g_npc_moveflags;
 static long g_npc_wpnsprite;     // kept for scripts (npcdata->WeaponSprite)
+static int g_npc_death_spr;     // the death sprite (upstream's spr_death; iwDeath before v45)
+static int g_npc_spawn_spr;     // the spawn sprite (upstream's spr_spawn; iwSpawn before v45)
 static long g_npc_vp_suspend, g_npc_vp_despawn;     // viewport ranges (q30_regions.h)
 static long g_npc_wvp_suspend, g_npc_wvp_despawn;   // its weapons' (the weapon data block)
 static long g_npc_initd[8], g_npc_weapon_initd[8];
@@ -444,9 +449,17 @@ static void read_guy(Q255Section &s, guydata &g)
         g_npc_moveflags = s.getc();
 
     if(v > 55)
-        s.skip(3 * 2);     // shadow, death and spawn sprites
+    {
+        s.skip(2);          // shadow, death and spawn sprites
+        g_npc_death_spr = s.igetw();
+        g_npc_spawn_spr = s.igetw();
+    }
     else if(v > 44)
-        s.skip(3);
+    {
+        s.skip(1);
+        g_npc_death_spr = s.getc();
+        g_npc_spawn_spr = s.getc();
+    }
 
     if(v >= 52 && v < 54)
     {
@@ -564,6 +577,8 @@ int q255_read_guys(Q255Section &s)
     {
         guydata g;
         g_npc_script = g_npc_weapon_script = 0; g_npc_moveflags = 0; g_npc_wpnsprite = 0;
+        g_npc_death_spr = iwDeath;
+        g_npc_spawn_spr = iwSpawn;
         g_npc_vp_suspend = 48;      // (upstream's guydata default)
         g_npc_vp_despawn = 0;
         g_npc_wvp_suspend = 48;     // (upstream's guydata::clear)
@@ -584,6 +599,8 @@ int q255_read_guys(Q255Section &s)
             q30_set_guy_wpnsprite(i, (int)g_npc_wpnsprite);
             q30_set_guy_defenses(i, g_npc_raw_defense);
 #ifdef ZC_PLAYER_BUILD
+
+            q30_set_guy_death_sprite(i, g_npc_death_spr, g_npc_spawn_spr);
 
             if(g_npc_vp_suspend != 48 || g_npc_vp_despawn != 0)
                 q30_vp_guy_ranges(i, g_npc_vp_suspend, g_npc_vp_despawn);

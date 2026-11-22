@@ -48,6 +48,7 @@ extern word quest_header_zelda_build;
 extern int q255_header_build;           // q255_basic.cpp: a 2.55/3.0 quest's header build
 
 bool q30_enemy_death_event(long uid);   // newer quests' ENEMY_DEATH generic script event (below)
+void q30_enemy_killed(long uid);         // an enemy that held a screen state died (q30_triggers.cpp)
 
 // Quests saved by 1.92 or 2.10 (behaviour checked in the 1.92 b114 and 2.10 sources).
 static bool quest_192_210()
@@ -502,6 +503,15 @@ enemy::enemy(fix X,fix Y,int Id,int Clk) : sprite()
         frate = 256;
         
     leader = itemguy = dying = scored = false;
+    q30_spawning = false;
+    q30_death_clk = q30_death_frm = 0;
+    {
+        bool q30_enemy_sprite_anims();
+        int q30_guy_spawn_sprite(int guy);
+
+        if(q30_enemy_sprite_anims())    // (2.55/3.0, qr_HARDCODED_ENEMY_ANIMS off: its spawn sprite)
+            q30_spawn_spr = q30_guy_spawn_sprite(id & 0xFFF);
+    }
     canfreeze = count_enemy = true;
     mainguy = !(flags & guy_doesntcount);
     dir = rand()&3;
@@ -573,6 +583,43 @@ void eBaseLanmola::q30_region_shift(int dx, int dy)
     }
 }
 
+// 2.55/3.0: each enemy's death sprite (upstream's guydata::spr_death; q255_guys.cpp reads it)
+// and spawn sprite (spr_spawn)
+static word g_q30_guy_death_spr[MAXGUYS], g_q30_guy_spawn_spr[MAXGUYS];    // the sprite + 1 (0: none read)
+
+void q30_set_guy_death_sprite(int guy, int death, int spawn)
+{
+    if(guy >= 0 && guy < MAXGUYS)
+    {
+        g_q30_guy_death_spr[guy] = (death >= 0 && death < MAXWPNS) ? word(death + 1) : 0;
+        g_q30_guy_spawn_spr[guy] = (spawn >= 0 && spawn < MAXWPNS) ? word(spawn + 1) : 0;
+    }
+}
+
+static int q30_guy_death_sprite(int guy)
+{
+    return (guy >= 0 && guy < MAXGUYS && g_q30_guy_death_spr[guy]) ? g_q30_guy_death_spr[guy] - 1 : iwDeath;
+}
+
+int q30_guy_spawn_sprite(int guy)
+{
+    return (guy >= 0 && guy < MAXGUYS && g_q30_guy_spawn_spr[guy]) ? g_q30_guy_spawn_spr[guy] - 1 : iwSpawn;
+}
+
+// A dying 2.55/3.0 enemy plays its death sprite unless qr_HARDCODED_ENEMY_ANIMS (242), which
+// upstream turns on for quests saved before compat rule version 3; 2.53 quests keep the puff.
+static bool q30_death_sprite_anim();
+
+bool q30_enemy_sprite_anims()
+{
+    return q30_death_sprite_anim();
+}
+
+static bool q30_death_sprite_anim()
+{
+    return q30_active() && !q30_compat_rule(242);
+}
+
 // Supplemental animation code that all derived classes should call
 // as a return value for animate().
 // Handles the death animation and returns true when enemy is finished.
@@ -582,7 +629,7 @@ bool enemy::Dead(int index)
     {
         --clk2;
         
-        if(clk2==12 && hp>-1000)                                // not killed by ringleader
+        if(clk2==12 && hp>-1000 && !q30_death_sprite_anim())    // not killed by ringleader
             death_sfx();
             
         // (an enemy a 3.0 scrolling region despawned, too far from the viewport, goes quietly:
@@ -727,7 +774,7 @@ static int q30_enemy_fall_hook(sprite_list *list, int index, int phase)
 
     if(phase == 1)  // after its move: over a pit?
     {
-        if(it != g_q30_falls.end() || e->dying || e->hp <= 0 || e->clk < 0 || e->superman || (tmpscr->flags7 & fSIDEVIEW)
+        if(it != g_q30_falls.end() || e->dying || e->hp <= 0 || e->q30_fall_blocked() || e->superman || (tmpscr->flags7 & fSIDEVIEW)
            || !(q30_npc_moveflags(e) & 0x02) || !((e->z <= 0 && !isflier(e->id)) || (isflier(e->id) && e->stunclk)))
             return 0;
 
@@ -765,12 +812,16 @@ static int q30_enemy_fall_hook(sprite_list *list, int index, int phase)
 
     if(--f.clk <= 0 && !f.dying)    // (upstream: try_death, then one more frame of falling)
     {
-        f.dying = true;
+        if(!e->dying && q30_enemy_death_event(e->getUID()))
+            e->q30_fall_death();
+
+        f.dying = e->dying;     // (a death script event that keeps it alive: it falls again)
         f.clk = 1;
     }
-    else if(f.clk <= 0)     // (upstream try_death: it dies where it fell, with its item)
+    else if(f.clk <= 0)     // (upstream's ondeath_cleanup: it is gone, and leaves no item)
     {
         g_q30_falls.erase(it);
+        q30_enemy_killed(e->getUID());
 
         if(e->flags & guy_neverret)
             never_return(index);
@@ -778,7 +829,6 @@ static int q30_enemy_fall_hook(sprite_list *list, int index, int phase)
         if(e->leader)
             kill_em_all();
 
-        e->q30_leave_item();
         e->stop_bgsfx(index);
         return 2;
     }
@@ -797,6 +847,47 @@ static int q30_enemy_fall_hook(sprite_list *list, int index, int phase)
 
     e->hxofs = 1000;    // (touches nothing while it falls)
     return 1;
+}
+
+// upstream's try_death(true): an item the enemy carries is put where it fell, the enemy is dying
+// and no longer counts for its screen
+void enemy::q30_fall_death()
+{
+    if(itemguy && (hasitem&2)!=0)
+    {
+        for(int i=0; i<items.Count(); i++)
+        {
+            if(((item*)items.spr(i))->pickup&ipENEMY)
+            {
+                items.spr(i)->x = x;
+                items.spr(i)->y = y - 2;
+            }
+        }
+    }
+
+    dying=true;
+
+    if(fading==fade_flash_die)
+        clk2=19+18*4;
+    else
+    {
+        clk2 = BSZ ? 15 : 19;
+
+        if(fading!=fade_blue_poof)
+            fading=0;
+    }
+
+    if(itemguy)
+    {
+        hasitem&=~2;
+        item_set=0;
+    }
+
+    if(currscr<128 && count_enemy && !script_spawned)
+    {
+        const int from = q30_region_sprite_screen(getUID());     // its own screen, in a 3.0 scrolling region
+        game->guys[(currmap<<7)+(from >= 0 ? from : currscr)]-=1;
+    }
 }
 
 // zelda.cpp, once the quest is loaded: the hook for the guys list (it does nothing for a 2.53 quest)
@@ -1964,6 +2055,8 @@ void enemy::draw(BITMAP *dest)
     if(dont_draw())
         return;
         
+    q30_spawning = clk < 0;     // (upstream's sprite::draw sets isspawning so)
+
     int cshold=cs;
     
     if(dying)
@@ -1979,7 +2072,38 @@ void enemy::draw(BITMAP *dest)
         flip = 0;
         tile = wpnsbuf[iwDeath].tile;
         
-        if(BSZ)
+        if(q30_death_sprite_anim())
+        {
+            // 2.55/3.0 without qr_HARDCODED_ENEMY_ANIMS (upstream enemy::draw): the enemy's own
+            // death sprite plays once through, its frames and speed; clk2 stays at 1-2 meanwhile,
+            // so Dead() ends it the frame after the last one
+            const wpndata &ds = wpnsbuf[q30_guy_death_sprite(id & 0xFFF)];
+            tile = ds.tile;
+
+            if(clk2 > 2)
+            {
+                q30_death_clk = 0;
+                clk2 = 1;
+
+                if(hp > -1000)
+                    death_sfx();
+            }
+
+            if(clk2 == 1 && q30_death_clk > -1)
+            {
+                ++clk2;
+                q30_death_frm = (q30_death_clk / zc_max(ds.speed, 1)) * zc_max(1, txsz);
+
+                if(++q30_death_clk >= zc_max(1, ds.frames) * zc_max(1, ds.speed))
+                {
+                    q30_death_clk = -1;
+                    clk2 = 1;
+                }
+            }
+
+            tile += q30_death_frm;
+        }
+        else if(BSZ)
             tile += zc_min((15-clk2)/3,4);
         else if(clk2>6 && clk2<=12)
             ++tile;
@@ -1997,7 +2121,9 @@ void enemy::draw(BITMAP *dest)
           }
           */
         
-        if(BSZ || fading==fade_blue_poof)
+        if(q30_death_sprite_anim())
+            cs = wpnsbuf[q30_guy_death_sprite(id & 0xFFF)].csets&15;
+        else if(BSZ || fading==fade_blue_poof)
             cs = wpnsbuf[iwDeath].csets&15;
         else
             cs = (((clk2+5)>>1)&3)+6;
@@ -13351,6 +13477,14 @@ bool is_starting_pos(int i, int x, int y, int t)
     // No corner enemies
     if((x==0 || x==240) && (y==0 || y==160))
         return false;
+        
+    // 2.55/3.0: a "No Enemy Spawn" combo or screen flag
+    {
+        bool q30_no_enemy_spawn_at(int x, int y);   // q30_triggers.cpp
+
+        if(q30_no_enemy_spawn_at(x+8, y+8))
+            return false;
+    }
         
     // No enemies in dungeon walls
     if(isdungeon() && (x<32 || x>=224 || y<32 || y>=144))
