@@ -78,6 +78,24 @@ static bool q30_active_sub_ignore_8px()
     return v[0] < 2 || (v[0] == 2 && (v[1] < 55 || (v[1] == 55 && v[2] < 12)));
 }
 
+// How many rows a 2.55/3.0 subscreen's "clear" widget fills (upstream's SW_Clear::getH): the
+// active (and map) subscreen's height, 56 for the passive one, the whole picture for an overlay.
+int q30_sub_clear_height(int ss_type)
+{
+    switch(ss_type)
+    {
+    case 0: // sstACTIVE
+    case 3: // sstMAP
+        return 168 + ((q30_active_sub_ignore_8px() || !q30_show_bottom_8px()) ? 0 : 8);
+
+    case 2: // sstOVERLAY
+        return q30_show_bottom_8px() ? 232 : 224;
+
+    default:
+        return 56;
+    }
+}
+
 // Draws the active subscreen with its top at ay.
 static void put_active_at(miscQdata *misc, int ay, int pos)
 {

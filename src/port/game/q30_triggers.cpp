@@ -9296,7 +9296,6 @@ static double g_lift_height = 0;
 
 bool q30_lifting() { return q30_active() && g_lift_wpn != NULL; }
 bool q30_lift_busy() { return q30_active() && g_lift_clk > 0; }
-static int g_lift_end_frame = -1;           // the frame a lift's clock ran out (still drawn lifting)
 
 bool q30_lift_anim(int *clk, int *tclk)
 {
@@ -9310,12 +9309,8 @@ bool q30_lift_anim(int *clk, int *tclk)
         return true;
     }
 
-    if(g_lift_end_frame == frame)
-    {
-        *clk = *tclk = 0;               // upstream: the last frame, as tliftclk is 0 by then
-        return true;
-    }
-
+    // (the frame the clock runs out shows Link's walking pose: upstream's handle_lift ends the
+    // lifting action before he is drawn)
     return false;
 }
 
@@ -9362,9 +9357,6 @@ static void handle_lift(bool dec)
 
     if(g_lift_clk <= (dec ? 1 : 0))
     {
-        if(dec && g_lift_clk > 0)
-            g_lift_end_frame = frame;
-
         g_lift_clk = g_lift_tclk = 0;
         g_lift_wpn->x = (fix)lift_round(x, (tw > 1 || th > 1) ? 8 - tw * 8 : 0);
         g_lift_wpn->y = (fix)lift_round(y, (tw > 1 || th > 1) ? 8 - th * 8 : 0);

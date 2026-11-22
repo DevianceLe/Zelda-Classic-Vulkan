@@ -5027,6 +5027,11 @@ bool LinkClass::animate(int)
     if(itemclk>0)
         --itemclk;
         
+    // 2.55/3.0: signs and button triggers (upstream's checksigns), before Link moves or his
+    // sword can take the press
+    if(action!=inwind && action!=drowning)
+        q30_trig_buttons(dir);
+
     if(inwallm)
     {
         attackclk=0;
@@ -5305,7 +5310,6 @@ bool LinkClass::animate(int)
         checkchest(cLOCKEDCHEST);
         checkchest(cBOSSCHEST);
         checkpushblock();
-        q30_trig_buttons(dir);
         q30_trig_push();
         checkswordtap();
 

@@ -519,8 +519,8 @@ void q30_passive_buttons();                 // LinkClass::animate, before the it
 int q30_startwpn(int itemid);               // -1: not handled, 2: the bug net, else startwpn's return
 void q30_thrown_frame(weapon *w);
 void q30_draw_lift(BITMAP *dest);
-// Link's lift animation (upstream's action lifting): true while a lift plays, and on the frame it
-// ends; clk/tclk are upstream's liftclk/tliftclk for picking the frame.
+// Link's lift animation (upstream's action lifting): true while a lift plays; clk/tclk are
+// upstream's liftclk/tliftclk for picking the frame.
 bool q30_lift_anim(int *clk, int *tclk);
 // A pit's fall, played as a drowning here (upstream's fallclk): true while it runs.
 bool q30_pit_falling();

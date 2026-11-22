@@ -4027,6 +4027,17 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
             
             case ssoCLEAR:
             {
+#ifdef ZC_PLAYER_BUILD
+                // 2.55/3.0 (upstream's SW_Clear): only the subscreen's own rows, so the playing
+                // field still shows below an active subscreen sliding open
+                if(q30_sub_newer())
+                {
+                    int q30_sub_clear_height(int ss_type);
+                    rectfill(dest, xofs, yofs, xofs+255, yofs+q30_sub_clear_height(css->ss_type)-1,
+                             subscreen_color(misc, css->objects[i].colortype1, css->objects[i].color1));
+                    break;
+                }
+#endif
                 clear_to_color(dest,subscreen_color(misc, css->objects[i].colortype1, css->objects[i].color1));
             }
             break;
