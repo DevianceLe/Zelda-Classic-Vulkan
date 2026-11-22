@@ -360,6 +360,55 @@ static void read_screen_data_init(Q255Section &s)
 // every string's). ZQuest ignores both.
 byte q255_msg_advance_delay = 50;
 int q255_initdata_version = 0;
+
+// The quest's HP per heart, magic per block and damage multipliers (init data; Game->Generic[7-10]
+// write them), the life and max life a new game starts with (HP; -1: zinit's hearts).
+int q255_gauge_hp_per_heart = 16;
+int q255_gauge_magic_per_block = 32;
+int q255_gauge_hero_dmgmult = 2;
+int q255_gauge_ene_dmgmult = 4;
+int q255_init_life = -1, q255_init_maxlife = -1;
+
+static void q255_set_hearts(int hp, int mp, int hero, int ene)
+{
+    q255_gauge_hp_per_heart = hp;
+    q255_gauge_magic_per_block = mp;
+    q255_gauge_hero_dmgmult = hero;
+    q255_gauge_ene_dmgmult = ene;
+}
+
+bool q30_active();
+
+// upstream's gamedata getters: 0 (a byte) means the default
+int zc_hp_per_heart()
+{
+    return !q30_active() ? HP_PER_HEART : (byte)q255_gauge_hp_per_heart ? (byte)q255_gauge_hp_per_heart : 16;
+}
+
+int zc_mp_per_block()
+{
+    return !q30_active() ? MAGICPERBLOCK : (byte)q255_gauge_magic_per_block ? (byte)q255_gauge_magic_per_block : 32;
+}
+
+int zc_hero_dmgmult()
+{
+    return !q30_active() ? DAMAGE_MULTIPLIER : (byte)q255_gauge_hero_dmgmult ? (byte)q255_gauge_hero_dmgmult : 1;
+}
+
+int zc_ene_dmgmult()
+{
+    return !q30_active() ? HP_PER_HEART / 4 : (byte)q255_gauge_ene_dmgmult ? (byte)q255_gauge_ene_dmgmult : 1;
+}
+
+int zc_init_life()
+{
+    return q30_active() && q255_init_life >= 0 ? q255_init_life : zinit.start_heart * HP_PER_HEART;
+}
+
+int zc_init_maxlife()
+{
+    return q30_active() && q255_init_maxlife >= 0 ? q255_init_maxlife : zinit.hc * HP_PER_HEART;
+}
 static byte g_init_msg_advance_delay = 50;
 
 static void read_init_new(Q255Section &s, zinitdata &temp)
@@ -445,15 +494,10 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
     byte hp_per_heart = s.getc();
     byte magic_per_block = s.getc();
 
-    if(s.keep)
-    {
-        // what upstream's gauge widgets count per container (subscr.cpp newer_gauge)
-        extern int q255_gauge_hp_per_heart, q255_gauge_magic_per_block;
-        q255_gauge_hp_per_heart = hp_per_heart ? hp_per_heart : 16;
-        q255_gauge_magic_per_block = magic_per_block;
-    }
+    byte hero_dmgmult = s.getc(), ene_dmgmult = s.getc();
 
-    s.skip(2);  // Link and enemy damage multipliers
+    if(s.keep)  // (upstream's game->set_hp_per_heart and the rest: zc_hp_per_heart())
+        q255_set_hearts(hp_per_heart, magic_per_block, hero_dmgmult, ene_dmgmult);
     read_init_light(s, 6);  // dither, light radius, transdark, darkness colour
 
     temp.ss_grid_x = (int)s.igetl_s();
@@ -724,6 +768,13 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
     int hp = hp_per_heart ? hp_per_heart : 16;
     temp.hc = clamp_byte(mcounter[0] / hp);
     temp.start_heart = counter[0] / hp;
+
+    if(s.keep)  // (the HP themselves: zc_init_life(), zc_init_maxlife())
+    {
+        q255_init_life = counter[0];
+        q255_init_maxlife = mcounter[0];
+    }
+
     temp.cont_heart = percent ? cont_heart : cont_heart / hp;
     temp.rupies = counter[1];
     temp.max_rupees = mcounter[1];
@@ -740,6 +791,12 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
 
 int q255_read_initdata(Q255Section &s)
 {
+    if(s.keep)  // (upstream's values for a section that has none)
+    {
+        q255_set_hearts(16, 32, 2, 4);
+        q255_init_life = q255_init_maxlife = -1;
+    }
+
     if(s.version < 18 || s.version > 52)
         return Q255_NOT_HANDLED;
 
@@ -874,8 +931,15 @@ int q255_read_initdata(Q255Section &s)
     }
     if(v >= 21)
         g_init_subscr_speed = s.igetw();    // subscreen speed
+    byte hp_per_heart = 16, magic_per_block = 32, hero_dmgmult = 2, ene_dmgmult = 4;   // (upstream's, before v22)
+
     if(v > 21)
-        s.skip(4);  // HP per heart, magic per block, damage multipliers
+    {
+        hp_per_heart = s.getc();
+        magic_per_block = s.getc();
+        hero_dmgmult = s.getc();
+        ene_dmgmult = s.getc();
+    }
     if(v > 22)
     {
         // custom counters 7-31: 25 start values, then 25 max values
@@ -996,6 +1060,11 @@ int q255_read_initdata(Q255Section &s)
 
     if(s.keep)
     {
+        // this section keeps life in hearts: upstream multiplies them by its HP per heart
+        const int hp = hp_per_heart ? hp_per_heart : 16;
+        q255_set_hearts(hp_per_heart, magic_per_block, hero_dmgmult, ene_dmgmult);
+        q255_init_life = temp.start_heart * hp;
+        q255_init_maxlife = temp.hc * hp;
         memcpy(&zinit, &temp, sizeof(zinitdata));
         link_animation_speed = (zinit.linkanimationstyle == las_zelda3slow) ? 2 : 1;
         q30_set_light_init(g_init_light[0], g_init_light[1], g_init_light[2], g_init_light[3], g_init_light[4], g_init_light[5]);
@@ -1515,9 +1584,6 @@ static int sub_counter(long ctr)
     return -1;
 }
 
-// The quest's HP per heart and magic per block (init data), for the gauge widgets.
-int q255_gauge_hp_per_heart = 16;
-int q255_gauge_magic_per_block = 32;
 
 static int sub_tile(long tile)
 {

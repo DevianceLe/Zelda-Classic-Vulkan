@@ -250,6 +250,7 @@ class LinkClass : public sprite
     bool q30_walk_solid(double wx, double wy, int d2);
     bool q30_can_move(double dx, double dy);
     bool q30_move_xy(double dx, double dy, bool shove);
+    void q30_stop_step(double d, bool horiz);
     bool q30_solid_coord(double tx, double ty, int sdir, int mdir, double earlyterm, double &out);
     void q30_free_walk(int push);
     // 2.55/3.0 sideview swimming (qr_SIDESWIM; link.cpp). No data members.
@@ -424,6 +425,9 @@ public:
     bool getInWallm() const { return inwallm; }
     bool getBigHitbox() const { return bigHitbox; }           // (for 2.55/3.0 pits)
     bool getDiagMove() const { return diagonalMovement; }
+    // upstream's setBigHitbox and setDiagMove (Hero->BigHitbox, Hero->Diagonal, Game->FFRules[])
+    void q30_set_big_hitbox(bool v) { bigHitbox = v; }
+    void q30_set_diag_move(bool v) { diagonalMovement = v; }
     void setInWallm(bool v) { inwallm = v; }
     // For scripts' Hero->CanMove, Move and their forms (2.55+ quests).
     bool q30_script_can_move(double dx, double dy);

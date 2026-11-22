@@ -2280,7 +2280,7 @@ static void list_save(int save_num, int ypos)
         game->set_life(saves[save_num].get_maxlife());
         wpnsbuf[iwQuarterHearts].tile = 4;
         //boogie!
-        lifemeter(framebuf,144,ypos+((game->get_maxlife()>16*(HP_PER_HEART))?8:0),0,0);
+        lifemeter(framebuf,144,ypos+((game->get_maxlife()>16*(zc_hp_per_heart()))?8:0),0,0);
         textout_ex(framebuf,zfont,saves[save_num].get_name(),72,ypos+16,1,0);
         
         if(saves[save_num].get_quest())
@@ -2782,7 +2782,7 @@ static bool register_name()
             //messy hack to get this to work, since game is not yet initialized -DD
             gamedata *oldgame = game;
             game = saves+s;
-            saves[s].set_maxlife(zinit.hc*HP_PER_HEART);
+            saves[s].set_maxlife(zc_init_maxlife());
             //saves[s].items[itype_ring]=0;
             removeItemsOfFamily(&saves[s], itemsbuf, itype_ring);
             int maxringid = getHighestLevelOfFamily(&zinit, itemsbuf, itype_ring);
@@ -3043,7 +3043,7 @@ bool load_custom_game(int file)
             
             load_quest(saves+file);
             
-            saves[file].set_maxlife(zinit.hc*HP_PER_HEART);
+            saves[file].set_maxlife(zc_init_maxlife());
             flushItemCache();
             
             //messy hack to get this to work properly since game is not initialized -DD
@@ -4020,7 +4020,7 @@ static void list_saves2()
       game->set_maxlife( saves[listpos+i].get_maxlife());
       game->set_life( saves[listpos+i].get_maxlife());
       //boogie!
-      lifemeter(framebuf,144,i*24+56+((game->get_maxlife()>16*(HP_PER_HEART))?8:0),0,0);
+      lifemeter(framebuf,144,i*24+56+((game->get_maxlife()>16*(zc_hp_per_heart()))?8:0),0,0);
       textout_ex(framebuf,zfont,saves[listpos+i].get_name(),72,i*24+72,1,0);
 
       if(saves[listpos+i].get_quest())

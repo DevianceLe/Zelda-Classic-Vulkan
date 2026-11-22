@@ -1944,7 +1944,7 @@ void q30_getitem_starting(int id);          // link.cpp: getitem(id, true), no p
 
 void resetItems(gamedata *game2, zinitdata *zinit2, bool lvlitems)
 {
-    game2->set_maxlife(zinit2->hc*HP_PER_HEART);
+    game2->set_maxlife(zinit2 == &zinit ? zc_init_maxlife() : zinit2->hc*zc_hp_per_heart());
     game2->set_maxbombs(zinit2->max_bombs);
     game2->set_maxcounter(zinit2->max_bombs/zc_max(1,zinit2->bomb_ratio), 6);
     game2->set_maxmagic(zinit2->max_magic);

@@ -29,6 +29,9 @@ int q30_region_origin();            // the region's top-left screen (currscr whe
 int q30_region_id();                // its id (1-9; 0 when not in one)
 int q30_region_width();             // in pixels (256 when not in one)
 int q30_region_height();            // in pixels (176)
+bool q30_extended_height_mode();    // upstream's extended viewport: a 232-row view, playing field offset 0
+int q30_view_h();                   // the camera's height: 232 in extended height mode, else 176
+void q30_apply_field_offset();      // playing_field_offset 0 or 56 for the mode (not while scrolling)
 int q30_region_screens_wide();
 int q30_region_screens_high();
 int q30_region_offset_x();          // the current screen's top-left in region pixels

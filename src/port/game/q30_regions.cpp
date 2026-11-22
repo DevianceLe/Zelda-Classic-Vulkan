@@ -40,6 +40,7 @@ struct Region
 
 Region g_reg = { false, -1, 0, 0, 0, 1, 1, 0, 0 };
 
+
 // The other screens of the region, as drawn and walked on: copies of the quest's screens, or
 // the live screen Link last left (its combos as he left them). In a region whose screens are
 // live ("every screen of a region live", below) each is a whole screen kept running: its
@@ -217,7 +218,7 @@ void place_viewport()
     g_fs.x = clamp64(g_fs.x, ax - (s.deadzone_w / 2) * Z, ax + (s.deadzone_w / 2) * Z);
     g_fs.y = clamp64(g_fs.y, ay - (s.deadzone_h / 2) * Z, ay + (s.deadzone_h / 2) * Z);
     g_cam_vx = vbound(z_int(g_fs.x) - 128, 0, g_reg.w * 256 - 256);
-    g_cam_vy = vbound(z_int(g_fs.y) - 88, 0, g_reg.h * 176 - 176);
+    g_cam_vy = vbound(z_int(g_fs.y) - q30_view_h() / 2, 0, g_reg.h * 176 - q30_view_h());
 }
 
 // upstream's reset_viewport_follow: the focus onto Link after he was put somewhere (a warp, the
@@ -826,7 +827,8 @@ static void list_regions()
         if(shown)
             for(int d = 0; d < MAXDMAPS; ++d)
                 if(DMaps[d].map == map && DMaps[d].name[0])
-                    al_trace("q30 regions:   DMap %d \"%s\" xoff %d continue 0x%02X\n", d, DMaps[d].name, DMaps[d].xoff, DMaps[d].cont);
+                    al_trace("q30 regions:   DMap %d \"%s\" xoff %d continue 0x%02X%s\n", d, DMaps[d].name, DMaps[d].xoff, DMaps[d].cont,
+                             (DMaps[d].flags & 0x400000) ? " extended viewport" : "");
     }
 }
 
@@ -842,6 +844,9 @@ void q30_region_screen_loaded(int destdmap)
 
     const Region old = g_reg;
     g_reg.on = false;
+
+    // every way out below: the playing field's offset for the screen (or region) now loaded
+    struct FieldOffset { ~FieldOffset() { q30_apply_field_offset(); } } field_offset;
 
     // Link is put on this screen by whatever loads it (a warp, the game's start or a continue):
     // the camera snaps onto him once he is there. A scroll lines it up itself (q30_scroll_*), and
@@ -901,8 +906,53 @@ void q30_region_screen_loaded(int destdmap)
     // Link entered the region (or it was loaded again: a warp, a continue): all its other screens
     // load and run from now on ("every screen of a region live"), for the DMap this one loaded
     // for. A hand-off between them keeps them.
+    q30_apply_field_offset();
+
     if(!g_going_live)
         region_make_live(destdmap);
+}
+
+extern word quest_header_zelda_version;
+
+// upstream's is_extended_height_mode (maps.cpp): in a region more than one screen tall on a DMap
+// with "Extended Viewport" (dmfEXTENDEDVIEWPORT) the view is 232 rows tall and the playing field
+// starts at the picture's top (playing_field_offset 0), the passive subscreen drawn over it
+bool q30_extended_height_mode()
+{
+    return g_reg.on && g_reg.h > 1 && quest_header_zelda_version >= 0x255 && unsigned(currdmap) < MAXDMAPS
+           && (DMaps[currdmap].flags & 0x400000);
+}
+
+// the camera's height: upstream's viewport.h
+int q30_view_h() { return q30_extended_height_mode() ? 232 : 176; }
+
+extern int original_playing_field_offset;
+extern sprite_list guys, items, Lwpns, Ewpns, chainlinks, decorations, particles;
+
+// upstream's loadscr (maps.cpp): playing_field_offset and original_playing_field_offset are 0 in
+// extended height mode, else 56; Link's and the moving block's yofs follow. Sprites made from now
+// on take it from playing_field_offset; the ones alive now (carried over a scroll) are moved with
+// it. Not while a scroll runs (it draws both screens with the old offset); the game loop applies
+// it after. 2.53 quests: always 56.
+void q30_apply_field_offset()
+{
+    if(screenscrolling)
+        return;
+
+    const int base = q30_extended_height_mode() ? 0 : 56;
+    const int d = base - original_playing_field_offset;
+
+    if(!d)
+        return;
+
+    original_playing_field_offset = playing_field_offset = base;
+    Link.yofs += d;
+    mblock2.yofs += d;
+    sprite_list *lists[] = { &guys, &items, &Lwpns, &Ewpns, &chainlinks, &decorations, &particles };
+
+    for(size_t l = 0; l < sizeof(lists) / sizeof(lists[0]); ++l)
+        for(int i = 0; i < lists[l]->Count(); ++i)
+            lists[l]->spr(i)->yofs += d;
 }
 
 int q30_region_origin() { return g_reg.on ? g_reg.origin : currscr; }
@@ -1156,7 +1206,7 @@ void q30_region_lower_layer(BITMAP *lower, int which)
         {
             int scr;
 
-            if((!sdx && !sdy) || !overlaps(sdx * 256, sdx * 256 + 256, cx, cx + 256) || !overlaps(sdy * 176, sdy * 176 + 176, cy, cy + 176)
+            if((!sdx && !sdy) || !overlaps(sdx * 256, sdx * 256 + 256, cx, cx + 256) || !overlaps(sdy * 176, sdy * 176 + 176, cy, cy + q30_view_h())
                || !in_region(sdx, sdy, &scr))
                 continue;
 
@@ -1238,7 +1288,7 @@ void q30_region_lower_end(BITMAP *scrollbuf)
     if(!g_lower_canvas)
         return;
 
-    blit(g_canvas, scrollbuf, 256 + g_lower_cx, 176 + g_lower_cy, 0, playing_field_offset, 256, 176);
+    blit(g_canvas, scrollbuf, 256 + g_lower_cx, 176 + g_lower_cy, 0, playing_field_offset, 256, q30_view_h());
     g_lower_canvas = false;
     q30_draw_cam_x = q30_draw_cam_y = 0;
 }
@@ -1261,7 +1311,7 @@ void q30_region_upper_layer(BITMAP *bmp, int type, mapscr *this_screen, bool dra
         {
             int scr;
 
-            if((!sdx && !sdy) || !overlaps(sdx * 256, sdx * 256 + 256, cx, cx + 256) || !overlaps(sdy * 176, sdy * 176 + 176, cy, cy + 176)
+            if((!sdx && !sdy) || !overlaps(sdx * 256, sdx * 256 + 256, cx, cx + 256) || !overlaps(sdy * 176, sdy * 176 + 176, cy, cy + q30_view_h())
                || !in_region(sdx, sdy, &scr))
                 continue;
 
@@ -1294,7 +1344,7 @@ int q30_region_view_screens(Q30ViewScreen *out, int extra)
             int scr;
 
             if((!sdx && !sdy) || !overlaps(sdx * 256, sdx * 256 + 256, cx - extra, cx + 256 + extra)
-               || !overlaps(sdy * 176, sdy * 176 + 176, cy - extra, cy + 176 + extra) || !in_region(sdx, sdy, &scr))
+               || !overlaps(sdy * 176, sdy * 176 + 176, cy - extra, cy + q30_view_h() + extra) || !in_region(sdx, sdy, &scr))
                 continue;
 
             RegionScreen *rs = region_screen(scr);
@@ -1530,7 +1580,7 @@ void q30_region_view_bounds(int *l, int *t, int *r, int *b)
     *l = cx;
     *t = cy;
     *r = cx + 256;
-    *b = cy + 176;
+    *b = cy + q30_view_h();
 }
 
 extern sprite_list guys, items, Ewpns;
@@ -2233,7 +2283,7 @@ bool q30_region_load_enemies_in_view()
             if(!g_live || currscr != here)
                 return true;
 
-            if(!(vx <= x * 256 + 256 && vx + 256 > x * 256 && vy <= y * 176 + 176 && vy + 176 > y * 176))
+            if(!(vx <= x * 256 + 256 && vx + 256 > x * 256 && vy <= y * 176 + 176 && vy + q30_view_h() > y * 176))
                 continue;
 
             if(scr == here)
@@ -2630,7 +2680,7 @@ void q30_scroll_loaded(bool moves)
         const int64_t ax = (int64_t)(ndx * 256 + nlx + 8) * Z + bound_lookahead(g_fs.lx, f.deadzone_w, 120);
         const int64_t ay = (int64_t)(ndy * 176 + nly + 8) * Z + bound_lookahead(g_fs.ly, f.deadzone_h, 80);
         new_vx = vbound(z_int(ax) - 128, 0, g_reg.w * 256 - 256);
-        new_vy = vbound(z_int(ay) - 88, 0, g_reg.h * 176 - 176);
+        new_vy = vbound(z_int(ay) - q30_view_h() / 2, 0, g_reg.h * 176 - q30_view_h());
         g_cam_vx = new_vx;
         g_cam_vy = new_vy;
     }

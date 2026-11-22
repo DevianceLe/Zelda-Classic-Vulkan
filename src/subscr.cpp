@@ -2692,19 +2692,21 @@ void lifemeter(BITMAP *dest,int x,int y,int tile,bool bs_style)
         y+=24;
     }
     
-    for(int i=0; i<(game != NULL ? zc_min(game->get_maxlife(),16*24) : 1); i+=HP_PER_HEART)
+    const int hp = zc_hp_per_heart();     // (upstream: the quest's HP per heart)
+    
+    for(int i=0; i<(game != NULL ? zc_min(game->get_maxlife(),hp*24) : 1); i+=hp)
     {
         if(game != NULL)
         {
             if(get_bit(quest_rules,qr_QUARTERHEART))
             {
-                if(i+((HP_PER_HEART/4)*3)>=game->get_life()) tile=(wpnsbuf[iwQuarterHearts].tile*4)+2;
+                if(i+((zc_hp_per_heart()/4)*3)>=game->get_life()) tile=(wpnsbuf[iwQuarterHearts].tile*4)+2;
                 
-                if(i+(HP_PER_HEART/2)>=game->get_life()) tile=1;
+                if(i+(zc_hp_per_heart()/2)>=game->get_life()) tile=1;
                 
-                if(i+((HP_PER_HEART/4)*1)>=game->get_life()) tile=(wpnsbuf[iwQuarterHearts].tile*4)+3;
+                if(i+((zc_hp_per_heart()/4)*1)>=game->get_life()) tile=(wpnsbuf[iwQuarterHearts].tile*4)+3;
             }
-            else if(i+(HP_PER_HEART/2)>=game->get_life()) tile=1;
+            else if(i+(zc_hp_per_heart()/2)>=game->get_life()) tile=1;
             
             if(i>=game->get_life()) tile=4;
         }
@@ -2714,7 +2716,7 @@ void lifemeter(BITMAP *dest,int x,int y,int tile,bool bs_style)
         overtile8(dest,tile,x,y,1,0);
         x+=8;
         
-        if(((i>>4)&7)==7)
+        if(((i/hp)&7)==7)
         {
             x-=64;
             y+=bs_style?8:-8;
@@ -2742,7 +2744,7 @@ void magicgauge(BITMAP *dest,int x,int y, int container, int notlast_tile, int n
             return;
     }
     
-    int containers=game->get_maxmagic()/MAGICPERBLOCK;
+    int containers=game->get_maxmagic()/zc_mp_per_block();
     int tile=rand()%32767, cset=rand()%15;
     bool mod_value=(rand()%2)!=0;
     
@@ -2773,10 +2775,10 @@ void magicgauge(BITMAP *dest,int x,int y, int container, int notlast_tile, int n
     
     if(mod_value)
     {
-        if(game->get_magic()>=container*MAGICPERBLOCK)
+        if(game->get_magic()>=container*zc_mp_per_block())
         {
             //tile=tile;                                        //full block
-            if(game->get_magic()==container*MAGICPERBLOCK)
+            if(game->get_magic()==container*zc_mp_per_block())
             {
                 if(unique_last)
                 {
@@ -2786,13 +2788,13 @@ void magicgauge(BITMAP *dest,int x,int y, int container, int notlast_tile, int n
         }
         else
         {
-            if(((container-1)*MAGICPERBLOCK)>game->get_magic())
+            if(((container-1)*zc_mp_per_block())>game->get_magic())
             {
                 tile+=4;                                //empty block
             }
             else
             {
-                tile+=4+((game->get_magic()-((container-1)*MAGICPERBLOCK))%MAGICPERBLOCK);
+                tile+=4+((game->get_magic()-((container-1)*zc_mp_per_block()))%zc_mp_per_block());
             }
         }
     }
@@ -2810,7 +2812,7 @@ void lifegauge(BITMAP *dest,int x,int y, int container, int notlast_tile, int no
     speed=speed;
     delay=delay;
     
-    int containers=game->get_maxlife()/HP_PER_HEART;
+    int containers=game->get_maxlife()/zc_hp_per_heart();
     int tile=rand()%32767, cset=rand()%15;
     bool mod_value=(rand()%2)!=0;
     
@@ -2841,10 +2843,10 @@ void lifegauge(BITMAP *dest,int x,int y, int container, int notlast_tile, int no
     
     if(mod_value)
     {
-        if(game->get_life()>=container*HP_PER_HEART)
+        if(game->get_life()>=container*zc_hp_per_heart())
         {
             //tile=tile;                                        //full block
-            if(game->get_life()==container*HP_PER_HEART)
+            if(game->get_life()==container*zc_hp_per_heart())
             {
                 if(unique_last)
                 {
@@ -2854,13 +2856,13 @@ void lifegauge(BITMAP *dest,int x,int y, int container, int notlast_tile, int no
         }
         else
         {
-            if(((container-1)*HP_PER_HEART)>game->get_life())
+            if(((container-1)*zc_hp_per_heart())>game->get_life())
             {
                 tile+=4;                                //empty block
             }
             else
             {
-                tile+=4+((game->get_life()-((container-1)*HP_PER_HEART))%HP_PER_HEART);
+                tile+=4+((game->get_life()-((container-1)*zc_hp_per_heart()))%zc_hp_per_heart());
             }
         }
     }
@@ -3044,9 +3046,9 @@ void magicmeter(BITMAP *dest,int x,int y)
         overtile8(dest,(mmtile*4)+1,x-10,y,mmcset,0);
     }
     
-    for(int i=0; i<game->get_maxmagic(); i+=MAGICPERBLOCK)
+    for(int i=0; i<game->get_maxmagic(); i+=zc_mp_per_block())
     {
-        if(game->get_magic()>=i+MAGICPERBLOCK)
+        if(game->get_magic()>=i+zc_mp_per_block())
         {
             tile=mmtile*4;                                        //full block
         }
@@ -3058,7 +3060,7 @@ void magicmeter(BITMAP *dest,int x,int y)
             }
             else
             {
-                tile=((mmtile+1)*4)+((game->get_magic()-i)%MAGICPERBLOCK);
+                tile=((mmtile+1)*4)+((game->get_magic()-i)%zc_mp_per_block());
             }
         }
         
@@ -4316,8 +4318,7 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
                     if((show == 1 && game->get_magicdrainrate() != 1) || (show == 2 && game->get_magicdrainrate() != 2))
                         break;
 
-                    extern int q255_gauge_magic_per_block;
-                    newer_gauge(dest, css->objects[i], x, y, game->get_magic(), game->get_maxmagic(), q255_gauge_magic_per_block);
+                    newer_gauge(dest, css->objects[i], x, y, game->get_magic(), game->get_maxmagic(), zc_mp_per_block());
                     break;
                 }
 
@@ -4334,10 +4335,7 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
             {
                 if(css->objects[i].d10 & SSO_GAUGE_NEWER)
                 {
-                    // the player keeps life as HP_PER_HEART per heart; the gauge counts the quest's own
-                    extern int q255_gauge_hp_per_heart;
-                    const int hp = q255_gauge_hp_per_heart;
-                    newer_gauge(dest, css->objects[i], x, y, game->get_life() * hp / HP_PER_HEART, game->get_maxlife() * hp / HP_PER_HEART, hp);
+                    newer_gauge(dest, css->objects[i], x, y, game->get_life(), game->get_maxlife(), zc_hp_per_heart());
                     break;
                 }
 

@@ -138,6 +138,16 @@ enum {ENC_METHOD_192B104=0, ENC_METHOD_192B105, ENC_METHOD_192B185, ENC_METHOD_2
 
 #define HP_PER_HEART          16
 #define DAMAGE_MULTIPLIER     2
+// HP per heart, MP per block and the damage multipliers in play: a 2.55/3.0 quest's own (its init
+// data: upstream's game->get_hp_per_heart(), get_mp_per_block(), get_hero_dmgmult() and
+// get_ene_dmgmult()), else 2.53's HP_PER_HEART, MAGICPERBLOCK, DAMAGE_MULTIPLIER and HP_PER_HEART/4
+// (q255_init.cpp). The init data's life and max life in HP, the same way.
+int zc_hp_per_heart();
+int zc_mp_per_block();
+int zc_hero_dmgmult();
+int zc_ene_dmgmult();
+int zc_init_life();
+int zc_init_maxlife();
 
 
 #define ZC_ID(a,b,c,d)  (((a)<<24) | ((b)<<16) | ((c)<<8) | (d))

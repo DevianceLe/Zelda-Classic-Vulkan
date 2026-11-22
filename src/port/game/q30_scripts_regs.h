@@ -1942,8 +1942,8 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     // getTileModifier; read only)
     case Z30R_LINKTILEMOD: ret = (item_tile_mod(false) + q30_bunny_tile_mod()) * 10000L; return true;
     case Z30R_LINKCANFLICKER: ret = zasm30_store_get(arg, 0, 0) ? 10000 : (arg == Z30R_LINKCANFLICKER ? 10000 : 0); return true;
-    case Z30R_LINKDIAG: ret = get_bit(quest_rules, qr_LTTPWALK) ? 10000 : 0; return true;
-    case Z30R_LINKBIGHITBOX: ret = get_bit(quest_rules, qr_LTTPCOLLISION) ? 10000 : 0; return true;
+    case Z30R_LINKDIAG: ret = Link.getDiagMove() ? 10000 : 0; return true;
+    case Z30R_LINKBIGHITBOX: ret = Link.getBigHitbox() ? 10000 : 0; return true;
     case Z30R_LINKINVFRAME: ret = Link.getHClk() * 10000; return true;
     case Z30R_HEROSTEPRATE: ret = q30_hero_step_rate() * 10000; return true;
     case Z30R_HERO_TMP_STEPBOOST: ret = q30_hero_step_boost() * 10000; return true;
@@ -2975,8 +2975,8 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     case Z30R_LINKCLIMBING: Link.q30_set_sv_ladder(value != 0); return true;
     case Z30R_HEROSTANDING:
         return true;
-    case Z30R_LINKDIAG: set_bit(quest_rules, qr_LTTPWALK, value ? 1 : 0); return true;
-    case Z30R_LINKBIGHITBOX: set_bit(quest_rules, qr_LTTPCOLLISION, value ? 1 : 0); return true;
+    case Z30R_LINKDIAG: set_bit(quest_rules, qr_LTTPWALK, value ? 1 : 0); Link.q30_set_diag_move(value != 0); return true;
+    case Z30R_LINKBIGHITBOX: set_bit(quest_rules, qr_LTTPCOLLISION, value / 10000 ? 1 : 0); Link.q30_set_big_hitbox(value / 10000 != 0); return true;
     case Z30R_LINKINVFRAME: Link.setHClk(vbound(value / 10000, 0, 214747)); return true;
 
     case Z30R_NPCFLAGS:
@@ -3412,7 +3412,10 @@ static bool zasm30_set_register_inner(const long arg, const long value)
         if(Z30_INDEX >= 0 && Z30_INDEX < (long)zasm30_event_data.size())
             zasm30_event_data[Z30_INDEX] = value;
         return true;
-    case Z30R_FFRULE: if(Z30_INDEX >= 0 && Z30_INDEX < QUESTRULES_SIZE * 8) set_bit(quest_rules, Z30_INDEX, value ? 1 : 0); q30_script_rule_set(Z30_INDEX, value != 0); return true;
+    case Z30R_FFRULE: if(Z30_INDEX >= 0 && Z30_INDEX < QUESTRULES_SIZE * 8) set_bit(quest_rules, Z30_INDEX, value ? 1 : 0); q30_script_rule_set(Z30_INDEX, value != 0);
+        if(Z30_INDEX == qr_LTTPWALK) Link.q30_set_diag_move(value != 0);     // (upstream's apply_qr_rule)
+        else if(Z30_INDEX == qr_LTTPCOLLISION) Link.q30_set_big_hitbox(value != 0);
+        return true;
     case Z30R_FFCLAYER: if(ri->ffcref >= 0 && ri->ffcref < tmpscr->ffc_count()) tmpscr->fflayer[ri->ffcref] = (signed char)(vbound(value / 10000, 0, 7) - 1); return true;
     case Z30R_FFCID:
     case Z30R_MAX_FFC_ID:

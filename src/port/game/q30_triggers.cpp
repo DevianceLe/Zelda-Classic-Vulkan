@@ -7529,7 +7529,7 @@ bool q30_player_drown_end(int *damage, int *inv_timer, bool *warped)
             cid = 0;
 
         const Q30Combo *c = cid ? q30_combo(cid) : NULL;
-        int dmg = c ? a_int(c->attributes[0]) : HP_PER_HEART / 4;
+        int dmg = c ? a_int(c->attributes[0]) : zc_hp_per_heart() / 4;
         const bool dmg_perc = c && (c->usrflags & 0x4) != 0;
         const bool warp = c && (c->usrflags & 0x1) != 0;
         int inv = c ? a_int(c->attributes[3]) : 0;
@@ -9644,7 +9644,7 @@ static bool lift_combo(const H &base, int glove)
 
     int cid = h_data(main_h), cset = h_cset(main_h);
     weapon *w = new weapon((fix)left_x, (fix)top_y, (fix)0, Q30W_THROWN, itemsbuf[glove].fam_type,
-                           c->liftdmg * DAMAGE_MULTIPLIER, Link.getDir() ^ 1, glove, Link.getUID());
+                           c->liftdmg * zc_hero_dmgmult(), Link.getDir() ^ 1, glove, Link.getUID());
     w->xofs = 0;
     w->yofs = playing_field_offset - 2;     // (upstream leaves the weapon's own offset: 2 pixels up)
     w->hxofs = w->hyofs = 0;

@@ -2780,7 +2780,7 @@ void LinkClass::checkstab()
                               0 : current_item_power(itype_whimsicalring);
             }
             
-            int h = hit_enemy(i,attack,(weaponattackpower() + whimsypower)*DAMAGE_MULTIPLIER,wx,wy,dir,directWpn);
+            int h = hit_enemy(i,attack,(weaponattackpower() + whimsypower)*zc_hero_dmgmult(),wx,wy,dir,directWpn);
             
             if(h<0 && whimsypower)
             {
@@ -3658,7 +3658,7 @@ int LinkClass::EwpnHit()
             
             if(ew->id != oldid)                                     // changed type from ewX to wX
             {
-                //        ew->power*=DAMAGE_MULTIPLIER;
+                //        ew->power*=zc_hero_dmgmult();
                 Lwpns.add(ew);
                 Ewpns.remove(ew);
             }
@@ -4031,12 +4031,12 @@ killweapon:
             if(((s->id==wBomb)||(s->id==wSBomb)) && s->hit(this) && !superman && (scriptcoldet&1))
             {
                 int q30_hdir = s->hitdir(x,y,16,16,dir), q30_iframes = 48;
-                const int q30_hit = q30_hit_events((((weapon*)s)->parentitem>-1 ? itemsbuf[((weapon*)s)->parentitem].misc3 : ((weapon*)s)->power) *HP_PER_HEART,
+                const int q30_hit = q30_hit_events((((weapon*)s)->parentitem>-1 ? itemsbuf[((weapon*)s)->parentitem].misc3 : ((weapon*)s)->power) *zc_hp_per_heart(),
                                                    true, q30_hdir, q30_iframes, 1, s->getUID());
 
                 if(q30_hit < 0 && NayrusLoveShieldClk<=0)
                 {
-                    int ringpow = ringpower(((((weapon*)s)->parentitem>-1 ? itemsbuf[((weapon*)s)->parentitem].misc3 : ((weapon*)s)->power) *HP_PER_HEART));
+                    int ringpow = ringpower(((((weapon*)s)->parentitem>-1 ? itemsbuf[((weapon*)s)->parentitem].misc3 : ((weapon*)s)->power) *zc_hp_per_heart()));
                     game->set_life(zc_min(game->get_maxlife(), zc_max(game->get_life()-ringpow,0)));
                 }
                 
@@ -4333,7 +4333,7 @@ void LinkClass::hitlink(int hit2)
     {
         int itemid = current_item_id(itype_stompboots);
         paymagiccost(itemid);
-        hit_enemy(hit2,wStomp,itemsbuf[itemid].power*DAMAGE_MULTIPLIER,x,y,0,itemid);
+        hit_enemy(hit2,wStomp,itemsbuf[itemid].power*zc_hero_dmgmult(),x,y,0,itemid);
         
         if(itemsbuf[itemid].flags & ITEM_DOWNGRADE)
             game->set_item(itemid,false);
@@ -5162,7 +5162,7 @@ bool LinkClass::animate(int)
             else
             {
                 hclk=48;
-                game->set_life(zc_max(game->get_life()-(HP_PER_HEART/4),0));
+                game->set_life(zc_max(game->get_life()-(zc_hp_per_heart()/4),0));
             }
         }
         
@@ -5585,7 +5585,7 @@ bool LinkClass::animate(int)
         pushing=false;
     }
     
-    if(game->get_life()<=(HP_PER_HEART) && !(game->get_maxlife()<=(HP_PER_HEART)))
+    if(game->get_life()<=(zc_hp_per_heart()) && !(game->get_maxlife()<=(zc_hp_per_heart())))
     {
         if(heart_beep)
         {
@@ -6022,7 +6022,7 @@ bool LinkClass::startwpn(int itemid)
         }
         
         Lwpns.add(new weapon((fix)wx,(fix)wy,(fix)wz,wLitBomb,itemsbuf[itemid].fam_type,
-                             itemsbuf[itemid].power*DAMAGE_MULTIPLIER,dir,itemid,getUID()));
+                             itemsbuf[itemid].power*zc_hero_dmgmult(),dir,itemid,getUID()));
         sfx(WAV_PLACE,pan(wx));
     }
     break;
@@ -6085,7 +6085,7 @@ bool LinkClass::startwpn(int itemid)
         if(itemsbuf[itemid].misc1>0) // If not remote bombs
             deselectbombs(true);
             
-        Lwpns.add(new weapon((fix)wx,(fix)wy,(fix)wz,wLitSBomb,itemsbuf[itemid].fam_type,itemsbuf[itemid].power*DAMAGE_MULTIPLIER,dir, itemid,getUID()));
+        Lwpns.add(new weapon((fix)wx,(fix)wy,(fix)wz,wLitSBomb,itemsbuf[itemid].fam_type,itemsbuf[itemid].power*zc_hero_dmgmult(),dir, itemid,getUID()));
         sfx(WAV_PLACE,pan(wx));
     }
     break;
@@ -6111,12 +6111,12 @@ bool LinkClass::startwpn(int itemid)
 		if ( get_bit(quest_rules,qr_BROKENBOOKCOST) )
 		{
 			type = bookid != -1 ? current_item(itype_book) : itemsbuf[itemid].fam_type;
-			pow = (bookid != -1 ? current_item_power(itype_book) : itemsbuf[itemid].power)*DAMAGE_MULTIPLIER;
+			pow = (bookid != -1 ? current_item_power(itype_book) : itemsbuf[itemid].power)*zc_hero_dmgmult();
 		}
 		else
 		{
 			type = (bookid != -1 && paybook) ? current_item(itype_book) : itemsbuf[itemid].fam_type;
-			pow = ((bookid != -1 && paybook) ? current_item_power(itype_book) : itemsbuf[itemid].power)*DAMAGE_MULTIPLIER;
+			pow = ((bookid != -1 && paybook) ? current_item_power(itype_book) : itemsbuf[itemid].power)*zc_hero_dmgmult();
 		}
         
         for(int i=(spins==1?up:dir); i<=(spins==1 ? right:dir); i++)
@@ -6149,7 +6149,7 @@ bool LinkClass::startwpn(int itemid)
     }
     /*
     //    Fireball Wand
-    Lwpns.add(new weapon((fix)wx,(fix)wy,(fix)wz,wRefFireball,0,2*DAMAGE_MULTIPLIER,dir));
+    Lwpns.add(new weapon((fix)wx,(fix)wy,(fix)wz,wRefFireball,0,2*zc_hero_dmgmult(),dir));
     switch (dir)
     {
     case up:
@@ -6188,13 +6188,13 @@ bool LinkClass::startwpn(int itemid)
         
         if(itemsbuf[itemid].flags & ITEM_FLAG2)
         {
-            temppower=DAMAGE_MULTIPLIER*itemsbuf[itemid].power;
+            temppower=zc_hero_dmgmult()*itemsbuf[itemid].power;
             temppower=temppower*itemsbuf[itemid].misc2;
             temppower=temppower/100;
         }
         else
         {
-            temppower = DAMAGE_MULTIPLIER*itemsbuf[itemid].misc2;
+            temppower = zc_hero_dmgmult()*itemsbuf[itemid].misc2;
         }
         
         Lwpns.add(new weapon((fix)wx,(fix)wy,(fix)wz,wBeam,itemsbuf[itemid].fam_type,int(temppower),dir,itemid,getUID()));
@@ -6225,7 +6225,7 @@ bool LinkClass::startwpn(int itemid)
         
         Lwpns.add(new weapon((fix)wx,(fix)wy,(fix)wz,wFire,
                              (itemsbuf[itemid].fam_type > 1), //To do with combo flags
-                             itemsbuf[itemid].power*DAMAGE_MULTIPLIER,dir,itemid,getUID()));
+                             itemsbuf[itemid].power*zc_hero_dmgmult(),dir,itemid,getUID()));
         sfx(itemsbuf[itemid].usesound,pan(wx));
         attack=wFire;
     }
@@ -6256,7 +6256,7 @@ bool LinkClass::startwpn(int itemid)
         
         paymagiccost(itemid);
         
-        Lwpns.add(new weapon((fix)wx,(fix)wy,(fix)wz,wArrow,itemsbuf[itemid].fam_type,DAMAGE_MULTIPLIER*itemsbuf[itemid].power,dir,itemid,getUID()));
+        Lwpns.add(new weapon((fix)wx,(fix)wy,(fix)wz,wArrow,itemsbuf[itemid].fam_type,zc_hero_dmgmult()*itemsbuf[itemid].power,dir,itemid,getUID()));
         ((weapon*)Lwpns.spr(Lwpns.Count()-1))->step*=(current_item_power(itype_bow)+1)/2;
         sfx(itemsbuf[itemid].usesound,pan(wx));
     }
@@ -6300,7 +6300,7 @@ bool LinkClass::startwpn(int itemid)
             
         paymagiccost(itemid);
         current_item_power(itype_brang);
-        Lwpns.add(new weapon((fix)wx,(fix)wy,(fix)wz,wBrang,itemsbuf[itemid].fam_type,(itemsbuf[itemid].power*DAMAGE_MULTIPLIER),dir,itemid,getUID()));
+        Lwpns.add(new weapon((fix)wx,(fix)wy,(fix)wz,wBrang,itemsbuf[itemid].fam_type,(itemsbuf[itemid].power*zc_hero_dmgmult()),dir,itemid,getUID()));
     }
     break;
     
@@ -6366,9 +6366,9 @@ bool LinkClass::startwpn(int itemid)
             {
                 hookshot_used=true;
                 Lwpns.add(new weapon((fix)wx,(fix)wy,(fix)wz,wHSHandle,hookitem,
-                                     hookpower*DAMAGE_MULTIPLIER,dir,itemid,getUID()));
+                                     hookpower*zc_hero_dmgmult(),dir,itemid,getUID()));
                 Lwpns.add(new weapon((fix)wx,(fix)wy-4,(fix)wz,wHookshot,hookitem,
-                                     hookpower*DAMAGE_MULTIPLIER,dir,itemid,getUID()));
+                                     hookpower*zc_hero_dmgmult(),dir,itemid,getUID()));
                 hs_startx=wx;
                 hs_starty=wy-4;
             }
@@ -6378,9 +6378,9 @@ bool LinkClass::startwpn(int itemid)
                 int offset=get_bit(quest_rules,qr_HOOKSHOTDOWNBUG)?4:0;
                 hookshot_used=true;
                 Lwpns.add(new weapon((fix)wx,(fix)wy+offset,(fix)wz,wHSHandle,hookitem,
-                                     hookpower*DAMAGE_MULTIPLIER,dir,itemid,getUID()));
+                                     hookpower*zc_hero_dmgmult(),dir,itemid,getUID()));
                 Lwpns.add(new weapon((fix)wx,(fix)wy+offset,(fix)wz,wHookshot,hookitem,
-                                     hookpower*DAMAGE_MULTIPLIER,dir,itemid,getUID()));
+                                     hookpower*zc_hero_dmgmult(),dir,itemid,getUID()));
                 hs_startx=wx;
                 hs_starty=wy;
             }
@@ -6389,9 +6389,9 @@ bool LinkClass::startwpn(int itemid)
             {
                 hookshot_used=true;
                 Lwpns.add(new weapon((fix)wx,(fix)wy,(fix)wz,wHSHandle,hookitem,
-                                     hookpower*DAMAGE_MULTIPLIER,dir,itemid,getUID()));
+                                     hookpower*zc_hero_dmgmult(),dir,itemid,getUID()));
                 Lwpns.add(new weapon((fix)(wx-4),(fix)wy,(fix)wz,wHookshot,hookitem,
-                                     hookpower*DAMAGE_MULTIPLIER,dir,itemid,getUID()));
+                                     hookpower*zc_hero_dmgmult(),dir,itemid,getUID()));
                 hs_startx=wx-4;
                 hs_starty=wy;
             }
@@ -6400,9 +6400,9 @@ bool LinkClass::startwpn(int itemid)
             {
                 hookshot_used=true;
                 Lwpns.add(new weapon((fix)wx,(fix)wy,(fix)wz,wHSHandle,hookitem,
-                                     hookpower*DAMAGE_MULTIPLIER,dir,itemid,getUID()));
+                                     hookpower*zc_hero_dmgmult(),dir,itemid,getUID()));
                 Lwpns.add(new weapon((fix)(wx+4),(fix)wy,(fix)wz,wHookshot,hookitem,
-                                     hookpower*DAMAGE_MULTIPLIER,dir,itemid,getUID()));
+                                     hookpower*zc_hero_dmgmult(),dir,itemid,getUID()));
                 hs_startx=wx+4;
                 hs_starty=wy;
             }
@@ -6468,7 +6468,7 @@ bool LinkClass::startwpn(int itemid)
 	last_cane_of_byrna_item_id = itemid; 
         
         for(int i=0; i<itemsbuf[itemid].misc3; i++)
-            Lwpns.add(new weapon((fix)wx,(fix)wy,(fix)wz,wCByrna,i,itemsbuf[itemid].power*DAMAGE_MULTIPLIER,dir,itemid,getUID()));
+            Lwpns.add(new weapon((fix)wx,(fix)wy,(fix)wz,wCByrna,i,itemsbuf[itemid].power*zc_hero_dmgmult(),dir,itemid,getUID()));
 	if(!(Lwpns.idCount(wCByrna))) stop_sfx(itemsbuf[itemid].usesound); //If we can't create the beams, kill the sound. 
 	
     }
@@ -6743,16 +6743,16 @@ bool LinkClass::doattack()
         }
         else
         {
-            templife*=HP_PER_HEART;
+            templife*=zc_hp_per_heart();
         }
         
-        bool normalbeam = (game->get_life()+(get_bit(quest_rules,qr_QUARTERHEART)?((HP_PER_HEART/4)-1):((HP_PER_HEART/2)-1))>=templife);
+        bool normalbeam = (game->get_life()+(get_bit(quest_rules,qr_QUARTERHEART)?((zc_hp_per_heart()/4)-1):((zc_hp_per_heart()/2)-1))>=templife);
         int perilid = current_item_id(itype_perilscroll);
-        bool perilbeam = (perilid>=0 && wpnid>=0 && game->get_life()<=itemsbuf[perilid].misc1*HP_PER_HEART
+        bool perilbeam = (perilid>=0 && wpnid>=0 && game->get_life()<=itemsbuf[perilid].misc1*zc_hp_per_heart()
                           && checkmagiccost(perilid)
                           // Must actually be able to shoot sword beams
                           && ((itemsbuf[wpnid].flags & ITEM_FLAG1)
-                              || itemsbuf[wpnid].misc1 <= game->get_maxlife()/HP_PER_HEART));
+                              || itemsbuf[wpnid].misc1 <= game->get_maxlife()/zc_hp_per_heart()));
                               
         if(attack==wSword && !tapping && (perilbeam || normalbeam))
         {
@@ -9088,6 +9088,75 @@ bool LinkClass::q30_solid_coord(double tx, double ty, int sdir, int mdir, double
     return valid;
 }
 
+// upstream's movexy when a step d (x if horiz, else y) is blocked: whole pixels while they
+// are clear (a step over 1 pixel), then the largest clear part of the rest below 1 pixel, by
+// its binary_search_zfix in 1/10000 pixel steps (none clear: Link stays)
+void LinkClass::q30_stop_step(double d, bool horiz)
+{
+    const int sign = d < 0 ? -1 : 1;
+    int dz = (int)floor(d * 10000 + 0.5);
+
+    if(abs(dz) > 10000)
+    {
+        while(horiz ? q30_can_move(sign, 0) : q30_can_move(0, sign))
+        {
+            if(horiz)
+                x = fix(double(x) + sign);
+            else
+                y = fix(double(y) + sign);
+
+            dz -= sign * 10000;
+        }
+    }
+
+    if(!dz)
+        return;
+
+    dz = vbound(dz, -9999, 9999);
+    int b1 = dz < 0 ? dz : 1, b2 = dz < 0 ? -1 : dz;
+    int len = b2 - b1, found = 0;
+
+    for(bool running = true; running;)
+    {
+        int val;
+
+        if(len <= 0)
+        {
+            running = false;
+            val = b1;
+        }
+        else
+            val = b1 + len / 2;
+
+        const bool clear = horiz ? q30_can_move(val / 10000.0, 0) : q30_can_move(0, val / 10000.0);
+
+        if(clear)
+            found = val;
+
+        if(clear == (val >= 0))     // on away from 0 when clear, toward it when not
+        {
+            if(b1 == val)
+                break;
+
+            b1 = val;
+        }
+        else
+        {
+            if(b2 == val)
+                break;
+
+            b2 = val;
+        }
+
+        len = b2 - b1;
+    }
+
+    if(horiz)
+        x = fix(double(x) + found / 10000.0);
+    else
+        y = fix(double(y) + found / 10000.0);
+}
+
 bool LinkClass::q30_move_xy(double dx, double dy, bool shove)
 {
     bool ret = true;
@@ -9198,19 +9267,7 @@ bool LinkClass::q30_move_xy(double dx, double dy, bool shove)
             if(stopped)
             {
                 ret = false;
-                double lo = 0, hi = dx;
-
-                for(int n = 0; n < 12; ++n)
-                {
-                    double mid = (lo + hi) / 2;
-
-                    if(q30_can_move(mid, 0))
-                        lo = mid;
-                    else
-                        hi = mid;
-                }
-
-                x = fix(double(x) + lo);
+                q30_stop_step(dx, true);
             }
         }
     }
@@ -9278,19 +9335,7 @@ bool LinkClass::q30_move_xy(double dx, double dy, bool shove)
             if(stopped)
             {
                 ret = false;
-                double lo = 0, hi = dy;
-
-                for(int n = 0; n < 12; ++n)
-                {
-                    double mid = (lo + hi) / 2;
-
-                    if(q30_can_move(0, mid))
-                        lo = mid;
-                    else
-                        hi = mid;
-                }
-
-                y = fix(double(y) + lo);
+                q30_stop_step(dy, false);
             }
         }
     }
@@ -9300,7 +9345,14 @@ bool LinkClass::q30_move_xy(double dx, double dy, bool shove)
 
 // upstream's moveheroOld walkflag checks before a moveOld2 step: walking way d by s ends in a
 // wall at the side Link walks into (its two corners and its middle). With cd >= 0 only the one
-// corner a diagonal step reaches, where Link would also have walked way cd by cs.
+// corner a diagonal step reaches, where Link would also have walked way cd by cs. (Its walkflag
+// takes whole pixels: zfix's getInt, the nearest, halves away from 0, not cut off as
+// scr_walkflag's; so x.5 looks at the pixel after.)
+static inline double q30_walk_px(double v)
+{
+    return v < 0 ? ceil(v - 0.5) : floor(v + 0.5);
+}
+
 bool LinkClass::q30_step_blocked(int d, double s, int cd, double cs)
 {
     const double bx = double(x), by = double(y), top = by + (bigHitbox ? 0 : 8);
@@ -9311,17 +9363,17 @@ bool LinkClass::q30_step_blocked(int d, double s, int cd, double cs)
         hx += cd == left ? -cs : cd == right ? cs : 0;
         hy += cd == up ? -cs : cd == down ? cs : 0;
         const int h = (d == left || d == right) ? d : cd, v = (d == up || d == down) ? d : cd;
-        return q30_walk_solid(bx + hx + (h == right ? 15 : 0), (v == up ? top : by + 15) + hy, d);
+        return q30_walk_solid(q30_walk_px(bx + hx + (h == right ? 15 : 0)), q30_walk_px((v == up ? top : by + 15) + hy), d);
     }
 
     if(d == left || d == right)
     {
-        const double ex = bx + hx + (d == right ? 15 : 0);
-        return q30_walk_solid(ex, top, d) || q30_walk_solid(ex, by + 8, d) || q30_walk_solid(ex, by + 15, d);
+        const double ex = q30_walk_px(bx + hx + (d == right ? 15 : 0));
+        return q30_walk_solid(ex, q30_walk_px(top), d) || q30_walk_solid(ex, q30_walk_px(by + 8), d) || q30_walk_solid(ex, q30_walk_px(by + 15), d);
     }
 
-    const double ey = (d == up ? top : by + 15) + hy;
-    return q30_walk_solid(bx, ey, d) || q30_walk_solid(bx + 8, ey, d) || q30_walk_solid(bx + 15, ey, d);
+    const double ey = q30_walk_px((d == up ? top : by + 15) + hy);
+    return q30_walk_solid(q30_walk_px(bx), ey, d) || q30_walk_solid(q30_walk_px(bx + 8), ey, d) || q30_walk_solid(q30_walk_px(bx + 15), ey, d);
 }
 
 // The step moveheroOld leaves moveOld2 for way d (hero_newstep, or hero_newstep_diag across):
@@ -17624,7 +17676,7 @@ static int q30_ringpower(int dmg)
         if(itemid < 0)
             continue;
 
-        if(r == 1 && !(game->get_life() <= itemsbuf[itemid].misc1*HP_PER_HEART && checkmagiccost(itemid)))
+        if(r == 1 && !(game->get_life() <= itemsbuf[itemid].misc1*zc_hp_per_heart() && checkmagiccost(itemid)))
             continue;
 
         usering = true;
@@ -17680,7 +17732,7 @@ int LinkClass::ringpower(int dmg)
     /* Now for the Peril Ring */
     itemid = current_item_id(itype_perilring);
     
-    if(itemid>-1 && game->get_life()<=itemsbuf[itemid].misc1*HP_PER_HEART && checkmagiccost(itemid))
+    if(itemid>-1 && game->get_life()<=itemsbuf[itemid].misc1*zc_hp_per_heart() && checkmagiccost(itemid))
     {
         usering = true;
         paymagiccost(itemid);
@@ -17759,17 +17811,17 @@ bool LinkClass::sideviewhammerpound()
 // The following are only used for Link damage. Damage is in quarter hearts.
 int enemy_dp(int index)
 {
-    return (((enemy*)guys.spr(index))->dp)*(HP_PER_HEART/4);
+    return (((enemy*)guys.spr(index))->dp)*zc_ene_dmgmult();     // (upstream's game->get_ene_dmgmult())
 }
 
 int ewpn_dp(int index)
 {
-    return (((weapon*)Ewpns.spr(index))->power)*(HP_PER_HEART/4);
+    return (((weapon*)Ewpns.spr(index))->power)*zc_ene_dmgmult();     // (upstream's game->get_ene_dmgmult())
 }
 
 int lwpn_dp(int index)
 {
-    return (((weapon*)Lwpns.spr(index))->power)*(HP_PER_HEART/4);
+    return (((weapon*)Lwpns.spr(index))->power)*zc_ene_dmgmult();     // (upstream's game->get_ene_dmgmult())
 }
 
 bool checkmagiccost(int itemid)
@@ -18849,7 +18901,7 @@ int selectSword()
 // Used for the 'Pickup Hearts' item pickup condition.
 bool canget(int id)
 {
-    return id>=0 && (game->get_maxlife()>=(itemsbuf[id].pickup_hearts*HP_PER_HEART));
+    return id>=0 && (game->get_maxlife()>=(itemsbuf[id].pickup_hearts*zc_hp_per_heart()));
 }
 
 void dospecialmoney(int index)
@@ -19003,11 +19055,11 @@ void dospecialmoney(int index)
         }
         else
         {
-            if(game->get_maxlife()<=HP_PER_HEART)
+            if(game->get_maxlife()<=zc_hp_per_heart())
                 return;
                 
-            game->set_life(zc_max(game->get_life()-HP_PER_HEART,0));
-            game->set_maxlife(zc_max(game->get_maxlife()-HP_PER_HEART,(HP_PER_HEART)));
+            game->set_life(zc_max(game->get_life()-zc_hp_per_heart(),0));
+            game->set_maxlife(zc_max(game->get_maxlife()-zc_hp_per_heart(),(zc_hp_per_heart())));
         }
         
         setmapflag();
@@ -19358,8 +19410,8 @@ void getitem(int id, bool nosound)
         
     case itype_fairy:
     
-        game->set_life(zc_min(game->get_life()+(itemsbuf[id].flags&ITEM_FLAG1 ?(int)(game->get_maxlife()*(itemsbuf[id].misc1/100.0)):((itemsbuf[id].misc1*HP_PER_HEART))),game->get_maxlife()));
-        game->set_magic(zc_min(game->get_magic()+(itemsbuf[id].flags&ITEM_FLAG2 ?(int)(game->get_maxmagic()*(itemsbuf[id].misc2/100.0)):((itemsbuf[id].misc2*MAGICPERBLOCK))),game->get_maxmagic()));
+        game->set_life(zc_min(game->get_life()+(itemsbuf[id].flags&ITEM_FLAG1 ?(int)(game->get_maxlife()*(itemsbuf[id].misc1/100.0)):((itemsbuf[id].misc1*zc_hp_per_heart()))),game->get_maxlife()));
+        game->set_magic(zc_min(game->get_magic()+(itemsbuf[id].flags&ITEM_FLAG2 ?(int)(game->get_maxmagic()*(itemsbuf[id].misc2/100.0)):((itemsbuf[id].misc2*zc_mp_per_block()))),game->get_maxmagic()));
         break;
         
     case itype_heartpiece:
@@ -19428,7 +19480,7 @@ void takeitem(int id)
         break;
         
     case itype_heartpiece:
-        if(game->get_maxlife()>HP_PER_HEART)
+        if(game->get_maxlife()>zc_hp_per_heart())
         {
             if(game->get_HCpieces()==0)
             {
@@ -19906,8 +19958,8 @@ bool LinkClass::refill()
     
     if(refill_why>=0 && itemsbuf[refill_why].family==itype_potion)
     {
-        refill_heart_stop=zc_min(potion_life+(itemsbuf[refill_why].flags & ITEM_FLAG1 ?int(game->get_maxlife()*(itemsbuf[refill_why].misc1 /100.0)):((itemsbuf[refill_why].misc1 *HP_PER_HEART))),game->get_maxlife());
-        refill_magic_stop=zc_min(potion_magic+(itemsbuf[refill_why].flags & ITEM_FLAG2 ?int(game->get_maxmagic()*(itemsbuf[refill_why].misc2 /100.0)):((itemsbuf[refill_why].misc2 *MAGICPERBLOCK))),game->get_maxmagic());
+        refill_heart_stop=zc_min(potion_life+(itemsbuf[refill_why].flags & ITEM_FLAG1 ?int(game->get_maxlife()*(itemsbuf[refill_why].misc1 /100.0)):((itemsbuf[refill_why].misc1 *zc_hp_per_heart()))),game->get_maxlife());
+        refill_magic_stop=zc_min(potion_magic+(itemsbuf[refill_why].flags & ITEM_FLAG2 ?int(game->get_maxmagic()*(itemsbuf[refill_why].misc2 /100.0)):((itemsbuf[refill_why].misc2 *zc_mp_per_block()))),game->get_maxmagic());
     }
     
     if(refillclk%speed == 0)
@@ -19916,7 +19968,7 @@ bool LinkClass::refill()
         switch(refill_what)
         {
         case REFILL_LIFE:
-            game->set_life(zc_min(refill_heart_stop, (game->get_life()+HP_PER_HEART/2)));
+            game->set_life(zc_min(refill_heart_stop, (game->get_life()+zc_max(1, zc_hp_per_heart()/2))));
             
             if(game->get_life()>=refill_heart_stop)
             {
@@ -19930,7 +19982,7 @@ bool LinkClass::refill()
             break;
             
         case REFILL_MAGIC:
-            game->set_magic(zc_min(refill_magic_stop, (game->get_magic()+MAGICPERBLOCK/4)));
+            game->set_magic(zc_min(refill_magic_stop, (game->get_magic()+zc_max(1, zc_mp_per_block()/4))));
             
             if(game->get_magic()>=refill_magic_stop)
             {
@@ -19944,8 +19996,8 @@ bool LinkClass::refill()
             break;
             
         case REFILL_ALL:
-            game->set_life(zc_min(refill_heart_stop, (game->get_life()+HP_PER_HEART/2)));
-            game->set_magic(zc_min(refill_magic_stop, (game->get_magic()+MAGICPERBLOCK/4)));
+            game->set_life(zc_min(refill_heart_stop, (game->get_life()+zc_max(1, zc_hp_per_heart()/2))));
+            game->set_magic(zc_min(refill_magic_stop, (game->get_magic()+zc_max(1, zc_mp_per_block()/4))));
             
             if((game->get_life()>=refill_heart_stop)&&(game->get_magic()>=refill_magic_stop))
             {
@@ -20322,7 +20374,7 @@ void LinkClass::gameover()
     chainlinks.clear();
     decorations.clear();
     
-    playing_field_offset=56; // otherwise, red_shift() may go past the bottom of the screen
+    playing_field_offset=original_playing_field_offset; // otherwise, red_shift() may go past the bottom of the screen
     quakeclk=wavy=0;
     
     //in original Z1, Link marker vanishes at death.

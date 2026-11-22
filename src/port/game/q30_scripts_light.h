@@ -244,17 +244,20 @@ void q30_set_light_wave(int rate, int size)
 }
 
 // Game->Generic[] for a 2.55/3.0 script where upstream's generic_ind names a value the player
-// keeps outside 2.53's byte array: HP per heart 7, magic per block 8, the lighting defaults 11-16,
+// keeps outside 2.53's byte array: HP per heart 7, magic per block 8, the damage multipliers 9-10
+// (Link's, the enemies'), the lighting defaults 11-16,
 // the sideview swimming values 17-21, bunny tile modifier 22, switch style 23, the light wave
 // 27-28. False for the rest (2.53's array, as before).
 static int *zasm30_light_generic(long index)
 {
-    extern int q255_gauge_hp_per_heart, q255_gauge_magic_per_block;
+    extern int q255_gauge_hp_per_heart, q255_gauge_magic_per_block, q255_gauge_hero_dmgmult, q255_gauge_ene_dmgmult;
 
     switch(index)
     {
     case 7: return &q255_gauge_hp_per_heart;
     case 8: return &q255_gauge_magic_per_block;
+    case 9: return &q255_gauge_hero_dmgmult;
+    case 10: return &q255_gauge_ene_dmgmult;
     case 11: return &zasm30_light_init.dith_type;
     case 12: return &zasm30_light_init.dith_arg;
     case 13: return &zasm30_light_init.dith_perc;

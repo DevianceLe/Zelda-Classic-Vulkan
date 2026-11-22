@@ -1315,13 +1315,13 @@ void add_grenade(int wx, int wy, int wz, int size, int parentid)
 {
     if(size)
     {
-        Lwpns.add(new weapon((fix)wx,(fix)wy,(fix)wz,wSBomb,0,16*DAMAGE_MULTIPLIER,LinkDir(),
+        Lwpns.add(new weapon((fix)wx,(fix)wy,(fix)wz,wSBomb,0,16*zc_hero_dmgmult(),LinkDir(),
                              -1, parentid));
         Lwpns.spr(Lwpns.Count()-1)->id=wSBomb;
     }
     else
     {
-        Lwpns.add(new weapon((fix)wx,(fix)wy,(fix)wz,wBomb,0,4*DAMAGE_MULTIPLIER,LinkDir(),
+        Lwpns.add(new weapon((fix)wx,(fix)wy,(fix)wz,wBomb,0,4*zc_hero_dmgmult(),LinkDir(),
                              -1, parentid));
         Lwpns.spr(Lwpns.Count()-1)->id=wBomb;
     }
@@ -1595,6 +1595,26 @@ void init_dmap()
 // Newer quests: the active global script's first frame isn't held back by a message (game_loop).
 static bool q30_global_first_frame = false;
 extern bool q30_skip_script_draws;   // ffscript.cpp: no new script drawing under a freezing message
+
+// 2.55/3.0 quests: upstream's get_continue_life, with the quest's HP per heart; never 0. (The
+// continue hearts are kept in hearts here: the init data's HP over its HP per heart.)
+static int q30_continue_life()
+{
+    const int maxlife = game->get_maxlife(), hp = zc_hp_per_heart();
+    int life;
+
+    if(game->get_cont_percent())
+    {
+        life = maxlife * game->get_cont_hearts() / 100;
+
+        if(maxlife % hp == 0)   // whole hearts, at least one
+            life = zc_max(life - life % hp, hp);
+    }
+    else
+        life = game->get_cont_hearts() * hp;
+
+    return zc_max(life, 1);
+}
 
 int init_game()
 {
@@ -2084,8 +2104,10 @@ int init_game()
     
     if(firstplay)
     {
-        game->set_life(zinit.start_heart*HP_PER_HEART);
+        game->set_life(zc_init_life());     // (2.55/3.0: the init data's HP, upstream's counter[crLIFE])
     }
+    else if(q30_active())
+        game->set_life(q30_continue_life());
     else
     {
         if(game->get_cont_percent())
@@ -2511,7 +2533,9 @@ int cont_game()
     wavy=quakeclk=0;
     
     //if(get_bit(zinit.misc,idM_CONTPERCENT))
-    if(game->get_cont_percent())
+    if(q30_active())
+        game->set_life(q30_continue_life());
+    else if(game->get_cont_percent())
     {
         if(game->get_maxlife()%HP_PER_HEART==0)
             game->set_life(((game->get_maxlife()*game->get_cont_hearts()/100)/HP_PER_HEART)*HP_PER_HEART);
@@ -2804,7 +2828,7 @@ void do_magic_casting()
             
             for(int flamecounter=((-1)*(flamemax/2))+1; flamecounter<=((flamemax/2)+1); flamecounter++)
             {
-                Lwpns.add(new weapon((fix)LinkX(),(fix)LinkY(),(fix)LinkZ(),wFire,3,itemsbuf[magicitem].power*DAMAGE_MULTIPLIER,
+                Lwpns.add(new weapon((fix)LinkX(),(fix)LinkY(),(fix)LinkZ(),wFire,3,itemsbuf[magicitem].power*zc_hero_dmgmult(),
                                      (tmpscr->flags7&fSIDEVIEW) ? (flamecounter<flamemax ? left : right) : 0, magicitem, Link.getUID()));
                 weapon *w = (weapon*)(Lwpns.spr(Lwpns.Count()-1));
                 w->step=(itemsbuf[magicitem].misc2/100.0);
@@ -3215,7 +3239,7 @@ void do_dcounters()
             
             if(game->get_dcounter(i)>0)
             {
-                int drain = (i==4 ? MAGICPERBLOCK/4 : 1);
+                int drain = (i==4 ? zc_mp_per_block()/4 : 1);
                 drain = zc_min(game->get_dcounter(i),drain);
                 
                 if(game->get_counter(i) < game->get_maxcounter(i))
@@ -3595,14 +3619,17 @@ void game_loop()
             --lensclk;
         }
         
+        // 2.55/3.0: 0 in extended height mode (upstream: playing_field_offset = 232 - viewport.h)
+        q30_apply_field_offset();
+
         // Earthquake!
         if(quakeclk>0)
         {
-            playing_field_offset=56+((int)(sin((double)(--quakeclk*2-frame))*4));
+            playing_field_offset=original_playing_field_offset+((int)(sin((double)(--quakeclk*2-frame))*4));
         }
         else
         {
-            playing_field_offset=56;
+            playing_field_offset=original_playing_field_offset;
         }
         
         // Other effects in zc_sys.cpp
@@ -4806,7 +4833,7 @@ int main(int argc, char* argv[])
         case qQUIT:
         case qGAMEOVER:
         {
-            playing_field_offset=56; // Fixes an issue with Link being drawn wrong when quakeclk>0
+            playing_field_offset=original_playing_field_offset; // Fixes an issue with Link being drawn wrong when quakeclk>0
             Link.setDontDraw(false);
             show_subscreen_dmap_dots=true;
             show_subscreen_numbers=true;

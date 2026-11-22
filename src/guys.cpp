@@ -265,14 +265,39 @@ int q30_summon_layered_enemies(enemy *e, int count, int limit, bool random_count
 
     return ret;
 }
+bool q30_active();
 
 int link_on_wall()
 {
-    int lx = Link.getX();
-    int ly = Link.getY();
     // the playing field: the screen, or a 3.0 scrolling region (upstream's world_w, world_h)
     int rl, rt, rr, rb;
     q30_region_bounds(&rl, &rt, &rr, &rb);
+
+    if(q30_active())
+    {
+        // upstream's hero_on_wall: Link's exact place (zfix), so not yet while he is half a
+        // pixel from the wall
+        const double fx = double(Link.getX()), fy = double(Link.getY());
+
+        if(fx >= rl + 48 && fx <= rr - 64)
+        {
+            if(fy == rt + 32) return up+1;
+
+            if(fy == rb - 48) return down+1;
+        }
+
+        if(fy >= rt + 48 && fy <= rb - 64)
+        {
+            if(fx == rl + 32) return left+1;
+
+            if(fx == rr - 48) return right+1;
+        }
+
+        return 0;
+    }
+
+    int lx = Link.getX();
+    int ly = Link.getY();
     
     if(lx>=rl+48 && lx<=rr-64)
     {
@@ -1469,19 +1494,19 @@ bool enemy::candamage(int power, int edef)
         
     case edIGNOREL1:
     case edCHINKL1:
-        return power >= 1*DAMAGE_MULTIPLIER;
+        return power >= 1*zc_hero_dmgmult();
         
     case edCHINKL2:
-        return power >= 2*DAMAGE_MULTIPLIER;
+        return power >= 2*zc_hero_dmgmult();
         
     case edCHINKL4:
-        return power >= 4*DAMAGE_MULTIPLIER;
+        return power >= 4*zc_hero_dmgmult();
         
     case edCHINKL6:
-        return power >= 6*DAMAGE_MULTIPLIER;
+        return power >= 6*zc_hero_dmgmult();
         
     case edCHINKL8:
-        return power >= 8*DAMAGE_MULTIPLIER;
+        return power >= 8*zc_hero_dmgmult();
     }
     
     return true;
@@ -1531,19 +1556,19 @@ int enemy::defend(int wpnId, int *power, int edef)
         return 1;
         
     case edCHINKL1:
-        if(*power >= 1*DAMAGE_MULTIPLIER) break;
+        if(*power >= 1*zc_hero_dmgmult()) break;
         
     case edCHINKL2:
-        if(*power >= 2*DAMAGE_MULTIPLIER) break;
+        if(*power >= 2*zc_hero_dmgmult()) break;
         
     case edCHINKL4:
-        if(*power >= 4*DAMAGE_MULTIPLIER) break;
+        if(*power >= 4*zc_hero_dmgmult()) break;
         
     case edCHINKL6:
-        if(*power >= 6*DAMAGE_MULTIPLIER) break;
+        if(*power >= 6*zc_hero_dmgmult()) break;
         
     case edCHINKL8:
-        if(*power >= 8*DAMAGE_MULTIPLIER) break;
+        if(*power >= 8*zc_hero_dmgmult()) break;
         
     case edCHINK:
         sfx(WAV_CHINK,pan(int(x)));
@@ -1915,7 +1940,7 @@ int enemy::takehit(weapon *w)
         }
         
         wpnId = wSword;
-        power = DAMAGE_MULTIPLIER>>1;
+        power = zc_hero_dmgmult()>>1;
         goto fsparkle;
         break;
         
@@ -1932,7 +1957,7 @@ int enemy::takehit(weapon *w)
             
             if(enemyHitWeapon>-1 ? itemsbuf[enemyHitWeapon].power : current_item_power(itype_brang))
             {
-                hp -= (enemyHitWeapon>-1 ? itemsbuf[enemyHitWeapon].power : current_item_power(itype_brang))*DAMAGE_MULTIPLIER;
+                hp -= (enemyHitWeapon>-1 ? itemsbuf[enemyHitWeapon].power : current_item_power(itype_brang))*zc_hero_dmgmult();
                 goto hitclock;
             }
             
@@ -1940,7 +1965,7 @@ int enemy::takehit(weapon *w)
         }
         
         if(!power)
-            hp-=(enemyHitWeapon>-1 ? itemsbuf[enemyHitWeapon].fam_type : current_item(itype_brang))*DAMAGE_MULTIPLIER;
+            hp-=(enemyHitWeapon>-1 ? itemsbuf[enemyHitWeapon].fam_type : current_item(itype_brang))*zc_hero_dmgmult();
         else
             hp-=power;
             
@@ -1959,14 +1984,14 @@ int enemy::takehit(weapon *w)
             
             if(enemyHitWeapon>-1 ? itemsbuf[enemyHitWeapon].power : current_item_power(itype_hookshot))
             {
-                hp -= (enemyHitWeapon>-1 ? itemsbuf[enemyHitWeapon].power : current_item_power(itype_hookshot))*DAMAGE_MULTIPLIER;
+                hp -= (enemyHitWeapon>-1 ? itemsbuf[enemyHitWeapon].power : current_item_power(itype_hookshot))*zc_hero_dmgmult();
                 goto hitclock;
             }
             
             break;
         }
         
-        if(!power) hp-=(enemyHitWeapon>-1 ? itemsbuf[enemyHitWeapon].fam_type : current_item(itype_hookshot))*DAMAGE_MULTIPLIER;
+        if(!power) hp-=(enemyHitWeapon>-1 ? itemsbuf[enemyHitWeapon].fam_type : current_item(itype_hookshot))*zc_hero_dmgmult();
         else
             hp-=power;
             
@@ -1987,7 +2012,7 @@ int enemy::takehit(weapon *w)
                 || (family==eeWALK && dmisc9==e9tPOLSVOICE) || (family==eeWALK && flags&(inv_back|inv_front|inv_left|inv_right))))
             return 0;
             
-        power = DAMAGE_MULTIPLIER;
+        power = zc_hero_dmgmult();
         //fallthrough
     }
     
@@ -9669,7 +9694,7 @@ int eGanon::takehit(weapon *w)
             loadpalset(csBOSS,pSprite(spBROWN));
             misc=2;
             Stunclk=284;
-            hp=guysbuf[id&0xFFF].hp;                              //16*DAMAGE_MULTIPLIER;
+            hp=guysbuf[id&0xFFF].hp;                              //16*zc_hero_dmgmult();
         }
         
         sfx(WAV_EHIT,pan(int(x)));
@@ -10807,8 +10832,8 @@ eGleeok::eGleeok(fix,fix,int Id,int Clk) : enemy((fix)120,(fix)48,Id,Clk)
     clk3=clk;                                                 // live head count
     clk=0;
     clk2=60;                                                  // fire ball clock
-    //    hp=(guysbuf[eGLEEOK2+(misc-2)].misc2)*(misc-1)*DAMAGE_MULTIPLIER+guysbuf[eGLEEOK2+(misc-2)].hp;
-    hp=(guysbuf[id&0xFFF].misc2)*(misc-1)*DAMAGE_MULTIPLIER+guysbuf[id&0xFFF].hp;
+    //    hp=(guysbuf[eGLEEOK2+(misc-2)].misc2)*(misc-1)*zc_hero_dmgmult()+guysbuf[eGLEEOK2+(misc-2)].hp;
+    hp=(guysbuf[id&0xFFF].misc2)*(misc-1)*zc_hero_dmgmult()+guysbuf[id&0xFFF].hp;
     dir = down;
     hxofs=4;
     hxsz=8;
@@ -10917,10 +10942,10 @@ bool eGleeok::animate(int index)
         head->hp = 1000;
     }
     
-    if(hp<=(guysbuf[id&0xFFF].misc2)*(clk3-1)*DAMAGE_MULTIPLIER)
+    if(hp<=(guysbuf[id&0xFFF].misc2)*(clk3-1)*zc_hero_dmgmult())
     {
         ((enemy*)guys.spr(index+clk3))->misc = -1;              // give signal to fly off
-        hp=(guysbuf[id&0xFFF].misc2)*(--clk3)*DAMAGE_MULTIPLIER;
+        hp=(guysbuf[id&0xFFF].misc2)*(--clk3)*zc_hero_dmgmult();
     }
     
     if(!dmisc3)
@@ -11514,7 +11539,7 @@ bool ePatra::animate(int index)
         {
             if(!adjusted)
             {
-                ((enemy*)guys.spr(i))->hp=12*DAMAGE_MULTIPLIER;
+                ((enemy*)guys.spr(i))->hp=12*zc_hero_dmgmult();
                 
                 if(get_bit(quest_rules,qr_NEWENEMYTILES))
                 {

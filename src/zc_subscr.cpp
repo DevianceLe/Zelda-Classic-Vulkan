@@ -24,6 +24,7 @@
 #include "gamedata.h"
 #include "guys.h"
 #include "port/game/q30_triggers.h"
+#include "port/game/q30_regions.h"
 
 extern LinkClass   Link;
 extern word quest_header_zelda_version;
@@ -300,6 +301,21 @@ void dosubscr(miscQdata *misc)
     //make a copy of the complete playing field on the bottom of scrollbuf
     blit(framebuf,scrollbuf,0,playing_field_offset,0,176,256,176);
 
+    // 2.55/3.0 extended height mode (upstream's dosubscr): the playing field fills the picture, so
+    // all of it (240 rows from the field's top) slides down from the top, and stays where the
+    // slide left it while the subscreen is open
+    const bool ext_view = q30_extended_height_mode();
+    static BITMAP *ext_field = NULL;
+
+    if(ext_view)
+    {
+        if(!ext_field)
+            ext_field = create_bitmap_ex(8,256,240);
+
+        clear_bitmap(ext_field);
+        blit(framebuf,ext_field,0,playing_field_offset,0,0,256,240);
+    }
+
     // The slide, as upstream counts it: the active subscreen's top goes from -distance (closed)
     // to 0 (open), 3 * q30_subscr_speed rows a frame. For 2.53 quests that's 168 rows 3 at a
     // time, frame for frame what this loop always did (it counted y = 6 - ay down from 174).
@@ -343,7 +359,9 @@ void dosubscr(miscQdata *misc)
         //fill in the screen with black to prevent the hall of mirrors effect
         rectfill(framebuf, 0, 0, 255, zc_view_h-1, 0);
 
-        if(COOLSCROLL)
+        if(ext_view)
+            blit(ext_field,framebuf,0,0,0,COOLSCROLL ? 0 : ay+distance,256,240);
+        else if(COOLSCROLL)
         {
             //copy the playing field back onto the screen
             blit(scrollbuf,framebuf,0,176,0,passive_subscreen_height,256,176);
@@ -499,7 +517,9 @@ void dosubscr(miscQdata *misc)
         //fill in the screen with black to prevent the hall of mirrors effect
         rectfill(framebuf, 0, 0, 255, zc_view_h-1, 0);
 
-        if(COOLSCROLL)
+        if(ext_view)
+            blit(ext_field,framebuf,0,0,0,COOLSCROLL ? 0 : distance,256,240);
+        else if(COOLSCROLL)
         {
             //copy the playing field back onto the screen
             blit(scrollbuf,framebuf,0,176,0,passive_subscreen_height,256,176);
@@ -537,7 +557,9 @@ void dosubscr(miscQdata *misc)
         //fill in the screen with black to prevent the hall of mirrors effect
         rectfill(framebuf, 0, 0, 255, zc_view_h-1, 0);
 
-        if(COOLSCROLL)
+        if(ext_view)
+            blit(ext_field,framebuf,0,0,0,COOLSCROLL ? 0 : ay+distance,256,240);
+        else if(COOLSCROLL)
         {
             //copy the playing field back onto the screen
             blit(scrollbuf,framebuf,0,176,0,passive_subscreen_height,256,176);

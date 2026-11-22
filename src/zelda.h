@@ -239,7 +239,10 @@ extern int draw_screen_clip_rect_y2;
 // The game picture's height: 224 rows, or 232 for a 2.55/3.0 quest that shows the playing
 // field's bottom 8 rows (upstream's show_bottom_8px). framebuf and temp_buf are made this tall.
 extern int zc_view_h;
-inline int zc_field_h() { return zc_view_h-56; }   // the playing field rows shown: 168 or 176
+extern int original_playing_field_offset;
+// the playing field rows shown: 168 or 176 (upstream's viewport.visible_height); 224 or 232 in
+// extended height mode (offset 0)
+inline int zc_field_h() { return zc_view_h-original_playing_field_offset; }
 void zc_set_view_height(int h);
 
 /*
