@@ -269,11 +269,11 @@ static int z30_scrdata_index_screen()
 
 static int z30_scrdata_index_mapdata(long ref)
 {
-    if(ref <= 0)
+    if(ref == 0)
         return -1;
 
-    if(ref & Z30_MAPDATA_TMP)
-        return (ref & 0xFFFF) == 0 ? currmap * MAPSCRS + currscr : -1;
+    if(ref < 0)
+        return (z30_md_layer(ref) == 0 && z30_md_here(ref)) ? currmap * MAPSCRS + currscr : -1;
 
     return (ref - 1) < (long)TheMaps.size() ? (int)(ref - 1) : -1;
 }

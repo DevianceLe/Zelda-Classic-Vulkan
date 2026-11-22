@@ -1307,9 +1307,9 @@ static bool z30d_mapdata_reg(const long arg, long &ret, const long value, const 
 
         if(!write)
             ret = m->door[n] * 10000;
-        else if(!(ref & Z30_MAPDATA_TMP))
+        else if(ref > 0)
             m->door[n] = (byte)z30d_bound(value / 10000, 0, 255);
-        else if((ref & 0xFFFF) == 0)
+        else if(z30_md_here(ref) && z30_md_layer(ref) == 0)
             putdoor(scrollbuf, 0, (int)n, (int)z30d_bound(value / 10000, 0, 255), true, true);
         return true;
     }
@@ -1391,7 +1391,7 @@ static void z30d_issolid_layer()
         return;
     }
 
-    if((ref & Z30_MAPDATA_TMP) && (ref & 0xFFFF) == 0)
+    if(ref < 0 && z30_md_layer(ref) == 0)
     {
         // the live screen of the layer, as Screen->isSolidLayer(); a layer that isn't there isn't solid
         bool solid = false;
@@ -2054,10 +2054,10 @@ static int z30d_screen_index(long ref, bool screen)
     if(screen)
         return currmap * MAPSCRS + currscr;
 
-    if(ref > 0 && !(ref & Z30_MAPDATA_TMP))
+    if(ref > 0)
         return (int)(ref - 1);
 
-    return (ref & Z30_MAPDATA_TMP) && !(ref & 0x00FF0000) ? currmap * MAPSCRS + currscr : -1;
+    return z30_md_here(ref) ? currmap * MAPSCRS + currscr : -1;
 }
 
 // mapdata-> and Screen-> fields 2.53's mapscr holds (upstream's GET/SET_MAPDATA_VAR_* and the
@@ -3667,7 +3667,7 @@ static bool z30d_r18_reg(const long arg, long &ret, const long value, const bool
     case Z30R_SCREENDATAFFINITIALISED:
     {
         const long ref = Z30_REF(MAPDATA);
-        const bool here = arg == Z30R_SCREENDATAFFINITIALISED || (ref > 0 && (ref & Z30_MAPDATA_TMP));
+        const bool here = arg == Z30R_SCREENDATAFFINITIALISED || z30_md_here(ref);
         const long i = arg == Z30R_MAPDATAFFINITIALISED ? n - 1 : n;
         const bool ok = here && i >= 0 && i < 32;
 

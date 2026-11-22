@@ -159,7 +159,7 @@ static void z30d_mapdata_combos(long ref, std::vector<long> &out)
 {
     out.clear();
 
-    if(ref > 0 && (ref & Z30_MAPDATA_TMP) && q30_region_on())
+    if(z30_md_region(ref) && q30_region_on())
     {
         const int n = q30_region_num_rpos();
 
@@ -167,7 +167,7 @@ static void z30d_mapdata_combos(long ref, std::vector<long> &out)
         {
             int pos, x, y;
             bool current;
-            mapscr *m = q30_region_rpos_screen(rpos, (int)(ref & 0xFFFF), &pos, &current);
+            mapscr *m = q30_region_rpos_screen(rpos, z30_md_layer(ref), &pos, &current);
 
             if(!m || pos < 0 || pos >= (int)m->data.size())
                 continue;

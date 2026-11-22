@@ -5333,6 +5333,10 @@ void putBmap(BITMAP *dest, miscQdata *misc, int x, int y,bool showmap, bool show
 
 void load_Sitems(miscQdata *misc)
 {
+    // 2.55/3.0: the subscreen's own items take no uids from the game's sprites (upstream's
+    // aren't in a sprite list), so the first sprites a quest makes number as upstream's
+    struct SideUids { SideUids() { sprite::uid_side = true; } ~SideUids() { sprite::uid_side = false; } } side_uids;
+
     Sitems.clear();
     
     // HC Pieces

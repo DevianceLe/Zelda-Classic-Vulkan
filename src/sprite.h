@@ -46,8 +46,17 @@ private:
 public:
     long getUID()
     {
+        // 2.55/3.0 quests: given on first use, as upstream's registerUID (q30_uids_start)
+        if(!uid && uid_lazy)
+            uid = getNextUID();
         return uid;
     }
+    // A new 2.55/3.0 game numbers sprites as upstream: 1 is the hero, the rest from 2 up, each
+    // given when the sprite first goes in a list or is asked for its uid. 2.53 games keep the
+    // uid every sprite gets when made.
+    static void q30_uids_start(bool newer, sprite *hero);
+    static bool uid_lazy;
+    static bool uid_side;       // (subscreen items: uids of their own, below 0)
     fix x,y,z,fall;
     int tile,shadowtile,cs,flip,c_clk,clk,misc;
     // 2.55/3.0 enemies without qr_HARDCODED_ENEMY_ANIMS: the spawn sprite and its frame (upstream's

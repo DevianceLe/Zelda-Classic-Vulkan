@@ -35,7 +35,7 @@ extern void debugging_box(int x1, int y1, int x2, int y2);
 
 sprite::sprite()
 {
-    uid = getNextUID();
+    uid = uid_lazy ? 0 : getNextUID();
     q30_spawn_spr = -1;
     q30_spawn_clk = q30_spawn_frm = 0;
     x=y=z=tile=shadowtile=cs=flip=c_clk=clk=xofs=yofs=zofs=hxofs=hyofs=fall=0;
@@ -136,7 +136,7 @@ guyclass(other.guyclass),
 lwpnclass(other.lwpnclass),
 ewpnclass(other.ewpnclass)*/
 {
-    uid = getNextUID();
+    uid = uid_lazy ? 0 : getNextUID();
     
     for(int i=0; i<10; ++i)
     {
@@ -162,7 +162,7 @@ ewpnclass(other.ewpnclass)*/
 sprite::sprite(fix X,fix Y,int T,int CS,int F,int Clk,int Yofs):
     x(X),y(Y),tile(T),cs(CS),flip(F),clk(Clk),yofs(Yofs)
 {
-    uid = getNextUID();
+    uid = uid_lazy ? 0 : getNextUID();
     q30_spawn_spr = -1;
     q30_spawn_clk = q30_spawn_frm = 0;
     hxsz=hysz=16;
@@ -268,10 +268,28 @@ sprite::~sprite()
 
 }
 
+static long sprite_nextid = 0;
+static long sprite_sideid = -1;
+bool sprite::uid_lazy = false;
+bool sprite::uid_side = false;
+
 long sprite::getNextUID()
 {
-    static long nextid = 0;
-    return nextid++;
+    if(uid_lazy && uid_side)
+        return sprite_sideid--;
+    return sprite_nextid++;
+}
+
+void sprite::q30_uids_start(bool newer, sprite *hero)
+{
+    uid_lazy = newer;
+
+    if(newer)
+    {
+        sprite_nextid = 2;      // upstream's reset_uid_counter
+        sprite_sideid = -1;
+        hero->uid = 1;
+    }
 }
 
 void sprite::draw2(BITMAP *)                            // top layer for special needs

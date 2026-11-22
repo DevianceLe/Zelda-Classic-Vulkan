@@ -544,28 +544,49 @@ static int z30_ref_slot(long arg)
 
 // ---- helpers for the mapdata family -----------------------------------------------------------
 
-// A mapdata reference: 0 is none, otherwise the map screen (map*MAPSCRS+scr) + 1, or a
-// temporary (tmpscr / layer) reference with the high bit set: 0x40000000 | layer.
-#define Z30_MAPDATA_TMP 0x40000000L
+// A mapdata reference: 0 is none, above 0 the map screen (map*MAPSCRS+scr) + 1, below 0 a
+// temporary one as upstream's create_mapdata_temp_ref makes: -(flags | screen << 8 | layer << 16)
+// - 1, flags 1 a scrolling screen (none here), 2 the whole current region (no screen given).
+static long z30_md_tmp_ref(bool region, int screen, int layer)
+{
+    long r = (region ? 2L : 0L) | ((long)(layer & 0xFF) << 16);
+
+    if(!region)
+        r |= (long)(screen & 0xFF) << 8;
+
+    return -r - 1;
+}
+static long z30_md_bits(long ref) { return ref < 0 ? -(ref + 1) : 0; }
+static int z30_md_layer(long ref) { return (int)((z30_md_bits(ref) >> 16) & 0xFF); }
+static int z30_md_screen(long ref) { return (int)((z30_md_bits(ref) >> 8) & 0xFF); }
+static bool z30_md_region(long ref) { return ref < 0 && (z30_md_bits(ref) & 3) == 2; }   // (whole region)
+static bool z30_md_one(long ref) { return ref < 0 && (z30_md_bits(ref) & 3) == 0; }      // (one screen)
+// a temporary mapdata of the screen being played (the region's, or the one screen currscr)
+static bool z30_md_here(long ref) { return z30_md_region(ref) || (z30_md_one(ref) && z30_md_screen(ref) == currscr); }
 
 static mapscr *z30_mapdata(long ref)
 {
-    if(ref <= 0)
+    if(ref == 0)
         return NULL;
 
-    if(ref & Z30_MAPDATA_TMP)
+    if(ref < 0)
     {
-        if(ref & 0x00FF0000)    // one screen of a scrolling region (q30_scripts_sys.h)
+        const int layer = z30_md_layer(ref);
+
+        if(layer > 6)
+            return NULL;
+
+        if(z30_md_one(ref))     // one screen of the region (q30_scripts_sys.h)
         {
+            const int index = q30_region_screen_index(z30_md_screen(ref));
             int pos;
             bool current;
-            return q30_region_rpos_screen((int)(((ref >> 16) & 0xFF) - 1) * 176, (int)(ref & 0xFFFF), &pos, &current);
+            return index < 0 ? NULL : q30_region_rpos_screen(index * 176, layer, &pos, &current);
         }
 
-        const long layer = ref & 0xFFFF;
-        if(layer == 0) return tmpscr;
-        if(layer >= 1 && layer <= 6) return &tmpscr2[layer - 1];
-        return NULL;
+        if(!z30_md_region(ref))
+            return NULL;
+        return layer ? &tmpscr2[layer - 1] : tmpscr;
     }
 
     const long index = ref - 1;
@@ -578,11 +599,11 @@ static mapscr *z30_mapdata(long ref)
 // position across the region (q30_region_rpos_screen); any other mapdata is 0..175.
 static mapscr *z30_mapdata_combo(long ref, long &n)
 {
-    if(ref > 0 && (ref & Z30_MAPDATA_TMP) && !(ref & 0x00FF0000) && q30_region_on())
+    if(z30_md_region(ref) && q30_region_on())
     {
         int pos;
         bool current;
-        mapscr *m = q30_region_rpos_screen((int)n, (int)(ref & 0xFFFF), &pos, &current);
+        mapscr *m = q30_region_rpos_screen((int)n, z30_md_layer(ref), &pos, &current);
 
         if(m)
             n = pos;
@@ -773,13 +794,17 @@ static mapscr *z30_ffc_room(mapscr *m, long n)
 // Which map screen a mapdata reference is, for state kept per screen; -1 if it has none.
 static int z30_mapdata_mi(long ref)
 {
-    if(ref <= 0)
+    if(ref == 0)
         return -1;
 
     // (the screen being played has no saved state of its own in a cave or passageway, screens
     // 0x80 and up: upstream reads and sets nothing there, where this indexed the next map's)
-    if(ref & Z30_MAPDATA_TMP)
-        return ((ref & 0xFFFF) == 0 && currscr < MAPSCRSNORMAL) ? currmap * MAPSCRSNORMAL + currscr : -1;
+    if(ref < 0)
+    {
+        const int scr = z30_md_region(ref) ? currscr : z30_md_one(ref) ? z30_md_screen(ref) : -1;
+        return (z30_md_layer(ref) == 0 && scr >= 0 && scr < MAPSCRSNORMAL && q30_region_screen_index(scr) >= 0)
+               ? currmap * MAPSCRSNORMAL + scr : -1;
+    }
 
     const long index = ref - 1, screen = index % MAPSCRS;
     return (index < (long)TheMaps.size() && screen < MAPSCRSNORMAL) ? (index / MAPSCRS) * MAPSCRSNORMAL + screen : -1;
@@ -2790,7 +2815,7 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
         if(m && n >= 0 && n < 8)
         {
             const long ref = Z30_REF(MAPDATA);
-            const int index = (ref & Z30_MAPDATA_TMP) ? currmap * MAPSCRS + currscr : ref - 1;
+            const int index = ref < 0 ? currmap * MAPSCRS + (z30_md_one(ref) ? z30_md_screen(ref) : currscr) : ref - 1;
             std::map<int, Zasm30ScreenScript>::const_iterator it = zasm30_screen_scripts.find(index);
             if(it != zasm30_screen_scripts.end())
                 ret = it->second.initd[n];

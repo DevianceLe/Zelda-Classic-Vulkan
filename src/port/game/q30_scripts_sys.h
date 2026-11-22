@@ -2725,10 +2725,10 @@ static bool zasm30_sys_command(word cmd)
         const long layer = get_register(sarg1) / 10000, rpos = get_register(sarg2) / 10000;
         long ref = 0;
 
-        // one screen of the region (upstream's TemporaryCurrentScreen): the region screen + 1 in bits 16-23
+        // one screen of the region (upstream's TemporaryCurrentScreen, the screen of that rpos)
         if(BC::checkBounds(rpos, 0, q30_region_num_rpos() - 1, "Region->LoadTempScreenForComboPos()") == SH::_NoError &&
            BC::checkBounds(layer, 0, 6, "Region->LoadTempScreenForComboPos()") == SH::_NoError)
-            ref = q30_region_on() ? (Z30_MAPDATA_TMP | ((rpos / 176 + 1) << 16) | layer) : (Z30_MAPDATA_TMP | layer);
+            ref = z30_md_tmp_ref(false, q30_region_index_screen((int)(rpos / 176)), (int)layer);
 
         Z30_REF(MAPDATA) = ref;
         set_register(sarg1, ref);

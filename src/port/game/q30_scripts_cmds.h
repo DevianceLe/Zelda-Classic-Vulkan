@@ -3484,7 +3484,7 @@ static bool zasm30_command(word cmd)
     {
         // Screen->... layer 0..6 of the current screen.
         long layer = (cmd == Z30C_LOADTMPSCR2 ? get_register(sarg1) : get_register(sarg1)) / 10000;
-        Z30_REF(MAPDATA) = (layer >= 0 && layer <= 6) ? (Z30_MAPDATA_TMP | layer) : 0;
+        Z30_REF(MAPDATA) = (layer >= 0 && layer <= 6) ? z30_md_tmp_ref(true, currscr, (int)layer) : 0;  // (TemporaryCurrentRegion)
         set_register(sarg1, Z30_REF(MAPDATA));
         return true;
     }

@@ -1705,6 +1705,8 @@ int init_game()
     
     //setPackfilePassword(NULL);
 
+    sprite::q30_uids_start(q30_active(), &Link);    // 2.55/3.0: upstream's sprite uid numbering
+
     // 2.55/3.0 quests: "editor only" combos aren't drawn, "transparent" ones are see-through
     // on layers (tiles.cpp). 2.53 quests draw every combo as they always have.
     tiles_newer_combo_flags = quest_header_zelda_version >= 0x255;
@@ -2100,8 +2102,13 @@ int init_game()
     ringcolor(false);
     loadlvlpal(DMaps[currdmap].color);
     lighting(false,true);
-    wavy=quakeclk=0;
-    
+
+    // 2.55/3.0: upstream's init_game clears these before the screen loads (above), not after,
+    // so a quake or wave a combo trigger starts as the first screen loads stays on
+    // (Mystical Harps' Dungeons Deathrooms, 365/2)
+    if(!q30_active())
+        wavy=quakeclk=0;
+
     if(firstplay)
     {
         game->set_life(zc_init_life());     // (2.55/3.0: the init data's HP, upstream's counter[crLIFE])
