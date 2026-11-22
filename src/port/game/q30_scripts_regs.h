@@ -1010,9 +1010,38 @@ void q30_shield_jinx_reset(bool all)
         zasm30_shield_jinx = 0;
 }
 
-// Viewport->Mode: 0 keeps the viewport on the screen, which is all this engine draws; 1 (centred on
-// the Hero) and 2 (moved by the script) can move it, which nothing here draws yet.
-static int zasm30_viewport_mode = 0;
+// Viewport->: the camera's state is kept with it (q30_regions.cpp); the follow registers by number.
+static int z30_viewport_follow_reg(long arg)
+{
+    switch(arg)
+    {
+    case Z30R_VIEWPORT_DEADZONE_WIDTH: return Q30_VP_DEADZONE_W;
+    case Z30R_VIEWPORT_DEADZONE_HEIGHT: return Q30_VP_DEADZONE_H;
+    case Z30R_VIEWPORT_LOOKAHEAD_X: return Q30_VP_LOOKAHEAD_X;
+    case Z30R_VIEWPORT_LOOKAHEAD_Y: return Q30_VP_LOOKAHEAD_Y;
+    case Z30R_VIEWPORT_LOOKAHEAD_SPEED: return Q30_VP_LOOKAHEAD_SPEED;
+    case Z30R_VIEWPORT_RECENTER_SPEED: return Q30_VP_RECENTER_SPEED;
+    case Z30R_VIEWPORT_RECENTER_DELAY: return Q30_VP_RECENTER_DELAY;
+    }
+
+    return -1;
+}
+
+// upstream's BC::checkBounds for the Viewport-> setters
+static bool z30_viewport_in(long v, long lo, long hi)
+{
+    if(v >= lo && v <= hi)
+        return true;
+
+    Z_scripterrlog("Invalid value: %ld - must be >= %ld and <= %ld\n", v, lo, hi);
+    return false;
+}
+
+// the camera for Viewport->Target (Hero for 1, NULL when the sprite is gone)
+sprite *q30_viewport_sprite(long uid)
+{
+    return z30_sprite(uid).s;
+}
 
 // ---- reading registers -------------------------------------------------------------------------
 
@@ -2354,6 +2383,8 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_FFCLAYER: ret = (ri->ffcref >= 0 && ri->ffcref < tmpscr->ffc_count()) ? (tmpscr->fflayer[ri->ffcref] + 1) * 10000 : 0; return true;
     // upstream's MAX_FFCID + 1: 128 FFCs a screen, so every screen of a scrolling region's
     case Z30R_MAX_FFC_ID: ret = (q30_region_on() ? q30_region_screens_wide() * q30_region_screens_high() : 1) * Q30_MAXFFCS * 10000; return true;
+    // Screen->Index: the screen the script's Screen-> means (upstream's ri->screenref())
+    case Z30R_SCREEN_INDEX: ret = zasm30_script_screen() * 10000; return true;
     case Z30R_DISTANCE:
     {
         double x = Z30_D(6) / 10000.0 - Z30_D(1) / 10000.0;
@@ -2383,25 +2414,29 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_REGION_SCREEN_HEIGHT: ret = q30_region_screens_high() * 10000; return true;
     case Z30R_REGION_NUM_COMBOS: ret = 176 * q30_region_screens_wide() * q30_region_screens_high() * 10000; return true;
     case Z30R_REGION_ORIGIN_SCREEN: ret = q30_region_origin() * 10000; return true;
-    // The viewport: the camera's top-left in region pixels (upstream's 256x176 outside extended
-    // height mode). A script-moved viewport (mode 2) keeps the position a script gives it.
+    // The viewport: the camera's top-left in region pixels (upstream's 256x176, 256x232 in
+    // extended height mode); a script-moved one (mode 2) where the script puts it.
     case Z30R_VIEWPORT_X:
     case Z30R_VIEWPORT_Y:
     {
-        if(zasm30_viewport_mode == 2)
-        {
-            ret = zasm30_store_get(arg, 0, 0);
-            return true;
-        }
-
         int vx, vy;
         q30_region_viewport(&vx, &vy);
         ret = (arg == Z30R_VIEWPORT_X ? vx : vy) * 10000;
         return true;
     }
-    case Z30R_VIEWPORT_WIDTH: ret = 256 * 10000; return true;
-    case Z30R_VIEWPORT_HEIGHT: ret = zasm30_store_get(arg, 0, 0) ? zasm30_store_get(arg, 0, 0) : 176 * 10000; return true;
-    case Z30R_VIEWPORT_MODE: ret = zasm30_viewport_mode; return true;
+    case Z30R_VIEWPORT_WIDTH: ret = q30_viewport_w() * 10000; return true;
+    case Z30R_VIEWPORT_HEIGHT: ret = q30_viewport_h() * 10000; return true;
+    case Z30R_VIEWPORT_MODE: ret = q30_viewport_mode(); return true;
+    case Z30R_VIEWPORT_TARGET: ret = q30_viewport_target(); return true;
+    case Z30R_VIEWPORT_DEADZONE_WIDTH:
+    case Z30R_VIEWPORT_DEADZONE_HEIGHT:
+    case Z30R_VIEWPORT_LOOKAHEAD_X:
+    case Z30R_VIEWPORT_LOOKAHEAD_Y:
+    case Z30R_VIEWPORT_LOOKAHEAD_SPEED:
+    case Z30R_VIEWPORT_RECENTER_SPEED:
+    case Z30R_VIEWPORT_RECENTER_DELAY:
+        ret = q30_viewport_follow(z30_viewport_follow_reg(arg));
+        return true;
     case Z30R_HEROSHIELDJINX: ret = zasm30_shield_jinx * 10000; return true;
 
     // Game->MaxNPCs/MaxLWeapons/MaxEWeapons/MaxItemsprites(): each list's limit (255 at most,
@@ -3443,24 +3478,49 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     case Z30R_REGION_NUM_COMBOS:
     case Z30R_REGION_ORIGIN_SCREEN:
         return true;
-    // Nothing here draws the screen anywhere but at the viewport's origin, so a script that
-    // really moves it (or centres it on the Hero, mode 1) is logged.
-    case Z30R_VIEWPORT_X:
-    case Z30R_VIEWPORT_Y:
-        zasm30_store_set(arg, 0, 0, value);
-        if(zasm30_viewport_mode == 2 && value != 0)
-            zasm30_log_once("register write", arg);
+    // Viewport-> (upstream's viewport_set_register). The camera draws a script's or a centred
+    // viewport inside a scrolling region (as far as a screen around Link's).
+    case Z30R_VIEWPORT_X: q30_viewport_set_xy(false, value / 10000); return true;
+    case Z30R_VIEWPORT_Y: q30_viewport_set_xy(true, value / 10000); return true;
+    case Z30R_VIEWPORT_WIDTH:
+        if(z30_viewport_in(value / 10000, 0, 256))
+            q30_viewport_set_size(false, value / 10000);
         return true;
     case Z30R_VIEWPORT_HEIGHT:
-        zasm30_store_set(arg, 0, 0, value);
+        if(z30_viewport_in(value / 10000, 0, 232))
+            q30_viewport_set_size(true, value / 10000);
         return true;
     case Z30R_HEROSHIELDJINX: zasm30_shield_jinx = value / 10000; return true;
     case Z30R_VIEWPORT_MODE:
-        if(value < 0 || value > 2)
-            return true;
-        zasm30_viewport_mode = value;
-        if(value == 1)
-            zasm30_log_once("register write", arg);
+        if(z30_viewport_in(value, 0, 2))
+            q30_viewport_set_mode(value);
+        return true;
+    case Z30R_VIEWPORT_TARGET:
+        if(z30_sprite(value).s)
+            q30_viewport_set_target(value);
+        return true;
+    case Z30R_VIEWPORT_DEADZONE_WIDTH:
+    case Z30R_VIEWPORT_DEADZONE_HEIGHT:
+    case Z30R_VIEWPORT_LOOKAHEAD_X:
+    case Z30R_VIEWPORT_LOOKAHEAD_Y:
+    case Z30R_VIEWPORT_RECENTER_DELAY:
+    {
+        const int which = z30_viewport_follow_reg(arg), v = value / 10000;
+        const long hi = which == Q30_VP_DEADZONE_W ? 240 : which == Q30_VP_DEADZONE_H ? 160
+                        : which == Q30_VP_RECENTER_DELAY ? 65535 : 127;
+        const long lo = which == Q30_VP_LOOKAHEAD_X || which == Q30_VP_LOOKAHEAD_Y ? -128 : 0;
+
+        if(z30_viewport_in(v, lo, hi))
+            q30_viewport_set_follow(which, v);
+        return true;
+    }
+    case Z30R_VIEWPORT_LOOKAHEAD_SPEED:
+    case Z30R_VIEWPORT_RECENTER_SPEED:
+        // fractional pixels a frame, 0 to 240 (upstream's validate_viewport_follow_speed)
+        if(value < 0 || value > 240 * 10000)
+            Z_scripterrlog("Invalid value: %ld.%04ld - must be >= 0 and <= 240\n", value / 10000, labs(value % 10000));
+        else
+            q30_viewport_set_follow(z30_viewport_follow_reg(arg), value);
         return true;
 
     // Game->MaxNPCs(n) and the others: 1 to 1024, as upstream (MAX_LWPN_SPRITES and the
@@ -4108,6 +4168,14 @@ void q30_sprite_appearance(sprite *s, int *tile, int *flip, fix *yofs)
     }
 }
 
+// Link's tile as upstream's herotile sets it: Hero->ScriptTile, when a script set one, is the tile
+// itself (Hero->Tile reads it), with no tile modifier or animation frame added.
+void q30_hero_script_tile(int *tile)
+{
+    if(zasm30_ffscript_version && zasm30_hero_script_tile > 0)
+        *tile = (int)zasm30_hero_script_tile;
+}
+
 // sprite drawing extras for q30_triggers.cpp (engine area): { rotation, scale, whole ScriptFlip,
 // shadow sprite, shadow x offset, shadow y offset } a script set on this sprite.
 void q30_sprite_values(sprite *s, int *v)
@@ -4150,7 +4218,6 @@ static void zasm30_reset_register_state()
     memset(zasm30_key_was_down, 0, sizeof(zasm30_key_was_down));
     memset(zasm30_button_disabled, 0, sizeof(zasm30_button_disabled));
     z30_gameover_reset();
-    zasm30_viewport_mode = 0;
     zasm30_shield_jinx = 0;
     zasm30_live_reset();         // (q30_scripts_live.h)
 }

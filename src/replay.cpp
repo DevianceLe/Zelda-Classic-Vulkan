@@ -1603,6 +1603,20 @@ void replay_frame_boundary()
 
     ++g_frame;
 
+    // ZC_TEST_LIFE_AT=frame,life (test runs only): upstream's Life cheat in a replay ("X frame Life n")
+    static int life_at = -2, life_v = 0;
+
+    if(life_at == -2)
+    {
+        const char *t = getenv("ZC_TEST_LIFE_AT");
+
+        if(!t || sscanf(t, "%d,%d", &life_at, &life_v) != 2)
+            life_at = -1;
+    }
+
+    if(g_frame == life_at && game)
+        game->set_life((word)life_v);
+
     if(g_smoke)
         smoke_frame();
 

@@ -27,6 +27,7 @@ void *zasm30_screen_state_new(const mapscr *scr);     // ffscript.cpp (q30_scrip
 void zasm30_screen_state_delete(void *state);
 void *q30_trig_state_new();                             // q30_triggers.cpp
 void q30_trig_state_delete(void *state);
+sprite *q30_viewport_sprite(long uid);                  // ffscript.cpp (q30_scripts_regs.h): NULL if gone
 
 namespace
 {
@@ -148,6 +149,17 @@ struct FollowState
 
 FollowState g_fs = { 0, 0, 0, 0, 0, 0, 0 };
 bool g_fs_reset = true;     // put the focus on Link when next looked at (a warp has placed him)
+
+// Viewport-> for scripts (upstream's scripting/types/viewport.cpp): a script's overrides of the
+// follow settings (Viewport->DeadzoneWidth and the rest, cleared by ResetFollowSettings and a new
+// game), the mode (0 centred and kept in the region, 1 centred, 2 placed by the script) and the
+// sprite the camera follows (Viewport->Target, the Hero: 1); a screen load or a scroll puts the
+// mode and the target back. Width and Height are what the last placement set, or a script since.
+bool g_ovr_has[Q30_VP_FOLLOW_COUNT];
+long g_ovr[Q30_VP_FOLLOW_COUNT];
+int g_vp_mode = 0;
+long g_vp_target = 1;
+int g_vp_w = 256, g_vp_h = 176;
 bool g_handoff = false;     // the screen loading is a hand-off inside the region
 int g_cam_vx = 0, g_cam_vy = 0;
 int g_vp_frame = -1;        // the frame the viewport was last placed in
@@ -164,6 +176,14 @@ Follow follow_settings()
 {
     std::map<int, Follow>::const_iterator it = g_follow_dmap.find(currdmap);
     Follow s = it != g_follow_dmap.end() ? it->second : g_follow_init;
+    // a script's overrides, already range checked
+    if(g_ovr_has[Q30_VP_DEADZONE_W]) s.deadzone_w = g_ovr[Q30_VP_DEADZONE_W];
+    if(g_ovr_has[Q30_VP_DEADZONE_H]) s.deadzone_h = g_ovr[Q30_VP_DEADZONE_H];
+    if(g_ovr_has[Q30_VP_LOOKAHEAD_X]) s.lookahead_x = g_ovr[Q30_VP_LOOKAHEAD_X];
+    if(g_ovr_has[Q30_VP_LOOKAHEAD_Y]) s.lookahead_y = g_ovr[Q30_VP_LOOKAHEAD_Y];
+    if(g_ovr_has[Q30_VP_LOOKAHEAD_SPEED]) s.lookahead_speed = g_ovr[Q30_VP_LOOKAHEAD_SPEED];
+    if(g_ovr_has[Q30_VP_RECENTER_SPEED]) s.recenter_speed = g_ovr[Q30_VP_RECENTER_SPEED];
+    if(g_ovr_has[Q30_VP_RECENTER_DELAY]) s.recenter_delay = g_ovr[Q30_VP_RECENTER_DELAY];
     s.deadzone_w = vbound(s.deadzone_w, 0, 240);       // VIEWPORT_FOLLOW_MAX_DEADZONE_W, _H
     s.deadzone_h = vbound(s.deadzone_h, 0, 160);
     s.lookahead_speed = vbound(s.lookahead_speed, 0L, 240L * 10000);   // VIEWPORT_FOLLOW_MAX_SPEED
@@ -192,12 +212,30 @@ int64_t fix_to_z(long v)
     return (n + (n < 0 ? -32768 : 32768)) / 65536;
 }
 
-// Link's centre in region pixels (his screen's place in the region, outside one 0)
+// the sprite the camera follows (upstream's get_viewport_sprite): Viewport->Target's, or Link
+// once it is gone
+sprite *target_sprite()
+{
+    sprite *s = g_vp_target == 1 ? NULL : q30_viewport_sprite(g_vp_target);
+
+    if(!s)
+    {
+        g_vp_target = 1;
+        return &Link;
+    }
+
+    return s;
+}
+
+// the followed sprite's centre in region pixels (its screen's place in the region, outside one
+// 0), upstream's get_viewport_target_center; Link's is 8 pixels in
 void link_centre(int64_t *x, int64_t *y)
 {
     const int ox = g_reg.on ? g_reg.dx * 256 : 0, oy = g_reg.on ? g_reg.dy * 176 : 0;
-    *x = fix_to_z(Link.getX().v) + (ox + 8) * Z;
-    *y = fix_to_z(Link.getY().v) + (oy + 8) * Z;
+    sprite *s = target_sprite();
+    const int hx = s == &Link ? 8 : s->txsz * 8, hy = s == &Link ? 8 : s->tysz * 8;
+    *x = fix_to_z(s->x.v) + (ox + hx) * Z;
+    *y = fix_to_z(s->y.v) + (oy + hy) * Z;
 }
 
 // upstream's apply_viewport_follow and calculate_viewport (CenterAndBound): the focus pushed
@@ -205,6 +243,13 @@ void link_centre(int64_t *x, int64_t *y)
 // centred on it inside the region
 void place_viewport()
 {
+    g_vp_w = 256;
+    g_vp_h = q30_view_h();
+
+    // a script owns it: where it was, or where the script put it
+    if(g_vp_mode == 2)
+        return;
+
     if(!g_reg.on)
     {
         g_cam_vx = g_cam_vy = 0;
@@ -217,8 +262,15 @@ void place_viewport()
     const int64_t ax = tx + bound_lookahead(g_fs.lx, s.deadzone_w, 120), ay = ty + bound_lookahead(g_fs.ly, s.deadzone_h, 80);
     g_fs.x = clamp64(g_fs.x, ax - (s.deadzone_w / 2) * Z, ax + (s.deadzone_w / 2) * Z);
     g_fs.y = clamp64(g_fs.y, ay - (s.deadzone_h / 2) * Z, ay + (s.deadzone_h / 2) * Z);
-    g_cam_vx = vbound(z_int(g_fs.x) - 128, 0, g_reg.w * 256 - 256);
-    g_cam_vy = vbound(z_int(g_fs.y) - q30_view_h() / 2, 0, g_reg.h * 176 - q30_view_h());
+    g_cam_vx = z_int(g_fs.x) - 128;
+    g_cam_vy = z_int(g_fs.y) - q30_view_h() / 2;
+
+    // Viewport->Mode 1 centres it on the target even past the region's edges
+    if(g_vp_mode == 0)
+    {
+        g_cam_vx = vbound(g_cam_vx, 0, g_reg.w * 256 - 256);
+        g_cam_vy = vbound(g_cam_vy, 0, g_reg.h * 176 - q30_view_h());
+    }
 }
 
 // upstream's reset_viewport_follow: the focus onto Link after he was put somewhere (a warp, the
@@ -651,6 +703,9 @@ void q30_region_forget()
     g_fs_reset = true;
     g_handoff = false;
     g_vp_frame = -1;
+    g_vp_mode = 0;
+    g_vp_target = 1;
+    memset(g_ovr_has, 0, sizeof(g_ovr_has));
 }
 
 extern std::map<int, std::pair<std::string, std::string> > ffcmap;
@@ -832,6 +887,8 @@ static void list_regions()
     }
 }
 
+static void viewport_back_to_hero(bool reset);
+
 void q30_region_screen_loaded(int destdmap)
 {
     static const bool list = getenv("ZC_REGION_LIST") != NULL;
@@ -856,6 +913,9 @@ void q30_region_screen_loaded(int destdmap)
 
     if(!handoff && !screenscrolling)
         g_fs_reset = true;
+
+    if(!handoff)
+        viewport_back_to_hero(false);
 
     g_vp_frame = -1;
 
@@ -1042,8 +1102,10 @@ void q30_region_camera(int, int, int *cam_x, int *cam_y)
         return;
 
     camera_look();
-    *cam_x = g_cam_vx - g_reg.dx * 256;
-    *cam_y = g_cam_vy - g_reg.dy * 176;
+    // (a script's or a centred viewport can be anywhere; what is drawn reaches a screen around
+    // this one: q30_region_lower_begin's canvas)
+    *cam_x = vbound(g_cam_vx - g_reg.dx * 256, -256, 256);
+    *cam_y = vbound(g_cam_vy - g_reg.dy * 176, -176, 352 - q30_view_h());
 }
 
 void q30_set_viewport_follow(int dmap, bool custom, int deadzone_w, int deadzone_h, int lookahead_x, int lookahead_y,
@@ -1083,10 +1145,20 @@ void q30_region_tick_camera()
     g_fs.ty = ty;
     g_fs.idle = (!dx && !dy) ? (g_fs.idle < (1 << 20) ? g_fs.idle + 1 : g_fs.idle) : 0;
 
+    // a script owns the viewport: the target is only kept track of
+    if(g_vp_mode == 2)
+    {
+        place_viewport();
+        g_vp_frame = g_tick_frame = frame;
+        g_tick_vx = g_cam_vx;
+        g_tick_vy = g_cam_vy;
+        return;
+    }
+
     // the horizontal and vertical part of each direction (upstream's xDir / yDir)
     static const int xd[8] = { -1, -1, left, right, left, right, left, right };
     static const int yd[8] = { up, down, -1, -1, up, up, down, down };
-    const int d = Link.getDir();
+    const int d = target_sprite()->dir;
 
     if(d >= 0 && d < 8)
     {
@@ -1139,10 +1211,110 @@ void q30_region_viewport(int *vx, int *vy)
         return;
     }
 
-    int cx, cy;
-    q30_region_camera(int(Link.getX()), int(Link.getY()), &cx, &cy);
-    *vx = cx + q30_region_offset_x();
-    *vy = cy + q30_region_offset_y();
+    camera_look();
+    *vx = g_cam_vx;
+    *vy = g_cam_vy;
+}
+
+int q30_viewport_mode() { return g_vp_mode; }
+int q30_viewport_w() { return g_vp_w; }
+int q30_viewport_h() { return g_vp_h; }
+
+void q30_viewport_set_mode(int mode)
+{
+    camera_look();
+    const bool was_script = g_vp_mode == 2;
+    g_vp_mode = mode;
+
+    // the lookahead didn't ease while the script had it: dropped, as upstream
+    if(was_script && mode != 2)
+        g_fs.lx = g_fs.ly = 0;
+}
+
+void q30_viewport_set_xy(bool y, int v)
+{
+    camera_look();
+    (y ? g_cam_vy : g_cam_vx) = v;
+}
+
+void q30_viewport_set_size(bool h, int v)
+{
+    (h ? g_vp_h : g_vp_w) = v;
+}
+
+long q30_viewport_target()
+{
+    sprite *s = target_sprite();
+    return s == &Link ? 1 : s->getUID();
+}
+
+void q30_viewport_set_target(long uid)
+{
+    g_vp_target = uid == Link.getUID() ? 1 : uid;
+    reset_follow(false);
+    g_fs_reset = false;
+    place_viewport();
+    g_vp_frame = frame;
+}
+
+long q30_viewport_follow(int which)
+{
+    const Follow s = follow_settings();
+
+    switch(which)
+    {
+    case Q30_VP_DEADZONE_W: return s.deadzone_w * 10000L;
+    case Q30_VP_DEADZONE_H: return s.deadzone_h * 10000L;
+    case Q30_VP_LOOKAHEAD_X: return s.lookahead_x * 10000L;
+    case Q30_VP_LOOKAHEAD_Y: return s.lookahead_y * 10000L;
+    case Q30_VP_LOOKAHEAD_SPEED: return s.lookahead_speed;
+    case Q30_VP_RECENTER_SPEED: return s.recenter_speed;
+    case Q30_VP_RECENTER_DELAY: return s.recenter_delay * 10000L;
+    }
+
+    return 0;
+}
+
+void q30_viewport_set_follow(int which, long v)
+{
+    if(which < 0 || which >= Q30_VP_FOLLOW_COUNT)
+        return;
+
+    g_ovr_has[which] = true;
+    g_ovr[which] = v;
+
+    // (upstream's update_viewport after a dead zone change: the focus pushed into the new one)
+    if(which == Q30_VP_DEADZONE_W || which == Q30_VP_DEADZONE_H)
+    {
+        camera_look();
+        place_viewport();
+    }
+}
+
+void q30_viewport_reset_follow_settings()
+{
+    memset(g_ovr_has, 0, sizeof(g_ovr_has));
+    camera_look();
+    place_viewport();
+}
+
+// a screen load (not a hand-off) or a scroll: the camera follows the Hero again, centred and kept
+// in the region (upstream's loadscr and scrollscr)
+static void viewport_back_to_hero(bool reset)
+{
+    if(g_vp_mode == 0 && g_vp_target == 1)
+        return;
+
+    g_vp_mode = 0;
+    g_vp_target = 1;
+
+    if(reset)
+    {
+        reset_follow(false);
+        g_fs_reset = false;
+    }
+
+    g_vp_frame = -1;
 }
 
 // ---- draw_screen's lower layers through the camera ------------------------------------------
@@ -2616,6 +2788,8 @@ void q30_scroll_begin(int dir)
 
     if(!q30_active() || dir < up || dir > right)
         return;
+
+    viewport_back_to_hero(true);
 
     Scroll &s = g_scroll;
     s.on = true;

@@ -1666,7 +1666,7 @@ void LinkClass::positionSword(weapon *w, int itemid)
       wy+=2;
     }*/
     w->x = x+wx;
-    w->y = y+wy-(54-(yofs+slashyofs));
+    w->y = y+wy-(original_playing_field_offset-2-(yofs+slashyofs));  // (54 but in a 2.55/3.0 extended height view, upstream)
     w->z = (z+zofs);
     w->tile = t;
     w->flip = f;
@@ -1923,6 +1923,7 @@ attack:
 
                 tile+=dmap_tile_mod();
                 tile+=q30_bunny_tile_mod();   // 2.55/3.0: Link as a bunny
+                q30_hero_script_tile(&tile);  // 2.55/3.0: Hero->ScriptTile is Link's tile itself
                 
                 // Stone of Agony
                 if(agony)
@@ -2072,7 +2073,7 @@ attack:
             }
             
             w->x = x+wx;
-            w->y = y+wy-(54-yofs);
+            w->y = y+wy-(original_playing_field_offset-2-yofs);   // (54 but in an extended height view)
             w->z = (z+zofs);
             w->tile = t;
             w->flip = f;
@@ -2454,6 +2455,7 @@ attack:
 
     tile+=dmap_tile_mod();
     tile+=q30_bunny_tile_mod();   // 2.55/3.0: Link as a bunny
+    q30_hero_script_tile(&tile);  // 2.55/3.0: Hero->ScriptTile is Link's tile itself (upstream's herotile)
 
     // Stone of Agony
     if(agony)
@@ -18590,17 +18592,21 @@ void q30_set_ab_item(bool a, int val)
     }
     else if(val >= 0 && current_subscreen_active)
     {
+        // (upstream's get_page_pos: a slot holding that item, else none; an empty slot, whose
+        // Bweapon is 0 here, never holds item 0)
         const int keep = directItem;
+        int found = 255;
 
-        for(int pos = 0; pos < 0xFF; ++pos)
+        for(int pos = 0; val > 0 && pos < 0xFF; ++pos)
         {
             if(Bweapon(pos) == val)
             {
-                (a ? game->awpn : game->bwpn) = pos;
+                found = pos;
                 break;
             }
         }
 
+        (a ? game->awpn : game->bwpn) = found;
         directItem = keep;
     }
 

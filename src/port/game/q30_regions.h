@@ -68,6 +68,25 @@ int q30_region_screen_at(int lx, int ly);
 // during a scroll, the scroll's view in the new region's pixels).
 void q30_region_camera(int lx, int ly, int *cam_x, int *cam_y);
 void q30_region_viewport(int *vx, int *vy);
+// Viewport-> for scripts (upstream's scripting/types/viewport.cpp). Mode: 0 centred on the target
+// and kept in the region, 1 centred, 2 placed by the script (X / Y); a screen load or a scroll
+// puts mode 0 and the Hero back. Width / Height: what the camera last set (256, 176 or 232), or
+// a script since. Target: the followed sprite's UID (the Hero's 1). The follow settings in
+// effect (Q30_VP_*; distances in 1/10000 pixels as scripts see them, speeds as stored) and a
+// script's overrides of them (range checked by the caller), cleared by ResetFollowSettings.
+enum { Q30_VP_DEADZONE_W, Q30_VP_DEADZONE_H, Q30_VP_LOOKAHEAD_X, Q30_VP_LOOKAHEAD_Y,
+       Q30_VP_LOOKAHEAD_SPEED, Q30_VP_RECENTER_SPEED, Q30_VP_RECENTER_DELAY, Q30_VP_FOLLOW_COUNT };
+int q30_viewport_mode();
+void q30_viewport_set_mode(int mode);
+void q30_viewport_set_xy(bool y, int v);
+int q30_viewport_w();
+int q30_viewport_h();
+void q30_viewport_set_size(bool h, int v);
+long q30_viewport_target();
+void q30_viewport_set_target(long uid);
+long q30_viewport_follow(int which);
+void q30_viewport_set_follow(int which, long v);
+void q30_viewport_reset_follow_settings();
 // Once a frame from the game loop, after Link moved: the camera follows him (upstream's
 // tick_viewport_follow: dead zone, lookahead and recentering, from init data or the DMap).
 // Nothing for 2.53 quests.

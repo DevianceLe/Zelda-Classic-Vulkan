@@ -27,6 +27,7 @@ struct Zasm30ScreenState
     long screen_stack[ZSCRIPT_STACK_ALLOC];
     Zasm30Frame screen_frame;           // zasm30_frames[34]
     bool screen_done;
+    bool screen_waitdraw;               // zasm30_screen_waitdraw
     int screen_index;
     // its combo scripts
     std::vector<word> combo_cache;
@@ -46,6 +47,7 @@ void *zasm30_screen_state_new(const mapscr *scr)
     s->ffc_waitdraw.clear();
     memset(s->screen_stack, 0, sizeof(s->screen_stack));
     s->screen_done = true;
+    s->screen_waitdraw = false;
     s->screen_index = -1;
     s->combo_cache_screen = -1;
     s->scr = scr;
@@ -95,6 +97,7 @@ void zasm30_screen_state_swap(void *state)
 
     std::swap(zasm30_frames[34], s->screen_frame);
     std::swap(zasm30_screen_done, s->screen_done);
+    std::swap(zasm30_screen_waitdraw, s->screen_waitdraw);
     std::swap(zasm30_screen_index, s->screen_index);
 
     std::swap(zasm30_combo_cache, s->combo_cache);

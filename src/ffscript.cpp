@@ -2074,6 +2074,7 @@ static bool zasm30_generic_get(long index, long &ret);    // Game->Generic[] (q3
 static bool zasm30_generic_set(long index, long value);
 static refInfo zasm30_screen_ri;
 static bool zasm30_screen_done = true;
+static bool zasm30_screen_waitdraw = false;    // the screen script stopped at Waitdraw (upstream's waitdraw(ScriptType::Screen))
 static long zasm30_screen_stack[ZSCRIPT_STACK_ALLOC];
 // Class objects (ZCLASS_CONSTRUCT). A script holds an object as Z30_OBJECT_BASE + its index,
 // a number scripts don't otherwise use, so the collector can't take a counter for one.
@@ -12208,6 +12209,11 @@ zasm30_wait:
                 Z_scripterrlog("Waitdraw can only be used in the active global script\n");
             break;
 
+        case SCRIPT_SCREEN:     // 2.55/3.0: the rest runs in this frame's Waitdraw phase (q30_run_screen_waitdraw)
+            if(zasm30_ffscript_version)
+                zasm30_screen_waitdraw = true;
+            break;
+
         default:
             if(zasm30_cur_inst)
             {
@@ -12286,6 +12292,7 @@ void zasm30_clear_screen_scripts()
     zasm30_screen_scripts.clear();
     zasm30_screen_index = -1;
     zasm30_screen_done = true;
+    zasm30_screen_waitdraw = false;
 }
 
 void zasm30_set_screen_script(int index, word script, const long *initd)
@@ -12308,6 +12315,7 @@ static void zasm30_run_screen_script()
     {
         zasm30_screen_index = index;
         zasm30_screen_done = (it == zasm30_screen_scripts.end());
+        zasm30_screen_waitdraw = false;
         zasm30_screen_ri.Clear();
         memset(zasm30_screen_stack, 0, sizeof(zasm30_screen_stack));
 

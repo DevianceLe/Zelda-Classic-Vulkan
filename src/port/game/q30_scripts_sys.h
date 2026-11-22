@@ -1838,7 +1838,7 @@ static bool zasm30_sys_command(word cmd)
         return true;
     }
     case Z30C_VIEWPORT_RESET_FOLLOW_SETTINGS:
-        // (scripts can't override the camera's follow settings here: the DMap's or the quest's are used)
+        q30_viewport_reset_follow_settings();
         return true;
 
     // -- messages, DMaps ------------------------------------------------------------------------------

@@ -1303,7 +1303,25 @@ void q30_run_ffc_waitdraw()
         zasm30_ffc_waitdraw_here(0);
 }
 
-void q30_run_screen_waitdraw() {}
+// The second half of a screen script that called Waitdraw, every screen of a scrolling region in
+// turn (upstream's game_loop: for_every_base_screen_in_region ... waitdraw(ScriptType::Screen)).
+static void zasm30_screen_waitdraw_here(int)
+{
+    if(!zasm30_screen_waitdraw)
+        return;
+
+    zasm30_screen_waitdraw = false;
+    zasm30_run_screen_script();
+}
+
+void q30_run_screen_waitdraw()
+{
+    if(!zasm30_ffscript_version)
+        return;
+
+    if(!q30_region_each_screen(Q30_EACH_SCREEN_SCRIPT, zasm30_screen_waitdraw_here, 0))
+        zasm30_screen_waitdraw_here(0);
+}
 
 // The second half of a hero, DMap or passive subscreen script that called Waitdraw.
 static void zasm30_run_waitdraw_half(byte type, word script, long key)

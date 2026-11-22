@@ -409,6 +409,7 @@ int q30_bunny_clock();
 void q30_set_bunny_clock(int v);
 bool q30_bunny_allows(int itemid);
 int q30_bunny_tile_mod();
+void q30_hero_script_tile(int *tile);  // q30_scripts_regs.h: Hero->ScriptTile as Link's tile
 void q30_bunny_check(bool on);              // off while the subscreen draws or chooses (nests)
 void q30_bunny_reset();                     // a game starts or continues
 void q30_set_bunny_ltm(long ltm);           // readers
