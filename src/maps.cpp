@@ -3035,6 +3035,42 @@ bool q30_new_layer_draw_order()
     return !old_order;
 }
 
+// The script drawings over an open subscreen (upstream's do_script_draws after draw_subscrs in
+// dosubscr): every layer in its order, at the playing field offset. Nothing for 2.53 quests.
+void q30_draw_subscreen_scripts(BITMAP *bmp)
+{
+    if(!zasm30_ffscript_version || !script_drawing_commands.Count())
+        return;
+
+    mapscr *scr = &tmpscr[0];
+    const bool l2 = (scr->flags7 & fLAYER2BG) != 0, l3 = (scr->flags7 & fLAYER3BG) != 0;
+    const bool new_order = q30_new_layer_draw_order();
+    const int y = playing_field_offset;
+
+    if(new_order)
+        for(int l = -7; l <= -4; ++l)
+            do_primitives(bmp, l, scr, 0, y);
+
+    if(!new_order && l2) do_primitives(bmp, 2, scr, 0, y);
+    if(l3) do_primitives(bmp, 3, scr, 0, y);
+
+    if(new_order)
+    {
+        do_primitives(bmp, -3, scr, 0, y);
+        if(l2) do_primitives(bmp, 2, scr, 0, y);
+        do_primitives(bmp, -2, scr, 0, y);
+        do_primitives(bmp, -1, scr, 0, y);
+    }
+
+    do_primitives(bmp, 0, scr, 0, y);
+    do_primitives(bmp, 1, scr, 0, y);
+    if(!l2) do_primitives(bmp, 2, scr, 0, y);
+    if(!l3) do_primitives(bmp, 3, scr, 0, y);
+
+    for(int l = 4; l <= 7; ++l)
+        do_primitives(bmp, l, scr, 0, y);
+}
+
 // Layer 2 or 3 drawn as a background layer, with its script drawing and particles (draw_screen).
 static void draw_background_layer2(BITMAP *lower, mapscr* this_screen)
 {

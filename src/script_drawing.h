@@ -4,6 +4,7 @@
 
 #include <vector>
 #include <string>
+#include <utility>
 
 
 #define MAX_SCRIPT_DRAWING_COMMANDS 1000
@@ -174,6 +175,15 @@ public:
         current_string_count = 0;
         current_drawdata_count = 0;
     }
+
+    // Trades contents with another container (the strings and arrays stay where they are).
+    void q30_swap(DrawingContainer &o)
+    {
+        drawstring.swap(o.drawstring);
+        std::swap(current_string_count, o.current_string_count);
+        drawdata.swap(o.drawdata);
+        std::swap(current_drawdata_count, o.current_drawdata_count);
+    }
     
     std::string* GetString()
     {
@@ -325,6 +335,14 @@ public:
     int Count() const
     {
         return count;
+    }
+    // 2.55/3.0: trades the queued commands with another queue (upstream's pop_commands and
+    // push_commands around the active subscreen); the bitmap caches stay.
+    void q30_swap_commands(CScriptDrawingCommands &o)
+    {
+        commands.swap(o.commands);
+        std::swap(count, o.count);
+        draw_container.q30_swap(o.draw_container);
     }
     std::string* GetString()
     {

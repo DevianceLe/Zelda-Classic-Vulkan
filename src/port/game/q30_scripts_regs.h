@@ -18,6 +18,7 @@
 #define Z30_D(n)     (ri->d[n])
 
 extern byte quest_rules[QUESTRULES_SIZE];
+extern int q30_active_sub_yoff;     // Game->ActiveSubscreenY (zc_subscr.cpp)
 
 // Fields 3.0 has and 2.53 hasn't, keyed by register + object + index, so scripts can store and
 // read them back. A write here is also how an unported field shows up in the log.
@@ -2438,7 +2439,7 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
         return true;
     case Z30R_GAMEBOTTLEST: ret = q30_bottle_slot(Z30_INDEX) * 10000; return true;   // the save's bottle slots (q30_triggers.cpp)
     case Z30R_MUSICUPDATECOND: ret = zasm30_store_get(arg, 0, 0) * 10000; return true;
-    case Z30R_GAMEASUBYOFF: ret = zasm30_store_get(arg, 0, 0) * 10000; return true;
+    case Z30R_GAMEASUBYOFF: ret = q30_active_sub_yoff * 10000; return true;   // (zc_subscr.cpp; read only)
     // (2.53's rule table holds the first 160 rules; the 2.55 and 3.0 ones are q30_triggers.cpp's)
     case Z30R_FFRULE: ret = (Z30_INDEX >= 0 && Z30_INDEX < QUESTRULES_SIZE * 8) ? (get_bit(quest_rules, Z30_INDEX) ? 10000 : 0) : (q30_script_rule_get(Z30_INDEX) ? 10000 : 0); return true;
     // (in a 3.0 scrolling region an FFC's ID goes across the region, 128 to a screen as upstream's:
@@ -3523,9 +3524,9 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     case Z30R_GAMEBOTTLEST: q30_set_bottle_slot(Z30_INDEX, vbound(value / 10000, 0, 64)); return true;
     case Z30R_GAMESUSPEND:
     case Z30R_MUSICUPDATECOND:
-    case Z30R_GAMEASUBYOFF:
         zasm30_store_set(arg, 0, Z30_INDEX, value / 10000);
         return true;
+    case Z30R_GAMEASUBYOFF: return true;     // (read only, as upstream's)
     case Z30R_GAMEEVENTDATA:
         if(Z30_INDEX >= 0 && Z30_INDEX < (long)zasm30_event_data.size())
             zasm30_event_data[Z30_INDEX] = value;

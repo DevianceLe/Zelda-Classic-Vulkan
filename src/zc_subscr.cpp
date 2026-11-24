@@ -25,6 +25,8 @@
 #include "guys.h"
 #include "port/game/q30_triggers.h"
 #include "port/game/q30_regions.h"
+#include "script_drawing.h"
+#include "maps.h"
 
 extern LinkClass   Link;
 extern word quest_header_zelda_version;
@@ -37,6 +39,9 @@ extern int directItemB;
 bool q30_subscreen_anim_draw(BITMAP *dest, int dx, int dy);    // q30_scripts_subscr.h
 bool q30_sub_none_active();                                       // q30_scripts_subscr.h
 bool q30_run_subscreen_script();                                   // q30_scripts_subscr.h
+// Game->ActiveSubscreenY (upstream's active_sub_yoff): the active subscreen's top, relative to the
+// playing field, while it slides and while it is open; -224 while it is closed.
+int q30_active_sub_yoff = -224;
 void q30_subscreen_script_reset();
 bool q30_sub_move_cursor(int dir, int &pos);                      // q30_scripts_subscr.h
 bool q30_sub_move_legacy(int dir, int &pos);                      // q30_scripts_subscr.h
@@ -260,9 +265,37 @@ static int subscr_field_rows(int ay)
     return 6-ay;
 }
 
+// 2.55/3.0 (upstream's dosubscr(bool)): the open subscreen clears the script drawings every frame,
+// so the drawings the interrupted frame had queued are put aside and given back as it closes; what
+// the subscreen's own script left queued is dropped. Nothing for 2.53 quests.
+struct Q30SubscrStashDraws
+{
+    bool on;
+    Q30SubscrStashDraws() : on(q30_active())
+    {
+        if(on)
+            stash().q30_swap_commands(script_drawing_commands);
+    }
+    ~Q30SubscrStashDraws()
+    {
+        if(on)
+        {
+            script_drawing_commands.Clear();
+            stash().q30_swap_commands(script_drawing_commands);
+            stash().Clear();
+        }
+    }
+    static CScriptDrawingCommands &stash()
+    {
+        static CScriptDrawingCommands s;
+        return s;
+    }
+};
+
 void dosubscr(miscQdata *misc)
 {
     Q30DosubscrBunnyOff q30_bunny_off;
+    Q30SubscrStashDraws q30_stash_draws;
     PALETTE temppal;
     
     if(tmpscr->flags3&fNOSUBSCR)
@@ -362,6 +395,9 @@ void dosubscr(miscQdata *misc)
 
     for(ay=-distance; ay<=0 && !q30_exit; ay+=step)
     {
+        if(q30_active())
+            script_drawing_commands.Clear();    // (2.55/3.0: a frame's script drawings, as upstream)
+        q30_active_sub_yoff = ay-playing_field_offset;
         q30_exit = q30_run_subscreen_script();
         do_dcounters();
         Link.refill();
@@ -382,18 +418,22 @@ void dosubscr(miscQdata *misc)
         }
 
         put_both_subscrs(misc,ay,showtime,sspSCROLLING);
+        q30_draw_subscreen_scripts(framebuf);
         advanceframe(false);
         
         if(Quit)
             return;
     }
     
+    q30_active_sub_yoff = -playing_field_offset;
     bool done=false;
     int q30_held = 0xFF;    // buttons held as the subscreen opens don't count as pressed
 
     do
     {
         load_control_state();
+        if(q30_active())
+            script_drawing_commands.Clear();
         if(!q30_exit && (q30_exit = q30_run_subscreen_script()))
             break;
         int pos = Bpos;
@@ -541,6 +581,7 @@ void dosubscr(miscQdata *misc)
         }
 
         put_both_subscrs(misc,0,showtime,sspDOWN);
+        q30_draw_subscreen_scripts(framebuf);
         
         advanceframe(false);
         
@@ -563,6 +604,9 @@ void dosubscr(miscQdata *misc)
     // (upstream starts closing from where the opening stopped, at most 0)
     for(ay=zc_min(ay,0); ay>=-distance; ay-=step)
     {
+        if(q30_active())
+            script_drawing_commands.Clear();
+        q30_active_sub_yoff = ay-playing_field_offset;
         if(!q30_exit)
             q30_exit = q30_run_subscreen_script();
         do_dcounters();
@@ -584,12 +628,14 @@ void dosubscr(miscQdata *misc)
         }
 
         put_both_subscrs(misc,ay,showtime,sspSCROLLING);
+        q30_draw_subscreen_scripts(framebuf);
         advanceframe(false);
         
         if(Quit)
             return;
     }
     
+    q30_active_sub_yoff = -224;
     //  Sitems.clear();
     if(usebombpal)
     {

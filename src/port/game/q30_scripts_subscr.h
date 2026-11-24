@@ -2305,6 +2305,7 @@ void q30_draw_overlay_subscreen(BITMAP *dest, miscQdata *misc, int x, bool showt
 
 // onViewMap: a dmap with a map subscreen opens it, the way the active subscreen opens, instead of
 // the old map (upstream: map_subscreen >= 0 means dosubscr(true)). Returns false to show the map.
+static void z30_engsub_map_open(subscreen_group *dmap_active);    // (below)
 bool q30_open_map_subscreen()
 {
     if(!q30_active() || q30_dmap_map_subscreen(get_currdmap()) < 0)
@@ -2317,7 +2318,9 @@ bool q30_open_map_subscreen()
     {
         subscreen_group *was = current_subscreen_active;
         current_subscreen_active = &custom_subscreen[slot];
+        z30_engsub_map_open(was);
         dosubscr(&QMisc);
+        z30_engsub_map_open(NULL);
         current_subscreen_active = was;
     }
 
@@ -3857,17 +3860,44 @@ static bool zasm30_sub_command(word cmd)
 }
 
 // ---- the subscreen's own script (upstream run_active_subscript, ScriptType::EngineSubscreen) -------
-// One instance (upstream keeps one engine data for active and map), `this` the open subscreen
-// (get_subref(-1, sstACTIVE)), its InitD the subscreen's scrconfig.
+// Upstream runs, each frame the subscreen is open, the active subscreen's script with `this` its
+// active subscreen (get_subref(-1, sstACTIVE)), then the current dmap's map subscreen's script with
+// `this` that map subscreen (get_subref(-1, sstMAP)), whichever of the two is open (also while the
+// map button has the map subscreen open). Both run on one engine data (upstream keeps one for the
+// type), so one instance here; `this` is set again before each run; the InitD come from the
+// subscreen that starts it.
 static bool z30_engsub_close = false;   // SUBDATA_CLOSE by that script: the subscreen closes
+static long z30_engsub_cur = 0;         // `this` of the run going on
+static subscreen_group *z30_engsub_dmap_active = NULL;   // the dmap's active one while the map one is open
+
+// The dmap's active subscreen (which = 0) or map subscreen (which = 3) and its reference.
+static Z30Subscreen *z30_engsub_target(int which, long &ref)
+{
+    ref = 0;
+
+    if(which == 3)
+    {
+        const int i = z30_sub_dmap_index(3, get_currdmap());
+        if(i < 0)
+            return NULL;
+        ref = z30_subref(i, 3, 0, 0);
+        return &zasm30_subs[3][i];
+    }
+
+    subscreen_group *grp = z30_engsub_dmap_active ? z30_engsub_dmap_active : current_subscreen_active;
+    for(size_t i = 0; grp && i < zasm30_subs[0].size(); ++i)
+        if(zasm30_subs[0][i].slot >= 0 && &custom_subscreen[zasm30_subs[0][i].slot] == grp)
+        {
+            ref = z30_subref((int)i, 0, 0, 0);
+            return &zasm30_subs[0][i];
+        }
+
+    return NULL;
+}
 
 static long z30_engsub_ref()
 {
-    Z30Subscreen *s = z30_shown_active();
-    for(size_t i = 0; s && i < zasm30_subs[0].size(); ++i)
-        if(&zasm30_subs[0][i] == s)
-            return z30_subref((int)i, 0, 0, 0);
-    return 0;
+    return z30_engsub_cur;
 }
 
 static void zasm30_engsub_init(Zasm30Instance *in)
@@ -3894,22 +3924,45 @@ void q30_subscreen_script_reset()
     z30_engsub_close = false;
 }
 
+// q30_open_map_subscreen: the dmap's active subscreen while the map one stands in for it.
+static void z30_engsub_map_open(subscreen_group *dmap_active)
+{
+    z30_engsub_dmap_active = dmap_active;
+}
+
 bool q30_run_subscreen_script()
 {
     if(!q30_active() || !zasm30_ffscript_version)
         return false;
 
-    Z30Subscreen *s = z30_shown_active();
+    static const int order[2] = { 0, 3 };
 
-    if(!s || s->scr.script <= 0 || !zasm30_script_for(SCRIPT_ENGINESUB, (word)s->scr.script))
-        return false;
+    for(int n = 0; n < 2; ++n)
+    {
+        long ref;
+        Z30Subscreen *s = z30_engsub_target(order[n], ref);
 
-    z30_engsub_close = false;
-    zasm30_run(SCRIPT_ENGINESUB, (word)s->scr.script, 0);
+        if(!s || s->scr.script <= 0 || !zasm30_script_for(SCRIPT_ENGINESUB, (word)s->scr.script))
+            continue;
 
-    const bool closed = z30_engsub_close;
-    z30_engsub_close = false;
-    return closed;
+        z30_engsub_cur = ref;
+        Zasm30Instance *in = zasm30_instance(SCRIPT_ENGINESUB, 0);
+        if(in->initialized)
+        {
+            in->frame.refs[Z30REF_SUBSCREENDATA] = ref;   // (upstream sets it again every run)
+            in->frame.inst[0] = ref;
+        }
+
+        z30_engsub_close = false;
+        zasm30_run(SCRIPT_ENGINESUB, (word)s->scr.script, 0);
+
+        const bool closed = z30_engsub_close;
+        z30_engsub_close = false;
+        if(closed)
+            return true;
+    }
+
+    return false;
 }
 
 #endif

@@ -2038,6 +2038,22 @@ struct Zasm30FfcBits
     void unset(int i) { w[i >> 5] &= ~(1u << (i & 31)); }
 };
 static Zasm30FfcBits zasm30_ffc_waitdraw;
+// Upstream ignores Waitdraw() in a subscreen's own script (ScriptType::EngineSubscreen): it logs
+// an error and runs on in the same frame. Steps the program counter past such commands.
+static void zasm30_skip_waitdraw(byte type, word &scommand, dword &pc)
+{
+    while(scommand == WAITDRAW && type == SCRIPT_ENGINESUB)
+    {
+        static bool said = false;
+        if(!said)
+            Z_scripterrlog("'Waitdraw()' is invalid in subscreen scripts, will be ignored\n");
+        said = true;
+        ++pc;
+        scommand = curscript[pc].command;
+        sarg1 = curscript[pc].arg1;
+        sarg2 = curscript[pc].arg2;
+    }
+}
 // ZC_Q30_ZTRACE=from,to,path (newer quests, test runs): every command run in those replay frames, with the
 // D registers before it, like upstream's -script-runtime-debug 2 -script-runtime-debug-frame.
 int replay_frame_number();
@@ -10466,6 +10482,7 @@ int run_script(const byte type, const word script, const byte i)
     word scommand = curscript[pc].command;
     sarg1 = curscript[pc].arg1;
     sarg2 = curscript[pc].arg2;
+    zasm30_skip_waitdraw(type, scommand, pc);
     
     
 #ifdef _FFDISSASSEMBLY
@@ -12333,6 +12350,7 @@ int run_script(const byte type, const word script, const byte i)
             scommand = curscript[pc].command;
             sarg1 = curscript[pc].arg1;
             sarg2 = curscript[pc].arg2;
+            zasm30_skip_waitdraw(type, scommand, pc);
         }
     }
     

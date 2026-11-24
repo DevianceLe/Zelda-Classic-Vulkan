@@ -92,6 +92,8 @@ enum
 // Draws what scripts queued on one of those layers, at the point upstream draws it, through a
 // scrolling region's camera while one applies. Does nothing for 2.53 quests.
 void q30_draw_script_layer(BITMAP *bmp, int layer);
+// Every script drawing layer over an open subscreen (upstream's do_script_draws in dosubscr).
+void q30_draw_subscreen_scripts(BITMAP *bmp);
 // Newer quests without upstream's qr_OLD_LAYER_DRAW_ORDER: layers -7..-1 are drawn, and
 // background layer 2 goes over background layer 3. False for 2.53 quests.
 bool q30_new_layer_draw_order();
