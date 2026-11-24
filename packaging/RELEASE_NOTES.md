@@ -1,3 +1,41 @@
+## What's new in 2.53.444.11
+
+**3.0's script engine, nearly all of it**
+
+- The feature test suite calls 939 of 3.0's script commands one by one, and 929 of them now behave exactly as in 3.0 (354 in 2.53.444.10). None of the remaining ten is used by a quest in the collection: they come from how 3.0 numbers its sprites, and from values the machine's own settings or clock decide
+- The data scripts read and write: every field of items, enemies, DMaps, combos, maps and screens, messages and weapon data, with 3.0's full item, enemy and DMap data now kept by the player
+- Arrays in newer quests are reference-counted objects as in 3.0, and scripts see 3.0's numbers for their objects (weapon data, bitmaps, random generators, palettes, stacks)
+- Portals and saved portals (kept in the save file), the script viewport (camera follow settings, moving the view with a script, also outside scrolling regions), subscreen widgets and pages driven by scripts, a subscreen's own script, and the screen's lists of enemies, items, weapons and portals
+
+**Weapons and enemies**
+
+- Weapons made by items and enemies take their weapon data: sizes, speeds, flags, timeouts that count down and end the weapon, piercing, burning sprites, death effects, bombs going off when their timer ends
+- Weapons have height and gravity: they bounce, break or stop when they land, break or stop on solid combos, fall into pits and drown in water
+- Enemies use 3.0's size settings (tile size, hit box, offsets), freeze, draw their own shadow sprites, and check walls at 3.0's height in 3.0 quests
+- The shield jinx, and enemies falling by their own gravity (a Thwomp in Mystical Harps now drops)
+
+**Scrolling regions and the screen**
+
+- Tall regions with 3.0's extended view slide the playing field in and out on every kind of scroll, and the screen changes on 3.0's frame
+- Link's walk-in at the start of a screen uses his place in the whole region (some Mystical Harps areas were 3 pixels off)
+- Script layers 2 and 3 are drawn as background by the region's first screen and the DMap, as in 3.0 (Mystical Harps' clouds no longer cover its forest)
+- 3.0's custom-speed conveyors move Link, items and weapons
+
+**Subscreens**
+
+- The cursor and "only when selected" counters follow all four buttons, the X and Y buttons get their items on a new game, and the subscreen's open position reads as in 3.0 (barato's card game now plays)
+
+**Mystical Harps**
+
+- Compared screen by screen with 3.0 on the author's newer quest file: town, shops, the intro, every dungeon start, the Outlands, VulturPeak, the temple and more now match. The game over screen, dark rooms and clouds were already right
+- Fixed on the way: Link's starting direction (screen-load triggers now fire after Link is set up), the sword in the Outlands (a trigger fired while Link stood on his arrival warp), quakes started as a screen loads, global scripts held back under an opening message, empty buttons reading -1 to scripts
+
+**Feature test suite**
+
+- Two new scenes for the script viewport; every one of its 29 features that isn't random matches 3.0, with 7 more differing only where the scene is random
+
+**Tested:** the 2.53 quests are unchanged (four re-saves byte for byte, and the recorded 1st Quest run, all 2,478 frames); the 93 newer quests open and re-save unchanged in ZQuest; their openings were compared with 3.0 after every change and none got worse (Saint James Place, Cambria, Dueling Dragons, Tales of Murdoch and The Colossal Tower match 3.0 frame for frame); the feature suite matches 3.0 on every feature that isn't random.
+
 ## What's new in 2.53.444.10
 
 **Every script command the quests use**
@@ -214,15 +252,15 @@
 
 - **2.53 quests are unchanged:** the 1st, 2nd and 5th Quests and Dream's Realm re-save byte for byte as before, and a recorded 1st Quest run plays exactly the same on all 2,478 frames.
 - All 93 2.55 and 3.0 Nightly quests in the PureZC collection load, and ZQuest re-saves each of them unchanged. ZQuest opens and saves every quest in the collection that loads (836) and reloads the same data.
-- 2.55 and 3.0 Nightly features are compared with ZC 3.0's own player on the same input: the openings of the 93 newer quests after every change, Mystical Harps screen by screen, and the feature test suite in `tests/feature_suite` (22 of its 34 features exactly as 3.0, 7 more differing only where the scene is random; 354 of 939 3.0 script commands behaving as 3.0's).
+- 2.55 and 3.0 Nightly features are compared with ZC 3.0's own player on the same input: the openings of the 93 newer quests after every change, Mystical Harps screen by screen, and the feature test suite in `tests/feature_suite` (all 29 of its features that aren't random exactly as 3.0, 7 more differing only where the scene is random; 929 of 939 3.0 script commands behaving as 3.0's).
 - Running without Vulkan was tried on Windows (32-bit and 64-bit, player and ZQuest), with Vulkan hidden from the game: both came up on Direct3D 11 with their menus. Software drawing works too. Linux, macOS and Android haven't been tried without Vulkan.
 - Every platform has been run on real hardware: Windows (32-bit, 64-bit and ARM64), Linux (x86_64 and ARM64), macOS (Apple Silicon and Intel) and the Nintendo Switch.
 
 ## Still not working
 
-- 3.0 script commands that no quest in the collection uses (about 565), keeping script portals in the save file, and a script-moved viewport
-- A few spots where the feature test suite still differs from 3.0: FFC ranges in a region, one boss-room frame, the bottom rows of a raft scene and one subscreen item; in The Rosemaster the subscreen cursor starts one slot to the right of 3.0's
-- Pages that a quest's own script turns (barato's card game) haven't been played through, and B and A items set on a later page haven't been checked after saving and loading
+- 10 of 3.0's script values (how 3.0 numbers its sprites, and values from the machine's own settings or clock); no quest in the collection uses them
+- 3.0's reworked big Patra, and two conveyor modes (walking Link along, smart corners)
+- Mystical Harps: the map screen's scrolling sky band and a few small spots of one light-ray overlay
 - A save made with an older version for a 2.55 or 3.0 quest whose hearts aren't 16 HP keeps its old life amount; a new save is right
 - Android hasn't been tried with 2.55 or 3.0 Nightly quests
 
