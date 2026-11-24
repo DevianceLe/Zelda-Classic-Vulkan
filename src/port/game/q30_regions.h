@@ -118,6 +118,7 @@ void q30_draw_view_origin(BITMAP *bmp, int *x, int *y);
 // draw_screen: a layer above the sprites (do_layer types 2-5, -1, -4) of the current screen and
 // of the other screens in view, through the camera.
 void q30_region_upper_layer(BITMAP *bmp, int type, mapscr *this_screen, bool drawprimitives);
+void q30_region_overhead_layers(BITMAP *bmp);  // 3.0 qr_OVERHEAD_COMBOS_L1_L2: layers 1-2 overhead combos
 
 // The screens the camera shows, for what is drawn over them all (dark rooms): the current screen
 // first (tmpscr and its layers, live), then the region's other screens in view, or within extra

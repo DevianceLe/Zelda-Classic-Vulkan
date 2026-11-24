@@ -468,10 +468,10 @@ void dump_loaded_data()
     if(!spec)
         return;
 
-    int dm = 0, scr = 0;
-    sscanf(spec, "%d,%d", &dm, &scr);
+    int dm = 0, scr = 0, map1 = 0;     // "dmap,screen" or "dmap,screen,map" (map 1-based: that map's screen)
+    sscanf(spec, "%d,%d,%d", &dm, &scr, &map1);
     const dmap &d = DMaps[dm];
-    int index = d.map * MAPSCRS + scr + d.xoff;
+    int index = map1 > 0 ? (map1 - 1) * MAPSCRS + scr : d.map * MAPSCRS + scr + d.xoff;
     al_trace("dump: dmap %d map %d xoff %d flags %lx -> screen index %d\n", dm, d.map, d.xoff, (unsigned long)d.flags, index);
     al_trace("dump: dmap %d level %d color %d\n", dm, (int)d.level, (int)d.color);
 
@@ -490,11 +490,26 @@ void dump_loaded_data()
                 al_trace("dump: layer %d map %d screen %d\n", i + 1, m.layermap[i], m.layerscreen[i]);
         al_trace("dump: sidewarpindex %d item %d hasitem %d at %d,%d catchall %d enemyflags %x\n", m.sidewarpindex, mapscr_item(&m), m.hasitem,
                  m.itemx, m.itemy, m.catchall, m.enemyflags);
+#ifdef ZC_PLAYER_BUILD     // (fflayer / ffvp* are player-only mapscr fields)
         for(int i = 0; i < m.ffc_count(); ++i)
             if(m.ffscript[i] || m.ffdata[i])
-                al_trace("dump: ffc %d data %d script %d flags %lx x %ld y %ld vx %ld vy %ld ax %ld ay %ld delay %d link %d combo type %d initd %ld %ld %ld %ld %ld %ld %ld %ld\n", i, m.ffdata[i], m.ffscript[i], (unsigned long)m.ffflags[i],
+                al_trace("dump: ffc %d layer %d data %d script %d flags %lx x %ld y %ld vx %ld vy %ld ax %ld ay %ld delay %d link %d combo type %d initd %ld %ld %ld %ld %ld %ld %ld %ld vp %ld %ld\n", i, (int)m.fflayer[i] + 1, m.ffdata[i], m.ffscript[i], (unsigned long)m.ffflags[i],
                          (long)m.ffx[i], (long)m.ffy[i], (long)m.ffxdelta[i], (long)m.ffydelta[i], (long)m.ffxdelta2[i], (long)m.ffydelta2[i], m.ffdelay[i], m.fflink[i], combobuf[m.ffdata[i]].type,
-                         m.initd[i][0], m.initd[i][1], m.initd[i][2], m.initd[i][3], m.initd[i][4], m.initd[i][5], m.initd[i][6], m.initd[i][7]);
+                         m.initd[i][0], m.initd[i][1], m.initd[i][2], m.initd[i][3], m.initd[i][4], m.initd[i][5], m.initd[i][6], m.initd[i][7], (long)m.ffvpsuspend[i], (long)m.ffvpdespawn[i]);
+#endif
+
+        for(int i = 0; getenv("ZC_Q255_DUMP_CELLS") && i < m.ffc_count(); ++i)
+            if(m.ffdata[i])
+            {
+                const newcombo &c = combobuf[m.ffdata[i]];
+                al_trace("dump: ffc %d combo %d tile %ld frames %d speed %d next %d nextcset %d skip %d,%d animflags %x nexttimer %d\n", i, m.ffdata[i], (long)c.tile,
+                         c.frames, c.speed, c.nextcombo, c.nextcset, c.skipanim, c.skipanimy, c.animflags, c.nexttimer);
+            }
+
+        if(getenv("ZC_Q255_DUMP_CELLS"))
+            for(int i = 0; i < 176; i += 16)
+                al_trace("dump: row %d: %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n", i / 16, m.data[i], m.data[i+1], m.data[i+2], m.data[i+3], m.data[i+4], m.data[i+5], m.data[i+6], m.data[i+7],
+                         m.data[i+8], m.data[i+9], m.data[i+10], m.data[i+11], m.data[i+12], m.data[i+13], m.data[i+14], m.data[i+15]);
 
         {
             std::map<int, int> kinds;

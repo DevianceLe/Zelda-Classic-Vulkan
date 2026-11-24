@@ -2316,7 +2316,9 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
         for(int i=0; i<176; i++)
         {
 //        if (combobuf[layer->data[i]].type==cOLD_OVERHEAD)
-            if(combo_class_buf[combobuf[layer->data[i]].type].overhead)
+            // (2.55/3.0: a combo with the "overhead" animation flag, AF_OVERHEAD 0x40, too)
+            if(combo_class_buf[combobuf[layer->data[i]].type].overhead
+               || (tiles_newer_combo_flags && (combobuf[layer->data[i]].animflags & 0x40)))
             {
                 overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,layer->data[i],layer->cset[i]);
             }
@@ -3667,6 +3669,17 @@ void draw_screen(mapscr* this_screen, bool showlink)
     if(q30_region_camera_used()) q30_region_upper_layer(temp_buf, -1, this_screen, false);
     else do_layer(temp_buf,-1, this_screen, 0, 0, 2);
     do_layer(scrollbuf,-1, this_screen, 0, 0, 2);
+
+    // 3.0 qr_OVERHEAD_COMBOS_L1_L2: the overhead combos of layers 1 and 2 too (this screen's and,
+    // in a scrolling region, the others in view), over the FFCs of layer 1 among others
+    if(q30_quest_rule(Q30_QR_OVERHEAD_COMBOS_L1_L2))
+    {
+        q30_region_overhead_layers(temp_buf);
+
+        for(int l = 0; l < 2; ++l)
+            if(tmpscr2[l].valid & mVALID)
+                do_layer(scrollbuf, -1, &tmpscr2[l], 0, 0, 2);
+    }
     q30_draw_script_layer(temp_buf, Q30_SPLAYER_OVERHEAD_CMB);
 
     for(pcounter=0; pcounter<particles.Count(); pcounter++)

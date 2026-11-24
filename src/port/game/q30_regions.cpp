@@ -1583,6 +1583,44 @@ void q30_region_upper_layer(BITMAP *bmp, int type, mapscr *this_screen, bool dra
         }
 }
 
+// 3.0 qr_OVERHEAD_COMBOS_L1_L2 (upstream's overhead pass, do_layer -1 on screen_handles[1] and [2]):
+// the overhead combos of layers 1 and 2 of this screen and of the other screens of a region in view
+void q30_region_overhead_layers(BITMAP *bmp)
+{
+    int cx = 0, cy = 0;
+
+    if(q30_region_camera_used())
+        q30_region_camera(int(Link.getX()), int(Link.getY()), &cx, &cy);
+
+    for(int l = 0; l < 2; ++l)
+        if(tmpscr2[l].valid & mVALID)
+            do_layer(bmp, -1, &tmpscr2[l], cx, cy, 2);
+
+    if(!g_reg.on || (!cx && !cy))
+        return;
+
+    int x0, y0, x1, y1;
+    view_screen_range(cx, cy, 0, &x0, &y0, &x1, &y1);
+
+    for(int sdy = y0; sdy <= y1; ++sdy)
+        for(int sdx = x0; sdx <= x1; ++sdx)
+        {
+            int scr;
+
+            if((!sdx && !sdy) || !in_region(sdx, sdy, &scr))
+                continue;
+
+            RegionScreen *rs = region_screen(scr);
+
+            if(!rs)
+                continue;
+
+            for(int l = 0; l < 2; ++l)
+                if(rs->layers[l].valid & mVALID)
+                    do_layer(bmp, -1, &rs->layers[l], cx - sdx * 256, cy - sdy * 176, 3);
+        }
+}
+
 int q30_region_view_screens(Q30ViewScreen *out, int extra)
 {
     out[0].ox = out[0].oy = 0;

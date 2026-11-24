@@ -239,14 +239,23 @@ void reset_combo_animations()
     for(word x=0; x<animated_combos; ++x)
     {
         combobuf[animated_combo_table4[x][0]].tile=animated_combo_table[animated_combo_table4[x][0]][1];
+
+        if(tiles_newer_combo_flags)     // 2.55/3.0 (upstream's newcombo::reset_animation): the clock too
+            animated_combo_table4[x][1]=0;
     }
 }
 
 void reset_combo_animations2()
 {
+    // (all quests loop over animated_combos, as 2.53 and upstream do)
     for(word x=0; x<animated_combos; ++x)
     {
         combobuf[animated_combo_table24[x][0]].tile=animated_combo_table2[animated_combo_table24[x][0]][1];
+
+        // 2.55/3.0: a "fresh" combo's animation restarts with the screen, clock included
+        // (upstream's newcombo::reset_animation); 2.53 kept the clock running
+        if(tiles_newer_combo_flags)
+            animated_combo_table24[x][1]=0;
     }
 }
 
