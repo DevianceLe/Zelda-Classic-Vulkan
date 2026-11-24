@@ -133,7 +133,7 @@ def run_ours(f, rel, work, slot, start, keep):
     empty = os.path.join(work, 'empty.txt')
     open(empty, 'w').close()
     env = dict(os.environ, SDL_WINDOW_ACTIVATE_WHEN_SHOWN='0', SDL_JOYSTICK_HIDAPI='0', ZQ_UI_SCRIPT=empty,
-               ZC_TEST_START='%d,%d,%d,%d' % (f['dmap'], f['scr'], start[0], start[1]), ZC_SCRIPT_PRINTF='1',
+               ZC_TEST_START='%d,%d,%d,%d' % (f['dmap'], f['scr'], start[0], start[1]), ZC_SCRIPT_PRINTF='1', ZC_TEST_SAVE_RELOAD='file',
                ZC_REGION_SPRLOG=os.path.join(d, 'spr.txt'))
     for k in ('ZC_TEST_KEYS', 'ZC_TEST_ITEMS', 'ZC_TEST_INIT_ITEMS', 'ALLEGRO_TRACE'):
         env.pop(k, None)

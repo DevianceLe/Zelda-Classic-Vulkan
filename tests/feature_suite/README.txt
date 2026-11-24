@@ -29,7 +29,10 @@ Run (needs only our build; upstream is not needed)
            (default %TEMP%\zc_feature_suite), --keep (keep the compared frame dumps and logs)
   Our player runs from the build folder with a work folder per slot (hard links to the .dat files, a zc.cfg
   with fixed keys), windows shown and never focused (SDL_WINDOW_ACTIVATE_WHEN_SHOWN=0), -replay of the
-  feature's input, ZC_TEST_START at upstream's start, frame dumps only of the compared frames.
+  feature's input, ZC_TEST_START at upstream's start, frame dumps only of the compared frames, and
+  ZC_TEST_SAVE_RELOAD (test runs only: a script's Game->Reload() reads the save back from the save file, so
+  save_reload / save_continue check what the save format keeps against upstream's replay save/reload; the
+  switch set to frame numbers also saves and reloads at those frames, in any quest).
   Output: one line per feature
     SAME       pictures, Link's positions and script lines as upstream
     DIFF       and where: "hero N/M frames (first ...)", "lines N/M differ [the values that differ]",

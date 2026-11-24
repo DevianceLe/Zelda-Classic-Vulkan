@@ -51,6 +51,8 @@ subscreen_sel  | 339 | 20 | @script | - | 100:+START 106:-START 160:+RIGHT 162:-
 
 # --- script values (r10play / r12script tests) ---------------------------------------------------
 start_state    | 347 | 20 | @script | start_state.zs | - | 80 | - | lines | life/magic (3.0 HP per heart) and counters a new game of the z3 quest starts with
+save_reload    | 348 | 20 | @script | save_reload.zs | - | 300 | 60 290 | hero lines | r22save: Game->Save() then Game->Reload(): life, counters (also past 32), items, B/A, screen states/ExStates/screen D, level/global switches, a saved portal, Link's place after the reload (ours reads the save back from the file)
+save_continue  | 349 | 20 | @script | save_continue.zs | - | 400 | 120 390 | hero lines | r22save: Game->SaveAndContinue() with the continue screen set to 0x13, then Game->Continue(): where Link continues, life (the quest's HP per heart), counters, B/A, ExState
 script_regs    | 340 | 20 | @script | regs.zs | - | 120 | - | lines | Hero->LiftedWeapon, sprite->Gravity, SwitchHooked, trigger TrigGlobalState/TrigChange
 script_trig    | 341 | 20 | @script | trig.zs | - | 140 | 130 | lines | combo trigger fields (tint, buttons, flags, Triggers[]), a script-set tint used in play
 script_plain   | 342 | 20 | @script | plain.zs | - | 120 | - | lines | mapdata/Screen warp and item fields, shopdata, itemdata TileMod/AFrames
