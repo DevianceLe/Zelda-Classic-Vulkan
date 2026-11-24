@@ -12016,6 +12016,7 @@ void esPatra::draw(BITMAP *dest)
         enemy::draw(dest);
 }
 
+#include "port/game/q30_patra.h"     // 2.55/3.0: upstream's reworked Patra
 
 ePatraBS::ePatraBS(fix ,fix ,int Id,int Clk) : enemy((fix)128,(fix)48,Id,Clk)
 {
@@ -12734,12 +12735,21 @@ int addenemy(int x,int y,int z,int id,int clk)
         switch(guysbuf[id&0xFFF].misc10)
         {
         case 1:
+            if(q30_patra_reworked(id))  // (2.55/3.0 without qr_HARDCODED_BS_PATRA: upstream's ePatra)
+            {
+                e = new ePatra30((fix)x,(fix)y,id,clk);
+                break;
+            }
+
             e = new ePatraBS((fix)x,(fix)y,id,clk);
             break;
             
         case 0:
         default:
-            e = new ePatra((fix)x,(fix)y,id,clk);
+            if(q30_patra_reworked(id))
+                e = new ePatra30((fix)x,(fix)y,id,clk);
+            else
+                e = new ePatra((fix)x,(fix)y,id,clk);
             break;
         }
         
@@ -12949,10 +12959,11 @@ int addenemy(int x,int y,int z,int id,int clk)
         id &= 0xFFF;
         int outeyes = 0;
         q30_patra_parent = (enemy*)e;
+        const bool q30_reworked = q30_patra_reworked(id);   // (its orbiters: upstream's esPatra)
 
         for(int i=0; i<zc_min(254,guysbuf[id&0xFFF].misc1); i++)
         {
-            if(!(guysbuf[id].misc10?guys.add(new esPatraBS((fix)x,(fix)y,id+0x1000,i)):guys.add(new esPatra((fix)x,(fix)y,id+0x1000,i))))
+            if(!(q30_reworked?guys.add(new esPatra30((fix)x,(fix)y,id+0x1000,i)):guysbuf[id].misc10?guys.add(new esPatraBS((fix)x,(fix)y,id+0x1000,i)):guys.add(new esPatra((fix)x,(fix)y,id+0x1000,i))))
             {
                 al_trace("Patra outer eye %d could not be created!\n",i+1);
                 q30_patra_parent = NULL;
@@ -12972,7 +12983,7 @@ int addenemy(int x,int y,int z,int id,int clk)
 
         for(int i=0; i<zc_min(254,guysbuf[id&0xFFF].misc2); i++)
         {
-            if(!guys.add(new esPatra((fix)x,(fix)y,id+0x1000,i)))
+            if(!(q30_reworked?guys.add(new esPatra30((fix)x,(fix)y,id+0x1000,i)):guys.add(new esPatra((fix)x,(fix)y,id+0x1000,i))))
             {
                 al_trace("Patra inner eye %d could not be created!\n",i+1);
                 

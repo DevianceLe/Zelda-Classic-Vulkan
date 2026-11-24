@@ -147,20 +147,22 @@ int q30_get_conveyor(int x, int y, bool check_rates)
 
 // (q30_zfix_int: zfix's getInt, rounding half away from zero: a sprite's conveyor speeds are whole pixels)
 
-// upstream sprite::on_sideview_solid, without the sideview ladder platforms
-static bool q30_conveyor_sv_solid(sprite *s, bool hardcoded)
+// upstream sprite::on_sideview_solid: an item also stands on sideview platforms and ladder tops
+// (uses_sideview_platforms: items, unless qr_ITEMS_IGNORE_SIDEVIEW_PLATFORMS; on a tile's edge only)
+static bool q30_conveyor_sv_solid(sprite *s, bool hardcoded, bool is_item)
 {
     if(!(tmpscr->flags7 & fSIDEVIEW))
         return false;
 
     const int lx = hardcoded ? int(s->x) : int(s->x) + s->hxofs;
     const int by = hardcoded ? int(s->y) + 16 : int(s->y) + s->hyofs + s->hysz;
+    const bool platforms = is_item && !q30_quest_rule(179) && (by % 16) == 0;
 
     for(int xo = zc_min(4, s->hxsz / 2); xo < s->hxsz; xo += 8)
-        if(_walkflag(lx + xo, by, 1))
+        if(_walkflag(lx + xo, by, 1) || (platforms && q30_sideview_platform_at(lx + xo, by)))
             return true;
 
-    if(_walkflag(lx + s->hxsz - 1, by, 1))
+    if(_walkflag(lx + s->hxsz - 1, by, 1) || (platforms && q30_sideview_platform_at(lx + s->hxsz - 1, by)))
         return true;
 
     return by >= 176 && currscr >= 0x70 && !(tmpscr->flags2 & wfDOWN);
@@ -193,7 +195,7 @@ int q30_sprite_conveyor(sprite *s, bool is_item, dword moveflags, long fakez)
     }
 
     int cid = q30_get_conveyor(cx, cy, false);
-    const bool is_sv = cid < 0 && !q30_quest_rule(576) && q30_conveyor_sv_solid(s, hardcoded);   // qr_BROKEN_SV_SOLID_CONVEYORS
+    const bool is_sv = cid < 0 && !q30_quest_rule(576) && q30_conveyor_sv_solid(s, hardcoded, is_item);   // qr_BROKEN_SV_SOLID_CONVEYORS
 
     if(is_sv)
     {

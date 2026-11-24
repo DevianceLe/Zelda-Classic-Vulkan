@@ -341,6 +341,8 @@ private:
     void check_pound_block(int bx, int by);
     void check_conveyor();
     void q30_check_conveyor();      // 2.55/3.0 conveyors (upstream HeroClass::check_conveyor)
+    void q30_conv_face();           // 2.55/3.0: a flag 3 conveyor's facing (upstream conv_forcedir)
+    bool q30_conv_walk();           // 2.55/3.0: a flag 6 conveyor walks Link (qr_NEW_HERO_MOVEMENT2)
     bool sideviewhammerpound();
     bool agonyflag(int flag);
     int ringpower(int dmg);

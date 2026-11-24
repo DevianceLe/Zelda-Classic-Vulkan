@@ -7875,7 +7875,8 @@ static bool effect_at(int x, int y, int layer)
     if(!c)
         return true;
 
-    int quadrant = ((y & 8) ? 2 : 0) | ((x & 8) ? 1 : 0);
+    // (upstream's effectflag: the right half is bit 2, the lower half bit 1, as the walk bits)
+    int quadrant = ((x & 8) ? 2 : 0) | ((y & 8) ? 1 : 0);
     return (c->walk >> 4) & (1 << quadrant) ? true : false;
 }
 

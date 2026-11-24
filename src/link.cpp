@@ -518,12 +518,18 @@ void q30_shield_jinx_tick();
 // 2.55/3.0 conveyors: upstream's newconveyorclk, is_conveyor_stunned and is_on_conveyor start over
 // (HeroClass::init and resetflags); q30_check_conveyor counts them
 static int q30_conv_on = 0;
+// upstream's conv_forcedir (flag 3: the way Link faces while the conveyor has him, even walking)
+// and convey_forcex / convey_forcey (flag 6 under qr_NEW_HERO_MOVEMENT2: the conveyor walks him)
+static int q30_conv_forcedir = -1;
+static double q30_convey_forcex = 0, q30_convey_forcey = 0;
 
 static void q30_conveyor_reset()
 {
     q30_newconveyorclk = 0;
     q30_conveyor_stun = 0;
     q30_conv_on = 0;
+    q30_conv_forcedir = -1;
+    q30_convey_forcex = q30_convey_forcey = 0;
 }
 
 // called by ALLOFF()
@@ -7420,6 +7426,9 @@ void LinkClass::movelink()
     int oldladderx=-1000, oldladdery=-1000; // moved here because linux complains "init crosses goto ~Koopa
     pushing=0;
 
+    if(q30_conv_walk())     // (2.55/3.0: a flag 6 conveyor walks him)
+        return;
+
     if(q30_link_stunned())
         return;
 
@@ -7679,12 +7688,17 @@ void LinkClass::movelink()
         }
     }
 
+    q30_conv_face();    // (2.55/3.0: a flag 3 conveyor's facing)
+
     if(attackclk || action==attacking)
     {
+        q30_conv_face();
         bool attacked = doattack();
         
         // This section below interferes with script-setting Link->Dir, so it comes after doattack
-        if(!inlikelike && attackclk>4 && (attackclk&3)==0 && charging==0 && spins==0 && !q30_is_side_swim())
+        if(q30_active() && q30_conv_forcedir > -1 && !spins)
+            q30_conv_face();
+        else if(!inlikelike && attackclk>4 && (attackclk&3)==0 && charging==0 && spins==0 && !q30_is_side_swim())
         {
             if((xoff==0)||diagonalMovement)
             {
@@ -7856,6 +7870,10 @@ void LinkClass::movelink()
        && (action!=swimming || q30_new_hero_movement()) && action!=casting && action!=drowning && !(ladderx+laddery))
     {
         q30_free_walk(push);
+
+        if(q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2))
+            q30_conv_face();    // (upstream's newmove_slide)
+
         return;
     }
 
@@ -21008,8 +21026,8 @@ void LinkClass::q30_check_conveyor()
     if(q30_conveyor_stun > 0)
         --q30_conveyor_stun;
 
-    if(q30_conv_on > 0)
-        --q30_conv_on;
+    if(q30_conv_on > 0 && !--q30_conv_on)
+        q30_conv_forcedir = -1;
 
     is_on_conveyor = q30_conv_on != 0;
 
@@ -21019,7 +21037,7 @@ void LinkClass::q30_check_conveyor()
         return;
     }
 
-    if(inlikelike || pull_link)
+    if(inlikelike || pull_link || toogam)     // (upstream: and the walk-through-walls cheat, and autowalking)
     {
         q30_conveyor_stun = 0;
         return;
@@ -21037,6 +21055,7 @@ void LinkClass::q30_check_conveyor()
         if(conveyclk <= 0 && q30_conv_on < 0)
         {
             q30_conv_on = 0;
+            q30_conv_forcedir = -1;
             q30_conveyor_stun = 0;
         }
 
@@ -21050,6 +21069,7 @@ void LinkClass::q30_check_conveyor()
     if(z > 0 && !((tmpscr->flags2 & fAIRCOMBOS) || (usr & 0x40)))
     {
         q30_conv_on = 0;
+        q30_conv_forcedir = -1;
         q30_conveyor_stun = 0;
         is_on_conveyor = false;
         return;
@@ -21105,12 +21125,70 @@ void LinkClass::q30_check_conveyor()
 
     q30_conv_on = custom_spd ? rate : -1;
     is_on_conveyor = true;
+    q30_conv_forcedir = -1;
     q30_conveyor_stun = 0;
-    // (flag 6, walking Link along with the new movement, and flag 4's smart corners move him the plain way)
+
+    if((usr & 0x20) && q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2))     // flag 6: the conveyor walks Link
+    {
+        q30_conveyor_stun = rate;
+
+        if(usr & 0x4)
+        {
+            const fix ady0 = deltay < 0 ? -deltay : deltay, adx0 = deltax < 0 ? -deltax : deltax;
+            q30_conv_forcedir = dir = (adx0 > ady0) ? ((deltax > 0) ? right : left) : ((deltay > 0) ? down : up);
+        }
+
+        q30_convey_forcex = double(deltax);
+        q30_convey_forcey = double(deltay);
+        return;
+    }
+
     bool movedx = false, movedy = false;
     WalkflagInfo info;
     const fix ady = deltay < 0 ? -deltay : deltay, adx = deltax < 0 ? -deltax : deltax;
     const bool gridfree = diagonalMovement || q30_no_gridlock();
+
+    // flag 4, smart corners: a push one way that is blocked lines Link up with the conveyor's row
+    // (column), a pixel a frame, when he could go on from there (upstream's scr_canmove test after
+    // the blocked try; the plain move then tries again)
+    if(usr & 0x8)
+    {
+        const int cx = (int(x) + 7) & ~15, cy = (int(y) + (bigHitbox ? 8 : 12)) & ~15;
+
+        if(deltax != 0 && deltay == 0)
+        {
+            const int d = deltax > 0 ? right : left;
+            const int px = deltax > 0 ? int(x) + 15 + 2 : int(x) - int(lsteps[int(x) & 7]);
+
+            if(walkflag(px, y + 8 - (bigHitbox ? 8 : 0), 1, d).isUnwalkable())
+            {
+                const fix oy = y;
+                y = fix(cy);
+                const bool validpush = !walkflag(px, y + 8 - (bigHitbox ? 8 : 0), 1, d).isUnwalkable();
+                y = oy;
+
+                if(validpush)
+                    y = (y <= fix(cy - 1)) ? y + 1 : (y >= fix(cy + 1)) ? y - 1 : fix(cy);
+            }
+        }
+
+        if(deltay != 0 && deltax == 0)
+        {
+            const int d = deltay > 0 ? down : up;
+            const fix py2 = deltay > 0 ? y + 15 + 2 : y + 8 - (bigHitbox * 8) - 2;
+
+            if(walkflag(x, py2, 2, d).isUnwalkable())
+            {
+                const fix ox = x;
+                x = fix(cx);
+                const bool validpush = !walkflag(x, py2, 2, d).isUnwalkable();
+                x = ox;
+
+                if(validpush)
+                    x = (x <= fix(cx - 1)) ? x + 1 : (x >= fix(cx + 1)) ? x - 1 : fix(cx);
+            }
+        }
+    }
 
     if(deltay < 0)
     {
@@ -21239,14 +21317,52 @@ void LinkClass::q30_check_conveyor()
         if(usr & 0x1)       // stunned while moving
             q30_conveyor_stun = rate;
 
-        if(usr & 0x4)       // force direction
+        if(usr & 0x4)       // force direction (upstream's conv_forcedir: kept while he walks on it)
         {
             if(adx > ady)
-                dir = (deltax > 0) ? right : left;
+                q30_conv_forcedir = dir = (deltax > 0) ? right : left;
             else
-                dir = (deltay > 0) ? down : up;
+                q30_conv_forcedir = dir = (deltay > 0) ? down : up;
         }
     }
+}
+
+// upstream's premove / movehero: the facing a flag 3 conveyor forces while it has Link
+void LinkClass::q30_conv_face()
+{
+    if(q30_active() && q30_conv_forcedir > -1 && !spins)
+        dir = q30_conv_forcedir;
+}
+
+// flag 6 under qr_NEW_HERO_MOVEMENT2 (upstream's movehero with is_conveyor_stunned): the conveyor's
+// push this frame is Link's walk (dx, dy), each part fitted to the walls, with the walk animation
+bool LinkClass::q30_conv_walk()
+{
+    if(!q30_active() || q30_conveyor_stun <= 0 || (q30_convey_forcex == 0 && q30_convey_forcey == 0))
+        return false;
+
+    const double dx = q30_convey_forcex, dy = q30_convey_forcey;
+    q30_convey_forcex = q30_convey_forcey = 0;
+
+    if(dy != 0)
+    {
+        double s = dy < 0 ? -dy : dy;
+        if(q30_fit_step(dy < 0 ? up : down, s, -1, 0))
+            y = y + fix(dy < 0 ? -s : s);
+    }
+
+    if(dx != 0)
+    {
+        double s = dx < 0 ? -dx : dx;
+        if(q30_fit_step(dx < 0 ? left : right, s, -1, 0))
+            x = x + fix(dx < 0 ? -s : s);
+    }
+
+    if(action != walking)
+        action = walking;
+
+    q30_conv_face();
+    return true;
 }
 
 void LinkClass::check_conveyor()
