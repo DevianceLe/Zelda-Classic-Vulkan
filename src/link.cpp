@@ -15567,13 +15567,17 @@ void LinkClass::stepforward(int steps, bool adjust)
                 
             if(s<0)
             {
-                // as 2.53's below: entering the screen, or leaving it
+                // as 2.53's below: entering the screen, or leaving it. Upstream tests Link's
+                // position in region pixels, so in a scrolling region "leaving" means the region's
+                // edges (q30_region_origin_x/y: 0 outside one)
+                const int rx = q30_region_origin_x(), ry = q30_region_origin_y();
+
                 switch(dir)
                 {
-                case up: if(y<8) y+=s; else y-=s; break;
-                case down: if(y>152) y-=s; else y+=s; break;
-                case left: if(x<8) x+=s; else x-=s; break;
-                case right: if(x>=232) x-=s; else x+=s; break;
+                case up: if(y+ry<8) y+=s; else y-=s; break;
+                case down: if(y+ry>152) y-=s; else y+=s; break;
+                case left: if(x+rx<8) x+=s; else x-=s; break;
+                case right: if(x+rx>=232) x-=s; else x+=s; break;
                 }
             }
             

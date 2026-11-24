@@ -28,6 +28,7 @@ void zasm30_screen_state_delete(void *state);
 void *q30_trig_state_new();                             // q30_triggers.cpp
 void q30_trig_state_delete(void *state);
 sprite *q30_viewport_sprite(long uid);                  // ffscript.cpp (q30_scripts_regs.h): NULL if gone
+bool q30_layer_is_bg(const mapscr *scr, int layer);     // maps.cpp: layer 2 or 3 is a background layer
 
 namespace
 {
@@ -1472,11 +1473,11 @@ void q30_region_lower_layer(BITMAP *lower, int which)
             switch(which)
             {
             case Q30_LOWER_BG2:
-                if(s->flags7 & fLAYER2BG) do_layer(lower, 1, s, x, y, 3);
+                if(q30_layer_is_bg(s, 2)) do_layer(lower, 1, s, x, y, 3);
                 break;
 
             case Q30_LOWER_BG3:
-                if(s->flags7 & fLAYER3BG) do_layer(lower, 2, s, x, y, 3);
+                if(q30_layer_is_bg(s, 3)) do_layer(lower, 2, s, x, y, 3);
                 break;
 
             case Q30_LOWER_LAYER0:
@@ -1492,7 +1493,7 @@ void q30_region_lower_layer(BITMAP *lower, int which)
                 break;
 
             case Q30_LOWER_LAYER2:
-                if(!(s->flags7 & fLAYER2BG)) do_layer(lower, 1, s, x, y, 3);
+                if(!q30_layer_is_bg(s, 2)) do_layer(lower, 1, s, x, y, 3);
                 break;
             }
         }
@@ -1573,7 +1574,8 @@ void q30_region_upper_layer(BITMAP *bmp, int type, mapscr *this_screen, bool dra
 
             RegionScreen *rs = region_screen(scr);
 
-            if(!rs)
+            // (a background layer 3 went with the lower layers)
+            if(!rs || (type == 2 && q30_layer_is_bg(&rs->base, 3)))
                 continue;
 
             LayersIn in(rs);

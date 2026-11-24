@@ -40,6 +40,8 @@
 #include "port/game/q30_regions.h"
 bool q30_msg_blit(BITMAP *dest, int dy, int h);    // q30_msg.cpp: 2.55/3.0 strings, translucent ones too
 bool q30_msg_blit_screen(BITMAP *dest, int dy, int h, bool after_subscreen);  // ... at their draw layer
+int q30_screen_hidden_layers(int index, bool script);   // q30_scripts_data.h: a 2.55/3.0 screen's hidden layers
+static mapscr *q30_layer_draws_only = NULL;   // do_layer: this screen's script drawing on the layer without its combos
 
 
 #define EPSILON 0.01 // Define your own tolerance
@@ -2843,8 +2845,12 @@ void do_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, int tempscreen
     
     if(showlayer)
     {
-        do_scrolling_layer(bmp, type, layer, x, y, scrolling, tempscreen);
-        
+        // a 2.55/3.0 screen's hidden layer: its combos aren't drawn, its script drawing still is
+        // (upstream do_layer; none for 2.53 quests)
+        if(layer != q30_layer_draws_only &&
+           !(type >= 0 && type <= 5 && layer == tmpscr && (q30_screen_hidden_layers(currmap * MAPSCRS + currscr, false) & (1 << (type + 1)))))
+            do_scrolling_layer(bmp, type, layer, x, y, scrolling, tempscreen);
+
         if(drawprimitives && type >= 0 && type <= 5)
         {
             // (a scrolling region's camera moves them with the screen; 0 otherwise)
@@ -3071,13 +3077,54 @@ void q30_draw_subscreen_scripts(BITMAP *bmp)
         do_primitives(bmp, l, scr, 0, y);
 }
 
-// Layer 2 or 3 drawn as a background layer, with its script drawing and particles (draw_screen).
-static void draw_background_layer2(BITMAP *lower, mapscr* this_screen)
+// Is layer 2 or 3 of the screen a background layer? Its "layer is background" flag, which in a
+// 2.55/3.0 quest the DMap's flips (upstream's XOR with dmfLAYER2BG / dmfLAYER3BG).
+bool q30_layer_is_bg(const mapscr *scr, int layer)
 {
-    do_layer(lower,1, this_screen, q30_draw_cam_x, q30_draw_cam_y, 2, false, true);
-    q30_draw_block_on(lower, 2);
+    bool bg = (scr->flags7 & (layer == 3 ? fLAYER3BG : fLAYER2BG)) != 0;
 
-    for(int pcounter=0; pcounter<particles.Count(); pcounter++)
+    if(zasm30_ffscript_version && (DMaps[currdmap].flags & (layer == 3 ? 0x020000 : 0x040000)))
+        bg = !bg;
+
+    return bg;
+}
+
+// Is the script drawing (and the particles) on layer 2 or 3 drawn with the background layers?
+// 2.55/3.0: by the region's origin screen's flag (upstream's origin_scr), which can differ from
+// the flag of the screen Link is on; 2.53: by this screen's, as its combos.
+static bool q30_layer_draws_bg(mapscr *this_screen, int layer)
+{
+    if(!zasm30_ffscript_version)
+        return q30_layer_is_bg(this_screen, layer);
+
+    const int o = q30_region_origin();
+    const size_t idx = (size_t)currmap * MAPSCRS + o;
+    return q30_layer_is_bg((o == currscr || idx >= TheMaps.size()) ? this_screen : &TheMaps[idx], layer);
+}
+
+// Layer type+1 (2 or 3) with its combos, its script drawing, or both (do_layer).
+static void q30_layer_parts(BITMAP *bmp, int type, mapscr *scr, int x, int y, bool combos, bool draws)
+{
+    if(combos)
+        do_layer(bmp, type, scr, x, y, 2, false, draws);
+    else if(draws)
+    {
+        q30_layer_draws_only = scr;
+        do_layer(bmp, type, scr, x, y, 2, false, true);
+        q30_layer_draws_only = NULL;
+    }
+}
+
+// Layer 2 or 3 drawn as a background layer: its combos (combos) and its script drawing and
+// particles (draws), which 2.55/3.0 quests decide apart (draw_screen).
+static void draw_background_layer2(BITMAP *lower, mapscr* this_screen, bool combos, bool draws)
+{
+    q30_layer_parts(lower, 1, this_screen, q30_draw_cam_x, q30_draw_cam_y, combos, draws);
+
+    if(combos)
+        q30_draw_block_on(lower, 2);
+
+    for(int pcounter=0; draws && pcounter<particles.Count(); pcounter++)
     {
         if(((particle*)particles.spr(pcounter))->layer==1)
         {
@@ -3086,11 +3133,11 @@ static void draw_background_layer2(BITMAP *lower, mapscr* this_screen)
     }
 }
 
-static void draw_background_layer3(BITMAP *lower, mapscr* this_screen)
+static void draw_background_layer3(BITMAP *lower, mapscr* this_screen, bool combos, bool draws)
 {
-    do_layer(lower,2, this_screen, q30_draw_cam_x, q30_draw_cam_y, 2, false, true);
+    q30_layer_parts(lower, 2, this_screen, q30_draw_cam_x, q30_draw_cam_y, combos, draws);
 
-    for(int pcounter=0; pcounter<particles.Count(); pcounter++)
+    for(int pcounter=0; draws && pcounter<particles.Count(); pcounter++)
     {
         if(((particle*)particles.spr(pcounter))->layer==2)
         {
@@ -3162,6 +3209,12 @@ void draw_screen(mapscr* this_screen, bool showlink)
     // nothing otherwise)
     BITMAP *lower = q30_region_lower_begin(scrollbuf);
 
+    // Layers 2 and 3 as background layers: the combos by this screen's flag, the script drawing
+    // and particles on them by the region origin's in 2.55/3.0 quests (q30_layer_draws_bg; the
+    // same flag for 2.53 quests).
+    const bool l2bg = q30_layer_is_bg(this_screen, 2), l3bg = q30_layer_is_bg(this_screen, 3);
+    const bool l2bg_draws = q30_layer_draws_bg(this_screen, 2), l3bg_draws = q30_layer_draws_bg(this_screen, 3);
+
     // Newer quests in upstream's layer order: script layers -7..-4 under everything, background
     // layer 3, script layer -3, background layer 2, script layers -2 and -1, then layer 0.
     // 2.53 quests (and newer ones with the old order) keep background layer 2 under 3.
@@ -3174,17 +3227,17 @@ void draw_screen(mapscr* this_screen, bool showlink)
         }
 
         q30_region_lower_layer(lower, Q30_LOWER_BG3);
-        if(this_screen->flags7&fLAYER3BG)
-            draw_background_layer3(lower, this_screen);
+        if(l3bg || l3bg_draws)
+            draw_background_layer3(lower, this_screen, l3bg, l3bg_draws);
 
-        q30_ffc_layer(lower, -3, (this_screen->flags7&fLAYER3BG) ? 3 : -3, this_screen, true);
+        q30_ffc_layer(lower, -3, l3bg ? 3 : -3, this_screen, true);
         q30_draw_script_layer(lower, -3);
 
         q30_region_lower_layer(lower, Q30_LOWER_BG2);
-        if(this_screen->flags7&fLAYER2BG)
-            draw_background_layer2(lower, this_screen);
+        if(l2bg || l2bg_draws)
+            draw_background_layer2(lower, this_screen, l2bg, l2bg_draws);
 
-        q30_ffc_layer(lower, -2, (this_screen->flags7&fLAYER2BG) ? 2 : -2, this_screen, true);
+        q30_ffc_layer(lower, -2, l2bg ? 2 : -2, this_screen, true);
         q30_draw_script_layer(lower, -2);
         q30_ffc_layer(lower, -1, -1, this_screen, true);
         q30_draw_script_layer(lower, -1);
@@ -3192,16 +3245,16 @@ void draw_screen(mapscr* this_screen, bool showlink)
     else
     {
         q30_region_lower_layer(lower, Q30_LOWER_BG2);
-        if(this_screen->flags7&fLAYER2BG)
-            draw_background_layer2(lower, this_screen);
+        if(l2bg || l2bg_draws)
+            draw_background_layer2(lower, this_screen, l2bg, l2bg_draws);
 
-        q30_ffc_layer(lower, -2, (this_screen->flags7&fLAYER2BG) ? 2 : -2, this_screen, true);
+        q30_ffc_layer(lower, -2, l2bg ? 2 : -2, this_screen, true);
 
         q30_region_lower_layer(lower, Q30_LOWER_BG3);
-        if(this_screen->flags7&fLAYER3BG)
-            draw_background_layer3(lower, this_screen);
+        if(l3bg || l3bg_draws)
+            draw_background_layer3(lower, this_screen, l3bg, l3bg_draws);
 
-        q30_ffc_layer(lower, -3, (this_screen->flags7&fLAYER3BG) ? 3 : -3, this_screen, true);
+        q30_ffc_layer(lower, -3, l3bg ? 3 : -3, this_screen, true);
     }
     
     q30_region_lower_layer(lower, Q30_LOWER_LAYER0);
@@ -3282,20 +3335,23 @@ void draw_screen(mapscr* this_screen, bool showlink)
     }
     
     q30_region_lower_layer(lower, Q30_LOWER_LAYER2);
-    if(!(this_screen->flags7&fLAYER2BG))
+    if(!l2bg || !l2bg_draws)
     {
-        do_layer(lower,1, this_screen, q30_draw_cam_x, q30_draw_cam_y, 2, false, true); // LAYER 2
-        q30_draw_block_on(lower, 2);
-        
-        for(pcounter=0; pcounter<particles.Count(); pcounter++)
+        q30_layer_parts(lower, 1, this_screen, q30_draw_cam_x, q30_draw_cam_y, !l2bg, !l2bg_draws); // LAYER 2
+
+        if(!l2bg)
+            q30_draw_block_on(lower, 2);
+
+        for(pcounter=0; !l2bg_draws && pcounter<particles.Count(); pcounter++)
         {
             if(((particle*)particles.spr(pcounter))->layer==1)
             {
                 particles.spr(pcounter)->draw(lower);
             }
         }
-        
-        q30_ffc_layer(lower, 2, 2, this_screen, true);
+
+        if(!l2bg)
+            q30_ffc_layer(lower, 2, 2, this_screen, true);
     }
 
     q30_draw_script_layer(lower, Q30_SPLAYER_FFC_DRAW);
@@ -3562,21 +3618,29 @@ void draw_screen(mapscr* this_screen, bool showlink)
     
     //5. Draw some layers onto temp_buf and scrollbuf
     
-    if(!(this_screen->flags7&fLAYER3BG))
+    if(!l3bg || !l3bg_draws)
     {
-        if(q30_region_camera_used()) q30_region_upper_layer(temp_buf, 2, this_screen, true);
-        else do_layer(temp_buf,2, this_screen, 0, 0, 2, false, true);
-        do_layer(scrollbuf, 2, this_screen, 0, 0, 2);
-        
-        for(pcounter=0; pcounter<particles.Count(); pcounter++)
+        if(q30_region_camera_used())
+        {
+            q30_layer_draws_only = l3bg ? this_screen : NULL;   // (the other screens' by their own flags)
+            q30_region_upper_layer(temp_buf, 2, this_screen, !l3bg_draws);
+            q30_layer_draws_only = NULL;
+        }
+        else q30_layer_parts(temp_buf, 2, this_screen, 0, 0, !l3bg, !l3bg_draws);
+
+        if(!l3bg)
+            do_layer(scrollbuf, 2, this_screen, 0, 0, 2);
+
+        for(pcounter=0; !l3bg_draws && pcounter<particles.Count(); pcounter++)
         {
             if(((particle*)particles.spr(pcounter))->layer==2)
             {
                 particles.spr(pcounter)->draw(temp_buf);
             }
         }
-        
-        q30_ffc_layer(temp_buf, 3, 3, this_screen, false);
+
+        if(!l3bg)
+            q30_ffc_layer(temp_buf, 3, 3, this_screen, false);
     }
     
     if(q30_region_camera_used()) q30_region_upper_layer(temp_buf, 3, this_screen, true);
@@ -4761,7 +4825,8 @@ void loadscr2(int tmp,int scr,int)
 
 void putscr(BITMAP* dest,int x,int y, mapscr* scrn)
 {
-    if(scrn->valid==0||!show_layer_0)
+    // (a 2.55/3.0 screen's hidden layer 0 is left black, as upstream's putscr)
+    if(scrn->valid==0||!show_layer_0||(scrn == tmpscr && (q30_screen_hidden_layers(currmap * MAPSCRS + currscr, false) & 1)))
     {
         rectfill(dest,x,y,x+255,y+175,0);
         return;

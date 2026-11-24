@@ -2367,6 +2367,8 @@ void zasm30_do_polygon(BITMAP *bmp, int i, int *sdci, int xoffset, int yoffset);
 void zasm30_do_screen_blit(BITMAP *bmp, int i, int *sdci, int xoffset, int yoffset);   // q30_scripts_cmds.h
 bool zasm30_draw_origin_offset(int origin, int target, int xoff, int yoff, int &x, int &y);    // q30_scripts_cmds.h
 bool zasm30_draw_cmd(BITMAP *bmp, int *sdci, std::vector<long> *v, int xoffset, int yoffset, bool offscreen);   // q30_draws.h
+int q30_screen_hidden_layers(int index, bool script);   // q30_scripts_data.h
+int q30_region_origin();                                 // q30_regions.cpp
 
 void do_primitives(BITMAP *targetBitmap, int type, mapscr *, int xoff, int yoff)
 {
@@ -2376,6 +2378,11 @@ void do_primitives(BITMAP *targetBitmap, int type, mapscr *, int xoff, int yoff)
     //bool drawsubscr=false;
     
     if(type > 7)
+        return;
+
+    // A 2.55/3.0 screen can hide a layer's script drawing (the region's origin screen's "hide script
+    // layers", as upstream's do_primitives). None for 2.53 quests.
+    if(type >= 0 && (q30_screen_hidden_layers(currmap * MAPSCRS + q30_region_origin(), true) & (1 << type)))
         return;
         
     //--script_drawing_commands[][] reference--

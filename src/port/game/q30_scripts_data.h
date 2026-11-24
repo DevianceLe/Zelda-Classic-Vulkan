@@ -2342,6 +2342,19 @@ void q30_set_screen_extras(int index, byte lens_show, byte lens_hide, byte hidel
     if(which & 4) { e.gravity = gravity; e.terminal_v = terminal_v; }
 }
 
+// The screen's hidden combo layers and hidden script draw layers (bit n = layer n), for drawing:
+// upstream's do_layer / putscr leave a hidden layer's combos out, do_primitives a hidden layer's
+// script drawing. 0 for a screen with none (every 2.53 quest's).
+int q30_screen_hidden_layers(int index, bool script)
+{
+    std::map<int, Z30dScreenExtra>::const_iterator it = zasm30_screen_extras.find(index);
+
+    if(it == zasm30_screen_extras.end())
+        return 0;
+
+    return script ? it->second.hidescriptlayers : it->second.hidelayers;
+}
+
 enum { Z30D_QR_CLEARINITDONSCRIPTCHANGE = 655 };     // upstream's qr_CLEARINITDONSCRIPTCHANGE
 bool q30_get_exstate(int index, int bit);   // q30_triggers.cpp
 void q30_set_exstate(int index, int bit, bool on);
