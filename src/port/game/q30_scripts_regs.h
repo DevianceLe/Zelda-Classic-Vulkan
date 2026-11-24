@@ -71,6 +71,7 @@ struct Z30Sprite
 
 // 3.0 scrolling regions: FFCs named across the region (q30_scripts_region.h)
 static bool zasm30_ffc_from_ref(long ref, int *screen, int *index);
+static long zasm30_selected_ffc_id();
 static bool zasm30_region_ffc_sprite_get(const long arg, long &ret, const Z30Sprite &r);
 static bool zasm30_region_ffc_sprite_set(const long arg, long value, const Z30Sprite &r);
 
@@ -81,14 +82,6 @@ static Z30Sprite z30_sprite(long uid)
     r.kind = Z30S_NONE;
     r.ffc = -1;
     r.ffc_screen = -1;
-
-    if(uid >= Z30_FFC_BASE)
-    {
-        // its slot, and in a scrolling region its screen (IDs go across the region there)
-        if(zasm30_ffc_from_ref(uid, &r.ffc_screen, &r.ffc))
-            r.kind = Z30S_FFC;
-        return r;
-    }
 
     if(uid == 1 || uid == Link.getUID())
     {
@@ -102,6 +95,13 @@ static Z30Sprite z30_sprite(long uid)
     if((r.s = q30_lifted_weapon(uid)) != NULL) { r.kind = Z30S_LWPN; return r; }  // (held over Link's head)
     if((r.s = Ewpns.getByUID(uid)) != NULL) { r.kind = Z30S_EWPN; return r; }
     if((r.s = items.getByUID(uid)) != NULL) { r.kind = Z30S_ITEM; return r; }
+
+    // an FFC (upstream's are sprites, numbered with the rest): its slot, and in a scrolling region
+    // its screen (IDs go across the region there)
+    if(zasm30_ffc_from_ref(uid, &r.ffc_screen, &r.ffc))
+        r.kind = Z30S_FFC;
+    else
+        r.ffc = -1, r.ffc_screen = -1;
     return r;
 }
 
@@ -2446,8 +2446,8 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     // q30_scripts_region.h; outside one, its slot + 1; 0 for no FFC, as upstream's)
     case Z30R_FFCID:
     {
-        const long ref = zasm30_selected_ffc_ref();
-        ret = ref ? (ref - Z30_FFC_BASE + 1) * 10000 : 0;
+        const long id = zasm30_selected_ffc_id();
+        ret = id >= 0 ? (id + 1) * 10000 : 0;
         return true;
     }
     // the FFC's draw layer (mapscr fflayer, upstream's ffcdata::layer)

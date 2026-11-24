@@ -2256,6 +2256,12 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
 
             if(layer->ffdata[i])
             {
+                // (2.55/3.0: upstream's FFCs are sprites, and one drawn takes its uid then, changers
+                // and FFCs hidden by the lens too)
+                if(sprite::uid_lazy && !(scrolling && (layer->ffflags[i] & ffCARRYOVER) != 0 && tempscreen == 3)
+                   && !!(layer->ffflags[i]&ffOVERLAY) == (type==-4))
+                    q30_ffc_uid(layer, i);
+
                 if(!(layer->ffflags[i]&ffCHANGER) && (!(layer->ffflags[i]&ffLENSVIS) || lensclk))
                 {
                     if(scrolling && (layer->ffflags[i] & ffCARRYOVER) != 0 && tempscreen == 3)
@@ -4354,7 +4360,13 @@ void loadscr(int tmp,int destdmap, int scr,int ldir,bool overlay=false)
     
     // 2.55/3.0: every screen has upstream's 128 FFC slots, used or not (scripts may fill any)
     if(q30_active())
+    {
         tmpscr[tmp].q30_extend_ffcs();
+
+        // (a screen loaded anew is new FFC sprites: no uids yet, as upstream's)
+        for(int i = 0; i < tmpscr[tmp].ffc_count(); ++i)
+            tmpscr[tmp].ffuid[i] = 0;
+    }
     
     
     const int _mapsSize = ZCMaps[currmap].tileHeight*ZCMaps[currmap].tileWidth;
@@ -4437,6 +4449,7 @@ void loadscr(int tmp,int destdmap, int scr,int ldir,bool overlay=false)
                 tmpscr[tmp].fflayer[i] = ffscr.fflayer[i];
                 tmpscr[tmp].ffvpsuspend[i] = ffscr.ffvpsuspend[i];
                 tmpscr[tmp].ffvpdespawn[i] = ffscr.ffvpdespawn[i];
+                tmpscr[tmp].ffuid[i] = ffscr.ffuid[i];     // (upstream's carryover FFC keeps its uid)
                 
                 for(int j=0; j<2; ++j)
                 {

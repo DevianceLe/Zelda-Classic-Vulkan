@@ -22,6 +22,9 @@
 #include "zc_sys.h"
 #include "port/game/q30_triggers.h"
 
+class item;
+dword q30_item_moveflags(item *i, long *fakez);     // q30_scripts_engine.h: a live item's move flags and FakeZ
+
 /*
 void sprite::check_conveyor()
 {
@@ -62,11 +65,273 @@ void sprite::check_conveyor()
 }
 */
 
+// ---- 2.55/3.0 conveyors (upstream zc_sprite.cpp: get_conveyor, sprite::check_conveyor) ---------------
+//
+// A conveyor's "Custom speed" flag (flag 2) takes its X / Y speed from attributes 0 / 1 and moves every
+// attribute-8th frame of newconveyorclk (the Hero's check counts it); conveyors on layers 1-2 / all
+// layers and FFCs (rules), under their effect squares and not under a bridge.
+
+byte q30_newconveyorclk = 0;
+int q30_conveyor_stun = 0;      // upstream's is_conveyor_stunned (q30_link_stunned)
+
+static bool q30_is_conveyor(int cid)
+{
+    const int t = combobuf[cid].type;
+    return combo_class_buf[t].conveyor_x_speed || combo_class_buf[t].conveyor_y_speed;
+}
+
+// upstream effectflag(x, y, layer - 1): the combo's effect square there, unless a bridge above covers it
+static bool q30_conveyor_effect(int x, int y, int layer)
+{
+    if(q30_has_bridge_above(x, y, layer))
+        return false;
+
+    const int cid = layer ? MAPCOMBO2(layer - 1, x, y) : MAPCOMBO(x, y);
+    const Q30Combo *c = q30_combo(cid);
+    const int b = ((x & 8) ? 4 : 1) << ((y & 8) ? 1 : 0);
+    return c ? ((c->walk >> 4) & b) != 0 : true;
+}
+
+int q30_get_conveyor(int x, int y, bool check_rates)
+{
+    x = vbound(x, 0, 255);
+    y = vbound(y, 0, 175);
+    const int maxlayer = q30_quest_rule(Q30_QR_CONVEYORS_ALL_LAYERS) ? 6 : (q30_quest_rule(Q30_QR_CONVEYORS_L1_L2) ? 2 : 0);
+    int found_layer = -1, cid = -1;
+    const int ffc_cid = maxlayer == 6 ? MAPFFCOMBO(x, y) : 0;
+
+    if(ffc_cid && q30_is_conveyor(ffc_cid))
+    {
+        cid = ffc_cid;
+        found_layer = 999;
+    }
+    else for(int q = maxlayer; q >= 0; --q)
+    {
+        if(q > 0 && (tmpscr2[q - 1].valid == 0 || tmpscr2[q - 1].data.empty()))
+            continue;
+
+        const int c = q ? MAPCOMBO2(q - 1, x, y) : MAPCOMBO(x, y);
+
+        if(q30_is_conveyor(c) && q30_conveyor_effect(x, y, q))
+        {
+            found_layer = q;
+            cid = c;
+            break;
+        }
+    }
+
+    if(cid < 0)
+        return -1;
+
+    const Q30Combo *qc = q30_combo(cid);
+    const bool custom_spd = qc && (qc->usrflags & 0x2);
+
+    if(!check_rates || custom_spd || conveyclk <= 0)
+    {
+        if(found_layer < 6 && q30_has_bridge_above(x, y, found_layer))
+            return -1;
+
+        if(check_rates)
+        {
+            const int rate = custom_spd ? zc_max((int)(qc->attributes[8] / 10000), 1) : 3;
+
+            if(custom_spd && (q30_newconveyorclk % rate))
+                return -1;
+        }
+
+        return cid;
+    }
+
+    return -1;
+}
+
+// (q30_zfix_int: zfix's getInt, rounding half away from zero: a sprite's conveyor speeds are whole pixels)
+
+// upstream sprite::on_sideview_solid, without the sideview ladder platforms
+static bool q30_conveyor_sv_solid(sprite *s, bool hardcoded)
+{
+    if(!(tmpscr->flags7 & fSIDEVIEW))
+        return false;
+
+    const int lx = hardcoded ? int(s->x) : int(s->x) + s->hxofs;
+    const int by = hardcoded ? int(s->y) + 16 : int(s->y) + s->hyofs + s->hysz;
+
+    for(int xo = zc_min(4, s->hxsz / 2); xo < s->hxsz; xo += 8)
+        if(_walkflag(lx + xo, by, 1))
+            return true;
+
+    if(_walkflag(lx + s->hxsz - 1, by, 1))
+        return true;
+
+    return by >= 176 && currscr >= 0x70 && !(tmpscr->flags2 & wfDOWN);
+}
+
+// upstream sprite::check_conveyor for an item (its hit box unless qr_ITEM_CONVEYORS_IGNORE_HITBOX) or a
+// weapon that obeys conveyors; the combo it is on, or -1
+int q30_sprite_conveyor(sprite *s, bool is_item, dword moveflags, long fakez)
+{
+    bool use_hitbox = !(is_item && q30_quest_rule(577));
+    const int hw = s->hxsz, hh = s->hysz;
+    const bool hardcoded = q30_quest_rule(is_item ? 578 : 579);    // qr_*_HARDCODED_SIDEVIEW_HITBOX
+    int lx, ty, cx, cy, by;
+
+    if(use_hitbox)
+    {
+        lx = int(s->x) + s->hxofs;
+        ty = int(s->y) + s->hyofs;
+        cx = lx + hw / 2;
+        cy = ty + hh / 2;
+        by = ty + hh;
+    }
+    else
+    {
+        lx = int(s->x);
+        ty = int(s->y);
+        cx = lx + 8;
+        cy = ty + 8;
+        by = ty + 16;
+    }
+
+    int cid = q30_get_conveyor(cx, cy, false);
+    const bool is_sv = cid < 0 && !q30_quest_rule(576) && q30_conveyor_sv_solid(s, hardcoded);   // qr_BROKEN_SV_SOLID_CONVEYORS
+
+    if(is_sv)
+    {
+        if(hardcoded)
+        {
+            use_hitbox = false;
+            lx = int(s->x); ty = int(s->y); cx = lx + 8; cy = ty + 8; by = ty + 16;
+        }
+
+        for(int xo = 0; xo < (use_hitbox ? hw : 16) && cid < 0; xo += 4)
+            cid = q30_get_conveyor(lx + xo, by, false);
+
+        if(cid < 0)
+            cid = q30_get_conveyor(lx + (use_hitbox ? hw : 16) - 1, by, false);
+    }
+
+    if(cid < 0)
+        return -1;
+
+    const Q30Combo *qc = q30_combo(cid);
+    const dword usr = qc ? qc->usrflags : 0;
+
+    if(s->z > 0 || fakez > 0 || !(moveflags & 1))      // in the air (or not obeying gravity)
+        if(!(tmpscr->flags2 & fAIRCOMBOS) && !(usr & 0x40))     // flag 7: moves airborne sprites
+            return -1;
+
+    const bool custom_spd = (usr & 0x2) != 0;
+    int deltax, deltay;
+
+    if(custom_spd)
+    {
+        deltax = q30_zfix_int(qc->attributes[0]);
+        deltay = q30_zfix_int(qc->attributes[1]);
+    }
+    else
+    {
+        deltax = combo_class_buf[combobuf[cid].type].conveyor_x_speed;
+        deltay = combo_class_buf[combobuf[cid].type].conveyor_y_speed;
+    }
+
+    if(is_sv)
+        deltay = 0;
+
+    if(!deltax && !deltay)
+        return -1;
+
+    const int rate = custom_spd ? zc_max((int)(qc->attributes[8] / 10000), 1) : 3;
+
+    if(q30_newconveyorclk % rate)
+        return cid;
+
+    bool failed = false;
+
+    if(deltay < 0)
+    {
+        if(!use_hitbox)
+            failed = _walkflag(int(s->x), int(s->y) + 8 - 2, 2);
+        else
+        {
+            for(int xo = zc_min(4, hw / 2); xo < hw && !failed; xo += 4)
+                failed = _walkflag(lx + xo, ty + deltay, 1);
+
+            if(!failed)
+                failed = _walkflag(lx + hw - 1, ty + deltay, 1);
+        }
+
+        if(!failed)
+            s->y = s->y - abs(deltay);
+    }
+    else if(deltay > 0)
+    {
+        if(!use_hitbox)
+            failed = _walkflag(int(s->x), int(s->y) + 15 + 2, 2);
+        else
+        {
+            for(int xo = zc_min(4, hw / 2); xo < hw && !failed; xo += 4)
+                failed = _walkflag(lx + xo, ty + hh - 1 + deltay, 1);
+
+            if(!failed)
+                failed = _walkflag(lx + hw - 1, ty + hh - 1 + deltay, 1);
+        }
+
+        if(!failed)
+            s->y = s->y + abs(deltay);
+    }
+
+    failed = false;
+
+    if(deltax < 0)
+    {
+        if(!use_hitbox)
+            failed = _walkflag(int(s->x) - 2, int(s->y) + 8, 1);
+        else
+        {
+            for(int yo = zc_min(4, hh / 2); yo < hh && !failed; yo += 4)
+                failed = _walkflag(lx + deltax, ty + yo, 1);
+
+            if(!failed)
+                failed = _walkflag(lx + deltax, ty + hh - 1, 1);
+        }
+
+        if(!failed)
+            s->x = s->x - abs(deltax);
+    }
+    else if(deltax > 0)
+    {
+        if(!use_hitbox)
+            failed = _walkflag(int(s->x) + 15 + 2, int(s->y) + 8, 1);
+        else
+        {
+            for(int yo = zc_min(4, hh / 2); yo < hh && !failed; yo += 4)
+                failed = _walkflag(lx + hw - 1 + deltax, ty + yo, 1);
+
+            if(!failed)
+                failed = _walkflag(lx + hw - 1 + deltax, ty + hh - 1, 1);
+        }
+
+        if(!failed)
+            s->x = s->x + abs(deltax);
+    }
+
+    return cid;
+}
+
 void sprite::check_conveyor()
 {
     int deltax=0;
     int deltay=0;
-    
+
+    if(q30_active())
+    {
+        // (only the item list calls this; weapons: q30_weapon_conveyor)
+        long fakez = 0;
+        const dword mf = q30_item_moveflags((item *)this, &fakez);
+        q30_sprite_conveyor(this, true, mf, fakez);
+        return;
+    }
+
     if(conveyclk<=0 && (z==0 || (tmpscr->flags2&fAIRCOMBOS)))
     {
         int ctype=(combobuf[MAPCOMBO(x+8,y+8)].type);

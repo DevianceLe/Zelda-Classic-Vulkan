@@ -1478,6 +1478,9 @@ struct mapscr
     // a 3.0 FFC's viewport suspend and despawn ranges in a scrolling region (0: never)
     ffc_field<long> ffvpsuspend;
     ffc_field<long> ffvpdespawn;
+    // a 2.55/3.0 FFC's sprite uid, as upstream's ffcdata (a sprite): 0 until it is first drawn or
+    // a script names it (q30_ffc_uid); a screen loaded anew starts at 0
+    ffc_field<long> ffuid;
 #else
     word ffdata[32];
     byte ffcset[32];
@@ -1671,6 +1674,7 @@ struct mapscr
             fflayer[i]=0;
             ffvpsuspend[i]=0;
             ffvpdespawn[i]=0;
+            ffuid[i]=0;
 #endif
         }
 #ifdef ZC_PLAYER_BUILD
@@ -1743,7 +1747,7 @@ struct mapscr
         ffxdelta.extend(); ffydelta.extend(); ffxdelta2.extend(); ffydelta2.extend();
         ffflags.extend(); ffwidth.extend(); ffheight.extend(); fflink.extend();
         ffscript.extend(); initd.extend(); inita.extend(); initialized.extend(); fflayer.extend();
-        ffvpsuspend.extend(); ffvpdespawn.extend();
+        ffvpsuspend.extend(); ffvpdespawn.extend(); ffuid.extend();
     }
 
     void q30_drop_ffcs()
@@ -1752,7 +1756,7 @@ struct mapscr
         ffxdelta.drop(); ffydelta.drop(); ffxdelta2.drop(); ffydelta2.drop();
         ffflags.drop(); ffwidth.drop(); ffheight.drop(); fflink.drop();
         ffscript.drop(); initd.drop(); inita.drop(); initialized.drop(); fflayer.drop();
-        ffvpsuspend.drop(); ffvpdespawn.drop();
+        ffvpsuspend.drop(); ffvpdespawn.drop(); ffuid.drop();
     }
 #endif
 

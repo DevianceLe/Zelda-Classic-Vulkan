@@ -2110,6 +2110,8 @@ static long zasm30_selected_ffc_ref();
 static long zasm30_load_ffc(long id);
 static long zasm30_load_ffc_at(long screen, long index);
 static void zasm30_ffc_this(int i);
+static long zasm30_ffc_ref(int screen, int index);
+static long zasm30_selected_ffc_id();
 static int zasm30_script_screen();
 long zasm30_ffscript_version = 0; // the quest's script format version (0 for a 2.53 quest)
 static bool zasm30_generic_get(long index, long &ret);    // Game->Generic[] (q30_scripts_light.h)
@@ -10431,7 +10433,10 @@ int run_script(const byte type, const word script, const byte i)
     if(type == SCRIPT_FFC && zasm30_ffscript_version >= 26)
         zasm30_ffc_this(i);
     else if(type == SCRIPT_FFC && zasm30_wide)
+    {
         zasm30_frame().inst[0] = i * 10000L;
+        q30_ffc_uid(tmpscr, i);     // (upstream's FFC script takes its sprite's uid as it starts)
+    }
 
     if(zasm30_trace_on)
         zasm30_trace_run(type, script, (long)i);

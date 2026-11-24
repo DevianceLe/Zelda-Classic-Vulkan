@@ -546,6 +546,12 @@ int q30_hero_step_boost();                  // Hero->TempStepBoost, 0 at Link's 
 void q30_set_hero_step_boost(int boost);
 bool q30_respawn_forced();                  // a trigger fixed the drown respawn point
 bool q30_link_stunned();
+// 2.55/3.0 conveyors (zc_sprite.cpp): newconveyorclk, the Hero's conveyor stun, the conveyor combo at a
+// pixel (-1: none, or not this frame's turn) and an item's / weapon's move on it (the combo, or -1)
+extern byte q30_newconveyorclk;
+extern int q30_conveyor_stun;
+int q30_get_conveyor(int x, int y, bool check_rates);
+int q30_sprite_conveyor(sprite *s, bool is_item, dword moveflags, long fakez);
 long q30_item_switch_family(int itemid);    // the family startwpn should treat this item as
 int q30_switchhook_frame(weapon *w);        // 0 carry on, 1 the hook head is done, 2 held for a switch
 bool q30_switchhook_held(const weapon *w);  // the hook, held still while a switch runs (no hits)

@@ -5812,7 +5812,7 @@ double q30_walk_speed_scale(int x, int y, int z, double step)
 
 bool q30_respawn_forced() { return q30_active() && g_respawn_forced; }
 bool q30_lift_busy();
-bool q30_link_stunned() { return q30_active() && (g_stun_clk > 0 || q30_lift_busy()); }
+bool q30_link_stunned() { return q30_active() && (g_stun_clk > 0 || q30_conveyor_stun > 0 || q30_lift_busy()); }
 
 void q30_tint(int r, int g, int b);
 void q30_tint_clear();

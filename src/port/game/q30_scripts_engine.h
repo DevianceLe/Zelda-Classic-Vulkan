@@ -558,7 +558,7 @@ static void zasm30_setup_frame(byte type)
     // reads it (upstream's set_script_this_ref(ri->ffcref()) on every run). Left at 0 it made
     // every 3.0 FFC script act on FFC 1: the VulturPeak cart made FFC 1 solid, not itself.
     if(type == SCRIPT_FFC && zasm30_ffscript_version)
-        f.inst[0] = zasm30_ffscript_version >= 26 ? 0x7FF00000L + ri->ffcref : ri->ffcref * 10000;
+        f.inst[0] = zasm30_ffscript_version >= 26 ? zasm30_ffc_ref(currscr, ri->ffcref) : ri->ffcref * 10000;
 }
 
 // The script ran off its end, or quit.
@@ -916,6 +916,14 @@ static Zasm30SpriteState *zasm30_item_state(item *spr)
     }
 
     return &st;
+}
+
+// a live item's move flags and FakeZ (its conveyor move: zc_sprite.cpp)
+dword q30_item_moveflags(item *i, long *fakez)
+{
+    const Zasm30SpriteState *st = zasm30_sprite_state_if(i->getUID());
+    *fakez = st ? st->fakez : 0;
+    return (st && st->script_started) ? (dword)st->move_flags : (dword)q30_item_moveflags_of(i->id & 0xFFF);
 }
 
 static Zasm30SpriteState *zasm30_lweapon_state(weapon *spr)

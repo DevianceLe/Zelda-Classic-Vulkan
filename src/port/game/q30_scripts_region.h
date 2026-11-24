@@ -193,44 +193,51 @@ static void zasm30_mark_region_states(std::vector<long> &work)
 
 // ---- naming an FFC ------------------------------------------------------------------------------
 
-// A 3.0 script's reference to slot `index` of screen `screen`: upstream's sprite id for that FFC,
-// 0x7FF00000 + its ID - 1 (outside a region the current screen is index 0 of it).
+// A 3.0 script's reference to slot `index` of screen `screen`: upstream's sprite uid for that FFC,
+// given the first time it is drawn or named (q30_ffc_uid); 0 for none.
 static long zasm30_ffc_ref(int screen, int index)
 {
-    const int off = q30_region_screen_index(screen);
-    return 0x7FF00000L + (off > 0 ? off : 0) * 128L + index;
+    return q30_ffc_uid(q30_region_ffc_table(screen), index);
 }
 
-// The FFC a reference names: its slot, and its screen (-1: the current one). False when there is
-// none (its slot is past the slots its screen has, or its screen isn't in the region): *index is
-// then Z30_NO_FFC, which reads as missing without a log line. (Not 127: that is a real slot of
-// every 2.55/3.0 screen now.)
+// The FFC a reference (a sprite uid) names: its slot, and its screen (-1: the current one). False
+// when there is none (no live screen has an FFC with that uid): *index is then Z30_NO_FFC, which
+// reads as missing without a log line. (Not 127: that is a real slot of every 2.55/3.0 screen now.)
 static bool zasm30_ffc_from_ref(long ref, int *screen, int *index)
 {
     *screen = -1;
     *index = Z30_NO_FFC;
 
-    if(ref < 0x7FF00000L)
-        return false;
+    int scr, i;
 
-    const long id = ref - 0x7FF00000L;
-    const int scr = q30_region_index_screen((int)(id / 128));
-
-    const mapscr *table = scr < 0 ? NULL : q30_region_ffc_table(scr);
-
-    if(!table || id % 128 >= table->ffc_count())
+    if(!q30_ffc_by_uid(ref, &scr, &i) || q30_region_screen_index(scr) < 0)
         return false;
 
     *screen = scr == currscr ? -1 : scr;
-    *index = (int)(id % 128);
+    *index = i;
     return true;
+}
+
+// An FFC's ID - 1 as upstream numbers them, 128 to a screen across a scrolling region (outside one
+// the slot): from its reference, or -1 for none.
+static long zasm30_ffc_ref_id(long ref)
+{
+    int scr, i;
+
+    if(!ref || !zasm30_ffc_from_ref(ref, &scr, &i))
+        return -1;
+
+    return (long)q30_region_screen_index(scr < 0 ? currscr : scr) * 128 + i;
 }
 
 // Screen->LoadFFC(id): the reference for ID id + 1, or 0 (NULL) for none.
 static long zasm30_load_ffc(long id)
 {
-    int screen, index;
-    return (id >= 0 && zasm30_ffc_from_ref(0x7FF00000L + id, &screen, &index)) ? 0x7FF00000L + id : 0;
+    if(id < 0)
+        return 0;
+
+    const int scr = q30_region_index_screen((int)(id / 128));
+    return scr < 0 ? 0 : zasm30_ffc_ref(scr, (int)(id % 128));
 }
 
 // Screen->LoadFFC(screen, index): slot index (0-based) of a screen of the region (the current
@@ -260,6 +267,12 @@ static long zasm30_selected_ffc_ref()
 
     const int screen = zasm30_frame().ffc_screen < 0 ? currscr : zasm30_frame().ffc_screen;
     return zasm30_ffc_ref(screen, ri->ffcref);
+}
+
+// The selected FFC's ID - 1 (zasm30_ffc_ref_id), -1 for none.
+static long zasm30_selected_ffc_id()
+{
+    return zasm30_ffc_ref_id(zasm30_selected_ffc_ref());
 }
 
 // The screen the running script's Screen-> means (upstream's ri->screenref): in a scrolling

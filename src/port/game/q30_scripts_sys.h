@@ -2074,8 +2074,8 @@ static bool z30_misc_reg(const long arg, long &ret, const long value, const bool
     case Z30R_FFCLASTCHANGERX:
     case Z30R_FFCLASTCHANGERY:
     {
-        const long ref = zasm30_selected_ffc_ref();
-        const int i = ref ? (int)((ref - Z30_FFC_BASE) % Q30_MAXFFCS) : -1;
+        const long id = zasm30_selected_ffc_id();
+        const int i = id >= 0 ? (int)(id % Q30_MAXFFCS) : -1;
         ret = -10000;
         if(i < 0)
             return true;
@@ -2091,8 +2091,8 @@ static bool z30_misc_reg(const long arg, long &ret, const long value, const bool
     }
     case Z30R_FFC_POSSTATE:     // ffc->PosState[8]: the FFC's position states (q30_triggers.cpp keeps them, key 1000 + slot)
     {
-        const long ref = zasm30_selected_ffc_ref();
-        const int i = ref ? (int)((ref - Z30_FFC_BASE) % Q30_MAXFFCS) : -1;
+        const long id = zasm30_selected_ffc_id();
+        const int i = id >= 0 ? (int)(id % Q30_MAXFFCS) : -1;
         ret = 0;
         if(i < 0 || !z30_array_index(Z30_INDEX, 8, n))
             return true;

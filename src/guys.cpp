@@ -2583,7 +2583,7 @@ bool enemy::q30_canmove(int ndir,fix s,int special,int dx1,int dy1,int dx2,int d
     const int xo = (q30_sizeflags & 0x020) ? hxofs : 0, yo = (q30_sizeflags & 0x040) ? hyofs : 0;
     const int w = zc_max(offgrid ? 0 : 16, (q30_sizeflags & 0x004) ? hxsz : 16);
     const int h = zc_max(offgrid ? 0 : 16, (q30_sizeflags & 0x008) ? hysz : 16);
-    const int sv = (tmpscr->flags7&fSIDEVIEW) ? 7 : 8;
+    const int sv = (tmpscr->flags7&fSIDEVIEW) ? 7 : 0;     // (upstream: the side probes start at the top row)
     const int ex = int(x) + xo, ey = int(y) + yo;
     s += 0.5;
 
@@ -2706,7 +2706,7 @@ bool enemy::canmove(int ndir,fix s,int special,int dx1,int dy1,int dx2,int dy2)
     case 14:
     case left:
         dx = dx1-s;
-        sv = ((tmpscr->flags7&fSIDEVIEW)?7:8);
+        sv = ((tmpscr->flags7&fSIDEVIEW)?7:(q30_active()?0:8));   // (2.55/3.0: upstream probes the top row)
         special = (special==spw_clipbottomright||special==spw_clipright)?spw_none:special;
         ok = !m_walkflag(x+dx,y+sv,special, x, y) && !flyerblocked(x+dx,y+8, special);
         break;
@@ -2714,7 +2714,7 @@ bool enemy::canmove(int ndir,fix s,int special,int dx1,int dy1,int dx2,int dy2)
     case 10:
     case right:
         dx = dx2+s;
-        sv = ((tmpscr->flags7&fSIDEVIEW)?7:8);
+        sv = ((tmpscr->flags7&fSIDEVIEW)?7:(q30_active()?0:8));   // (2.55/3.0: upstream probes the top row)
         ok = !m_walkflag(x+dx,y+sv,special, x, y) && !flyerblocked(x+dx,y+8, special);
         break;
         

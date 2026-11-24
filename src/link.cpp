@@ -515,9 +515,21 @@ void q30_shield_jinx_reset(bool all);
 void q30_bubble_shield_jinx(int guy, int dm7, int divisor, bool ringflag1);   // (q30_scripts_regs.h)
 void q30_shield_jinx_tick();
 
+// 2.55/3.0 conveyors: upstream's newconveyorclk, is_conveyor_stunned and is_on_conveyor start over
+// (HeroClass::init and resetflags); q30_check_conveyor counts them
+static int q30_conv_on = 0;
+
+static void q30_conveyor_reset()
+{
+    q30_newconveyorclk = 0;
+    q30_conveyor_stun = 0;
+    q30_conv_on = 0;
+}
+
 // called by ALLOFF()
 void LinkClass::resetflags(bool all)
 {
+    q30_conveyor_reset();
     refilling=REFILL_NONE;
     inwallm=false;
     inlikelike=blowcnt=whirlwind=specialcave=hclk=fairyclk=refill_why=didstuff=0;
@@ -1245,6 +1257,7 @@ int LinkClass::getSpecialCave()
 
 void LinkClass::init()
 {
+    q30_conveyor_reset();
     // upstream's HeroClass::init: steprate = zinit.heroStep, tmp_step_boost = 0
     q30_steprate = q30_zinit_hero_step;
     q30_step_boost = 0;
@@ -20945,8 +20958,282 @@ void LinkClass::reset_ladder()
     ladderx=laddery=0;
 }
 
+// ---- 2.55/3.0 conveyors (upstream HeroClass::check_conveyor) ------------------------------------------
+// Custom speeds (fractional, every attribute-8th frame of newconveyorclk), flag 1 stuns Link while it moves
+// him, flag 3 turns him its way, flag 5 lets the heavy boots stand still on it, flag 7 moves him in the
+// air; upstream's is_on_conveyor counts the custom rate down (2.53's flag is true while it does).
+static bool q30_heavy_boots()
+{
+    for(int q = 0; q < MAXITEMS; ++q)
+        if(game->get_item(q) && itemsbuf[q].family == itype_boots && (itemsbuf[q].flags & ITEM_FLAG2))
+            return true;
+
+    return false;
+}
+
+// zfix's getInt (rounds half away from zero), as upstream's hookshot start takes a step
+static int q30_conv_round(fix f)
+{
+    const double d = double(f);
+    return (int)(d < 0 ? d - 0.5 : d + 0.5);
+}
+
+void LinkClass::q30_check_conveyor()
+{
+    ++q30_newconveyorclk;
+
+    if(q30_conveyor_stun > 0)
+        --q30_conveyor_stun;
+
+    if(q30_conv_on > 0)
+        --q30_conv_on;
+
+    is_on_conveyor = q30_conv_on != 0;
+
+    if((action == rafting && !q30_quest_rule(692)) || action == casting || action == drowning)    // qr_BROKEN_CONVEYORS
+    {
+        q30_conveyor_stun = 0;
+        return;
+    }
+
+    if(inlikelike || pull_link)
+    {
+        q30_conveyor_stun = 0;
+        return;
+    }
+
+    const int py = int(y) + (bigHitbox ? 8 : 12);
+    int cid = q30_get_conveyor(int(x) + 7, py, true);
+
+    if(cid < 0 && !q30_quest_rule(576) && isSideview() && ON_SIDEPLATFORM)  // qr_BROKEN_SV_SOLID_CONVEYORS
+        for(int xo = 0; xo < 16 && cid < 0; xo += 4)
+            cid = q30_get_conveyor(int(x) + xo, int(y) + 16, true);
+
+    if(cid < 0)
+    {
+        if(conveyclk <= 0 && q30_conv_on < 0)
+        {
+            q30_conv_on = 0;
+            q30_conveyor_stun = 0;
+        }
+
+        is_on_conveyor = q30_conv_on != 0;
+        return;
+    }
+
+    const Q30Combo *qc = q30_combo(cid);
+    dword usr = qc ? qc->usrflags : 0;
+
+    if(z > 0 && !((tmpscr->flags2 & fAIRCOMBOS) || (usr & 0x40)))
+    {
+        q30_conv_on = 0;
+        q30_conveyor_stun = 0;
+        is_on_conveyor = false;
+        return;
+    }
+
+    bool custom_spd = (usr & 0x2) != 0;
+    fix deltax, deltay;
+
+    if(custom_spd)
+    {
+        deltax = fix(qc->attributes[0] / 10000.0);
+        deltay = fix(qc->attributes[1] / 10000.0);
+    }
+    else
+    {
+        deltax = combo_class_buf[combobuf[cid].type].conveyor_x_speed;
+        deltay = combo_class_buf[combobuf[cid].type].conveyor_y_speed;
+    }
+
+    if(deltax == 0 && deltay == 0 && q30_quest_rule(576) && isSideview() && ON_SIDEPLATFORM)
+    {
+        cid = q30_get_conveyor(int(x) + 8, int(y) + 16, true);
+
+        if(cid < 0)
+            return;
+
+        qc = q30_combo(cid);
+        usr = qc ? qc->usrflags : 0;
+        custom_spd = (usr & 0x2) != 0;
+
+        if(custom_spd)
+        {
+            deltax = fix(qc->attributes[0] / 10000.0);
+            deltay = fix(qc->attributes[1] / 10000.0);
+        }
+        else
+        {
+            deltax = combo_class_buf[combobuf[cid].type].conveyor_x_speed;
+            deltay = combo_class_buf[combobuf[cid].type].conveyor_y_speed;
+        }
+    }
+
+    if(deltax == 0 && deltay == 0)
+        return;
+
+    if((usr & 0x10) && q30_heavy_boots())
+        return;
+
+    const int rate = custom_spd ? zc_max((int)(qc->attributes[8] / 10000), 1) : 3;
+
+    if(custom_spd ? (q30_newconveyorclk % rate) != 0 : conveyclk > 0)
+        return;
+
+    q30_conv_on = custom_spd ? rate : -1;
+    is_on_conveyor = true;
+    q30_conveyor_stun = 0;
+    // (flag 6, walking Link along with the new movement, and flag 4's smart corners move him the plain way)
+    bool movedx = false, movedy = false;
+    WalkflagInfo info;
+    const fix ady = deltay < 0 ? -deltay : deltay, adx = deltax < 0 ? -deltax : deltax;
+    const bool gridfree = diagonalMovement || q30_no_gridlock();
+
+    if(deltay < 0)
+    {
+        info = walkflag(x, y + 8 - (bigHitbox * 8) - 2, 2, up);
+        execute(info);
+
+        if(!info.isUnwalkable())
+        {
+            movedy = true;
+            fix step = fix(0);
+
+            if((DrunkRight() || DrunkLeft()) && dir != left && dir != right && !gridfree)
+                while(step < ady * (isSideview() ? 2 : 1) && ((int(y - step)) & 7))
+                    step += 1;
+            else
+                step = ady;
+
+            y = y - step;
+            hs_starty -= q30_conv_round(step);
+
+            for(int j = 0; j < chainlinks.Count(); j++)
+                chainlinks.spr(j)->y -= step;
+
+            if(Lwpns.idFirst(wHookshot) > -1)
+                Lwpns.spr(Lwpns.idFirst(wHookshot))->y -= step;
+
+            if(Lwpns.idFirst(wHSHandle) > -1)
+                Lwpns.spr(Lwpns.idFirst(wHSHandle))->y -= step;
+        }
+        else checkdamagecombos(x, y + 8 - (bigHitbox ? 8 : 0) - 2);
+    }
+    else if(deltay > 0)
+    {
+        info = walkflag(x, y + 15 + 2, 2, down);
+        execute(info);
+
+        if(!info.isUnwalkable())
+        {
+            movedy = true;
+            fix step = fix(0);
+
+            if((DrunkRight() || DrunkLeft()) && dir != left && dir != right && !gridfree)
+                while(step < ady && ((int(y + step)) & 7))
+                    step += 1;
+            else
+                step = ady;
+
+            y = y + step;
+            hs_starty += q30_conv_round(step);
+
+            for(int j = 0; j < chainlinks.Count(); j++)
+                chainlinks.spr(j)->y += step;
+
+            if(Lwpns.idFirst(wHookshot) > -1)
+                Lwpns.spr(Lwpns.idFirst(wHookshot))->y += step;
+
+            if(Lwpns.idFirst(wHSHandle) > -1)
+                Lwpns.spr(Lwpns.idFirst(wHSHandle))->y += step;
+        }
+        else checkdamagecombos(x, y + 15);
+    }
+
+    if(deltax < 0)
+    {
+        info = walkflag(x - int(lsteps[int(x) & 7]), y + 8 - (bigHitbox ? 8 : 0), 1, left);
+        execute(info);
+
+        if(!info.isUnwalkable())
+        {
+            movedx = true;
+            fix step = fix(0);
+
+            if((DrunkUp() || DrunkDown()) && dir != up && dir != down && !gridfree)
+                while(step < adx && ((int(x - step)) & 7))
+                    step += 1;
+            else
+                step = adx;
+
+            x = x - step;
+            hs_startx -= q30_conv_round(step);
+
+            for(int j = 0; j < chainlinks.Count(); j++)
+                chainlinks.spr(j)->x -= step;
+
+            if(Lwpns.idFirst(wHookshot) > -1)
+                Lwpns.spr(Lwpns.idFirst(wHookshot))->x -= step;
+
+            if(Lwpns.idFirst(wHSHandle) > -1)
+                Lwpns.spr(Lwpns.idFirst(wHSHandle))->x -= step;
+        }
+        else checkdamagecombos(x - int(lsteps[int(x) & 7]), y + 8 - (bigHitbox ? 8 : 0));
+    }
+    else if(deltax > 0)
+    {
+        info = walkflag(x + 15 + 2, y + 8 - (bigHitbox ? 8 : 0), 1, right);
+        execute(info);
+
+        if(!info.isUnwalkable())
+        {
+            movedx = true;
+            fix step = fix(0);
+
+            if((DrunkUp() || DrunkDown()) && dir != up && dir != down && !gridfree)
+                while(step < adx && ((int(x + step)) & 7))
+                    step += 1;
+            else
+                step = adx;
+
+            x = x + step;
+            hs_startx += q30_conv_round(step);
+
+            for(int j = 0; j < chainlinks.Count(); j++)
+                chainlinks.spr(j)->x += step;
+
+            if(Lwpns.idFirst(wHookshot) > -1)
+                Lwpns.spr(Lwpns.idFirst(wHookshot))->x += step;
+
+            if(Lwpns.idFirst(wHSHandle) > -1)
+                Lwpns.spr(Lwpns.idFirst(wHSHandle))->x += step;
+        }
+        else checkdamagecombos(x + 15 + 2, y + 8 - (bigHitbox ? 8 : 0));
+    }
+
+    if(movedx || movedy)
+    {
+        if(usr & 0x1)       // stunned while moving
+            q30_conveyor_stun = rate;
+
+        if(usr & 0x4)       // force direction
+        {
+            if(adx > ady)
+                dir = (deltax > 0) ? right : left;
+            else
+                dir = (deltay > 0) ? down : up;
+        }
+    }
+}
+
 void LinkClass::check_conveyor()
 {
+    if(q30_active())
+    {
+        q30_check_conveyor();
+        return;
+    }
+
     if(action==casting||action==drowning||inlikelike||pull_link||(z>0 && !(tmpscr->flags2&fAIRCOMBOS)))
     {
         return;

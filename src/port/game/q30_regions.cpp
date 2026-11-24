@@ -2720,6 +2720,73 @@ mapscr *q30_region_ffc_table(int scr)
     return (it != g_screens.end() && it->second->live) ? &it->second->base : NULL;
 }
 
+long q30_ffc_uid(mapscr *m, int i)
+{
+    if(!m || i < 0 || i >= m->ffc_count())
+        return 0;
+
+    long &uid = m->ffuid[i];
+
+    if(!uid && sprite::uid_lazy)
+        uid = sprite::q30_take_uid();
+
+    return uid;
+}
+
+bool q30_ffc_by_uid(long uid, int *scr, int *index)
+{
+    if(uid < 2)
+        return false;
+
+    // (scripts name the same few FFCs over and over: the last one found is tried first)
+    static int last_scr = -1, last_index = -1;
+    const mapscr *m = last_scr < 0 ? NULL : q30_region_ffc_table(last_scr);
+
+    if(m && last_index < m->ffc_count() && m->ffuid[last_index] == uid)
+    {
+        *scr = last_scr;
+        *index = last_index;
+        return true;
+    }
+
+    for(int pass = 0; pass < 2; ++pass)
+    {
+        std::map<int, RegionScreen *>::iterator it = g_screens.begin();
+
+        for(;;)
+        {
+            int s;
+
+            if(pass == 0)
+                m = tmpscr, s = currscr;
+            else
+            {
+                if(!g_live || !g_reg.on || it == g_screens.end())
+                    break;
+
+                s = it->first;
+                m = it->second->live && s != currscr ? &it->second->base : NULL;
+                ++it;
+            }
+
+            for(int i = 0; m && i < m->ffc_count(); ++i)
+            {
+                if(m->ffuid[i] == uid)
+                {
+                    *scr = last_scr = s;
+                    *index = last_index = i;
+                    return true;
+                }
+            }
+
+            if(pass == 0)
+                break;
+        }
+    }
+
+    return false;
+}
+
 void *q30_region_screen_scripts(int scr)
 {
     if(scr == currscr || !g_live || !g_reg.on)

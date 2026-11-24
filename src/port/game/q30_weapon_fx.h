@@ -152,7 +152,8 @@ void q30_weapon_seed_data(weapon *w, const Q30WeaponData &d, bool lw)
 // ---- height, gravity and landing (upstream weapon::animate's "fall down", sprite::handle_termv) ----
 
 enum { Z30WF_BREAK_WHEN_LANDING = 1 << 1, Z30WF_BREAK_ON_SOLID = 1 << 2, Z30WF_STOP_WHEN_LANDING = 1 << 7,
-       Z30WF_STOP_WHEN_HIT_SOLID = 1 << 8, Z30WF_NO_COLL_WHEN_STILL = 1 << 10, Z30WF_TEMP_IGNORE_SOLID = 1 << 11 };
+       Z30WF_STOP_WHEN_HIT_SOLID = 1 << 8, Z30WF_NO_COLL_WHEN_STILL = 1 << 10, Z30WF_TEMP_IGNORE_SOLID = 1 << 11,
+       Z30WF_OBEY_CONVEYORS = 1 << 12 };
 enum { Z30MV_OBEYS_GRAV = 1, Z30MV_CAN_PITFALL = 2, Z30MV_NO_FAKE_Z = 1 << 8, Z30MV_NO_REAL_Z = 1 << 9 };
 
 // upstream's weapon constructor: the weapons that fall unless their weapon data says otherwise
@@ -284,6 +285,15 @@ void q30_weapon_fall(weapon *w)
 
     Zasm30SpriteState &st = *pst;
     z30_wtermv_clamp(w, st);
+
+    if(st.weapon_flags & Z30WF_OBEY_CONVEYORS)  // (upstream weapon::check_conveyor: flag 1, "stunned while moving", stops it)
+    {
+        const int cid = q30_sprite_conveyor(w, false, (dword)st.move_flags, st.fakez);
+        const Q30Combo *c = cid >= 0 ? q30_combo(cid) : NULL;
+
+        if(c && (c->usrflags & 0x1))
+            w->step = 0;
+    }
 
     if(st.move_flags & Z30MV_OBEYS_GRAV)
     {

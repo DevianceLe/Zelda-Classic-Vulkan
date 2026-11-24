@@ -294,6 +294,11 @@ int q30_region_index_screen(int index);     // -1: no such screen in the region
 void q30_region_screen_pixels(int scr, int *x, int *y);    // its top-left in region pixels
 mapscr *q30_region_ffc_table(int scr);      // its FFCs: tmpscr for the current one; NULL if none
 void *q30_region_screen_scripts(int scr);   // its slot's script state (NULL for the current one)
+// FFCs as upstream's sprites (2.55/3.0 quests): slot i of screen m's sprite uid, given from the
+// sprite uid counter the first time it is drawn or named (0 for no such slot); and the live FFC
+// (the current screen's, or a screen's of the region) a uid names: false for none.
+long q30_ffc_uid(mapscr *m, int i);
+bool q30_ffc_by_uid(long uid, int *scr, int *index);
 
 // Solid FFCs of the region's other screens over the points walkflag tests (cnt of them, 8 apart).
 bool q30_region_ffc_solid_at(int x, int y, int cnt);
