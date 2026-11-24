@@ -3136,6 +3136,32 @@ static inline void sub_item_place(sprite *s)
 #endif
 }
 
+#ifdef ZC_PLAYER_BUILD
+extern bool q30_subscr_clk_hold;
+#endif
+
+// 2.55/3.0: upstream draws each subscreen item as a new temporary sprite (putitem3), which takes
+// the next sprite uid as it draws; these sprites stay, so each draw takes one here (not the
+// passive subscreen's second draw in the opening waits, which upstream doesn't do).
+static inline void q30_sub_item_uid(sprite *s)
+{
+#ifdef ZC_PLAYER_BUILD
+    if(!sprite::uid_lazy)
+        return;
+
+    // (the sprite itself is this engine's own: a uid below 0, as load_Sitems gives its items,
+    // so its first draw takes none of the game's)
+    sprite::uid_side = true;
+    s->getUID();
+    sprite::uid_side = false;
+
+    if(!q30_subscr_clk_hold)
+        sprite::q30_temp_draw_uid();
+#else
+    (void)s;
+#endif
+}
+
 // 2.55/3.0: a subscreen item shows the frame of upstream's subscr_item_clk (putitem3 ->
 // dummyitem_animate): the frames the passive subscreen was drawn this game, the same for every
 // item, not how long its sprite has lived (2.53 makes the sprites again on each pickup and each
@@ -3406,6 +3432,7 @@ void subscreenitem(BITMAP *dest, int x, int y, int itemtype)
                 if(displaysubscreenitem(itemtype, d))
                 {
                     q30_sub_item_frame(Sitems.spr(i));
+                    q30_sub_item_uid(Sitems.spr(i));
                     Sitems.spr(i)->draw(dest);
                 }
                 
@@ -3432,6 +3459,7 @@ void subscreenitem(BITMAP *dest, int x, int y, int itemtype)
         Sitems.spr(overridecheck)->y = y;
         sub_item_place(Sitems.spr(overridecheck));
         q30_sub_item_frame(Sitems.spr(overridecheck));
+        q30_sub_item_uid(Sitems.spr(overridecheck));
         Sitems.spr(overridecheck)->draw(dest);
     }
 }
@@ -3508,6 +3536,7 @@ static void q30_subscreen_item_draw(BITMAP *dest, int x, int y, int id)
     Sitems.spr(found)->y = y;
     sub_item_place(Sitems.spr(found));
     q30_sub_item_frame(Sitems.spr(found));
+    q30_sub_item_uid(Sitems.spr(found));
     Sitems.spr(found)->draw(dest);
 }
 #endif
@@ -4285,6 +4314,9 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
                     tempsel->drawstyle=1;
                 }
                 
+                if(p!=-1 && temptile)
+                    q30_sub_item_uid(tempsel);     // (upstream's selector: a new temporary sprite each draw)
+
                 for(int j=0; j<4; ++j)
                 {
                     if(p!=-1)
@@ -4400,6 +4432,7 @@ void buttonitem(BITMAP *dest, int button, int x, int y)
                 break;
             }
             
+            q30_sub_item_uid(Aitem);
             Aitem->draw(dest);
         }
         
@@ -4433,6 +4466,7 @@ void buttonitem(BITMAP *dest, int button, int x, int y)
                 break;
             }
             
+            q30_sub_item_uid(Bitem);
             Bitem->draw(dest);
         }
 
@@ -4460,6 +4494,7 @@ void buttonitem(BITMAP *dest, int button, int x, int y)
                     return;
             }
 
+            q30_sub_item_uid(it);
             it->draw(dest);
         }
 

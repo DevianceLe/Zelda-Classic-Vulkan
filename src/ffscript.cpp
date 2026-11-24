@@ -2120,8 +2120,8 @@ static refInfo zasm30_screen_ri;
 static bool zasm30_screen_done = true;
 static bool zasm30_screen_waitdraw = false;    // the screen script stopped at Waitdraw (upstream's waitdraw(ScriptType::Screen))
 static long zasm30_screen_stack[ZSCRIPT_STACK_ALLOC];
-// Class objects (ZCLASS_CONSTRUCT). A script holds an object as Z30_OBJECT_BASE + its index,
-// a number scripts don't otherwise use, so the collector can't take a counter for one.
+// Class objects (ZCLASS_CONSTRUCT). A script holds an object by its id: from ZScript version 28
+// one of the shared object pool's (as upstream's), before that Z30_OBJECT_BASE + its index.
 // From ZScript version 25 upstream counts references and frees an object nobody holds;
 // here zasm30_collect frees the ones it can't reach, except those a living sprite owns
 // (sprite->OwnObject), a script owns (OwnObject) or that were made global (GlobalObject).
@@ -2133,20 +2133,29 @@ struct Zasm30Object
 {
     std::vector<long> data;
     long owner;     // the owning sprite's uid (Z30_OWN_SPRITE)
+    long id;        // what scripts hold (zasm30_object_ids)
     byte own;
     bool live;
 
-    Zasm30Object() : owner(0), own(Z30_OWN_NONE), live(false) {}
+    Zasm30Object() : owner(0), id(0), own(Z30_OWN_NONE), live(false) {}
 };
 
 static std::vector<Zasm30Object> zasm30_objects;
 static std::deque<long> zasm30_free_objects;   // freed indices, reused oldest first
+// 3.0 quests: an object's id is from the shared object pool, as upstream's user_objects
+// (zasm30_object_id_new); older ZScript (2.55's) keeps Z30_OBJECT_BASE + its index.
+static std::map<long, long> zasm30_object_ids;    // id -> index
+static long zasm30_object_index(long id)
+{
+    std::map<long, long>::const_iterator it = zasm30_object_ids.find(id);
+    return it == zasm30_object_ids.end() ? -1 : it->second;
+}
 static bool zasm30_gc_array[Z30_LOCALRAM_SIZE];
 static bool zasm30_gc_marked[Z30_LOCALRAM_SIZE];   // zasm30_collect's marks
 
 static Zasm30Object *zasm30_object(long id)
 {
-    const long n = id - Z30_OBJECT_BASE;
+    const long n = zasm30_object_index(id);
 
     if(n < 0 || n >= (long)zasm30_objects.size() || !zasm30_objects[n].live)
         return NULL;
@@ -2524,6 +2533,7 @@ void zasm30_clear_heap()
     zasm30_arrays_forget();
     zasm30_objects.clear();
     zasm30_free_objects.clear();
+    zasm30_object_ids.clear();
 
     // the local arrays go too (initZScriptArrayRAM): no OwnArray()/DestroyArray() marks are left
     memset(zasm30_array_owned, 0, sizeof(zasm30_array_owned));
@@ -9807,9 +9817,10 @@ static void zasm30_sweep_handles(bool sweep);
 // `work` gets each newly reached array slot, and each object as -(index + 1).
 static void zasm30_mark(long v, std::vector<long> &work)
 {
-    if(v >= Z30_OBJECT_BASE && v < Z30_OBJECT_BASE + (long)zasm30_obj_marked.size())
+    const long n = zasm30_object_index(v);
+
+    if(n >= 0 && n < (long)zasm30_obj_marked.size())
     {
-        const long n = v - Z30_OBJECT_BASE;
 
         if(zasm30_objects[n].live && !zasm30_obj_marked[n])
         {
@@ -9934,7 +9945,7 @@ static void zasm30_collect_mark()
 
     for(size_t n = 0; n < zasm30_objects.size(); ++n)
         if(zasm30_objects[n].live && (!counted || zasm30_objects[n].own != Z30_OWN_NONE))
-            zasm30_mark(Z30_OBJECT_BASE + (long)n, work);
+            zasm30_mark(zasm30_objects[n].id, work);
 
     for(size_t n = 0; n < game->globalRAM.size(); ++n)
         for(dword m = 0; m < game->globalRAM[n].Size(); ++m)
@@ -10004,6 +10015,10 @@ static void zasm30_collect()
             o.owner = 0;
             std::vector<long>().swap(o.data);
             zasm30_free_objects.push_back((long)n);
+            zasm30_object_ids.erase(o.id);
+            if(o.id != Z30_OBJECT_BASE + (long)n)
+                zasm30_object_id_free(o.id);
+            o.id = 0;
         }
     }
 
@@ -10076,9 +10091,20 @@ static long zasm30_construct(const std::vector<long> &layout)
         zasm30_objects.push_back(Zasm30Object());
     }
 
+    // (the object's id comes before its member arrays', as upstream's do_constructclass)
+    const long id = zasm30_gc_arrays() ? zasm30_object_id_new() : Z30_OBJECT_BASE + n;
+
+    if(!id)
+    {
+        zasm30_free_objects.push_front(n);
+        return 0;
+    }
+
     Zasm30Object &o = zasm30_objects[n];
     o.live = true;
     o.owner = 0;
+    o.id = id;
+    zasm30_object_ids[id] = n;
     o.own = Z30_OWN_GLOBAL;     // nothing holds it yet: a collection for its arrays must keep it
     o.data.assign((size_t)vbound(layout[0], 0, 214748), 0);
 
@@ -10086,7 +10112,7 @@ static long zasm30_construct(const std::vector<long> &layout)
         o.data.push_back(zasm30_new_array_or_collect(layout[k]));
 
     o.own = Z30_OWN_NONE;
-    return Z30_OBJECT_BASE + n;
+    return id;
 }
 
 // A sprite that owned objects (sprite->OwnObject) is gone: they live on only while reached.

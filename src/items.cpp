@@ -64,10 +64,20 @@ item::~item()
 
 extern int q30_item_field[4];   // sprite.cpp: the playing field items live in (left, top, right, bottom)
 
+#ifdef ZC_PLAYER_BUILD
+bool q30_switch_hooked(sprite *s, int ffc);    // q30_triggers.cpp
+#endif
+
 bool item::animate(int)
 {
     if(!screenIsScrolling()) // Because subscreen items are items, too. :p
     {
+#ifdef ZC_PLAYER_BUILD
+        // 2.55/3.0: a switch-hooked item holds still until the swap (upstream's item::animate:
+        // no fall, no animation, its clocks stay)
+        if(q30_switch_hooked(this, -1))
+            return false;
+#endif
         if(is_side_view())
         {
             if
@@ -213,6 +223,13 @@ bool item::animate(int)
 
 void item::draw(BITMAP *dest)
 {
+#ifdef ZC_PLAYER_BUILD
+    // 2.55/3.0: drawing an item gives it a uid if it has none (upstream's item::draw ->
+    // getUID), even when nothing shows; a temporary one (putitem, a lens hint) takes one each time
+    if(uid_lazy)
+        getUID();
+#endif
+
     if(pickup&ipNODRAW || tile==0)
         return;
 

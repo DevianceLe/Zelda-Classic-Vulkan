@@ -137,9 +137,13 @@ static std::set<long> zasm30_handle_marks;
 
 static bool z30_counted() { return zasm30_ffscript_version >= 25; }
 
+// A file's or directory's id is from the shared object pool (upstream's user_files /
+// user_dirs.get_free); these say which slot each id names.
+static std::map<long, int> zasm30_file_ids, zasm30_dir_ids;
+
 static bool zasm30_mark_handle(long v)
 {
-    if(zasm30_stacks.count(v))      // (a stack's id is from the shared pool, as upstream's)
+    if(zasm30_stacks.count(v) || zasm30_file_ids.count(v) || zasm30_dir_ids.count(v))     // (pool ids)
     {
         zasm30_handle_marks.insert(v);
         return true;
@@ -157,12 +161,14 @@ struct Z30File
     bool used;
     FILE *f;
     std::string path;
+    long id;
 };
 
 struct Z30Dir
 {
     bool used;
     std::string path;
+    long id;
     std::vector<std::string> names;
 };
 
@@ -347,12 +353,12 @@ static bool z30_path_is(const std::string &path, bool dir)
 
 static Z30File *z30_file(long ref, bool need_open)
 {
-    ref -= Z30_FILE_BASE;
+    std::map<long, int>::const_iterator it = zasm30_file_ids.find(ref);
 
-    if(ref < 1 || ref > Z30_MAX_FILES || !z30_files[ref - 1].used)
+    if(it == zasm30_file_ids.end() || !z30_files[it->second].used)
         return NULL;
 
-    Z30File *f = &z30_files[ref - 1];
+    Z30File *f = &z30_files[it->second];
     return need_open && !f->f ? NULL : f;
 }
 
@@ -363,6 +369,33 @@ static void z30_file_close(Z30File *f)
 
     f->f = NULL;
     f->path.clear();
+}
+
+// A file or directory goes: its slot is free and its id back in the pool.
+static void z30_file_release(Z30File *f)
+{
+    z30_file_close(f);
+    f->used = false;
+
+    if(f->id)
+    {
+        zasm30_file_ids.erase(f->id);
+        zasm30_object_id_free(f->id);
+        f->id = 0;
+    }
+}
+
+static void z30_dir_release(Z30Dir *d)
+{
+    d->used = false;
+    d->names.clear();
+
+    if(d->id)
+    {
+        zasm30_dir_ids.erase(d->id);
+        zasm30_object_id_free(d->id);
+        d->id = 0;
+    }
 }
 
 // Before a file is opened or removed: closes the files no script refers to any more.
@@ -389,10 +422,17 @@ static long z30_new_file()
         {
             if(!z30_files[n].used)
             {
+                const long id = zasm30_object_id_new();     // (upstream's shared object ids)
+
+                if(!id)
+                    return 0;
+
                 z30_files[n].used = true;
                 z30_files[n].f = NULL;
                 z30_files[n].path.clear();
-                return Z30_FILE_BASE + n + 1;
+                z30_files[n].id = id;
+                zasm30_file_ids[id] = n;
+                return id;
             }
         }
 
@@ -659,8 +699,8 @@ static void z30_file_write_ints()
 
 static Z30Dir *z30_dir(long ref)
 {
-    ref -= Z30_DIR_BASE;
-    return ref >= 1 && ref <= Z30_MAX_DIRS && z30_dirs[ref - 1].used ? &z30_dirs[ref - 1] : NULL;
+    std::map<long, int>::const_iterator it = zasm30_dir_ids.find(ref);
+    return it != zasm30_dir_ids.end() && z30_dirs[it->second].used ? &z30_dirs[it->second] : NULL;
 }
 
 // A listing as upstream's (its file selector's list): the folders first, each with a path
@@ -776,10 +816,17 @@ static long z30_load_dir(const std::string &user)
         {
             if(!z30_dirs[n].used)
             {
+                const long id = zasm30_object_id_new();     // (upstream's shared object ids)
+
+                if(!id)
+                    return 0;
+
                 z30_dirs[n].used = true;
                 z30_dirs[n].path = path;
+                z30_dirs[n].id = id;
+                zasm30_dir_ids[id] = n;
                 z30_dir_load(z30_dirs[n]);
-                return Z30_DIR_BASE + n + 1;
+                return id;
             }
         }
 
@@ -798,16 +845,10 @@ static void z30_reset_paldatas();
 static void z30_reset_script_objects()
 {
     for(int n = 0; n < Z30_MAX_FILES; ++n)
-    {
-        z30_file_close(&z30_files[n]);
-        z30_files[n].used = false;
-    }
+        z30_file_release(&z30_files[n]);
 
     for(int n = 0; n < Z30_MAX_DIRS; ++n)
-    {
-        z30_dirs[n].used = false;
-        z30_dirs[n].names.clear();
-    }
+        z30_dir_release(&z30_dirs[n]);
 
     zasm30_stacks.clear();
     zasm30_next_stack = Z30_STACK_BASE + 1;
@@ -821,20 +862,14 @@ static void zasm30_sweep_handles(bool sweep)
     {
         for(int n = 0; n < Z30_MAX_FILES; ++n)
         {
-            if(z30_files[n].used && !zasm30_handle_marks.count(Z30_FILE_BASE + n + 1))
-            {
-                z30_file_close(&z30_files[n]);
-                z30_files[n].used = false;
-            }
+            if(z30_files[n].used && !zasm30_handle_marks.count(z30_files[n].id))
+                z30_file_release(&z30_files[n]);
         }
 
         for(int n = 0; n < Z30_MAX_DIRS; ++n)
         {
-            if(z30_dirs[n].used && !zasm30_handle_marks.count(Z30_DIR_BASE + n + 1))
-            {
-                z30_dirs[n].used = false;
-                z30_dirs[n].names.clear();
-            }
+            if(z30_dirs[n].used && !zasm30_handle_marks.count(z30_dirs[n].id))
+                z30_dir_release(&z30_dirs[n]);
         }
 
         for(std::map<long, std::vector<long> >::iterator it = zasm30_stacks.begin(); it != zasm30_stacks.end(); )
@@ -4784,8 +4819,7 @@ static bool zasm30_command(word cmd)
 
         if(Z30File *f = z30_file(Z30_REF(FILE), false))
         {
-            z30_file_close(f);
-            f->used = false;
+            z30_file_release(f);
         }
         return true;
     }
@@ -4952,8 +4986,7 @@ static bool zasm30_command(word cmd)
 
         if(Z30Dir *d = z30_dir(Z30_REF(DIRECTORY)))
         {
-            d->used = false;
-            d->names.clear();
+            z30_dir_release(d);
         }
         return true;
     }

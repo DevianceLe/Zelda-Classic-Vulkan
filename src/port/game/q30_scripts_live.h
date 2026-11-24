@@ -386,16 +386,10 @@ void zasm30_live_sprite_released(long uid)
         {
             if(z30_bitmap(v) && v >= 1000)
                 z30_free_bitmap(v);
-            else if(v > Z30_FILE_BASE && v <= Z30_FILE_BASE + Z30_MAX_FILES && z30_files[v - Z30_FILE_BASE - 1].used)
-            {
-                z30_file_close(&z30_files[v - Z30_FILE_BASE - 1]);
-                z30_files[v - Z30_FILE_BASE - 1].used = false;
-            }
-            else if(v > Z30_DIR_BASE && v <= Z30_DIR_BASE + Z30_MAX_DIRS)
-            {
-                z30_dirs[v - Z30_DIR_BASE - 1].used = false;
-                z30_dirs[v - Z30_DIR_BASE - 1].names.clear();
-            }
+            else if(Z30File *f = z30_file(v, false))
+                z30_file_release(f);
+            else if(Z30Dir *d = z30_dir(v))
+                z30_dir_release(d);
             else
                 zasm30_stacks.erase(v);
         }

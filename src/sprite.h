@@ -59,6 +59,10 @@ public:
     static bool uid_side;       // (subscreen items: uids of their own, below 0)
     // the next uid, for what upstream makes a sprite and this engine doesn't (a 2.55/3.0 FFC)
     static long q30_take_uid() { return getNextUID(); }
+    // 2.55/3.0: upstream draws a subscreen item (putitem3) or its selector as a new temporary
+    // sprite each time, which takes the next uid as it draws (item::draw -> getUID); this
+    // engine's subscreen sprites stay, so each of their draws takes one here
+    static void q30_temp_draw_uid() { if(uid_lazy && !uid_side) getNextUID(); }
     fix x,y,z,fall;
     int tile,shadowtile,cs,flip,c_clk,clk,misc;
     // 2.55/3.0 enemies without qr_HARDCODED_ENEMY_ANIMS: the spawn sprite and its frame (upstream's
