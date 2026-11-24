@@ -43,8 +43,8 @@ The final run was stopped before its last 11 quests. Their results are from the 
 
 - Saving global script variables past 255. No quest in this collection needs it. No quest in this collection needs the second one.
 - Quests made in ZC 1.00 and 1.50 can't be opened. None are in this collection.
-- 11 of 3.0's script values still read differently, none of them used by a quest in this collection: mostly how 3.0 numbers sprites, and values that come from the machine's own settings or clock.
-- Weapons following conveyors (3.0's custom-speed conveyors).
+- 10 of 3.0's script values still read differently, none of them used by a quest in this collection: mostly how 3.0 numbers sprites, and values that come from the machine's own settings or clock.
+- 3.0's reworked big Patra (quests without the hardcoded-Patra rule).
 
 **Built, but tried in only a few quests**
 
@@ -80,8 +80,7 @@ The final run was stopped before its last 11 quests. Their results are from the 
 **Known bugs**
 
 - A save made with an older version of this player, for a 2.55 or 3.0 quest whose hearts aren't 16 HP, keeps the old life amount. Starting a new save fixes it. The title screen's save list shows hearts using the loaded quest's HP per heart.
-- Mystical Harps: a script's layer drawing with opacity (its scrolling cloud and sky layers on the map screen, in Centipedes Marching and in Koala climbing) differs from 3.0's.
-- barato's card game: the subscreen pages its own script draws stay black.
+- Mystical Harps: the map screen's scrolling sky band, and a few small spots of the light-ray overlay in Centipedes Marching, differ from 3.0's.
 - A 3.0 quest's starting B item can differ from ZC 3.0's: the 1st Quest Master and Hero Mode remakes start with B empty where 3.0 puts the bomb there.
 - ZQuest's Save As leaves out the editor names a quest keeps in a separate `.zinfo` file.
 
