@@ -86,9 +86,8 @@ What that means in practice:
 
 **Still to do**
 
-- 10 of 3.0's script values still read differently, none of them used by a quest in the collection: mostly how 3.0 numbers sprites, and values that come from the machine's own settings or clock
-- 3.0's reworked big Patra
-- Mystical Harps: the map screen's scrolling sky band and a few small spots of one light-ray overlay
+- 6 of 3.0's script values still read differently, none of them used by a quest in the collection: values that come from the machine's own settings or clock, a stack write past the stack's end, and one line 3.0's own test run prints only because it stops in the middle of a wipe
+- Script objects, files and stacks are freed at the next collection rather than the moment nothing uses them (no visible difference)
 
 The [compatibility page](COMPATIBILITY.md#what-still-doesnt-work) has the full list of what still doesn't work, including known bugs.
 
@@ -183,7 +182,7 @@ cmake --build build-switch --target zplayer_nro
 | 2.53.1 and earlier | Plays exactly as before | Opens and saves as 2.53 |
 | 2.55 and 3.0 Nightlies | Plays; never saved as an older quest | Edits and saves in its own version, or as 3.0 Nightly; compiles its ZScript |
 
-Every change has to pass the 2.53 checks. Re-saved reference quests must match byte for byte, and [replays](tests/replay/) must produce identical frames. For 2.55 and 3.0 Nightly quests, the openings of the 93 newer quests in the collection are compared with ZC 3.0's own player after every change, and the [feature test suite](tests/feature_suite/README.txt) checks each ported feature against 3.0 on the same input: every one of its 29 features that isn't random matches 3.0 exactly (the other 7 differ only where the scene is random), and 929 of the 939 3.0 script commands it calls behave as 3.0's, with none left unhandled (none of the rest is used by a quest in the collection).
+Every change has to pass the 2.53 checks. Re-saved reference quests must match byte for byte, and [replays](tests/replay/) must produce identical frames. For 2.55 and 3.0 Nightly quests, the openings of the 93 newer quests in the collection are compared with ZC 3.0's own player after every change, and the [feature test suite](tests/feature_suite/README.txt) checks each ported feature against 3.0 on the same input: every one of its 31 features that isn't random matches 3.0 exactly (the other 7 differ only where the scene is random), and 933 of the 939 3.0 script commands it calls behave as 3.0's, with none left unhandled (none of the rest is used by a quest in the collection).
 
 ## Repository layout
 
