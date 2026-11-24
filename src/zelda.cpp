@@ -1621,6 +1621,42 @@ static int q30_continue_life()
     return zc_max(life, 1);
 }
 
+// A 2.55/3.0 Game->Reload() is loading the last save again (title.cpp's titlescreen).
+bool game_reloading = false;
+
+// ZC_TEST_SAVE_RELOAD=frame[,frame...] (test runs only): at the end of each listed frame of the run (in a
+// replay its frame number, which counts the frames before the game too)
+// the game is saved and loaded again in place, as a script's Game->Save() then Game->Reload() do,
+// reading the save back from the save file (title.cpp), so a test run saves and continues in one run.
+static void test_save_reload_tick()
+{
+    static const char *frames = getenv("ZC_TEST_SAVE_RELOAD");
+    static int counted = 0;
+
+    if(!frames || Quit || !Playing)
+        return;
+
+    ++counted;
+    const int at = replay_active() ? replay_frame_number() : counted;   // (a replay's own frame count)
+
+    for(const char *p = frames; *p; )
+    {
+        if(atoi(p) > 0 && atoi(p) == at)     // (any other value: reloads only read the file)
+        {
+            al_trace("test: save and reload at frame %d\n", at);
+            save_game(false);
+            Quit = qRELOAD;
+            skipcont = 1;
+            return;
+        }
+
+        p = strchr(p, ',');
+        if(!p)
+            break;
+        ++p;
+    }
+}
+
 int init_game()
 {
     q30_clear_engine();
@@ -2005,7 +2041,7 @@ int init_game()
 
     // ZC_TEST_START=dmap[,screen[,x,y]]: test runs only, starts there (the screen within the
     // DMap; without one, the DMap's continue screen; x,y place Link, below)
-    if(const char *test_start = getenv("ZC_TEST_START"))
+    if(const char *test_start = game_reloading ? NULL : getenv("ZC_TEST_START"))
     {
         int dm = -1, sc = -1;
         const int got = sscanf(test_start, "%d,%d", &dm, &sc);
@@ -2089,7 +2125,9 @@ int init_game()
     if(const char *test_start = getenv("ZC_TEST_START"))
     {
         int dm, sc, tx, ty;
-        if(sscanf(test_start, "%d,%d,%d,%d", &dm, &sc, &tx, &ty) == 4)
+        // (on a reload only where the test starts, as upstream's test mode puts Link on its screen)
+        if(sscanf(test_start, "%d,%d,%d,%d", &dm, &sc, &tx, &ty) == 4
+           && (!game_reloading || (dm == currdmap && dm >= 0 && dm < MAXDMAPS && sc + DMaps[dm].xoff == currscr)))
         {
             Link.setX(tx);
             Link.setY(ty);
@@ -2547,6 +2585,10 @@ int cont_game()
     loadlvlpal(DMaps[currdmap].color);
     lighting(false,true);
     Link.init();
+    {
+        void q30_continue_buttons();    // link.cpp: 2.55/3.0, a script's forced button item is off after a continue
+        q30_continue_buttons();
+    }
     wavy=quakeclk=0;
     
     //if(get_bit(zinit.misc,idM_CONTPERCENT))
@@ -4840,6 +4882,7 @@ int main(int argc, char* argv[])
             replay_tour_tick();
             game_loop();
             advanceframe(true);
+            test_save_reload_tick();
         }
         
         tmpscr->flags3=0;
@@ -4849,6 +4892,7 @@ int main(int argc, char* argv[])
         {
         case qQUIT:
         case qGAMEOVER:
+        case qRELOAD:       // (2.55/3.0 Game->Reload(): skipcont is set, so no game over screen)
         {
             playing_field_offset=original_playing_field_offset; // Fixes an issue with Link being drawn wrong when quakeclk>0
             Link.setDontDraw(false);

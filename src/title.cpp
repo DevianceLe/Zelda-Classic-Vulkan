@@ -3445,6 +3445,41 @@ static void select_game()
 /****  Main title screen routine  *****/
 /**************************************/
 
+// ZC_TEST_SAVE_RELOAD (test runs only): a reload reads the game's save back from the save file on
+// disk first, so what it continues with went through the save format (as a quit and a load would).
+static void test_reload_from_disk()
+{
+    if(!getenv("ZC_TEST_SAVE_RELOAD") || !saves || currgame < 0 || currgame >= MAXSAVES)
+        return;
+
+    char tmpfilename[32];
+    temp_name(tmpfilename);
+    int ret = decode_file_007(SAVE_FILE, tmpfilename, SAVE_HEADER, ENC_METHOD_MAX-1, strstr(SAVE_FILE, ".dat#")!=NULL, "");
+    PACKFILE *f = ret ? NULL : pack_fopen_password(tmpfilename, F_READ_PACKED, "");
+
+    if(f)
+    {
+        gamedata *read = new gamedata[MAXSAVES];
+        byte emu[sizeof(emulation_patches)];
+        memcpy(emu, emulation_patches, sizeof(emu));    // (readsaves clears them)
+        ret = readsaves(read, f);
+        memcpy(emulation_patches, emu, sizeof(emu));
+        pack_fclose(f);
+
+        if(!ret)
+            saves[currgame] = read[currgame];
+
+        delete[] read;
+    }
+    else if(!ret)
+        ret = -1;
+
+    delete_file(tmpfilename);
+    al_trace("test: reload: save %d read back from %s: %s (%d)\n", currgame, SAVE_FILE, ret ? "failed" : "ok", ret);
+}
+
+extern bool game_reloading;
+
 void titlescreen(int lsave)
 {
     int q=Quit;
@@ -3455,6 +3490,17 @@ void titlescreen(int lsave)
     if(q==qCONT)
     {
         cont_game();
+        return;
+    }
+
+    // 2.55/3.0 Game->Reload(): the last save is loaded again in place (upstream's qRELOAD)
+    if(q==qRELOAD)
+    {
+        test_reload_from_disk();
+        music_stop();
+        game_reloading = true;
+        init_game();
+        game_reloading = false;
         return;
     }
     

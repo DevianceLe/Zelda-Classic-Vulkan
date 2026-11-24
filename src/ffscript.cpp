@@ -11434,9 +11434,10 @@ int run_script(const byte type, const word script, const byte i)
             scommand = 0xFFFF;
             break;
 
-        // 2.53's game loop has no reload state: the title screen is the closest way back to a save.
+        // Game->Reload(): the game ends without saving and the last save is loaded again in place,
+        // with no title screen (upstream's qRELOAD; title.cpp's titlescreen).
         case Z30C_GAMERELOAD:
-            Quit = qQUIT;
+            Quit = qRELOAD;
             skipcont = 1;
             scommand = 0xFFFF;
             break;

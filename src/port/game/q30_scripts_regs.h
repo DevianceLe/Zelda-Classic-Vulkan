@@ -24,6 +24,13 @@ extern int q30_active_sub_yoff;     // Game->ActiveSubscreenY (zc_subscr.cpp)
 // read them back. A write here is also how an unported field shows up in the log.
 static std::map<std::pair<std::pair<long,long>,long>, long> zasm30_store;
 
+// A button's item as scripts see it: a combined bow and arrow holds the arrow's id + 0xF000 (2.53's
+// Bweapon), where upstream's button holds the arrow itself.
+static long z30_btn_id(int wpn)
+{
+    return (wpn & 0xF000) == 0xF000 ? wpn - 0xF000 : wpn;
+}
+
 static long zasm30_store_get(long reg, long ref, long idx)
 {
     std::map<std::pair<std::pair<long,long>,long>, long>::iterator it = zasm30_store.find(std::make_pair(std::make_pair(reg, ref), idx));
@@ -2046,10 +2053,11 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     {
     // Hero
     // (an empty button holds 0 here and -1 in upstream 2.55/3.0, unless a script put item 0 there)
-    case Z30R_LINKITEMX: ret = (Xwpn || q30_btn_item0[2] ? Xwpn : -1) * 10000; return true;
-    case Z30R_LINKITEMY: ret = (Ywpn || q30_btn_item0[3] ? Ywpn : -1) * 10000; return true;
-    case Z30R_LINKITEMA: ret = (Awpn || q30_btn_item0[0] ? Awpn : -1) * 10000; return true;
-    case Z30R_LINKITEMB: ret = (Bwpn || q30_btn_item0[1] ? Bwpn : -1) * 10000; return true;
+    // (a combined bow and arrow is the arrow's id + 0xF000 here; upstream's button holds the arrow's id)
+    case Z30R_LINKITEMX: ret = (Xwpn || q30_btn_item0[2] ? z30_btn_id(Xwpn) : -1) * 10000; return true;
+    case Z30R_LINKITEMY: ret = (Ywpn || q30_btn_item0[3] ? z30_btn_id(Ywpn) : -1) * 10000; return true;
+    case Z30R_LINKITEMA: ret = (Awpn || q30_btn_item0[0] ? z30_btn_id(Awpn) : -1) * 10000; return true;
+    case Z30R_LINKITEMB: ret = (Bwpn || q30_btn_item0[1] ? z30_btn_id(Bwpn) : -1) * 10000; return true;
     case Z30R_LINKSTUN: ret = zasm30_store_get(arg, 0, 0); return true;
     case Z30R_HEROBUNNY: ret = q30_bunny_clock() * 10000; return true;
     // Hero->TileMod: what the items (and bunny form) add to the Hero's tile now (upstream's

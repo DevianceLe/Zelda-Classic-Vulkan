@@ -18718,6 +18718,29 @@ void q30_set_ab_item(bool a, int val)
 // on button slot (0 B, 1 A, 2 X, 3 Y) forced, the button keeping no subscreen slot. force is
 // upstream's flags: 1 only an item Link has, 2 A only under qr_SELECTAWPN; others do nothing.
 // (As upstream, Y's unconditional form sets the X button's direct item.)
+// cont_game (2.55/3.0): upstream's continue empties the buttons (init_game_vars) and only those the
+// subscreen fills come back (verifyBWpn and the rest); one a script forced stays empty, as its
+// forced item makes those checks leave it alone.
+void q30_continue_buttons()
+{
+    if(!q30_active())
+        return;
+
+    if(q30_forced_bwpn != -1)
+    {
+        Bwpn = 0;
+        directItemB = -1;
+        q30_btn_item0[1] = false;
+    }
+
+    if(q30_forced_awpn != -1)
+    {
+        Awpn = 0;
+        directItemA = -1;
+        q30_btn_item0[0] = false;
+    }
+}
+
 void q30_set_item_slot(int itm, int slot, int force)
 {
     if(force < 0 || force > 3)
