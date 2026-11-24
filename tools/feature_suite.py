@@ -105,6 +105,7 @@ def slot_dir(work, rel, n):
     # the build's settings with the keys the replays press (A=Z B=X Start=Enter L=A R=S Ex1=Q Ex2=W, arrows)
     keys = dict(key_a=26, key_b=24, key_s=67, key_l=1, key_r=19, key_ex1=17, key_ex2=23, key_up=84, key_down=85,
                 key_left=82, key_right=83)
+    keys['heart_beep'] = 0      # (upstream's default: off; Hero->HealthBeep reads 0 then)
     src = os.path.join(rel, 'zc.cfg')
     lines = open(src, encoding='utf-8', errors='replace').read().splitlines() if os.path.exists(src) else ['[zeldadx]']
     lines = [l for l in lines if l.split('=')[0].strip() not in keys]
