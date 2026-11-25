@@ -204,8 +204,18 @@ static bool z30_savemenu_tick(const Q30SaveMenu &m, int &cursor, int &clk)
 void playLevelMusic();
 void map_bkgsfx(bool on);
 
-// SaveMenu::run: the picked option (-1 none). Quit says what happens next: 2.53's game has no
-// reload, so RELOAD ends the game as Game->Reload() does here.
+// SaveMenu::run: the picked option (-1 none). Quit says what happens next; RELOAD loads the last
+// save again in place, as Game->Reload(). A save with the game ending waits for the end of the
+// game (zelda.cpp, after the OnExit script), as upstream's pending_save_from_save_menu.
+static bool z30_savemenu_pending_save = false;
+
+bool q30_savemenu_take_pending_save()
+{
+    const bool was = z30_savemenu_pending_save;
+    z30_savemenu_pending_save = false;
+    return was;
+}
+
 static int z30_savemenu_run(const Q30SaveMenu &m, int cursor = -1, bool continue_point = false)
 {
     int clk = 0;
@@ -255,7 +265,9 @@ static int z30_savemenu_run(const Q30SaveMenu &m, int cursor = -1, bool continue
 
             if(Quit)
                 ;
-            else if(opt.flags & (Q30_SMENU_OPT_RELOAD | Q30_SMENU_OPT_EXIT))
+            else if(opt.flags & Q30_SMENU_OPT_RELOAD)
+                Quit = qRELOAD;
+            else if(opt.flags & Q30_SMENU_OPT_EXIT)
                 Quit = qQUIT;
             else if(opt.flags & Q30_SMENU_OPT_CONTINUE)
                 Quit = qCONT;
@@ -274,7 +286,10 @@ static int z30_savemenu_run(const Q30SaveMenu &m, int cursor = -1, bool continue
                     lastentrance = game->get_continue_scrn();
                 }
 
-                save_game(false);
+                if(Quit)
+                    z30_savemenu_pending_save = true;
+                else
+                    save_game(false);
             }
         }
         else if(Quit)

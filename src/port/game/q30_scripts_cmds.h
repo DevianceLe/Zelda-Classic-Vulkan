@@ -3006,6 +3006,12 @@ static void z30_clear_tint()
     }
 }
 
+// upstream's doClearTint as a game ends (zelda.cpp) or the game over screen saves (title.cpp)
+void q30_clear_tint()
+{
+    z30_clear_tint();
+}
+
 // The game just loaded a palette over the tinted one: keep the tint on the new colours.
 // Only the colours that changed are new (a level palette brings a few CSets): the others still
 // hold the tint, and their true colours stay as they were kept (upstream's loaders write the new

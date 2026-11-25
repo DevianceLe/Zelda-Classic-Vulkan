@@ -3622,14 +3622,39 @@ void q30_states_flush_for_save();     // q30_triggers.cpp
 bool q30_gameover_custom();
 int q30_gameover_setting(int index);
 const char *q30_gameover_text(int line);
+void q30_run_onsave();                // q30_scripts_engine.h
+void q30_clear_tint();                // q30_scripts_cmds.h
+bool q30_quest_rule(int id);          // q30_triggers.cpp: upstream's rule number
+extern dword q255_compat_rule_version;   // q255_core.cpp: the quest's compat rule version
 
-// A newer quest's scripts can change the game over screen (Game->GameOverScreen[] and
-// GameOverStrings[]). These give 2.53's own look unless a script did.
-enum { GOS_BG, GOS_TILE = 2, GOS_CSET, GOS_SOUND, GOS_COLOUR, GOS_FLASH = 8, GOS_MIDI = 11, GOS_FLIP };
+// A newer quest's game over screen is upstream 3.0's (title.cpp game_over, zelda.cpp SaveScreenText
+// and ResetSaveScreenSettings): CONTINUE / SAVE AND QUIT / QUIT WITHOUT SAVING, the chosen line
+// flashing in the other phase, the cursor drawn over the background, Save and Quit running the
+// onSave script. Its scripts can change it (Game->GameOverScreen[] and GameOverStrings[]).
+// 2.53 quests keep 2.53's screen (upstream's defaults are 2.53's background, cursor and sound).
+enum { GOS_BG, GOS_TEXT, GOS_TILE, GOS_CSET, GOS_SOUND, GOS_COLOUR, GOS_FLASH = 8, GOS_MIDI = 11, GOS_FLIP };
 
 static bool gos_custom()
 {
     return q30_active() && q30_gameover_custom();
+}
+
+// upstream's SaveScreenSettings[index]: what a script set, else upstream's default
+// (link.cpp draws GAME OVER with GOS_TEXT on GOS_BG)
+int q30_gameover_screen_setting(int index)
+{
+    if(gos_custom())
+        return q30_gameover_setting(index);
+
+    switch(index)
+    {
+    case GOS_TEXT: return QMisc.colors.msgtext;
+    case GOS_TILE: return 2;
+    case GOS_CSET: return 1;
+    case GOS_SOUND: return WAV_CHINK;
+    case GOS_MIDI: return -4;    // + ZC_MIDI_COUNT - 1: the built-in game over tune
+    default: return 0;           // the background; 0 for a line's colour is msgtext or caption
+    }
 }
 
 static int gos_colour(int line, bool flash)
@@ -3641,8 +3666,9 @@ static int gos_colour(int line, bool flash)
 static const char *gos_text(int line)
 {
     static const char *const def[3] = { "CONTINUE", "SAVE", "RETRY" };
+    static const char *const def30[3] = { "CONTINUE", "SAVE AND QUIT", "QUIT WITHOUT SAVING" };
     const char *s = gos_custom() ? q30_gameover_text(line) : NULL;
-    return s ? s : def[line];
+    return s ? s : q30_active() ? def30[line] : def[line];
 }
 
 void game_over(int type)
@@ -3652,8 +3678,9 @@ void game_over(int type)
     clear_to_color(screen,BLACK);
     loadfullpal();
     
+    const bool newer = q30_active();
     const bool custom = gos_custom();
-    const int bg = custom ? q30_gameover_setting(GOS_BG) : 0;
+    const int bg = q30_gameover_screen_setting(GOS_BG);
 
     if(Quit==qGAMEOVER)
     {
@@ -3679,16 +3706,27 @@ void game_over(int type)
     int pos = 0;
     int f=-1;
     //  int htile = QHeader.old_dat_flags[ZQ_TILES] ? 2 : 0;
-    int htile = custom ? q30_gameover_setting(GOS_TILE) : 2;
-    const int curcset = custom ? q30_gameover_setting(GOS_CSET) : 1;
-    const int curflip = custom ? q30_gameover_setting(GOS_FLIP) : 0;
-    const int cursfx = custom ? q30_gameover_setting(GOS_SOUND) : WAV_CHINK;
+    int htile = q30_gameover_screen_setting(GOS_TILE);
+    const int curcset = q30_gameover_screen_setting(GOS_CSET);
+    const int curflip = q30_gameover_screen_setting(GOS_FLIP);
+    const int cursfx = q30_gameover_screen_setting(GOS_SOUND);
     bool done=false;
    
     do load_control_state();
     
     while(rSbtn());
     
+    // 2.55/3.0 (upstream): whether Up or Down held as the screen opens moves the cursor. Upstream
+    // takes the held buttons as down at the end of every frame, so they don't; with
+    // qr_BROKEN_INPUT_DOWN_STATE (older quests: compat rules before 35) only menus update them, the
+    // game seldom does, and a held one counts as pressed. (2.53's start and screen changes set them.)
+    if(newer)
+    {
+        const bool broken = q30_quest_rule(414) || q255_compat_rule_version < 35;
+        Udown = !broken && Up();
+        Ddown = !broken && Down();
+    }
+        
     do
     {
         load_control_state();
@@ -3727,7 +3765,7 @@ void game_over(int type)
                 
             if(!(f&3))
             {
-                const bool flash = (f&4) == 0;
+                const bool flash = newer ? (f&4) != 0 : (f&4) == 0;     // (upstream 3.0's other phase)
                 
                 switch(pos)
                 {
@@ -3750,7 +3788,12 @@ void game_over(int type)
         }
         
         rectfill(framebuf,72,72,79,127,bg);
-        puttile8(framebuf,htile,72,pos*(type?12:24)+72,curcset,curflip);
+        
+        if(newer)   // (upstream 3.0: drawn over the background)
+            overtile8(framebuf,htile,72,pos*(type?12:24)+72,curcset,curflip);
+        else
+            puttile8(framebuf,htile,72,pos*(type?12:24)+72,curcset,curflip);
+            
         advanceframe(true);
     }
     while(!Quit && !done);
@@ -3785,6 +3828,12 @@ void game_over(int type)
         //Quit = pos ? ((standalone_mode && skip_title) ? qRESET : qQUIT) : qCONT;
         if(pos==1&&(!type))
         {
+            if(newer)   // upstream 3.0's Save and Quit: the onSave script, the tint cleared for the file select
+            {
+                q30_run_onsave();
+                q30_clear_tint();
+            }
+            
             game->set_cheat(game->get_cheat() | cheat);
             
             q30_states_flush_for_save();     // (2.55/3.0: the states of this frame too)

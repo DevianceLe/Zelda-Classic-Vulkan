@@ -38,6 +38,9 @@
 #include "port/game/q30_scripts.h"
 #include "port/game/q30.h"
 
+extern int skipcont;                          // zelda.cpp
+int q30_gameover_screen_setting(int index);   // title.cpp: the game over screen's background (0) and text colour (1)
+
 // On 2.55+ quests a bridge hides what's under it from Link; 2.53 quests get MAPCOMBO unchanged.
 #define MAPCOMBO(x,y) q30_link_mapcombo((x),(y))
 #define COMBOTYPE(x,y) (combobuf[q30_link_mapcombo((x),(y))].type)
@@ -20817,6 +20820,10 @@ void slide_in_color(int color)
 void LinkClass::gameover()
 {
     int f=0;
+    // 2.55/3.0 without qr_HARDCODED_ENEMY_ANIMS (upstream heroDeathAnimation): Link's dying sprite
+    // plays its own animation, however long it is
+    const bool sprite_death = q30_active() && !q30_compat_rule(242);
+    int deathclk = 0, deathfrm = 0;
     
     action=none;
     Playing=false;
@@ -20903,7 +20910,23 @@ void LinkClass::gameover()
                 cs = wpnsbuf[iwDeath].csets&15;
                 tile = wpnsbuf[iwDeath].tile;
                 
-                if(BSZ)
+                if(sprite_death)    // 2.55/3.0 (upstream): the death sprite's own frames and speed
+                {
+                    tile += deathfrm;
+                    f = 206;
+                    
+                    if(++deathclk >= wpnsbuf[iwDeath].speed)
+                    {
+                        deathclk = 0;
+                        
+                        if(++deathfrm >= wpnsbuf[iwDeath].frames)
+                        {
+                            f = 208;
+                            deathfrm = 0;
+                        }
+                    }
+                }
+                else if(BSZ)
                 {
                     tile += (f-194)/3;
                 }
@@ -21077,9 +21100,30 @@ void LinkClass::gameover()
         }
         else if(f<350)//draw 'GAME OVER' text
         {
-            clear_bitmap(framebuf);
-            blit(subscrbmp,framebuf,0,0,0,0,256,passive_subscreen_height);
-            textout_ex(framebuf,zfont,"GAME OVER",96,playing_field_offset+80,1,-1);
+            // 2.55/3.0 (upstream 3.0): instant reload or continue on death, else GAME OVER in the
+            // game over screen's text colour on its background
+            const bool newer = q30_active();
+            const bool respawn = newer && q30_quest_rule(207), cont = newer && q30_quest_rule(224);   // qr_INSTANT_RESPAWN, qr_INSTANT_CONTINUE
+            
+            if(respawn != cont)
+            {
+                Quit = respawn ? qRELOAD : qCONT;
+                skipcont = 1;
+                clear_bitmap(framebuf);
+                blit(subscrbmp,framebuf,0,0,0,0,256,passive_subscreen_height);
+            }
+            else if(newer)
+            {
+                clear_to_color(framebuf,q30_gameover_screen_setting(0));
+                blit(subscrbmp,framebuf,0,0,0,0,256,passive_subscreen_height);
+                textout_ex(framebuf,zfont,"GAME OVER",96,playing_field_offset+80,q30_gameover_screen_setting(1),-1);
+            }
+            else
+            {
+                clear_bitmap(framebuf);
+                blit(subscrbmp,framebuf,0,0,0,0,256,passive_subscreen_height);
+                textout_ex(framebuf,zfont,"GAME OVER",96,playing_field_offset+80,1,-1);
+            }
         }
         else
         {

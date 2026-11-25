@@ -1201,12 +1201,18 @@ void q30_run_onwin()
     }
 }
 
+// upstream's runOnSaveEngine (the game over screen's Save and Quit): the onSave global script runs
+// once, to its first Waitframe or its end, with Quit put aside while it runs.
 void q30_run_onsave()
 {
     if(zasm30_ffscript_version && q30_global_scripts[7] && q30_global_scripts[7][0].command != 0xFFFF)
     {
+        const int was_quit = Quit;
+        Quit = 0;
         zasm30_drop_instance(SCRIPT_GLOBAL, 7);
-        zasm30_menu_script(SCRIPT_GLOBAL, 7, 7);
+        zasm30_run(SCRIPT_GLOBAL, 7, 7);
+        zasm30_drop_instance(SCRIPT_GLOBAL, 7);
+        Quit = was_quit;
     }
 }
 

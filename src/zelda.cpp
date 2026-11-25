@@ -615,6 +615,9 @@ void q30_msg_run();
 void q30_portals_clear();       // q30_scripts_sys.h
 void q30_portals_reset();
 void q30_savemenu_game_over();
+void q30_clear_tint();          // q30_scripts_cmds.h: a script's tint (upstream's doClearTint)
+bool q30_savemenu_take_pending_save();   // q30_scripts_sys.h
+void q30_run_onsave();          // q30_scripts_engine.h
 void q30_msg_draw_icons();
 void q30_msg_init();
 bool q30_msg_nofreeze();
@@ -2639,6 +2642,20 @@ int cont_game()
         void q30_continue_buttons();    // link.cpp: 2.55/3.0, a script's forced button item is off after a continue
         q30_continue_buttons();
     }
+    
+    // ZC_TEST_START (test runs only): a continue on the test's screen puts Link on its return
+    // square A, as upstream's test mode does (cont_game, starting_retsqr 0)
+    if(const char *test_start = q30_active() ? getenv("ZC_TEST_START") : NULL)
+    {
+        int dm, sc;
+        
+        if(sscanf(test_start, "%d,%d", &dm, &sc) == 2 && dm == currdmap && dm >= 0 && dm < MAXDMAPS && sc + DMaps[dm].xoff == currscr)
+        {
+            Link.setX(tmpscr->warpreturnx[0]);
+            Link.setY(tmpscr->warpreturny[0]);
+        }
+    }
+    
     wavy=quakeclk=0;
     
     //if(get_bit(zinit.misc,idM_CONTPERCENT))
@@ -4940,6 +4957,11 @@ int main(int argc, char* argv[])
         
         switch(Quit)
         {
+        case qCONT:         // 2.55/3.0 (upstream): a continue without the game over screen (an instant
+                            // continue on death, Game->Continue(), a save menu) ends the game as these do
+            if(!q30_active())
+                break;
+            
         case qQUIT:
         case qGAMEOVER:
         case qRELOAD:       // (2.55/3.0 Game->Reload(): skipcont is set, so no game over screen)
@@ -4957,6 +4979,12 @@ int main(int argc, char* argv[])
             ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_END);
             
             if(!skipcont&&!get_bit(quest_rules,qr_NOCONTINUE)) game_over(get_bit(quest_rules,qr_NOSAVE));
+            
+            if(q30_savemenu_take_pending_save())    // 2.55/3.0: a save menu's save as the game ended
+            {
+                q30_run_onsave();
+                save_game(false);
+            }
             
             skipcont = 0;
         }
@@ -4994,6 +5022,12 @@ int main(int argc, char* argv[])
         }
         break;
         
+        }
+        
+        if(q30_active())    // upstream: after any end of a game, and a script's tint cleared
+        {
+            skipcont = 0;
+            q30_clear_tint();
         }
         
         kill_sfx();
