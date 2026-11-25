@@ -3031,7 +3031,10 @@ public:
 	case 14:
             return tempenemy->dmisc15;
         }
-        
+
+        if(a < 32)      // (2.55/3.0: upstream's attributes[15-31])
+            return tempenemy->q30_dmisc[a - 15];
+
         return 0;
     }
     
@@ -4671,7 +4674,7 @@ long get_register(const long arg)
         int a = ri->d[0] / 10000;
         
         if(GuyH::loadNPC(ri->guyref, "npc->Attributes") != SH::_NoError ||
-                BC::checkBounds(a, 0, 14, "npc->Attributes") != SH::_NoError)
+                BC::checkBounds(a, 0, q30_active() ? 31 : 14, "npc->Attributes") != SH::_NoError)   // (2.55/3.0: 32)
             ret = -10000;
         else
             ret = GuyH::getNPCDMisc(a) * 10000;
@@ -7319,8 +7322,8 @@ if(GuyH::loadNPC(ri->guyref, str) == SH::_NoError) \
         long a = ri->d[0] / 10000;
         
         if(GuyH::loadNPC(ri->guyref, "npc->Attributes") == SH::_NoError &&
-                BC::checkBounds(a, 0, 14, "npc->Attributes") == SH::_NoError)
-	
+                BC::checkBounds(a, 0, q30_active() ? 31 : 14, "npc->Attributes") == SH::_NoError)   // (2.55/3.0: 32)
+
 	switch(a){
 		case 0: GuyH::getNPC()->dmisc1 = value / 10000; break;
 		case 1: GuyH::getNPC()->dmisc2 = value / 10000; break;
@@ -7337,8 +7340,11 @@ if(GuyH::loadNPC(ri->guyref, str) == SH::_NoError) \
 		case 12: GuyH::getNPC()->dmisc13 = value / 10000; break;
 		case 13: GuyH::getNPC()->dmisc14 = value / 10000; break;
 		case 14: GuyH::getNPC()->dmisc15 = value / 10000; break;
-		
-		default: break;
+
+		default:
+			if(a < 32)      // (2.55/3.0: upstream's attributes[15-31])
+				GuyH::getNPC()->q30_dmisc[a - 15] = value / 10000;
+			break;
 	}
 
     }

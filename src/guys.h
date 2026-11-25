@@ -127,6 +127,8 @@ public:
     int q30_spr_shadow;
     void q30_init_size_flags();
     int q30_shadow_tile(int dflt_sprite);   // the shadow sprite's tile (2.53 quests: dflt_sprite's)
+    long q30_dmisc[17];         // 2.55/3.0: upstream's attributes[15-31] (2.53 has dmisc1-15)
+    int q30_transform(int *power);  // 2.55/3.0: upstream's 'Transform' defense (edREPLACE)
 protected:
     int  clk2,sclk;
     int  starting_hp;

@@ -152,6 +152,31 @@ static void z30_explode_command(sprite *s, const char *what, bool hero)
         z30_explode(s, (int)mode, hero);
 }
 
+// guys.cpp's 'Transform' defense (upstream's edREPLACE): its explosions, the old enemy's FakeZ, and
+// the Rotation and Scale the new enemy takes over
+void q30_enemy_explode(sprite *s, int type)
+{
+    z30_explode(s, type, false);
+}
+
+int q30_sprite_fakez_px(long uid)
+{
+    const Zasm30SpriteState *st = zasm30_sprite_state_if(uid);
+    return st ? (int)(st->fakez / 10000) : 0;
+}
+
+void q30_transform_copy_state(long from, long to)
+{
+    const Zasm30SpriteState *a = zasm30_sprite_state_if(from);
+
+    if(a && (a->rotation || a->scale != 100))
+    {
+        Zasm30SpriteState &b = zasm30_sprite_state(to);
+        b.rotation = a->rotation;
+        b.scale = a->scale;
+    }
+}
+
 // ---- npc-> movement (upstream's do_npc_* in scripting/types/npc.cpp) ------------------------------
 
 // The enemy members these need are protected.

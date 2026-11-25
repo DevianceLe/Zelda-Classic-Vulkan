@@ -611,6 +611,7 @@ enemy::enemy(fix X,fix Y,int Id,int Clk) : sprite()
     q30_sizeflags = 0;
     q30_frozenclock = q30_frozentile = q30_frozencset = 0;
     q30_spr_shadow = -1;
+    memset(q30_dmisc, 0, sizeof(q30_dmisc));
 
     if(q30_active())
     {
@@ -622,6 +623,9 @@ enemy::enemy(fix X,fix Y,int Id,int Clk) : sprite()
             q30_spr_shadow = x->spr_shadow;
             q30_sizeflags = x->sizeflags;
             q30_init_size_flags();
+
+            for(int i = 0; i < 17; ++i)     // (its dmisc[15-31])
+                q30_dmisc[i] = x->attributes[15 + i];
         }
     }
     canfreeze = count_enemy = true;
@@ -1608,6 +1612,188 @@ bool enemy::candamage(int power, int edef)
     return true;
 }
 
+void q30_enemy_explode(sprite *s, int type);         // q30_scripts_live.h: upstream's sprite::explode
+int q30_sprite_fakez_px(long uid);                   // q30_scripts_live.h: a script's FakeZ, in pixels
+void q30_transform_copy_state(long from, long to);   // q30_scripts_live.h: Rotation and Scale
+
+// 2.55/3.0 quests: upstream's 'Transform' defense (enemy::defendNew, edREPLACE, as of 5b68b5dc6, with
+// 01000a268 and the Nov 23 fixes). The enemy turns into attribute 16's enemy (0: the next one), which
+// is stunned and flashes for attribute 17's frames (0: 90), and shows attribute 15's effect: a sprite
+// (1-255) as big as the enemy, an explosion (-1 to -3), a bomb or super bomb blast for show (-5, -4) or
+// one with the enemy's weapon damage (-7, -6). It drops nothing, and the screen's enemy count keeps it.
+// A segment or head of the new enemy that can't be made cancels it.
+int enemy::q30_transform(int *power)
+{
+    sclk = 0;
+    int new_id = q30_dmisc[0] > 0 ? (int)q30_dmisc[0] : id + 1;
+
+    if(new_id < 0 || new_id >= MAXGUYS)
+        new_id = id;
+
+    const int delay_timer = q30_dmisc[1] > 0 ? (int)q30_dmisc[1] : 90;
+    int effect_type = (int)dmisc15;
+    const int fam = guysbuf[new_id & 0xFFF].family;
+
+    if(fam == eeGLEEOK)
+        *power = 0;
+
+    // upstream makes the classes addenemy makes, but nothing for a "None" enemy
+    const int first = guys.Count();
+    const int made = fam == eeNONE ? 0 : addenemy(int(x), int(y), new_id, clk);
+
+    switch(fam)
+    {
+    case eeMOLD: case eeLANM: case eeMANHAN: case eeGLEEOK: case eePATRA:
+        if(!made)
+            return 0;
+    }
+
+    if(made)
+    {
+        enemy *e = (enemy *)guys.spr(first);
+
+        switch(fam)
+        {
+        case eeGLEEOK:      // (it places itself)
+            break;
+
+        case eeWALK: case eeLEV: case eeTEK: case eePEAHAT: case eeZORA: case eeGHINI: case eeKEESE:
+        case eeWIZZ: case eePROJECTILE: case eeWALLM: case eeGUY:
+            // (made where the old enemy is, which upstream passes on unrounded)
+            if(e->x == fix(int(x)))
+                e->x = x;
+
+            if(e->y == fix(int(y)))
+                e->y = y;
+
+            break;
+
+        default:            // (upstream puts these where the old enemy is after making them)
+            e->x = x;
+            e->y = y;
+        }
+    }
+
+    // the new enemy takes over: a Gleeok's heads come after its body, which is the one (01000a268)
+    enemy *spawned = NULL;
+
+    if(fam == eeGLEEOK)
+    {
+        spawned = (enemy *)guys.spr(first);
+
+        for(int i = first; i < guys.Count(); ++i)
+            ((enemy *)guys.spr(i))->hclk = delay_timer;
+    }
+    else if(guys.Count() > 0)
+        spawned = (enemy *)guys.spr(guys.Count() - 1);
+
+    if(spawned)
+    {
+        spawned->count_enemy = true;
+        spawned->stunclk = delay_timer;
+        spawned->dir = dir;
+        q30_transform_copy_state(getUID(), spawned->getUID());
+        spawned->angular = angular;
+        spawned->angle = angle;
+        spawned->itemguy = itemguy;
+        spawned->leader = leader;
+        spawned->hclk = delay_timer;
+        spawned->script_spawned = script_spawned;
+        spawned->sclk = 0;
+    }
+
+    item_set = 0;   // no drop
+    const int fz = q30_sprite_fakez_px(getUID());
+
+    switch(effect_type)
+    {
+    case -7:
+        Lwpns.add(new weapon(x, y - fz, z, wBomb, 0, wdp, 0, -1, getUID(), false));
+        break;
+
+    case -6:
+        Lwpns.add(new weapon(x, y - fz, z, wSBomb, 0, wdp, 0, -1, getUID(), false));
+        break;
+
+    // a blast for show: no power and no item, and not from this enemy (594382d59)
+    case -5:
+        Lwpns.add(new weapon(x, y - fz, z, wBomb, 0, 0, 0, -1, Link.getUID(), true));
+        break;
+
+    case -4:
+        Lwpns.add(new weapon(x, y - fz, z, wSBomb, 0, 0, 0, -1, Link.getUID(), true));
+        break;
+
+    case -3:
+        q30_enemy_explode(this, 1);
+        break;
+
+    case -2:
+        q30_enemy_explode(this, 2);
+        break;
+
+    case -1:
+        q30_enemy_explode(this, 0);
+        break;
+
+    case 0:
+        break;
+
+    default:
+    {
+        // upstream's dummy weapon: a sparkle of that sprite as big as the enemy (89ac95143), with no
+        // hitbox and nothing left unset (e8ffee53a)
+        if(effect_type > 255)
+            effect_type = 0;
+
+        weapon *w = new weapon(x, y - fz, z, wSSparkle, effect_type, 0, 0, -1, Link.getUID(), true);
+
+        if(!effect_type)
+            w->LOADGFX(0);
+
+        w->type = 0;
+        w->txsz = txsz > 0 ? txsz : 1;
+        w->tysz = tysz > 0 ? tysz : 1;
+        w->hyofs = -32768;
+        w->ignoreLink = true;
+        Lwpns.add(w);
+        break;
+    }
+    }
+
+    yofs = -32768;
+
+    if(fam == eeGLEEOK)
+    {
+        // (a Gleeok head also takes its Gleeok with it, upstream's parentCore)
+        hp = -999;
+
+        if(family == eeGLEEOK && (id & 0xF000))
+        {
+            sprite *core = ((esGleeok *)this)->parent;
+
+            for(int i = 0; i < guys.Count(); ++i)
+            {
+                if(guys.spr(i) == core)
+                {
+                    ((enemy *)core)->hp = -999;
+                    break;
+                }
+            }
+        }
+    }
+    else
+        hp = -1000;
+
+    if(currscr < 128)
+    {
+        const int from = q30_region_sprite_screen(getUID());
+        ++game->guys[(currmap<<7)+(from >= 0 ? from : currscr)];
+    }
+
+    return 1;
+}
+
 // Do we do damage?
 // 0: takehit returns 0
 // 1: takehit returns 1
@@ -1638,7 +1824,12 @@ int enemy::defend(int wpnId, int *power, int edef)
         q30_frozenclock = -1;
         return 1;
     }
-    
+
+    // 2.55/3.0: upstream's 'Transform' outcome (edREPLACE, 27), kept as is by the reader and as a
+    // script's npc->Defense[] sets it; 2.53 has no outcome 27 and treated it as normal damage
+    if(q30_active() && defense[edef] == 27)
+        return q30_transform(power);
+
     switch(defense[edef])
     {
     case edSTUNORCHINK:

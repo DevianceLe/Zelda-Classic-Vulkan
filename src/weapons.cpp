@@ -717,10 +717,12 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
         }
         else
         {
-            defaultw = wSBOMB;
+            // (2.55/3.0: with no item, upstream's _handle_loadsprite takes the canonical super bomb's
+            // sprite, as for bombs; the fuse stays 50)
+            defaultw = (q30_active() && itemid>-1) ? itemsbuf[itemid].wpn : wSBOMB;
             misc = (id==wSBomb ? 1 : 50);
         }
-        
+
         LOADGFX(defaultw);
         hxofs=hyofs=4;
         hxsz=hysz=8;

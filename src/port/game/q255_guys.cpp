@@ -118,9 +118,17 @@ static byte map_defense(byte d)
     case FILE_edFREEZE:
         return edSTUNONLY;
 
+#ifdef ZC_PLAYER_BUILD
+    // Transform: kept as is, guys.cpp's enemy::defend does it for 2.55/3.0 quests (q30_transform)
+    case FILE_edREPLACE:
+        return FILE_edREPLACE;
+#endif
+
     // These remove the enemy in upstream (its replacements and blasts are lost).
     case FILE_edSPLIT:
+#ifndef ZC_PLAYER_BUILD
     case FILE_edREPLACE:
+#endif
     case FILE_edEXPLODESMALL:
     case FILE_edEXPLODELARGE:
     case FILE_edEXPLODEHARMLESS:
@@ -822,6 +830,22 @@ int q255_read_guys(Q255Section &s)
 
             q30_set_guy_death_sprite(i, g_npc_death_spr, g_npc_spawn_spr);
             q30_set_guy_data(i, g_npc_data);
+
+            // (test switch: the enemies with a 'Transform' defense, for finding quests that use it)
+            if(const char *scan = getenv("ZC_Q30_TRANSFORM_SCAN"))
+            {
+                for(int j = 0; j < FILE_DEFENSES_ALL; ++j)
+                {
+                    FILE *f = g_npc_raw_defense[j] == FILE_edREPLACE ? fopen(scan, "a") : NULL;
+
+                    if(f)
+                    {
+                        fprintf(f, "guy %d (%s, family %d): defense %d, effect %ld, into %ld, stun %ld\n", i, guy_string[i],
+                                (int)g.family, j, (long)g.misc15, (long)g_npc_data.attributes[15], (long)g_npc_data.attributes[16]);
+                        fclose(f);
+                    }
+                }
+            }
 
             if(g_npc_vp_suspend != 48 || g_npc_vp_despawn != 0)
                 q30_vp_guy_ranges(i, g_npc_vp_suspend, g_npc_vp_despawn);
