@@ -259,6 +259,7 @@ item::item(fix X,fix Y,fix Z,int i,int p,int c, bool isDummy) : sprite()
     clk=c;
     misc=clk2=0;
     aframe=aclk=0;
+    o_tile=0;   // (a dummy item past the last returns below before its tile is set: upstream 1f5bcee8b)
     anim=flash=twohand=subscreenItem=false;
     dummy_int[0]=PriceIndex=-1;
     

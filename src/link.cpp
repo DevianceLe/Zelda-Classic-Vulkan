@@ -3715,11 +3715,15 @@ int LinkClass::EwpnHit()
             if(ew->id != oldid)                                     // changed type from ewX to wX
             {
                 //        ew->power*=zc_hero_dmgmult();
-                Lwpns.add(ew);
+                // Out of Ewpns first: a full Lwpns deletes what it can't add, and 2.53 went on
+                // using the weapon after that. It is gone either way, as it was in 2.53.
                 Ewpns.remove(ew);
+                
+                if(!Lwpns.add(ew))
+                    ew = NULL;
             }
             
-            if(ew->id==wRefMagic)
+            if(ew && ew->id==wRefMagic)
             {
                 ew->ignoreLink=true;
                 ew->ignorecombo=-1;
@@ -4062,11 +4066,14 @@ killweapon:
                             }*/
                             if(ew->id != oldid || (ew->id>=wScript1 && ew->id<=wScript10)) // changed type from ewX to wX... Except for script weapons
                             {
-                                Lwpns.add(ew);
+                                // (out of Ewpns first: a full Lwpns deletes it, see EwpnHit)
                                 Ewpns.remove(ew);
+                                
+                                if(!Lwpns.add(ew))
+                                    ew = NULL;
                             }
                             
-                            if(ew->id==wRefMagic)
+                            if(ew && ew->id==wRefMagic)
                             {
                                 ew->ignoreLink=true;
                                 ew->ignorecombo=-1;

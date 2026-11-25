@@ -1118,6 +1118,7 @@ void cflag_help(int id);
 void ctype_help(int id);
 void questrev_help();
 void questminrev_help();
+void reset_map_tabs();          // every map tab back to map 1, screen 0 (load_quest)
 
 //throw together midi_strict hack
 #ifdef ALLEGRO_LINUX_GP2X

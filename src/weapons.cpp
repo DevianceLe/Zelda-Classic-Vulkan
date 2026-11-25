@@ -392,6 +392,8 @@ weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem
     dir=zc_max(Dir,0);
     clk=clk2=flip=misc=misc2=0;
     frames=flash=wid=aframe=csclk=0;
+    o_tile=0;   // (LOADGFX sets it; before, a weapon that never loads its graphics held whatever
+                // was in memory, which a script reads as OriginalTile: upstream 1f5bcee8b)
     ignorecombo=-1;
     step=0;
     dead=-1;
@@ -3699,6 +3701,11 @@ void weapon::onhit(bool clipped, int special, int linkdir)
             return;
         goto offscreenCheck;
     }
+    
+    // 2.55/3.0 quests (upstream f5034d527): a reflected enemy weapon moves to Link's weapon list
+    // (LinkClass::EwpnHit, checkhit). When that list is full it can't, so the shield just blocks it.
+    if(special==2 && q30_active() && Lwpns.Count() >= Lwpns.getMax() && Ewpns.getByUID(getUID()) == this)
+        special = 1;
     
     if(special==2)                                            // hit Link's mirror shield
     {

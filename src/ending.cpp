@@ -39,6 +39,16 @@ void q30_msg_clear_display();
 extern LinkClass   Link;
 extern sprite_list  guys, items, Ewpns, Lwpns, Sitems, chainlinks, decorations;
 
+// One of the three 24-character lines an ending string is shown as. In 2.55/3.0 quests a line
+// that starts past the end of the string is empty (upstream 0f21a2d09): a script's shorter
+// Game->SetMessage leaves the old text after the end, which this would otherwise show.
+// 2.53 quests read the line from the string's buffer as they always did.
+static void copy_ending_line(char *dest, const char *s, int line)
+{
+    const size_t start = 24 * line;
+    sprintf(dest, "%.24s", (!q30_active() || start < strlen(s)) ? s + start : "");
+}
+
 //extern bool draw_screen_clip_rect_show_link;
 //extern bool draw_screen_clip_rect_show_guys;
 
@@ -297,14 +307,14 @@ void ending()
     
     for(int x=0; x<3; x++)
     {
-        sprintf(tmpmsg[x], "%.24s", MsgStrings[QMisc.endstring].s+(24*x));
+        copy_ending_line(tmpmsg[x], MsgStrings[QMisc.endstring].s, x);
         //    sprintf(tmpmsg[x], "%.24s", MsgStrings[QMisc.endstring].s+(24*x));
         //    strncpy(tmpmsg[x], MsgStrings[QMisc.endstring].s+(24*x), 24);
     }
     
     for(int x=0; x<3; x++)
     {
-        sprintf(tmpmsg[x+3], "%.24s", MsgStrings[QMisc.endstring+1].s+(24*x));
+        copy_ending_line(tmpmsg[x+3], MsgStrings[QMisc.endstring+1].s, x);
         //    strncpy(tmpmsg[x+3], MsgStrings[QMisc.endstring+1].s+(24*x), 24);
     }
     

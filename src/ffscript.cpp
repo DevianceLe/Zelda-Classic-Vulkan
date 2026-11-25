@@ -3418,6 +3418,11 @@ public:
             
         word i;
         
+        // 2.55/3.0 quests: characters outside ASCII are 0-255, the same on every platform, as
+        // upstream's (3.0 cd18c9376, 2.55.19 8ff70647a); script character literals are too
+        // (zscript30, upstream 3d95e8a92). 2.53 quests keep plain char's sign.
+        const bool bytes = q30_active();
+        
         for(i = 0; i < s2.size(); i++)
         {
             if(i >= a.Size())
@@ -3427,7 +3432,7 @@ public:
             }
             
             if(BC::checkUserArrayIndex(i, a.Size()) == _NoError)
-                a[i] = s2[i] * 10000;
+                a[i] = (bytes ? (int)(byte)s2[i] : (int)s2[i]) * 10000;
         }
         
         if(BC::checkUserArrayIndex(i, a.Size()) == _NoError)

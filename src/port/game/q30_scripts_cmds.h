@@ -362,6 +362,21 @@ static Z30File *z30_file(long ref, bool need_open)
     return need_open && !f->f ? NULL : f;
 }
 
+// File->PutChar and ->UngetChar's character (upstream 3d95e8a92): a string's characters are
+// 0-255, and -128 to -1 are taken as they are too, for scripts written when characters outside
+// ASCII were negative. Anything else is logged and wraps to a byte. (Cast to char, 255 became
+// EOF, which ungetc refuses.)
+static int z30_file_char(long c, const char *what)
+{
+    if(c < -128 || c > 255)
+    {
+        Z_scripterrlog("Invalid character val %ld passed to %s(); value will overflow.\n", c, what);
+        c = (byte)c;
+    }
+
+    return (int)c;
+}
+
 static void z30_file_close(Z30File *f)
 {
     if(f->f)
@@ -2899,6 +2914,17 @@ extern void (*q30_tint_palette_loaded_hook)();
 // what the last tint left in the palette, to tell the colours the game loaded since
 static RGB z30_tint_applied[PAL_SIZE];
 
+// The weighted grey of a colour, 0.299 r + 0.587 g + 0.114 b rounded down, the same on every
+// machine (upstream 9641edf23 distributed_grey): each product and the first sum are stored apart,
+// so an arm64 build can't fuse a multiply into an add, which rounds some colours one step darker
+// than x64. The sum goes in x64's order, (r + g) + b.
+static int z30_weighted_grey(const RGB &c)
+{
+    volatile double r = 0.299 * c.r, g = 0.587 * c.g, b = 0.114 * c.b;
+    volatile double rg = r + g;
+    return (int)(rg + b);
+}
+
 // Upstream's addColour, on colours 0 to 0xEF. (Its clamp is 255, but the palette it tints is this
 // 6-bit one: what passes 63 shows as white there, as the 63 here does.)
 static void z30_add_colour()
@@ -2908,7 +2934,7 @@ static void z30_add_colour()
         if(z30_tint[3] >= 0)
         {
             int grey = z30_tint[3] == 0 ? (RAMpal[i].r + RAMpal[i].g + RAMpal[i].b) / 3
-                       : (int)(0.299 * RAMpal[i].r + 0.587 * RAMpal[i].g + 0.114 * RAMpal[i].b);
+                       : z30_weighted_grey(RAMpal[i]);
             RAMpal[i].r = RAMpal[i].g = RAMpal[i].b = grey;
         }
 
@@ -4885,13 +4911,13 @@ static bool zasm30_command(word cmd)
     case Z30C_FILEPUTCHAR:
     {
         Z30File *f = z30_file(Z30_REF(FILE), true);
-        ri->d[2] = f ? fputc((char)(get_register(sarg1) / 10000), f->f) * 10000 : -10000;
+        ri->d[2] = f ? fputc(z30_file_char(get_register(sarg1) / 10000, "PutChar"), f->f) * 10000 : -10000;
         return true;
     }
     case Z30C_FILEUNGETCHAR:
     {
         Z30File *f = z30_file(Z30_REF(FILE), true);
-        ri->d[2] = f ? ungetc((char)(get_register(sarg1) / 10000), f->f) * 10000 : -10000;
+        ri->d[2] = f ? ungetc(z30_file_char(get_register(sarg1) / 10000, "UngetChar"), f->f) * 10000 : -10000;
         return true;
     }
     case Z30C_FILEREWIND:

@@ -584,7 +584,9 @@ void zmap::setCurrMap(int index)
 {
     int oldmap=currmap;
     scrpos[currmap]=currscr;
-    currmap=bound(index,0,map_count);
+    // (the last map is map_count-1: upstream b7224da50. One past it was drawn from memory past
+    // the quest's maps, as when a map tab left from a quest with more maps was clicked.)
+    currmap=vbound(index,0,zc_max(map_count-1,0));
     screens=&TheMaps[currmap*MAPSCRS];
     
     currscr=scrpos[currmap];
@@ -6157,6 +6159,8 @@ int load_quest(const char *filename, bool compressed, bool encrypted)
     {
         skip_flags[i]=0;
     }
+    
+    reset_map_tabs();
     
 #ifdef ZC_ZQEDITOR
     zq255_store_clear();

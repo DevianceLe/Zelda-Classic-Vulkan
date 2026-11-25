@@ -353,6 +353,18 @@ typedef struct command_pair
 extern command_pair commands[cmdMAX];
 
 map_and_screen map_page[9]= {{0,0},{0,0},{0,0},{0,0},{0,0},{0,0},{0,0},{0,0},{0,0}};
+
+// No quest this ZQuest reads keeps its map tabs, so a quest opens with them all on map 1,
+// screen 0, not on those of the quest before, whose maps it may not have (upstream b7224da50).
+void reset_map_tabs()
+{
+    for(int i=0; i<9; ++i)
+    {
+        map_page[i].map=0;
+        map_page[i].screen=0;
+    }
+}
+
 int alignment_arrow_timer=0;
 int  Flip=0,Combo=0,CSet=2,First[3]= {0,0,0},current_combolist=0,current_comboalist=0,current_mappage=0;
 int  Flags=0,Flag=1,menutype=(m_block);

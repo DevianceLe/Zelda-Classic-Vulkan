@@ -2400,6 +2400,12 @@ void do_primitives(BITMAP *targetBitmap, int type, mapscr *, int xoff, int yoff)
     const int numDrawCommandsToProcess = script_drawing_commands.Count();
     int xoffset=xoff, yoffset=yoff;
     
+    // 2.55/3.0 commands under that rule (upstream 433422341): once one on this layer drew to a
+    // bitmap, the later ones drawn to the screen lose the playing field offset, as in the old
+    // versions (quests made for them add it themselves). 3 is Z30_DRAW_ORIGIN_SCREEN + 1.
+    bool q30_offset_lost = false;
+    const int q30_origin_screen = 3;
+    
     for(int i(0); i < numDrawCommandsToProcess; ++i)
     {
         if(!brokenOffset)
@@ -2422,7 +2428,9 @@ void do_primitives(BITMAP *targetBitmap, int type, mapscr *, int xoff, int yoff)
             // do_primitives); drawn to a script bitmap, it starts at the bitmap's top-left.
             if(!bmp)
             {
-                if(!zasm30_draw_origin_offset(script_drawing_commands[i].q30_origin, script_drawing_commands[i].q30_origin_target,
+                const int origin = q30_offset_lost ? q30_origin_screen : script_drawing_commands[i].q30_origin;
+
+                if(!zasm30_draw_origin_offset(origin, script_drawing_commands[i].q30_origin_target,
                                               xoff, yoff, xoffset, yoffset))
                     continue;   // its sprite has gone
 
@@ -2434,6 +2442,7 @@ void do_primitives(BITMAP *targetBitmap, int type, mapscr *, int xoff, int yoff)
                 xoffset = 0;
                 yoffset = 0;
                 cmdOffScreen = true;
+                q30_offset_lost = brokenOffset;
             }
         }
         else    // every 2.53 command: the old offset rules, unchanged
