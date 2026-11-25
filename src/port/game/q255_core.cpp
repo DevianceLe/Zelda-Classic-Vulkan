@@ -489,6 +489,21 @@ static void q255_dump_scan(const char *path)
     for(int i = 0; i < MAXITEMS; ++i)
         if(item_string[i] && item_string[i][0])
             fprintf(f, "item %d fam %ld init %d '%s'\n", i, q30_item_family(i), (int)zinit.items[i], item_string[i]);
+    // enemies with 2.55's big animation styles (51-55) and the screens that place them
+    for(int i = 0; i < MAXGUYS; ++i)
+        if((guysbuf[i].anim >= a2FRMB + 1 && guysbuf[i].anim <= a2FRMB + 5) || (guysbuf[i].e_anim >= a2FRMB + 1 && guysbuf[i].e_anim <= a2FRMB + 5))
+        {
+            fprintf(f, "biganim guy %d anim %d e_anim %d family %d '%.20s' at", i, guysbuf[i].anim, guysbuf[i].e_anim, guysbuf[i].family, guy_string[i]);
+            for(size_t n = 0, shown = 0; n < TheMaps.size() && shown < 12; ++n)
+                for(int k = 0; k < 10; ++k)
+                    if((TheMaps[n].valid & mVALID) && TheMaps[n].enemy[k] == i)
+                    {
+                        fprintf(f, " %d/%02X", (int)(n / MAPSCRS) + 1, (int)(n % MAPSCRS));
+                        ++shown;
+                        break;
+                    }
+            fprintf(f, "\n");
+        }
     static const int kinds[] = { 3, 58, 181, 178, 167, 179, 184, 175, 174, 42, 20, 183, 165 };
     static const char *kname[] = { "water", "shallow", "ice", "slope", "sign", "cutscene", "cuteffect", "prompt", "switchhook", "hookonly", "ladhook", "crumble", "stepsfx" };
     for(size_t n = 0; n < TheMaps.size(); ++n)

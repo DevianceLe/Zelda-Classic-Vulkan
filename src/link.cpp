@@ -133,6 +133,9 @@ static int q30_zinit_hero_step = 150;   // zinit.heroStep: the init data, or wha
 static int q30_steprate = 150;
 static int q30_step_boost = 0;
 
+bool q30_classic_dungeon_charting();    // zc_subscr.cpp: 2.55/3.0 rules 213 and 212 (with readrules' compat)
+bool q30_no_overworld_charting();
+
 // The quest's init data, as it loads (q255_init.cpp).
 void q30_set_init_hero_step(int step)
 {
@@ -17044,7 +17047,30 @@ void LinkClass::scrollscr(int scrolldir, int destscr, int destdmap)
     // 2.55/3.0: Game->Scrolling and the region camera follow this scroll (nothing for 2.53)
     q30_scroll_begin(scrolldir);
 
-    if((DMaps[currdmap].type&dmfTYPE)==dmCAVE)
+    if(q30_active())
+    {
+        // 2.55/3.0: upstream's scrollscr charts the side left by on dungeons (without classic
+        // charting) and overworlds too (zc_subscr.cpp)
+        switch(DMaps[currdmap].type&dmfTYPE)
+        {
+        case dmDNGN:
+            if(!q30_classic_dungeon_charting())
+                markBmap(scrolldir);
+            break;
+
+        case dmOVERW:
+        case dmBSOVERW:
+            if(q30_no_overworld_charting())
+                break;
+            markBmap(scrolldir);
+            break;
+
+        case dmCAVE:
+            markBmap(scrolldir);
+            break;
+        }
+    }
+    else if((DMaps[currdmap].type&dmfTYPE)==dmCAVE)
         markBmap(scrolldir);
         
         

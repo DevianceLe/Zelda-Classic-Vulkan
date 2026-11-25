@@ -32,6 +32,8 @@ extern LinkClass   Link;
 extern word quest_header_zelda_version;
 extern int q255_header_build;       // q255_basic.cpp
 bool q30_quest_rule(int id);        // q30_triggers.cpp
+byte q30_chart_get(int di);         // q30_triggers.cpp: 3.0's map chart, dmap << 7 | screen
+void q30_chart_set(int di, byte v);
 extern int directItem;
 extern int directItemA;
 extern int directItemB;
@@ -647,44 +649,97 @@ void dosubscr(miscQdata *misc)
     resume_sfx(WAV_BRANG);
 }
 
+// 2.55/3.0: qr_DUNGEONS_USE_CLASSIC_CHARTING (213) and qr_NO_OVERWORLD_MAP_CHARTING (212), which
+// upstream's readrules also turns on for quests saved before 2.55 build 57 and 56
+bool q30_classic_dungeon_charting()
+{
+    return q30_quest_rule(213) || quest_header_zelda_version < 0x255
+           || (quest_header_zelda_version == 0x255 && q255_header_build < 57);
+}
+
+bool q30_no_overworld_charting()
+{
+    return q30_quest_rule(212) || quest_header_zelda_version < 0x255
+           || (quest_header_zelda_version == 0x255 && q255_header_build < 56);
+}
+
+// 2.55/3.0: upstream 3.0's markBmap. The chart is kept per DMap as dmap << 7 | screen
+// (q30_chart_*), overworld screens included, where 2.53 keeps 8 x 8 a DMap from DMap 1.
+static void q30_markBmap(int dir, int sc, int dmap)
+{
+    if(dmap < 0)
+        dmap = get_currdmap();
+
+    if(sc >= 128 || sc < 0)
+        return;
+
+    const int col = (sc&15) - DMaps[dmap].xoff;
+    const byte drow = DMaps[dmap].grid[sc>>4];
+    const byte mask = unsigned(col) > 7 ? 0 : (byte)(1 << (7-col));   // (upstream's shift: 0 outside)
+    const int di = (dmap << 7) + (sc & 0x7F);
+    int code = 0;
+
+    switch(DMaps[dmap].type&dmfTYPE)
+    {
+    case dmDNGN:
+        if(q30_classic_dungeon_charting())
+        {
+            if((drow&mask)==0)      // only squares marked in the DMap editor can be charted
+                return;
+
+            for(int i=3; i>=0; i--)
+            {
+                code <<= 1;
+                code += tmpscr->door[i]&1;
+            }
+
+            q30_chart_set(di, (byte)(code|128));
+            return;
+        }
+
+        break;
+
+    case dmOVERW:
+        if(q30_no_overworld_charting())
+            return;
+
+        break;
+    }
+
+    byte v = q30_chart_get(di) | 128;
+
+    if(dir >= 0)
+        v |= (byte)(1<<dir);
+
+    q30_chart_set(di, v);
+}
+
 void markBmap(int dir, int sc)
 {
     /*
       if((DMaps[get_currdmap()].type&dmfTYPE)==dmOVERW)
         return;
     */
+    if(q30_active())
+    {
+        q30_markBmap(dir, sc, -1);
+        return;
+    }
+
     if(sc>=128)
     {
         return;
     }
-    
+
     byte drow = DMaps[get_currdmap()].grid[sc>>4];
     byte mask = 1 << (7-((sc&15)-DMaps[get_currdmap()].xoff));
     int di = ((get_currdmap()-1)<<6) + ((sc>>4)<<3) + ((sc&15)-DMaps[get_currdmap()].xoff);
     int code = 0;
-    
-    
+
+
     switch((DMaps[get_currdmap()].type&dmfTYPE))
     {
     case dmDNGN:
-
-        // 2.55/3.0: without qr_DUNGEONS_USE_CLASSIC_CHARTING (213; upstream's readrules turns it on
-        // for quests saved before 2.55 build 57) a dungeon screen is charted as a cave's: no DMap
-        // grid check and no door code, only the side given (upstream's markBmap)
-        if(q30_active() && !q30_quest_rule(213) && quest_header_zelda_version >= 0x255
-           && !(quest_header_zelda_version == 0x255 && q255_header_build < 57))
-        {
-            if((unsigned)((sc&15)-DMaps[get_currdmap()].xoff) > 7)
-                return;
-
-            game->bmaps[di] |= 128;
-
-            if(dir>=0)
-                game->bmaps[di] |= (1<<dir);
-
-            break;
-        }
-
         // check dmap
         if((drow&mask)==0)
             return;

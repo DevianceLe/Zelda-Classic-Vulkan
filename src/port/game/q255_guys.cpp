@@ -142,8 +142,10 @@ byte q255_guy_defense_253(byte d) { return map_defense(d); }     // npcdata->Def
 
 static short map_anim(short a)
 {
+#ifndef ZC_PLAYER_BUILD     // (the player draws them as upstream: guys.cpp update_enemy_frame)
     if(a >= aMAX && a <= aMAX + 4)
         return a4FRM8DIRB;
+#endif
 
     return a;
 }

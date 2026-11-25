@@ -12,6 +12,8 @@
 extern char *guy_string[];
 FONT *get_zc_font(int index);       // script_drawing.cpp
 void update_subscreens(int dmap);
+byte q30_chart_get(int di);         // q30_triggers.cpp: 3.0's map chart, dmap << 7 | screen
+void q30_chart_set(int di, byte v);
 extern word animated_combo_table4[MAXCOMBOS][2];   // tiles.cpp: [0] combo, [1] clock
 extern word animated_combos;
 
@@ -470,8 +472,8 @@ static bool z30d_dmap_more_reg(const long arg, long &ret, const long value, cons
         }
         return true;
     }
-    // Charted[128]: the map marks of the DMap's screens as 2.53 keeps them (game->bmaps, 8 x 8 a
-    // DMap, placed as markBmap places them); a column that layout has no room for reads unmarked
+    // Charted[128]: the map marks of the DMap's screens, upstream 3.0's chart (dmap << 7 | screen,
+    // q30_chart_*); a column out of the DMap's reads -1 and takes no write, as upstream's
     case Z30R_DMAPDATACHARTED:
     {
         if(!ok || !z30d_index(Z30_INDEX, MAPSCRSNORMAL, false, n))
@@ -482,23 +484,21 @@ static bool z30d_dmap_more_reg(const long arg, long &ret, const long value, cons
         }
 
         const dmap &d = DMaps[id];
-        const bool overw = (d.type & dmfTYPE) == dmOVERW;
-        const int col = (int)(n & 15) - (overw ? 0 : d.xoff);
+        const int col = (int)(n & 15) - (d.type == dmOVERW ? 0 : d.xoff);
 
-        if(overw ? unsigned(col) > 15 : unsigned(col) > 7)
+        if((d.type & dmfTYPE) != dmOVERW ? unsigned(col) > 7 : unsigned(col) > 15)
         {
             if(!write)
                 ret = -10000;
             return true;
         }
 
-        const long di = ((id - 1) << 6) + ((n >> 4) << 3) + col;
-        const bool stored = col < 8 && di >= 0 && di < MAXDMAPS * 64;
+        const int di = ((int)id << 7) + (int)(n & 0x7F);
 
         if(!write)
-            ret = stored ? game->bmaps[di] * 10000 : 0;
-        else if(stored)
-            game->bmaps[di] = (byte)z30d_bound(value / 10000, 0, 0x8F);
+            ret = q30_chart_get(di) * 10000;
+        else
+            q30_chart_set(di, (byte)(value / 10000));
         return true;
     }
     default:

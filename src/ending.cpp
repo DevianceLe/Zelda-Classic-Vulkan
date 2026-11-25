@@ -24,6 +24,7 @@
 #include "items.h"
 #include "pal.h"
 #include "link.h"
+void q30_states_flush_for_save();     // q30_triggers.cpp: 2.55/3.0 states into the save
 #include "guys.h"
 #include "title.h"
 #include "subscr.h"
@@ -619,6 +620,7 @@ credits_skip:
 //  setPackfilePassword(datapwd);
     load_quest(game);
 //  setPackfilePassword(NULL);
+    q30_states_flush_for_save();     // (2.55/3.0: the states of this frame too)
     saves[currgame] = *game;
     load_game_icon_to_buffer(false,currgame);
     load_game_icon(game,false,currgame);
@@ -807,6 +809,7 @@ void q30_ending_scripted()
     game->set_continue_scrn(0xFF);
     game->set_cont_hearts(zinit.cont_heart);
     game->set_hasplayed(false);
+    q30_states_flush_for_save();     // (2.55/3.0: the states of this frame too)
     saves[currgame] = *game;
     load_game_icon_to_buffer(false,currgame);
     load_game_icon(game,false,currgame);

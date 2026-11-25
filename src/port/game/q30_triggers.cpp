@@ -1733,6 +1733,9 @@ static int g_saved_btn[4];
 // With the newer subscreens, the A, B, X and Y buttons' slots by page (link.cpp q30_btn: pos << 8
 // | page, each + 1; 0 none kept), kind 8, as upstream's save keeps game->awpn..ywpn.
 static int g_saved_slot[4];
+// 3.0's map chart (upstream's game->bmaps: MAXDMAPS * 128, dmap << 7 | screen, overworlds too), kind 10:
+// key = that index, value = the mark (128 charted, 1/2/4/8 the sides); 2.53's 8 x 8 layout has no room
+static std::vector<byte> g_charts;
 bool g_states_dirty = false;
 long g_state_id = 0;
 long g_state_serial = 0;
@@ -1844,6 +1847,14 @@ void states_flush()
 
     q30_saved_portals_store(out);   // kind 9
 
+    for(size_t i = 0; i < g_charts.size(); ++i)
+        if(g_charts[i])
+        {
+            out.push_back(10);
+            out.push_back((long)i);
+            out.push_back(g_charts[i]);
+        }
+
     ZScriptArray *a = state_array();
 
     if(!a)
@@ -1889,6 +1900,8 @@ void states_sync()
     memset(g_saved_btn, 0, sizeof(g_saved_btn));
     memset(g_saved_slot, 0, sizeof(g_saved_slot));
     g_portal = Q30_NO_PORTAL;
+    g_charts.assign(MAXDMAPS * MAPSCRSNORMAL, 0);
+    bool charted = false;
     g_state_id = id;
     g_states_dirty = false;
     q30_cutscene_clear();
@@ -1957,10 +1970,36 @@ void states_sync()
             portals.push_back(key);
             portals.push_back(val);
             break;
+
+        case 10:
+            if(key >= 0 && (size_t)key < g_charts.size()) g_charts[key] = (byte)val, charted = true;
+            break;
         }
     }
 
     q30_saved_portals_load(portals);
+
+    // a save from before the 3.0 chart keeps its marks in 2.53's layout only (game->bmaps, 8 x 8 a
+    // DMap from DMap 1): they move to their screens once, and go with the states from then on
+    if(!charted && game && q30_active())
+    {
+        for(int dm = 1; dm < MAXDMAPS; ++dm)
+            for(int scr = 0; scr < MAPSCRSNORMAL; ++scr)
+            {
+                const int col = (scr & 15) - DMaps[dm].xoff;
+
+                if(unsigned(col) > 7)
+                    continue;
+
+                const int si = ((dm - 1) << 6) + ((scr >> 4) << 3) + col;
+
+                if(si < MAXDMAPS * 64 && game->bmaps[si])
+                {
+                    g_charts[(dm << 7) | scr] = game->bmaps[si];
+                    g_states_dirty = true;
+                }
+            }
+    }
 }
 
 // ---- counters past 2.53's 32 ---------------------------------------------------------------
@@ -2040,6 +2079,42 @@ ZScriptArray *hi_counter_array(gamedata *g, bool create)
 }
 
 } // namespace
+
+// 2.55/3.0 quests: 3.0's map chart, dmap << 7 | screen (kept with the states, kind 10). zc_subscr.cpp's
+// markBmap writes it; subscr.cpp's large map and the scripts' DMapData->Charted[] read it.
+byte q30_chart_get(int di)
+{
+    if(!q30_active() || !game || di < 0 || di >= MAXDMAPS * MAPSCRSNORMAL)
+        return 0;
+
+    states_sync();
+    return (size_t)di < g_charts.size() ? g_charts[di] : 0;
+}
+
+void q30_chart_set(int di, byte v)
+{
+    if(!q30_active() || !game || di < 0 || di >= MAXDMAPS * MAPSCRSNORMAL)
+        return;
+
+    states_sync();
+
+    if(g_charts.size() != MAXDMAPS * MAPSCRSNORMAL)
+        g_charts.resize(MAXDMAPS * MAPSCRSNORMAL, 0);
+
+    if(g_charts[di] != v)
+    {
+        g_charts[di] = v;
+        states_mark();
+    }
+}
+
+// title.cpp save_game: what changed since the last flush goes into the state array before the
+// game is copied to its save slot (2.55/3.0 quests only)
+void q30_states_flush_for_save()
+{
+    if(q30_active())
+        states_flush();
+}
 
 // globalRAM is being remade (initZScriptArrayRAM): the counter array has to be looked for again.
 void q30_hi_counter_forget()

@@ -3960,6 +3960,10 @@ void enemy::tiledir_big(int ndir, bool fourdir)
     }
 }
 
+// The big styles 2.55 added after a2FRMB (upstream's a4FRM8EYEB, a4FRM4EYEB, a4FRM8DIRFB, a4FRM4DIRB,
+// a4FRM4DIRFB, 51-55): only 2.55/3.0 quests have them (the 2.55/3.0 reader keeps them for the player).
+enum { q30_a4FRM8EYEB = a2FRMB + 1, q30_a4FRM4EYEB, q30_a4FRM8DIRFB, q30_a4FRM4DIRB, q30_a4FRM4DIRFB };
+
 void enemy::update_enemy_frame()
 {
     int newfrate = zc_max(frate,4);
@@ -4411,9 +4415,20 @@ waves2:
     case a4FRM4EYE:
     case a2FRM4EYE:
     case a4FRM8EYE:
+    case q30_a4FRM8EYEB:
+    case q30_a4FRM4EYEB:
     {
         tilerows = 2;
         double ddir=atan2(double(y-(Link.y)),double(Link.x-x));
+
+        // 2.55/3.0: upstream looks from the middle of a bigger enemy's tiles (its whole pixels)
+        if(q30_active())
+        {
+            const int fakex = int(x) + 8*(zc_max(1,(int)txsz)-1);
+            const int fakey = int(y) + 8*(zc_max(1,(int)tysz)-1);
+            ddir=atan2(double(fix(fakey)-(Link.y)),double(Link.x-fix(fakex)));
+        }
+
         int lookat=rand()&15;
         
         if((ddir<=(((-5)*PI)/8))&&(ddir>(((-7)*PI)/8)))
@@ -4451,7 +4466,16 @@ waves2:
         
         int dir2 = dir;
         dir = lookat;
-        n_frame_n_dir(anim==a2FRM4EYE ? 2:4, anim==a4FRM8EYE ? 8 : 4, anim==a2FRM4EYE ? (f2&1):f4);
+
+        if(anim == q30_a4FRM8EYEB || anim == q30_a4FRM4EYEB)
+        {
+            tiledir_big(dir, anim == q30_a4FRM4EYEB);
+            tile+=2*f4;
+            big_anim = true;
+        }
+        else
+            n_frame_n_dir(anim==a2FRM4EYE ? 2:4, anim==a4FRM8EYE ? 8 : 4, anim==a2FRM4EYE ? (f2&1):f4);
+
         dir = dir2;
     }
     break;
@@ -4521,10 +4545,39 @@ waves2:
     break;
     
     case a4FRM8DIRB:
+    case q30_a4FRM8DIRFB:
     {
         tilerows = 2;
         tiledir_big(dir,false);
         tile+=2*f4;
+
+        if(clk2>0 && anim == q30_a4FRM8DIRFB)                  // stopped to fire
+        {
+            tile+=160;      // (past the 8 directions' rows of 2x2 frames, as upstream 3.0)
+
+            if(clk2<17)                                         // firing
+                tile+=160;
+        }
+
+        big_anim = true;
+    }
+    break;
+
+    case q30_a4FRM4DIRB:
+    case q30_a4FRM4DIRFB:
+    {
+        tilerows = 2;
+        tiledir_big(dir,true);
+        tile+=2*f4;
+
+        if(clk2>0 && anim == q30_a4FRM4DIRFB)                  // stopped to fire
+        {
+            tile+=80;
+
+            if(clk2<17)                                         // firing
+                tile+=80;
+        }
+
         big_anim = true;
     }
     break;

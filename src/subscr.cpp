@@ -5271,6 +5271,93 @@ void puttriforce(BITMAP *dest, miscQdata *misc, int x, int y, int tile, int cset
   */
 
 void draw_block(BITMAP *dest,int x,int y,int tile,int cset,int w,int h);
+#ifdef ZC_PLAYER_BUILD
+byte q30_chart_get(int di);     // q30_triggers.cpp: 3.0's map chart, dmap << 7 | screen
+extern std::vector<std::vector<byte> > q255_map_region_ids;    // q255_maps.cpp: per map, 64 bytes
+
+// upstream's Regions[map].is_same_region: both screens in the same scrolling region (id 1-9)
+static int q30_bmap_region(int map, int scr)
+{
+    if(map < 0 || map >= (int)q255_map_region_ids.size() || scr < 0 || scr >= 128
+       || q255_map_region_ids[map].size() < 64)
+        return 0;
+
+    const byte b = q255_map_region_ids[map][(scr / 16) * 8 + (scr % 16) / 2];
+    return (scr & 1) ? (b & 0xF) : (b >> 4);
+}
+
+static bool q30_bmap_same_region(int map, int a, int b)
+{
+    const int r = q30_bmap_region(map, a);
+    return r && r == q30_bmap_region(map, b);
+}
+
+// 2.55/3.0: upstream 3.0's putBmap rooms. The DMap's chart is read per screen (dmap << 7 | screen,
+// overworlds too, so Link's own room shows under the dot), and rooms of one scrolling region are
+// drawn joined.
+static void q30_putBmap_rooms(BITMAP *dest, int x, int y, int roomcolor, bool large, bool maptile)
+{
+    const int dmid = get_currdmap();
+    const dmap &thedmap = DMaps[dmid];
+    const int mapid = thedmap.map;
+    int scrid = 0;
+
+    for(int y2=y+8; y2<y+72; y2+=8)
+    {
+        while(((unsigned)((scrid&0xF)-thedmap.xoff))>7 && scrid < 0x80)
+            ++scrid;
+
+        int xoffs = thedmap.xoff;
+
+        for(int x2=x+(large?32:16)+(maptile?8:0); x2<x+(large?96:80)+(maptile?8:0); x2+=8)
+        {
+            if(xoffs < 0)
+            {
+                x2 += (8*-xoffs);
+                xoffs = 0;
+            }
+
+            const int bm = scrid < 0x80 ? q30_chart_get((dmid << 7) | scrid) : 0;
+
+            if(bm)
+            {
+                rectfill(dest,x2+1,y2+1,x2+6,y2+6,roomcolor);
+
+                const bool top = scrid >= 0x10 && q30_bmap_same_region(mapid, scrid, scrid-0x10);
+                const bool bottom = scrid < 0x70 && q30_bmap_same_region(mapid, scrid, scrid+0x10);
+                const bool left = (scrid & 0xF) && q30_bmap_same_region(mapid, scrid, scrid-1);
+                const bool right = (scrid & 0xF) < 0xF && q30_bmap_same_region(mapid, scrid, scrid+1);
+
+                if(top)             // top full line, including the corners
+                    _allegro_hline(dest, x2+(left?0:1), y2, x2+(right?7:6), roomcolor);
+                else if(bm&1)       // top door
+                    _allegro_hline(dest, x2+3, y2, x2+4, roomcolor);
+
+                if(bottom)
+                    _allegro_hline(dest, x2+(left?0:1), y2+7, x2+(right?7:6), roomcolor);
+                else if(bm&2)
+                    _allegro_hline(dest, x2+3, y2+7, x2+4, roomcolor);
+
+                if(left)
+                    _allegro_vline(dest, x2, y2+1, y2+6, roomcolor);
+                else if(bm&4)
+                    _allegro_vline(dest, x2, y2+3, y2+4, roomcolor);
+
+                if(right)
+                    _allegro_vline(dest, x2+7, y2+1, y2+6, roomcolor);
+                else if(bm&8)
+                    _allegro_vline(dest, x2+7, y2+3, y2+4, roomcolor);
+            }
+
+            ++scrid;
+        }
+
+        if(thedmap.xoff < 0)
+            scrid -= thedmap.xoff;
+    }
+}
+#endif
+
 void putBmap(BITMAP *dest, miscQdata *misc, int x, int y,bool showmap, bool showrooms, bool showlink, int roomcolor, int linkcolor, bool large)
 {
     int si=0;
@@ -5347,9 +5434,15 @@ void putBmap(BITMAP *dest, miscQdata *misc, int x, int y,bool showmap, bool show
         {
             roomcolor = misc->colors.bmap_fg;
         }
-        
+
+#ifdef ZC_PLAYER_BUILD
+        if(q30_active())
+            q30_putBmap_rooms(dest, x, y, roomcolor, large, maptile != 0);
+        else
+#endif
+        {
         si=(get_currdmap()-1)<<6;
-        
+
         for(int y2=y+8; y2<y+72; y2+=8)
         {
             for(int x2=x+(large?32:16)+(maptile?8:0); x2<x+(large?96:80)+(maptile?8:0); x2+=8)
@@ -5366,12 +5459,31 @@ void putBmap(BITMAP *dest, miscQdata *misc, int x, int y,bool showmap, bool show
                     
                     if(get_bmaps(si)&8) _allegro_vline(dest,x2+7,y2+3,y2+4,roomcolor);  //right door
                 }
-                
+
                 ++si;
             }
         }
+        }
     }
-    
+
+#ifdef ZC_PLAYER_BUILD
+    // 2.55/3.0: upstream shows the dot in a cave too, at the screen it was entered from, but not
+    // in a passageway (0x81)
+    if(showlink && q30_active() && get_currscr() >= MAPSCRSNORMAL)
+    {
+        if(get_currscr() == 0x81 && Link.getSpecialCave() == PASSAGEWAY)
+            return;
+
+        if(linkcolor==-1)
+            linkcolor=misc->colors.link_dot;
+
+        const int screen = get_homescr();
+        int xoff = (((DMaps[get_currdmap()].type&dmfTYPE)==dmOVERW) ? 0 : DMaps[get_currdmap()].xoff);
+        putdot(dest,(((screen&15)-xoff)<<3)+x+(large?34:18)+(maptile?8:0),((screen&0xF0)>>1)+y+11,linkcolor);
+        return;
+    }
+#endif
+
     if(showlink)
     {
         if(get_currscr()<MAPSCRSNORMAL)

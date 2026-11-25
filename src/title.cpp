@@ -3604,6 +3604,7 @@ void titlescreen(int lsave)
 }
 
 bool q30_active();
+void q30_states_flush_for_save();     // q30_triggers.cpp
 bool q30_gameover_custom();
 int q30_gameover_setting(int index);
 const char *q30_gameover_text(int line);
@@ -3772,6 +3773,7 @@ void game_over(int type)
         {
             game->set_cheat(game->get_cheat() | cheat);
             
+            q30_states_flush_for_save();     // (2.55/3.0: the states of this frame too)
             saves[currgame]=*game;
             
             int ring=0;
@@ -3805,6 +3807,7 @@ void save_game(bool savepoint)
     
     game->set_cheat(game->get_cheat() | cheat);
     
+    q30_states_flush_for_save();     // (2.55/3.0: the states of this frame too)
     saves[currgame]=*game;
     
     int ring=0;
@@ -3932,6 +3935,7 @@ bool save_game(bool savepoint, int type)
                 
                 game->set_cheat(game->get_cheat() | cheat);
                 
+                q30_states_flush_for_save();     // (2.55/3.0: the states of this frame too)
                 saves[currgame]=*game;
                 
                 int ring=0;
