@@ -329,10 +329,13 @@ static int z30_wave_rad(int rad)
     return vbound(rad + offset, 0, 65535);
 }
 
-// Upstream's scale_by_percent.
+// Upstream's scale_by_percent, the way x64 computes it (/fp:fast multiplies by 0.01 where this
+// divided by 100; GCC and Clang would divide): the same light radii on every compiler and CPU.
 static int z30_scale_perc(int val, int perc)
 {
-    return (int)(val * (perc / 100.0));
+    volatile double frac = perc * 0.01;
+    volatile double prod = val * frac;
+    return (int)prod;
 }
 
 // One light, the way doDarkroomCircle/Square/Cone cut it into upstream's two dark bitmaps,

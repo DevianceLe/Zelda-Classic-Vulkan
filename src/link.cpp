@@ -20651,6 +20651,18 @@ void LinkClass::getTriforce(int id2)
         playLevelMusic();
 }
 
+// The death tint's grey level the way the x64 build has always computed it: /fp:fast factors
+// r*0.4 + g*0.6 + b*0.4 into (r+b)*0.4 + g*0.6, each product rounded on its own. The volatile
+// temps hold every compiler and CPU to that (GCC/Clang would add the three products as written,
+// and ARM64 would fuse a product into the add), so the tint is the same everywhere.
+static int red_shift_level(const RGB &c)
+{
+    volatile double rb = (c.r + c.b) * 0.4;
+    volatile double g = c.g * 0.6;
+    const int level = int(rb + g)>>1;
+    return zc_min(level,31);
+}
+
 void red_shift()
 {
     int tnum=176;
@@ -20670,7 +20682,7 @@ void red_shift()
         for(int x=0; x<256; x++)
         {
             int c = framebuf->line[y+playing_field_offset][x];
-            int r = zc_min(int(RAMpal[c].r*0.4 + RAMpal[c].g*0.6 + RAMpal[c].b*0.4)>>1,31);
+            int r = red_shift_level(RAMpal[c]);
             framebuf->line[y+playing_field_offset][x] = (c ? (r+tnum+CSET(2)) : 0);
         }
     }
@@ -20715,7 +20727,7 @@ void setup_red_screen_old()
         for(int x=0; x<256; x++)
         {
             int c = framebuf->line[y+playing_field_offset][x];
-            int r = zc_min(int(RAMpal[c].r*0.4 + RAMpal[c].g*0.6 + RAMpal[c].b*0.4)>>1,31);
+            int r = red_shift_level(RAMpal[c]);
             framebuf->line[y+playing_field_offset][x] = (c ? (r+CSET(2)) : 0);
         }
     }
@@ -20768,7 +20780,7 @@ void setup_red_screen_old()
             for(int x=0; x<256; x++)
             {
                 int c = framebuf->line[y+playing_field_offset][x];
-                int r = zc_min(int(RAMpal[c].r*0.4 + RAMpal[c].g*0.6 + RAMpal[c].b*0.4)>>1,31);
+                int r = red_shift_level(RAMpal[c]);
                 framebuf->line[y+playing_field_offset][x] = r+CSET(2);
             }
         }

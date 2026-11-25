@@ -1304,7 +1304,12 @@ static RGB z30_rgb_from_space(const double *a, int space)
     return out;
 }
 
-static double z30_lerp(double a, double b, double t) { return a + (b - a) * t; }
+// (upstream's Lerp: the product rounded before the add, as on x64; ARM64 would fuse the two)
+static double z30_lerp(double a, double b, double t)
+{
+    volatile double d = (b - a) * t;
+    return a + d;
+}
 
 // The hue interpolation that goes the way the colour space says around the wheel.
 static double z30_wrap_lerp(double a, double b, double t, int direction)

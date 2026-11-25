@@ -3111,7 +3111,12 @@ static bool zasm30_sys_reg(const long arg, long &ret, const long value, const bo
             int32_t scale = (int32_t)Z30_D(7);
             if(!scale)
                 scale = 1;
-            const double x3 = x1 + (x2 - x1) / scale, y3 = y1 + (y2 - y1) / scale;
+            // upstream's x64 steps (one division, by 1/scale; the point 1/scale of the way there
+            // rounded before its distance), pinned: here /fp:fast had squared (x2-x1)/scale itself
+            // and GCC/Clang divided twice, so no two builds agreed with upstream or each other
+            volatile double inv = 1.0 / scale;
+            volatile double dx = (x2 - x1) * inv, dy = (y2 - y1) * inv;
+            volatile double x3 = x1 + dx, y3 = y1 + dy;
             ret = (int32_t)((int64_t)z30_long_distance(x1, y1, x3, y3) * scale);
         }
         return true;

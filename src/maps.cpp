@@ -5141,6 +5141,15 @@ bool displayOnMap(int x, int y)
         return true;
 }
 
+// int(span + pos*scale)/2 the way x64 computes it: the product rounded before the add. The
+// volatile temp keeps ARM64 from fusing the two into one fma, which can land the truncation on
+// the other side of a whole number and shift the map a pixel at some zoom levels.
+static int view_map_coord(int span, int pos, double scale)
+{
+    volatile double prod = pos*scale;
+    return int(span+prod)/2;
+}
+
 void ViewMap()
 {
     mapscr tmpscr_b[2];
@@ -5373,15 +5382,15 @@ void ViewMap()
         {
             clear_to_color(framebuf,BLACK);
             stretch_blit(mappic,framebuf,0,0,mappic->w,mappic->h,
-                         int(256+(px-mappic->w)*scale)/2,int(224+(py-mappic->h)*scale)/2,
+                         view_map_coord(256,px-mappic->w,scale),view_map_coord(224,py-mappic->h,scale),
                          int(mappic->w*scale),int(mappic->h*scale));
                          
             blit(framebuf,scrollbuf,0,0,256,0,256,zc_view_h);
             redraw=false;
         }
         
-        int x = int(256+(px-((2048-lx)*2))*scale)/2;
-        int y = int(224+(py-((704-ly)*2))*scale)/2;
+        int x = view_map_coord(256,px-((2048-lx)*2),scale);
+        int y = view_map_coord(224,py-((704-ly)*2),scale);
         
         if(show&1)
         {

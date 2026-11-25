@@ -151,7 +151,7 @@ target_include_directories(zqeditor PRIVATE
 # The game's main() becomes zcport_game_main(); see src/port/entry/zplayer_main.cpp.
 # (On the target: a source file's properties would reach zplayer's copy too.)
 target_compile_definitions(zqeditor PRIVATE ZCPORT_MAGIC_MAIN ZC_ZQEDITOR
-	"ZPLAYER_WINDOW_TITLE=\"ZQuest Vulkan 2.53.444.12-PRE\"")
+	"ZPLAYER_WINDOW_TITLE=\"ZQuest Vulkan 2.53.444.7\"")
 target_link_libraries(zqeditor PRIVATE zcport_sdl zcport zc_stb_vorbis zc_minimp3 zc_gme zc_dumb)
 if(WIN32)
 	target_link_libraries(zqeditor PRIVATE windowscodecs ole32)
@@ -160,13 +160,16 @@ set_target_properties(zqeditor PROPERTIES
 	OUTPUT_NAME zqeditor
 	RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 	VS_DEBUGGER_WORKING_DIRECTORY "$(OutDir)")
+# As the player: signed char as on x86, no fused multiply-add (ZC_SAME_RESULTS_OPTIONS in
+# CMakeLists.txt), so ZQuest computes on ARM what it computes on x64.
+target_compile_options(zqeditor PRIVATE ${ZC_SAME_RESULTS_OPTIONS})
 if(MSVC)
 	target_compile_options(zqeditor PRIVATE /MP /wd4996 /wd4244 /wd4267 /wd4305 /wd4018)
 else()
-	# As the player: signed char as on x86 Windows, and C++14, the standard MSVC compiles
-	# ZQuest with. The old code's narrowing initialisers stay warnings.
+	# C++14, the standard MSVC compiles ZQuest with. The old code's narrowing initialisers
+	# stay warnings.
 	set_target_properties(zqeditor PROPERTIES CXX_STANDARD 14 CXX_STANDARD_REQUIRED ON)
-	target_compile_options(zqeditor PRIVATE -fsigned-char -Wno-narrowing)
+	target_compile_options(zqeditor PRIVATE -Wno-narrowing)
 	if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 		target_compile_options(zqeditor PRIVATE -Wno-c++11-narrowing)
 	endif()

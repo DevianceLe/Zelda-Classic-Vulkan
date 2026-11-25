@@ -2019,6 +2019,16 @@ static bool zasm30_plain_reg(const long arg, long &ret, const long value, const 
     }
 }
 
+// FFScript::Distance, in 1/10000ths: each square rounded on its own, as on x64 (ARM64 would fuse
+// one into the sum and come out 0.0001 low now and then, as upstream found).
+static long z30_distance(double x1, double y1, double x2, double y2)
+{
+    const double x = x1 - x2, y = y1 - y2;
+    volatile double xx = x * x;
+    volatile double yy = y * y;
+    return (long)(sqrt((xx + yy) * 1000000.0) * 10);
+}
+
 static bool zasm30_get_register_inner(const long arg, long &ret)
 {
     if(zasm30_sys_get(arg, ret))
@@ -2474,22 +2484,27 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     // Screen->Index: the screen the script's Screen-> means (upstream's ri->screenref())
     case Z30R_SCREEN_INDEX: ret = zasm30_script_screen() * 10000; return true;
     case Z30R_DISTANCE:
-    {
-        double x = Z30_D(6) / 10000.0 - Z30_D(1) / 10000.0;
-        double y = Z30_D(0) / 10000.0 - Z30_D(2) / 10000.0;
-        ret = (long)(sqrt((x * x + y * y) * 1000000.0) * 10);
-        return true;
-    }
     case Z30R_DISTANCESCALE:
     {
-        double x = Z30_D(6) / 10000.0 - Z30_D(1) / 10000.0;
-        double y = Z30_D(0) / 10000.0 - Z30_D(2) / 10000.0;
-        double scale = Z30_D(7) / 10000.0;
+        // The x64 build's steps (/fp:fast multiplies by 0.0001 where upstream divides by 10000),
+        // each rounded on its own: the same on every compiler and CPU.
+        volatile double x1 = Z30_D(6) * 0.0001, x2 = Z30_D(1) * 0.0001;
+        volatile double y1 = Z30_D(0) * 0.0001, y2 = Z30_D(2) * 0.0001;
 
-        if(!scale)
-            scale = 10000;
-
-        ret = (long)(sqrt(x * x + y * y) * scale * 10000 / 10000);
+        if(arg == Z30R_DISTANCE)
+            ret = z30_distance(x1, y1, x2, y2);
+        else
+        {
+            // upstream's Distance(..., scale): the distance to the point 1/scale of the way
+            // there, times scale (a whole number, 10000 when 0). x64 divides once, by 1/scale.
+            int32_t scale = (int32_t)(Z30_D(7) / 10000);
+            if(!scale)
+                scale = 10000;
+            volatile double inv = 1.0 / scale;
+            volatile double dx = (x2 - x1) * inv, dy = (y2 - y1) * inv;
+            const double x3 = x1 + dx, y3 = y1 + dy;
+            ret = (int32_t)((int64_t)z30_distance(x1, y1, x3, y3) * scale);
+        }
         return true;
     }
 

@@ -60,6 +60,24 @@ set_property(DIRECTORY PROPERTY INCLUDE_DIRECTORIES "")
 # Music decoders (OGG, MP3, GME, DUMB) and the MIDI synth, all from third_party/.
 include(${CMAKE_CURRENT_LIST_DIR}/audio_libs.cmake)
 
+# --- the same results on every CPU -------------------------------------------
+# For the game, zcport, the platform layer and zqeditor: ARM builds compute what x64 computes.
+# - Plain char is signed, as on x86 (ARM compilers default to unsigned): -1 sentinels in char
+#   fields and tables, char comparisons and lookups behave the same everywhere.
+# - No fused multiply-add: ARM64 has it, x64's baseline doesn't, and GCC, Clang and MSVC
+#   (/fp:fast) fuse a*b+c into one instruction there, which skips the product's rounding, so
+#   light radii, palette tints, ring positions and script values could come out a step off.
+#   GCC/Clang: -ffp-contract=off; MSVC on ARM64: #pragma fp_contract(off) forced in
+#   (zcport/fp_contract.h). x64 code is unchanged: it never fuses.
+if(MSVC)
+    set(ZC_SAME_RESULTS_OPTIONS)
+    if(CMAKE_C_COMPILER_ARCHITECTURE_ID MATCHES "ARM64")
+        set(ZC_SAME_RESULTS_OPTIONS "/FI${ZCPORT_DIR}/include/zcport/fp_contract.h")
+    endif()
+else()
+    set(ZC_SAME_RESULTS_OPTIONS -fsigned-char -ffp-contract=off)
+endif()
+
 # --- zcport: the Allegro compatible library (no SDL) -------------------------
 file(GLOB ZCPORT_SOURCES CONFIGURE_DEPENDS ${ZCPORT_DIR}/al/*.cpp)
 file(GLOB ZCPORT_PRIVATE_HEADERS CONFIGURE_DEPENDS ${ZCPORT_DIR}/al/*.h)
@@ -69,6 +87,7 @@ add_library(zcport STATIC ${ZCPORT_SOURCES} ${ZCPORT_PRIVATE_HEADERS} ${ZCPORT_P
 target_include_directories(zcport PUBLIC ${ZCPORT_DIR}/include)
 target_compile_definitions(zcport PUBLIC ZC_PORT=1)
 set_target_properties(zcport PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+target_compile_options(zcport PRIVATE ${ZC_SAME_RESULTS_OPTIONS})
 if(MSVC)
     # C4996: the POSIX names (stricmp, ...) the Allegro API itself uses.
     target_compile_options(zcport PRIVATE /W3 /wd4996 /utf-8)
@@ -159,6 +178,7 @@ if(ZC_PORT_SDL)
         target_link_libraries(zcport_sdl PUBLIC winmm)
     endif()
     set_target_properties(zcport_sdl PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    target_compile_options(zcport_sdl PRIVATE ${ZC_SAME_RESULTS_OPTIONS})
     if(MSVC)
         target_compile_options(zcport_sdl PRIVATE /W3 /wd4996 /utf-8)
     endif()
@@ -291,8 +311,9 @@ if(NOT WIN32 AND NOT MSVC AND CMAKE_SIZEOF_VOID_P EQUAL 8)
     set_property(SOURCE ${_zc_lp64_sources} APPEND PROPERTY COMPILE_OPTIONS
         -include "${ZCPORT_DIR}/include/zcport/lp64.h")
 endif()
+# (signed char and no fused multiply-add, as on x64: see ZC_SAME_RESULTS_OPTIONS)
+target_compile_options(zplayer_compile_check PRIVATE ${ZC_SAME_RESULTS_OPTIONS})
 if(NOT MSVC)
-    target_compile_options(zplayer_compile_check PRIVATE -fsigned-char)
     # The game's sources are C++14 everywhere, as MSVC builds them by default and as zqeditor
     # already builds most of the same files with GCC/Clang (they were C++98 here, so C++11 code
     # in them built only on Windows). The old code's narrowing initialisers stay warnings.
@@ -390,6 +411,7 @@ if(ZC_PORT_SDL)
     # flags, so they are compiled once for both targets).
     target_sources(zplayer PRIVATE $<TARGET_OBJECTS:zplayer_compile_check>)
     add_dependencies(zplayer zplayer_compile_check)
+    target_compile_options(zplayer PRIVATE ${ZC_SAME_RESULTS_OPTIONS})
     target_link_libraries(zplayer PRIVATE zcport_sdl zcport ${ZPLAYER_MUSIC_LIBS})
     if(UNIX AND NOT ANDROID AND NOT APPLE)
         # One download for every distribution: don't depend on the system's C++ runtime.
@@ -433,6 +455,7 @@ if(NINTENDO_SWITCH)
     )
     target_sources(zplayer PRIVATE $<TARGET_OBJECTS:zplayer_compile_check>)
     add_dependencies(zplayer zplayer_compile_check)
+    target_compile_options(zplayer PRIVATE ${ZC_SAME_RESULTS_OPTIONS})
     target_include_directories(zplayer PRIVATE ${ZCPORT_DIR}/ui ${ZCPORT_DIR}/platform ${DEVKITPRO}/portlibs/switch/include)
     # switch-mesa: EGL and OpenGL ES.
     target_link_libraries(zplayer PRIVATE zcport zc_tsf zc_imgui ${ZPLAYER_MUSIC_LIBS} GLESv2 EGL glapi drm_nouveau)

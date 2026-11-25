@@ -11871,6 +11871,19 @@ ePatra::ePatra(fix ,fix ,int Id,int Clk) : enemy((fix)128,(fix)48,Id,Clk)
         yofs += q30_quest_rule(319) ? playing_field_offset : original_playing_field_offset;
 }
 
+// A Patra ring's angle, diff*PI/half, the way x64 computes it: /fp:fast makes the division a
+// multiply by 1/half and folds PI*(1/half) into one constant (for 42 that is an ulp under
+// PI/42), where GCC and Clang would multiply by PI and then divide. The volatile temps hold
+// every compiler and CPU to the x64 steps. (The ring's cos/sin products need none: no build
+// fuses them, see ZC_SAME_RESULTS_OPTIONS.)
+static double patra_ring_angle(double diff, double half)
+{
+    volatile double d = diff;
+    volatile double inv = 1.0/half;
+    volatile double scale = PI*inv;
+    return d*scale;
+}
+
 bool ePatra::animate(int index)
 {
     if(dying)
@@ -11937,7 +11950,7 @@ bool ePatra::animate(int index)
         else
         {
             int pos2 = ((enemy*)guys.spr(i))->misc;
-            double a2 = (clk2-pos2*84.0/(dmisc1 == 0 ? 1 : dmisc1))*PI/42;
+            double a2 = patra_ring_angle(clk2-pos2*84.0/(dmisc1 == 0 ? 1 : dmisc1), 42);
             
             if(!dmisc4)
             {
@@ -12089,7 +12102,7 @@ bool ePatra::animate(int index)
                 }
                 
                 int pos2 = ((enemy*)guys.spr(i))->misc;
-                double a2 = ((clk2-pos2*84/(dmisc2==0 ? 1 : dmisc2))*PI/(42));
+                double a2 = patra_ring_angle(clk2-pos2*84/(dmisc2==0 ? 1 : dmisc2), 42);
                 
                 if(dmisc4==0)
                 {
@@ -12365,7 +12378,7 @@ bool ePatraBS::animate(int index)
         else
         {
             int pos2 = ((enemy*)guys.spr(i))->misc;
-            double a2 = (clk2-pos2*90/(dmisc1==0?1:dmisc1))*PI/45;
+            double a2 = patra_ring_angle(clk2-pos2*90/(dmisc1==0?1:dmisc1), 45);
             temp_x =  cos(a2+PI/2)*45;
             temp_y = -sin(a2+PI/2)*45;
             
