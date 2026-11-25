@@ -30,6 +30,8 @@
 
 extern LinkClass   Link;
 extern word quest_header_zelda_version;
+extern int q255_header_build;       // q255_basic.cpp
+bool q30_quest_rule(int id);        // q30_triggers.cpp
 extern int directItem;
 extern int directItemA;
 extern int directItemB;
@@ -665,7 +667,24 @@ void markBmap(int dir, int sc)
     switch((DMaps[get_currdmap()].type&dmfTYPE))
     {
     case dmDNGN:
-    
+
+        // 2.55/3.0: without qr_DUNGEONS_USE_CLASSIC_CHARTING (213; upstream's readrules turns it on
+        // for quests saved before 2.55 build 57) a dungeon screen is charted as a cave's: no DMap
+        // grid check and no door code, only the side given (upstream's markBmap)
+        if(q30_active() && !q30_quest_rule(213) && quest_header_zelda_version >= 0x255
+           && !(quest_header_zelda_version == 0x255 && q255_header_build < 57))
+        {
+            if((unsigned)((sc&15)-DMaps[get_currdmap()].xoff) > 7)
+                return;
+
+            game->bmaps[di] |= 128;
+
+            if(dir>=0)
+                game->bmaps[di] |= (1<<dir);
+
+            break;
+        }
+
         // check dmap
         if((drow&mask)==0)
             return;

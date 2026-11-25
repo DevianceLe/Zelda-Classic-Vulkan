@@ -1100,6 +1100,7 @@ LinkClass   Link;
 
 #include "maps.h"
 #include "subscr.h"
+#include "zc_subscr.h"
 #include "guys.h"
 
 #include "title.h"
@@ -2039,6 +2040,29 @@ int init_game()
         }
     }
 
+    // ZC_DMAPSCAN (test runs only): each DMap whose continue screen is a valid screen, for
+    // picking test starts (cont = the map screen; Link starts at warp return A, wr)
+    if(getenv("ZC_DMAPSCAN"))
+    {
+        for(int dm = 0; dm < MAXDMAPS; ++dm)
+        {
+            const dmap &d = DMaps[dm];
+            const int ow = (d.type & dmfTYPE) == dmOVERW;
+            const int cont = ow ? d.cont : d.cont + d.xoff;
+            if(d.map >= map_count || cont < 0 || cont >= 0x80 || !(TheMaps[d.map * MAPSCRS + cont].valid & mVALID))
+                continue;
+            int screens = 0;
+            for(int s = 0; s < 0x80; ++s)
+            {
+                const int col = (s & 15) - d.xoff;
+                screens += (ow || (col >= 0 && col <= 7)) && (TheMaps[d.map * MAPSCRS + s].valid & mVALID);
+            }
+            const mapscr &m = TheMaps[d.map * MAPSCRS + cont];
+            al_trace("test: dmapscan %d map %d type %d level %d xoff %d cont %d screens %d wr %d %d name %s\n", dm, d.map, d.type & dmfTYPE,
+                     (int)d.level, (int)d.xoff, cont, screens, m.warpreturnx[0], m.warpreturny[0], d.name);
+        }
+    }
+
     // ZC_TEST_START=dmap[,screen[,x,y]]: test runs only, starts there (the screen within the
     // DMap; without one, the DMap's continue screen; x,y place Link, below)
     if(const char *test_start = game_reloading ? NULL : getenv("ZC_TEST_START"))
@@ -2111,9 +2135,15 @@ int init_game()
     q30_trig_defer_screen_load = q30_active();     // (2.55/3.0: they run after Link.init, as upstream)
     loadscr(0,currdmap,currscr,-1,false);
     q30_trig_defer_screen_load = false;
+
+    // 2.55/3.0: upstream 3.0's init_game charts the start screen on the map as well
+    // (mark_visited: markBmap), so a new game or a continue shows its room at once
+    if(q30_active())
+        markBmap(-1);
+
     putscr(scrollbuf,0,0,&tmpscr[0]);
     putscrdoors(scrollbuf,0,0,&tmpscr[0]);
-    
+
     //preloaded freeform combos
     //ffscript_engine(true); Can't do this here! Global arrays haven't been allocated yet... ~Joe
     
