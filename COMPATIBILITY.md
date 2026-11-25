@@ -45,6 +45,8 @@ The final run was stopped before its last 11 quests. Their results are from the 
 - Quests made in ZC 1.00 and 1.50 can't be opened. None are in this collection.
 - 6 of 3.0's script values still read differently, none of them used by a quest in this collection: values that come from the machine's own settings or clock, a stack write past the stack's end, and one line 3.0's own test run prints only because it stops in the middle of a wipe.
 - Copying a whole array into an engine array (such as ArrayCopy into Screen->D) doesn't reach the engine array.
+- Shields held up to block, and script weapons that imitate other weapons (such as a script blast opening bomb doors).
+- A script's rotated or flipped blit to the screen is drawn without the rotation or flip.
 
 **Built, but tried in only a few quests**
 
@@ -60,6 +62,8 @@ The final run was stopped before its last 11 quests. Their results are from the 
 - Items numbered 256 and up: tried in Mystical Harps (pickups, drops, the special item rooms, the subscreen) and Tranquil Expression. Shops selling them, and messages that give them, haven't been seen in a quest.
 - 3.0 messages (scrolling text, portraits, shadows, icons, control codes) and the fonts 2.55 and 3.0 added: tried in Tranquil Expression and Mystical Harps.
 - Push blocks falling into pits: tried in Colossal Tower.
+- The Transform enemy defense: tried in The Rosemaster (its Gibdos match 3.0) and in upstream's own test scene.
+- 3.0's game over screen (CONTINUE / SAVE AND QUIT / QUIT WITHOUT SAVING): its frames match 3.0 in three quests, each choice played through.
 - 3.0's map charting (visited screens kept per DMap, the large map's room square, a scrolling region's rooms joined on the map): Tales of Zelsteria's large map matches 3.0, also after saving and reloading. The 3.0 minimap's visited-room colours aren't built yet.
 - The big-enemy animation styles 2.55 added: 13 quests in this collection use them; Spell of Mudora's 2nd quest was compared with 3.0.
 - Save menus (a quest's own game over and F6 menus): Mystical Harps' and OOT1986's menus load as in 3.0, and a game over menu and an F6 menu were seen opening in this player; they haven't been compared with 3.0's on screen.
@@ -82,7 +86,6 @@ The final run was stopped before its last 11 quests. Their results are from the 
 **Known bugs**
 
 - A save made with an older version of this player, for a 2.55 or 3.0 quest whose hearts aren't 16 HP, keeps the old life amount. Starting a new save fixes it. The title screen's save list shows hearts using the loaded quest's HP per heart.
-- A 3.0 quest's starting B item can differ from ZC 3.0's: the 1st Quest Master and Hero Mode remakes start with B empty where 3.0 puts the bomb there.
 - ZQuest's Save As leaves out the editor names a quest keeps in a separate `.zinfo` file.
 
 - On Windows, SDL's HIDAPI controller drivers were seen writing over the game's memory while listing devices. That code is inside SDL, so on Windows the game now leaves it off: Xbox, PlayStation, Switch Pro, 8BitDo and most other pads go through Windows' own controller drivers instead, with SDL's built-in button layouts. Pads that only work through HIDAPI (a Switch Pro Controller on USB, GameCube adapters, the Steam Controller) need **Settings > Controls > Extra Pad Support** turned on, which brings the risk back. That has not yet been tried with a real controller.
@@ -100,7 +103,7 @@ The final run was stopped before its last 11 quests. Their results are from the 
 
 ## ZQuest
 
-ZQuest (on Windows, Linux and macOS) opens quests made in every version from 1.90 to 3.0 Nightly and saves each one in the version it was made in. File > Save As can also save it as a newer version: 2.53.1, 2.55.18 or 3.0 Nightly. It never saves a quest as an older version. A change the chosen version can't hold stops the save with the reason, and the file is left as it was.
+ZQuest (on Windows, Linux and macOS) opens quests made in every version from 1.90 to 3.0 Nightly and saves each one in the version it was made in. File > Save As can also save it as a newer version: 2.53.1, 2.55.19 or 3.0 Nightly (before 2.53.444.12 the 2.55 choice was 2.55.18; 2.55.19 writes the same sections with 2.55.19 in the header). It never saves a quest as an older version. A change the chosen version can't hold stops the save with the reason, and the file is left as it was.
 
 | Check, on ZC Vulkan 2.53.444.4 | Quests | Result |
 |---|---|---|

@@ -3,14 +3,14 @@
 [![Build](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml/badge.svg)](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml)
 
 > [!WARNING]
-> **Highly experimental.** This fork is a work in progress. Expect bugs and crashes, and back up your quests and save files before you use it. A quest saved as 2.55.18 or 3.0 Nightly can't be opened by older versions of Zelda Classic.
+> **Highly experimental.** This fork is a work in progress. Expect bugs and crashes, and back up your quests and save files before you use it. A quest saved as 2.55.19 or 3.0 Nightly can't be opened by older versions of Zelda Classic.
 
 Zelda Classic is a game engine and quest editor for making and playing custom adventures in the style of the original *The Legend of Zelda*. This repository is a community fork of Zelda Classic 2.53, rebuilt to run on SDL3 and Vulkan.
 
 | Program | What it is | Runs on |
 |---|---|---|
 | `zplayer` | The game. Plays 2.53, 2.55 and 3.0 Nightly quests. | Windows 10/11 (32-bit, 64-bit, ARM64), Linux (64-bit x86_64, ARM64), macOS 11+ (Apple Silicon and Intel), Nintendo Switch (homebrew), Android 8.0+ (in progress) |
-| `zqeditor` | ZQuest, the quest editor. Opens quests of every version, saves each in its own version, and saves older quests as 2.55.18 or 3.0 Nightly. Compiles 2.55 and 3.0 Nightly quests' ZScript with those versions' own compilers (`zscript255`, `zscript30`). | Windows 10/11 (32-bit, 64-bit, ARM64), Linux (64-bit x86_64, ARM64), macOS 11+ (Apple Silicon and Intel) |
+| `zqeditor` | ZQuest, the quest editor. Opens quests of every version, saves each in its own version, and saves older quests as 2.55.19 or 3.0 Nightly. Compiles 2.55 and 3.0 Nightly quests' ZScript with those versions' own compilers (`zscript255`, `zscript30`). | Windows 10/11 (32-bit, 64-bit, ARM64), Linux (64-bit x86_64, ARM64), macOS 11+ (Apple Silicon and Intel) |
 
 ## Screenshots
 
@@ -68,10 +68,10 @@ What that means in practice:
 - New Dear ImGui menus, dialogs and file browser in the player and the editor
 - ZQuest on SDL3 and Vulkan, with Large and Small layouts you can switch while it runs
 - ZQuest edits 2.55 and 3.0 Nightly quests with their own features: combos, items, enemies, DMaps, screens, strings, init data, quest rules, scrolling regions, combo pools, autocombos, music, hero data, ZInfo names and subscreen layouts (drag widgets on a live preview). Exports and imports (including `.map` map files and `.sub` subscreen files) and timed autosave work for them too
-- ZScript in ZQuest: the 2.55.18 and 3.0 Nightly compilers ship with it, and Compile ZScript builds a quest's scripts and assigns their slots. On a test quest the compiled scripts match upstream's byte for byte
+- ZScript in ZQuest: the 2.55.19 and 3.0 Nightly compilers ship with it, and Compile ZScript builds a quest's scripts and assigns their slots. On a test quest the compiled scripts match upstream's byte for byte
 - 2.55 and 3.0 Nightly quest files, scripts of every type, music objects, and combo triggers in the player
 - On 2.55 and 3.0 Nightly quests: FFCs on their own layers, the hero's falling, carrying and lava-drowning animations, item costs for bombs, and newer subscreen life and magic gauges
-- On 2.55 and 3.0 Nightly quests: slopes, bottles and bottle shops, the switch hook, sprite rotation and scaling, script lighting and dark rooms, subscreen widgets and overlay subscreens, subscreens with more than one page, 3.0's map charting, the Moon Pearl and bunny form, the magic mirror, the bug net, lifting and throwing, torches, item pickup messages and secret items. Each has been tried in one to four quests so far
+- On 2.55 and 3.0 Nightly quests: slopes, bottles and bottle shops, the switch hook, sprite rotation and scaling, script lighting and dark rooms, subscreen widgets and overlay subscreens, subscreens with more than one page, 3.0's map charting and minimap, 3.0's game over screen, the Transform enemy defense, the Moon Pearl and bunny form, the magic mirror, the bug net, lifting and throwing, torches, item pickup messages and secret items. Each has been tried in one to four quests so far
 - On 2.55 and 3.0 Nightly quests, compared with 3.0 on the same input: Z-heights, sideview swimming, scrolling regions loading every screen's guys, items and enemies, 3.0's pit falls and respawn points, Once Per Weapon combo triggers, the lantern, ice, light beams, screen tints, bridges, mirrors and the shadows under falling items and thrown objects
 - On 2.55 and 3.0 Nightly quests, also compared with 3.0: every script command the collection's quests use, save menus, the quest's own hearts and damage, sideview ladders, diving, 3.0's enemy death animations, scrolling regions placing every enemy by its own screen, and 3.0's extended view in tall regions
 - A feature test suite (`tests/feature_suite`) that checks the ported 2.55 and 3.0 features against 3.0 on the same input
@@ -88,6 +88,7 @@ What that means in practice:
 
 - 6 of 3.0's script values still read differently, none of them used by a quest in the collection: values that come from the machine's own settings or clock, a stack write past the stack's end, and one line 3.0's own test run prints only because it stops in the middle of a wipe
 - Copying a whole array into an engine array (such as ArrayCopy into Screen->D) doesn't reach the engine array yet
+- Shields held up to block, and script weapons that imitate other weapons (such as a script blast opening bomb doors)
 
 The [compatibility page](COMPATIBILITY.md#what-still-doesnt-work) has the full list of what still doesn't work, including known bugs.
 
@@ -182,7 +183,7 @@ cmake --build build-switch --target zplayer_nro
 | 2.53.1 and earlier | Plays exactly as before | Opens and saves as 2.53 |
 | 2.55 and 3.0 Nightlies | Plays; never saved as an older quest | Edits and saves in its own version, or as 3.0 Nightly; compiles its ZScript |
 
-Every change has to pass the 2.53 checks. Re-saved reference quests must match byte for byte, and [replays](tests/replay/) must produce identical frames. For 2.55 and 3.0 Nightly quests, the openings of the 93 newer quests in the collection are compared with ZC 3.0's own player after every change, and the [feature test suite](tests/feature_suite/README.txt) checks each ported feature against 3.0 on the same input: every one of its 31 features that isn't random matches 3.0 exactly (the other 7 differ only where the scene is random), and 933 of the 939 3.0 script commands it calls behave as 3.0's, with none left unhandled (none of the rest is used by a quest in the collection). A deeper comparison plays up to five spots in each of those 93 quests (442 in all) against 3.0: 285 match exactly, 52 differ only where the scene is random, and 105 still differ.
+Every change has to pass the 2.53 checks. Re-saved reference quests must match byte for byte, and [replays](tests/replay/) must produce identical frames. For 2.55 and 3.0 Nightly quests, the openings of the 93 newer quests in the collection are compared with ZC 3.0's own player after every change, and the [feature test suite](tests/feature_suite/README.txt) checks each ported feature against 3.0 on the same input: every one of its 31 features that isn't random matches 3.0 exactly (the other 7 differ only where the scene is random), and 933 of the 939 3.0 script commands it calls behave as 3.0's, with none left unhandled (none of the rest is used by a quest in the collection). A deeper comparison plays up to five spots in each of those 93 quests (442 in all) against 3.0: 323 match exactly, 60 differ only where the scene is random, and 59 still differ. A much longer one plays 11 spots of 900 frames in each (walks, items, the subscreen, screen edges) to find what is left; both run on a group of test machines.
 
 ## Repository layout
 
@@ -192,7 +193,7 @@ Every change has to pass the 2.53 checks. Re-saved reference quests must match b
 | `src/port/` | The SDL3 and Vulkan port, including our Allegro replacement |
 | `src/port/game/` | Readers and engine code for 2.55 and 3.0 Nightly quests |
 | `src/port/zqeditor/` | ZQuest's port code: the newer quests' writers and editors |
-| `src/port/zscript30/`, `src/port/zscript255/` | The 3.0 Nightly and 2.55.18 ZScript compilers, ported from ZQuestClassic |
+| `src/port/zscript30/`, `src/port/zscript255/` | The 3.0 Nightly and 2.55.19 ZScript compilers, ported from ZQuestClassic |
 | `android/` | Android project |
 | `third_party/` | Bundled libraries ([details](third_party/README.md)) |
 | `tests/replay/` | Recorded play-throughs and their expected frame hashes |
