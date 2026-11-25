@@ -62,6 +62,7 @@
 
 #include "ffscript.h"
 #include "port/game/q30_regions.h" // 3.0 scrolling regions' camera (draw_lens_over): 0 for 2.53 quests
+bool q30_item_flag(int item, dword bit);    // port/game/q30_triggers.h (item_tile_mod's active shields)
 #ifdef ZC_PORT
 #include "zcport/video_settings.h" // zplayer: Settings > Video Settings
 #if !defined(__SWITCH__)
@@ -2476,10 +2477,18 @@ int item_tile_mod(bool)
     {
         ret=current_item_id(i,false);
         
-        if(ret >= 0)
+        if(ret < 0)
+            continue;
+
+        // 2.55/3.0: an active shield (item flag 9) that isn't held up gives its "inactive" tile
+        // modifier (misc 6) instead (upstream's item_tile_mod). This engine has no active shields,
+        // so one is never held up: Link isn't drawn holding a buckler he only has on a button.
+        if(i == itype_shield && q30_active() && q30_item_flag(ret, 0x10000))     // (Q30_ITEM_FLAG9)
+            tile+=itemsbuf[ret].misc6;
+        else
             tile+=itemsbuf[ret].ltm;
     }
-    
+
     return tile;
 }
 

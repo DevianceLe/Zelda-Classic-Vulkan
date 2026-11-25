@@ -2662,7 +2662,12 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_SCREENSECRETSTRIGGERED: ret = q30_secrets_triggered() ? 10000 : 0; return true;
     case Z30R_SKIPF6: ret = get_bit(quest_rules, qr_NOCONTINUE) ? 10000 : 0; return true;
     case Z30R_NOACTIVESUBSC: ret = zasm30_no_active_subscreen ? 10000 : 0; return true;
-    case Z30R_DEBUGTESTING: ret = 0; return true;   // only true when testing from the editor
+    case Z30R_DEBUGTESTING:     // (upstream: use_testingst_start, its test mode; ours: a ZC_TEST_START run)
+    {
+        static const bool testing = getenv("ZC_TEST_START") && *getenv("ZC_TEST_START");
+        ret = testing ? 10000 : 0;
+        return true;
+    }
     case Z30R_GAMELSWITCH: ret = (Z30_INDEX >= 0 && Z30_INDEX < MAXLEVELS) ? (long)q30_level_state(Z30_INDEX) : 0; return true;
     case Z30R_GAMEGSWITCH: ret = (Z30_INDEX >= 0 && Z30_INDEX < 256) ? q30_global_state(Z30_INDEX) * 10000 : 0; return true;
     case Z30R_GAMETRIGGROUPS: ret = (Z30_INDEX >= 0 && Z30_INDEX < 256) ? q30_trigger_group_count(Z30_INDEX) * 10000 : 0; return true;

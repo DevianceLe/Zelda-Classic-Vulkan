@@ -2181,6 +2181,19 @@ int init_game()
                  tmpscr->warpreturnx[3], tmpscr->warpreturny[3]);
     }
 
+    // 2.55/3.0 quests without qr_OLD_INIT_SCRIPT_TIMING, a new game: upstream's init_game runs the
+    // Init script and the hero's init script here, after Hero.init and before the life is set and
+    // the buttons get their items, so the init data's HP wins over an HP the Init script set and
+    // the buttons see the items it gave (Shadowblazer's Tiny Quest under Debug->Testing).
+    const bool q30_early_init = quest_header_zelda_version >= 0x255 && !q30_quest_rule(676);
+
+    if(q30_early_init && firstplay)
+    {
+        memset(game->screen_d, 0, MAXDMAPS * 64 * 8 * sizeof(long));
+        ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_INIT);
+        q30_run_hero_script(1); // the hero's init script
+    }
+
     Link.setEntryPoints(LinkX(),LinkY());
 
     copy_pal((RGB*)data[PAL_GUI].dat,RAMpal);
@@ -2306,21 +2319,13 @@ int init_game()
     // so a preload FFC is already where its script put it as the screen opens (Mystical Harps'
     // first dungeon showed the key its KeyFFC hides through the opening). 2.53 quests, and newer
     // ones with that rule, keep 2.53's order below.
-    const bool q30_early_init = quest_header_zelda_version >= 0x255 && !q30_quest_rule(676);
+    // (a new game's Init and hero init scripts ran above, before the life and the buttons)
     const bool q30_early_preload = q30_early_init && !q30_compat_rule(348);
 
     if(q30_early_init)
     {
-        if(firstplay)
-        {
-            memset(game->screen_d, 0, MAXDMAPS * 64 * 8 * sizeof(long));
-            ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_INIT);
-            q30_run_hero_script(1); // the hero's init script
-        }
-        else
-        {
+        if(!firstplay)
             ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_CONTINUE);
-        }
 
         initZScriptGlobalRAM();
     }
