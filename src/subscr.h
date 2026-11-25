@@ -169,6 +169,10 @@ struct subscreen_object
 // (offsets), units per frame in d10's top byte and the animation value in d9's high half.
 #define SSO_GAUGE_NEWER      0x10000
 #define SSO_GAUGE_NEWLAYOUT  0x20000
+// A 2.55/3.0 misc gauge (upstream's SW_MiscGaugePiece, a gauge of any counter, player only):
+// a life gauge object with this bit, its counter in w (signed), the units per container in h,
+// the infinite item + 1 in d9's low half and the INFITM_REQ (0x400) and BAN (0x800) flags in d10.
+#define SSO_GAUGE_MISC       0x40000
 
 // A 2.55/3.0 counter widget with its "full" colours (SUBS format 12+: upstream's c_text2,
 // c_shadow2, c_bg2, drawn when every counter it shows is full): this bit in d6, their colour

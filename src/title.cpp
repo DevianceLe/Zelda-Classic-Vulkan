@@ -3889,6 +3889,26 @@ void save_game(bool savepoint)
     save_savedgames();
 }
 
+// A newer quest's save screen is upstream 3.0's (title.cpp save_game): the lines' texts and
+// colours, the background and the cursor's tile, CSet, flip and sound from Game->GameOverScreen[]
+// and GameOverStrings[] (upstream's defaults are 2.53's), the chosen line flashing in 3.0's phase,
+// the cursor drawn over the background, presses held as a menu opens eaten, and SAVE running the
+// onSave script first. Lines: upstream's SaveScreenText 3 DON'T SAVE, 4 SAVE AND QUIT, 5 SAVE, 6 QUIT.
+static const char *sav_text(int line)
+{
+    static const char *const def[7] = { "CONTINUE", "SAVE", "RETRY", "DON'T SAVE", "SAVE AND QUIT", "SAVE", "QUIT" };
+    const char *s = gos_custom() ? q30_gameover_text(line) : NULL;
+    return s ? s : def[line];
+}
+
+// a line's colour (upstream's SAVESC_TEXT_*_COLOUR, or _FLASH while it flashes); 0 is msgtext or caption
+static int sav_colour(int line, bool flash)
+{
+    // the settings of lines 3..6: DONTSAVE 13/17, SAVEQUIT 14/18, SAVE2 15/19, QUIT 16/20
+    int v = gos_custom() ? q30_gameover_setting((flash ? 17 : 13) + line - 3) : 0;
+    return v > 0 ? v : (flash ? QMisc.colors.caption : QMisc.colors.msgtext);
+}
+
 bool save_game(bool savepoint, int type)
 {
     kill_sfx();
@@ -3896,8 +3916,15 @@ bool save_game(bool savepoint, int type)
     clear_to_color(screen,BLACK);
     loadfullpal();
     
+    const bool newer = q30_active();
+    const int bg = newer ? q30_gameover_screen_setting(GOS_BG) : 0;
+    const int line0 = type ? 4 : 5;     // SAVE AND QUIT or SAVE
+
     //  int htile = QHeader.old_dat_flags[ZQ_TILES] ? 2 : 0;
-    int htile = 2;
+    int htile = newer ? q30_gameover_screen_setting(GOS_TILE) : 2;
+    const int curcset = newer ? q30_gameover_screen_setting(GOS_CSET) : 1;
+    const int curflip = newer ? q30_gameover_screen_setting(GOS_FLIP) : 0;
+    const int cursfx = newer ? q30_gameover_screen_setting(GOS_SOUND) : WAV_CHINK;
     bool done=false;
     bool saved=false;
     
@@ -3906,6 +3933,19 @@ bool save_game(bool savepoint, int type)
         int pos = 0;
         int f=-1;
         bool done2=false;
+
+        if(newer)
+        {
+            clear_to_color(framebuf,bg);
+            textout_ex(framebuf,zfont,sav_text(line0),88,72,sav_colour(line0,false),-1);
+            textout_ex(framebuf,zfont,sav_text(3),88,96,sav_colour(3,false),-1);
+            textout_ex(framebuf,zfont,sav_text(6),88,120,sav_colour(6,false),-1);
+            rUp();      // (upstream eats the presses held as the menu opens)
+            rDown();
+            rSbtn();
+        }
+        else
+        {
         clear_bitmap(framebuf);
         
         //  text_mode(-1);
@@ -3920,7 +3960,8 @@ bool save_game(bool savepoint, int type)
         
         textout_ex(framebuf,zfont,"DON'T SAVE",88,96,QMisc.colors.msgtext,-1);
         textout_ex(framebuf,zfont,"QUIT",88,120,QMisc.colors.msgtext,-1);
-        
+        }
+
         do
         {
             load_control_state();
@@ -3929,13 +3970,13 @@ bool save_game(bool savepoint, int type)
             {
                 if(rUp())
                 {
-                    sfx(WAV_CHINK);
+                    sfx(cursfx);
                     pos=(pos==0)?2:pos-1;
                 }
                 
                 if(rDown())
                 {
-                    sfx(WAV_CHINK);
+                    sfx(cursfx);
                     pos=(pos+1)%3;
                 }
                 
@@ -3947,7 +3988,13 @@ bool save_game(bool savepoint, int type)
                 if(++f == 65)
                     done2=true;
                     
-                if(!(f&3))
+                if(newer && !(f&3))
+                {
+                    const bool flash = (f&4) != 0;      // (upstream 3.0's phase)
+                    const int line = pos == 0 ? line0 : pos == 1 ? 3 : 6;
+                    textout_ex(framebuf,zfont,sav_text(line),88,72+pos*24,sav_colour(line,flash),-1);
+                }
+                else if(!(f&3))
                 {
                     int c = (f&4) ? QMisc.colors.msgtext : QMisc.colors.caption;
                     
@@ -3971,8 +4018,13 @@ bool save_game(bool savepoint, int type)
                 }
             }
             
-            rectfill(framebuf,72,72,79,127,0);
-            puttile8(framebuf,htile,72,pos*24+72,1,0);
+            rectfill(framebuf,72,72,79,127,bg);
+
+            if(newer)   // (upstream 3.0: drawn over the background)
+                overtile8(framebuf,htile,72,pos*24+72,curcset,curflip);
+            else
+                puttile8(framebuf,htile,72,pos*24+72,1,0);
+
             advanceframe(true);
         }
         while(!Quit && !done2);
@@ -3988,6 +4040,9 @@ bool save_game(bool savepoint, int type)
             
             if(pos==0)
             {
+                if(newer)
+                    q30_run_onsave();   // (upstream 3.0: the onSave script runs first)
+
                 if(savepoint)
                 {
                     game->set_continue_scrn(homescr);
@@ -4027,15 +4082,23 @@ bool save_game(bool savepoint, int type)
             
             if(pos==2)
             {
-                clear_bitmap(framebuf);
+                const int qc = newer ? sav_colour(6,false) : QMisc.colors.msgtext;
+                clear_to_color(framebuf,bg);
                 //  text_mode(-1);
-                textout_ex(framebuf,zfont,"ARE YOU SURE?",88,72,QMisc.colors.msgtext,-1);
-                textout_ex(framebuf,zfont,"YES",88,96,QMisc.colors.msgtext,-1);
-                textout_ex(framebuf,zfont,"NO",88,120,QMisc.colors.msgtext,-1);
+                textout_ex(framebuf,zfont,"ARE YOU SURE?",88,72,qc,-1);
+                textout_ex(framebuf,zfont,"YES",88,96,qc,-1);
+                textout_ex(framebuf,zfont,"NO",88,120,qc,-1);
                 int pos2=0;
                 int g=-1;
                 bool done3=false;
                 
+                if(newer)
+                {
+                    rUp();      // (upstream eats the presses held as the menu opens)
+                    rDown();
+                    rSbtn();
+                }
+
                 do
                 {
                     load_control_state();
@@ -4066,6 +4129,9 @@ bool save_game(bool savepoint, int type)
                         {
                             int c = (g&4) ? QMisc.colors.msgtext : QMisc.colors.caption;
                             
+                            if(newer)   // (upstream 3.0's phase)
+                                c = sav_colour(6, (g&4) != 0);
+
                             switch(pos2)
                             {
                             case 0:

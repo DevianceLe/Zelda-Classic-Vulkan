@@ -66,7 +66,8 @@
 //     (A and B), counter, default counters, minimap title, minimap, large map, background colour,
 //     item slot, McGuffin frame, McGuffin, tile block, mini tile, selector, life and magic gauge
 //     pieces, text box, selected item text.
-//   Read and dropped: misc gauge, button counter, percent bar, item cooldown gauge and text;
+//   Read and dropped: misc gauge (the player draws it, as a life gauge object with its own
+//     counter), button counter, percent bar, item cooldown gauge and text;
 //     overlay and map subscreens; pages after the first; widgets past 2.53's object limit;
 //     widgets disabled by script; button items for X and Y; counters showing only things 2.53
 //     can't (life, magic, max HP, max MP, custom 26 and up).
@@ -2400,10 +2401,18 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
 #ifdef ZC_PLAYER_BUILD
         g_sub_ty.ctrs[0] = s.igetw_s();     // counter
         g_sub_ty.per_container = s.igetw();
+        // Player only: upstream's SW_MiscGaugePiece, a gauge of any counter, drawn as a life gauge
+        // object with SSO_GAUGE_MISC (subscr.h): its counter in w, the units per container in h,
+        // the infinite item (+1) in d9's low half and the INFITM_REQ/BAN flags kept in d10.
+        t.type = ssoLIFEGAUGE;
+        t.d10 |= SSO_GAUGE_MISC | (int)(b.flags & 0xC00);
+        t.w = (word)(short)g_sub_ty.ctrs[0];
+        t.h = (word)g_sub_ty.per_container;
+        t.d9 = (t.d9 & ~0xFFFF) | (int)((g_sub_ty.inf_item + 1) & 0xFFFF);
 #else
         s.skip(2 + 2);  // counter, per container
-#endif
         convert = false;
+#endif
         break;
 
     case WIDG_ITMCOOLDOWNGAUGE:

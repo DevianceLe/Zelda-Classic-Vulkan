@@ -989,7 +989,9 @@ enum
 
 static int zasm30_gameover[Z30_GOS_LAST];
 static bool zasm30_gameover_set = false;
-static std::string zasm30_gameover_text[3];     // CONTINUE, SAVE, RETRY; empty for the default
+// CONTINUE, SAVE, RETRY (the game over screen), DON'T SAVE, SAVE AND QUIT, SAVE, QUIT (the save
+// screen); empty for the default
+static std::string zasm30_gameover_text[7];
 
 static void z30_gameover_reset()
 {
@@ -1003,7 +1005,7 @@ static void z30_gameover_reset()
     zasm30_gameover[Z30_GOS_MIDI] = -4;     // + ZC_MIDI_COUNT - 1: the built-in game over tune
     zasm30_gameover_set = false;
 
-    for(int i = 0; i < 3; ++i)
+    for(int i = 0; i < 7; ++i)
         zasm30_gameover_text[i].clear();
 }
 
@@ -1023,7 +1025,7 @@ static void z30_gameover_write(int index, int v)
     zasm30_gameover_set = true;
 }
 
-// Game->GameOverStrings[]: CONTINUE, SAVE and RETRY are the only lines this game over screen has.
+// Game->GameOverStrings[]: the game over screen's three lines and the save screen's four.
 static void z30_gameover_text_write(int index, long ptr)
 {
     std::string s;
@@ -1033,20 +1035,17 @@ static void z30_gameover_text_write(int index, long ptr)
         s.resize(31);
 
     index = vbound(index, 0, 6);
-
-    if(index < 3)
-    {
-        zasm30_gameover_text[index] = s;
-        zasm30_gameover_set = true;
-    }
+    zasm30_gameover_text[index] = s;
+    zasm30_gameover_set = true;
 }
 
-// title.cpp's game_over: a colour or other setting, or the text for line 0..2 (NULL for the default).
+// title.cpp's game_over and save_game: a colour or other setting, or the text of a line (0..6, as
+// upstream's SaveScreenText; NULL for the default).
 bool q30_gameover_custom() { return zasm30_gameover_set; }
 int q30_gameover_setting(int index) { return (index >= 0 && index < Z30_GOS_LAST) ? zasm30_gameover[index] : 0; }
 const char *q30_gameover_text(int line)
 {
-    return (line >= 0 && line < 3 && !zasm30_gameover_text[line].empty()) ? zasm30_gameover_text[line].c_str() : NULL;
+    return (line >= 0 && line < 7 && !zasm30_gameover_text[line].empty()) ? zasm30_gameover_text[line].c_str() : NULL;
 }
 
 // Hero->ShieldJinx (upstream's shieldjinxclk): while not 0 the shield blocks nothing; it counts

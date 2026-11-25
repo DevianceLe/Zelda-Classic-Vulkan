@@ -51,7 +51,25 @@ void q30_subscreen_script_reset();
 bool q30_sub_move_cursor(int dir, int &pos);                      // q30_scripts_subscr.h
 bool q30_sub_move_legacy(int dir, int &pos);                      // q30_scripts_subscr.h
 bool q30_subscreen_widget_script(int btns, int pos);              // q30_scripts_subscr.h
+bool q30_subscreen_animating();                                    // q30_scripts_subscr.h
+bool q30_map_subscreen_open();                                     // q30_scripts_subscr.h
 extern word q30_init_subscr_speed;      // q255_init.cpp
+extern dword q255_compat_rule_version;  // q255_core.cpp
+
+// 2.55/3.0 (upstream's can_btn): while a page change animates, the open subscreen reads none of
+// the cursor, equip, page, Start and Map buttons. Upstream's down states still follow the buttons
+// at each frame's end, so a press made meanwhile is lost; with qr_BROKEN_INPUT_DOWN_STATE (414, or
+// compat rules before 35) they don't, and a button still held counts once the change is over.
+static bool q30_broken_down_state()
+{
+    return q30_quest_rule(414) || q255_compat_rule_version < 35;
+}
+
+static void q30_eat_subscreen_buttons()
+{
+    rUp(); rDown(); rLeft(); rRight();
+    eat_buttons();
+}
 
 // The subscreen cursor's move from pos in direction dir: a 2.55/3.0 newer subscreen's as upstream
 // moves it (legacy: L and R with qr_OLD_SUBSCR), else 2.53's (any_stop: 2.55/3.0's freeform cursor).
@@ -464,8 +482,18 @@ void dosubscr(miscQdata *misc)
             (cAbtn() ? 0x01 : 0) | (cBbtn() ? 0x02 : 0) | (cLbtn() ? 0x04 : 0) | (cRbtn() ? 0x08 : 0) |
             (cEx1btn() ? 0x10 : 0) | (cEx2btn() ? 0x20 : 0) | (cEx3btn() ? 0x40 : 0) | (cEx4btn() ? 0x80 : 0);
         const int q30_btns = q30_now & ~q30_held;
-        q30_held = q30_now;
 
+        // (2.55/3.0: none of the buttons below while a page change animates, see q30_broken_down_state)
+        const bool q30_can_btn = !(q30_active() && q30_subscreen_animating());
+
+        if(q30_can_btn || !q30_broken_down_state())
+            q30_held = q30_now;
+
+        if(!q30_can_btn && !q30_broken_down_state())
+            q30_eat_subscreen_buttons();
+
+        if(q30_can_btn)     // (the block below is not indented again, to keep the change small)
+        {
         // (2.55/3.0 with qr_FREEFORM_SUBSCREEN_CURSOR: the cursor stops on any selectable widget;
         // the newer subscreens move it as upstream's SubscrPage does, q30_sub_move_cursor)
         const bool q30_free = q30_active() && q30_quest_rule(416);
@@ -574,6 +602,7 @@ void dosubscr(miscQdata *misc)
 
         if(q30_btns && q30_press_ok)
             q30_subscreen_pages(q30_btns, Bpos);
+        }
 
         do_dcounters();
         Link.refill();
@@ -606,7 +635,7 @@ void dosubscr(miscQdata *misc)
         if(q30_input)
             load_control_state();
         
-        if(NESquit && Up() && cAbtn() && cBbtn())
+        if(q30_can_btn && NESquit && Up() && cAbtn() && cBbtn())
         {
             Udown=true;
             Quit=qQUIT;
@@ -615,7 +644,9 @@ void dosubscr(miscQdata *misc)
         if(Quit)
             return;
             
-        if(rSbtn())
+        // (2.55/3.0, upstream: the Map button closes the map subscreen, and with
+        // qr_MAP_BUTTON_CLOSES_SUBSCREEN (474) the active one too)
+        if(q30_can_btn && (rSbtn() || (q30_active() && (q30_map_subscreen_open() || q30_quest_rule(474)) && rPbtn())))
             done=true;
     }
     while(!done && !q30_exit);

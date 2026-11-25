@@ -4622,6 +4622,20 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
             {
                 if(css->objects[i].d10 & SSO_GAUGE_NEWER)
                 {
+#ifdef ZC_PLAYER_BUILD
+                    if(css->objects[i].d10 & SSO_GAUGE_MISC)     // a misc gauge: its own counter
+                    {
+                        void q30_misc_gauge_counter(int ctr, int inf_item, int &cur, int &max, bool &inf);
+                        int cur = 0, max = 0;
+                        bool inf = false;
+                        q30_misc_gauge_counter((short)css->objects[i].w, (css->objects[i].d9 & 0xFFFF) - 1, cur, max, inf);
+
+                        if(!(css->objects[i].d10 & (inf ? 0x800 : 0x400)))     // (INFITM_BAN, INFITM_REQ)
+                            newer_gauge(dest, css->objects[i], x, y, cur, max, css->objects[i].h);
+
+                        break;
+                    }
+#endif
                     newer_gauge(dest, css->objects[i], x, y, game->get_life(), game->get_maxlife(), zc_hp_per_heart());
                     break;
                 }

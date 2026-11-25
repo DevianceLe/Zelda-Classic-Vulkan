@@ -564,9 +564,12 @@ dword q30_level_switches(int level);
 extern int Awpn, Bwpn, Xwpn, Ywpn;          // link.cpp: the items on the buttons
 
 // upstream's get_ssc_ctr / get_ssc_ctrmax, for the counters 2.53 has (crNONE -1; the negative
-// ones are its sscBTNCTR*, key and max life/magic counters)
-static double z30_cond_counter(int ctr, bool max)
+// ones are its sscBTNCTR*, key and max life/magic counters); infptr: whether it is infinite
+static double z30_cond_counter(int ctr, bool max, bool *infptr = NULL)
 {
+    if(infptr)
+        *infptr = false;
+
     enum { GENKEYMAGIC = -9, GENKEYNOMAGIC, LEVKEYMAGIC, LEVKEYNOMAGIC, ANYKEYMAGIC, ANYKEYNOMAGIC, MAXHP, MAXMP };
     enum { crMONEY = 1, crBOMBS = 2, crARROWS = 3, crSBOMBS = 6, COUNTERS = 32 };   // 2.53's counter numbers
 
@@ -577,7 +580,7 @@ static double z30_cond_counter(int ctr, bool max)
         const int btn = (ctr + 17) % 4;
         const int wpn = (btn == 0 ? Awpn : btn == 1 ? Bwpn : btn == 2 ? Xwpn : Ywpn) & 0xFFF;
         const int c = (game && game->get_item(wpn)) ? q30_item_cost_counter(wpn, ctr <= -14 ? 1 : 0) : -1;
-        return c < 0 ? 0 : z30_cond_counter(c, max);
+        return c < 0 ? 0 : z30_cond_counter(c, max, infptr);
     }
 
     if(ctr == -1 || ctr <= -10 || ctr >= COUNTERS)
@@ -592,8 +595,11 @@ static double z30_cond_counter(int ctr, bool max)
     if(ctr == MAXMP)
         return game->get_maxmagic();
 
+    if(max && ctr < 0)      // (upstream: the keys counter's maximum, 65535 with the level keys)
+        return (ctr == GENKEYMAGIC || ctr == GENKEYNOMAGIC) ? game->get_maxcounter(5) : 65535;
+
     if(max)
-        return ctr >= 0 ? game->get_maxcounter(ctr) : 65535;
+        return game->get_maxcounter(ctr);
 
     bool inf = false;
     long ret = 0;
@@ -644,10 +650,22 @@ static double z30_cond_counter(int ctr, bool max)
     }
     }
 
+    if(infptr)
+        *infptr = inf;
+
     if(ctr >= 0)
         return inf ? game->get_maxcounter(ctr) : game->get_counter(ctr);
 
     return inf ? 65535 : zc_min(65535L, ret);
+}
+
+// subscr.cpp: a 2.55/3.0 misc gauge's counter (SSO_GAUGE_MISC), now and at most, and whether it
+// is infinite (upstream's SW_MiscGaugePiece get_ctr, get_ctr_max and infinite)
+void q30_misc_gauge_counter(int ctr, int inf_item, int &cur, int &max, bool &inf)
+{
+    cur = (int)z30_cond_counter(ctr, false, &inf);
+    max = (int)z30_cond_counter(ctr, true);
+    inf = inf || (inf_item > -1 && inf_item < q30_items_end() && game->get_item(inf_item) && !item_disabled(inf_item));
 }
 
 static bool z30_in(const std::vector<int> &set, int v)
@@ -2636,6 +2654,8 @@ void q30_draw_overlay_subscreen(BITMAP *dest, miscQdata *misc, int x, bool showt
 // onViewMap: a dmap with a map subscreen opens it, the way the active subscreen opens, instead of
 // the old map (upstream: map_subscreen >= 0 means dosubscr(true)). Returns false to show the map.
 static void z30_engsub_map_open(subscreen_group *dmap_active);    // (below)
+static bool z30_map_sub_open = false;   // upstream's map_subscreen_open: the Map button closes it too
+bool q30_map_subscreen_open() { return z30_map_sub_open; }
 bool q30_open_map_subscreen()
 {
     if(!q30_active() || q30_dmap_map_subscreen(get_currdmap()) < 0)
@@ -2649,7 +2669,10 @@ bool q30_open_map_subscreen()
         subscreen_group *was = current_subscreen_active;
         current_subscreen_active = &custom_subscreen[slot];
         z30_engsub_map_open(was);
+        const bool was_open = z30_map_sub_open;
+        z30_map_sub_open = true;
         dosubscr(&QMisc);
+        z30_map_sub_open = was_open;
         z30_engsub_map_open(NULL);
         current_subscreen_active = was;
     }
@@ -3356,7 +3379,7 @@ static bool z30_subwidg_more(const long arg, long &ret, const long value, const 
     Q30SubTy &t = w->ty;
     Q30SubCond &rq = w->req;
     const bool gauge = ty == Z30W_LGAUGE || ty == Z30W_MGAUGE || ty == Z30W_MISCGAUGE || ty == Z30W_ITMCOOLDOWNGAUGE;
-    const bool og = o && (ty == Z30W_LGAUGE || ty == Z30W_MGAUGE);  // a gauge drawn as a 2.53 object
+    const bool og = o && (ty == Z30W_LGAUGE || ty == Z30W_MGAUGE || ty == Z30W_MISCGAUGE);  // a gauge drawn as a 2.53 object
     bool ok = true;     // the type has this value
 
 // a plain value of the type: get as is, set bounded (and into the object)
@@ -3428,6 +3451,7 @@ static bool z30_subwidg_more(const long arg, long &ret, const long value, const 
         if(!write) { ret = f * 10000; break; }
         f = vbound(v, -1L, (long)Z30_MAX_ITEMS_UP - 1);
         if(o && ctr) o->d10 = f < 0 ? 0 : (int)f;
+        if(og && ty == Z30W_MISCGAUGE) o->d9 = (o->d9 & ~0xFFFF) | (int)((f + 1) & 0xFFFF);
         break;
     }
     case Z30R_SUBWIDGTY_ITEMCLASS:
@@ -3463,6 +3487,7 @@ static bool z30_subwidg_more(const long arg, long &ret, const long value, const 
     case Z30R_SUBWIDGTY_PERCONTAINER:
         if(ty != Z30W_MISCGAUGE && ty != Z30W_ITMCOOLDOWNGAUGE) { ok = false; break; }
         if(write) t.per_container = zc_max(v, 1L); else ret = t.per_container * 10000;
+        if(write && og) o->h = (word)t.per_container;     // (a misc gauge's object, SSO_GAUGE_MISC)
         break;
     case Z30R_SUBWIDGTY_TOTAL:
         if(ty != Z30W_ITMCOOLDOWNGAUGE) { ok = false; break; }
@@ -3491,6 +3516,7 @@ static bool z30_subwidg_more(const long arg, long &ret, const long value, const 
         }
         if(!write) ret = t.ctrs[idx] * 10000;
         else if(ty != Z30W_COUNTERPERCBAR) t.ctrs[idx] = (int)vbound(v, (long)Z30_SSC_MIN + 1, (long)Z30_MAX_COUNTERS_UP - 1);
+        if(write && og && ty == Z30W_MISCGAUGE) o->w = (word)(short)t.ctrs[0];
         return true;
     }
 
