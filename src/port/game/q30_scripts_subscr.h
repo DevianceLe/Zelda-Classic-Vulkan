@@ -877,8 +877,8 @@ static Z30Subscreen *z30_shown_active()
 }
 
 // ---- page change animations (upstream subscrpg_animate / SubscrTransition::draw) -------------
-// Both pages are drawn once, as the change happens, and the frames between them are made from
-// those two pictures: a slide, or a pixellation by upstream's static dither pattern.
+// Both pages are drawn each frame (z30_anim_redraw), and the frame is made from those two
+// pictures: a slide, or a pixellation by upstream's static dither pattern.
 
 static struct Z30PageAnim
 {
@@ -918,6 +918,31 @@ static bool z30_anim_dither(int x, int y, double perc)     // upstream dither_st
     return fabs(s - c) < perc * 2.0;
 }
 
+// Upstream draws both pages anew each frame of the change (subscrpg_animate), so their items go on
+// animating and the time runs on: the shown page as it is, the old one with its own objects put in
+// for its picture (and its cursor), then taken out again.
+static void z30_anim_redraw(Z30PageAnim &a)
+{
+    Z30Subscreen *s = const_cast<Z30Subscreen *>(a.sub);
+
+    if(!s || s->slot < 0 || s->slot >= MAXCUSTOMSUBSCREENS || &custom_subscreen[s->slot] != current_subscreen_active
+       || s->curpage != a.to_pg || a.from_pg < 0 || a.from_pg >= (int)s->pages.size() || !s->pages[a.from_pg].stored)
+        return;
+
+    z30_sub_draw_page(a.to, true);
+
+    subscreen_object *objs = custom_subscreen[s->slot].objects;
+    z30_store_objects(s->pages[a.to_pg], objs, MAXSUBSCREENITEMS);
+    z30_load_objects(s->pages[a.from_pg], objs);
+    const int keep = Bpos;
+    Bpos = a.from_pos;
+    s->curpage = a.from_pg;     // (its widgets' conditions and texts go by the page shown)
+    z30_sub_draw_page(a.from, true);
+    s->curpage = a.to_pg;
+    Bpos = keep;
+    z30_load_objects(s->pages[a.to_pg], objs);
+}
+
 // While a page change animates, draws its frame in place of the active subscreen (put_active_subscr);
 // false once it's over, or when none is under way.
 bool q30_subscreen_anim_draw(BITMAP *dest, int dx, int dy)
@@ -926,6 +951,8 @@ bool q30_subscreen_anim_draw(BITMAP *dest, int dx, int dy)
 
     if(!a.on || !a.from || !a.to || !a.work)
         return false;
+
+    z30_anim_redraw(a);
 
     clear_bitmap(a.work);
     bool done = false;
