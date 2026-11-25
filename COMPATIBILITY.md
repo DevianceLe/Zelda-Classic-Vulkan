@@ -44,6 +44,8 @@ The final run was stopped before its last 11 quests. Their results are from the 
 - Saving global script variables past 255. No quest in this collection needs it. No quest in this collection needs the second one.
 - Quests made in ZC 1.00 and 1.50 can't be opened. None are in this collection.
 - 6 of 3.0's script values still read differently, none of them used by a quest in this collection: values that come from the machine's own settings or clock, a stack write past the stack's end, and one line 3.0's own test run prints only because it stops in the middle of a wipe.
+- Copying a whole array into an engine array (such as ArrayCopy into Screen->D) doesn't reach the engine array.
+- Five of the big-enemy animation styles 2.55 added (such as 4-frame 4-direction big) aren't built.
 
 **Built, but tried in only a few quests**
 
@@ -63,7 +65,7 @@ The final run was stopped before its last 11 quests. Their results are from the 
 - A quest's own HP per heart, magic per block and damage multipliers: tried in 3.0's z3 test quest and in quests with 32 HP per heart and 16 magic per block, against 3.0.
 - Sideview ladders: tried on Mystical Harps' ladders. Diving with the flippers' own settings and enemies falling into pits: tried on test scenes against 3.0.
 - Script portals and saved portals (kept in the save file), websockets (they stay "connecting", as in 3.0 without a network), the script viewport and subscreen widgets made by scripts: checked with test scripts only.
-- Subscreens with more than one page, their page-turn animations and 3.0 widget conditions: tried in Tales of Zelsteria, Tales of Murdoch and Tranquil Expression. Pages that a script turns (barato's card game) haven't been played through, and the B and A items set on a later page haven't been checked after saving and reloading.
+- Subscreens with more than one page, their page-turn animations and 3.0 widget conditions: tried in Tales of Zelsteria, Tales of Murdoch and Tranquil Expression; page-turn slides match 3.0 frame for frame in Tales of Zelsteria and Mystical Harps. Pages that a script turns (barato's card game) haven't been played through, and the B and A items set on a later page haven't been checked after saving and reloading.
 - The Moon Pearl and bunny form: tried in Kirby's Castle Epic. The magic mirror: tried in Link's Rise 2 DX; its portal and mirror-continue DMaps haven't been seen in a quest yet.
 - The bug net: tried in Kirby's Castle, catching a dropped item. Catching a fairy in a bottle hasn't been seen.
 - Item pickup messages and shop messages: tried in Tales of Murdoch. Items that open a screen's secrets: tried in Nestastic Gaiden. Screen items that wait for the secrets, or come back, haven't been seen in play.

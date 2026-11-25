@@ -87,7 +87,8 @@ What that means in practice:
 **Still to do**
 
 - 6 of 3.0's script values still read differently, none of them used by a quest in the collection: values that come from the machine's own settings or clock, a stack write past the stack's end, and one line 3.0's own test run prints only because it stops in the middle of a wipe
-- Script objects, files and stacks are freed at the next collection rather than the moment nothing uses them (no visible difference)
+- Copying a whole array into an engine array (such as ArrayCopy into Screen->D) doesn't reach the engine array yet
+- Five of the big-enemy animation styles 2.55 added (such as 4-frame 4-direction big) aren't built yet
 
 The [compatibility page](COMPATIBILITY.md#what-still-doesnt-work) has the full list of what still doesn't work, including known bugs.
 
