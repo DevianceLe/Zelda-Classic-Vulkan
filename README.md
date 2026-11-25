@@ -71,7 +71,7 @@ What that means in practice:
 - ZScript in ZQuest: the 2.55.18 and 3.0 Nightly compilers ship with it, and Compile ZScript builds a quest's scripts and assigns their slots. On a test quest the compiled scripts match upstream's byte for byte
 - 2.55 and 3.0 Nightly quest files, scripts of every type, music objects, and combo triggers in the player
 - On 2.55 and 3.0 Nightly quests: FFCs on their own layers, the hero's falling, carrying and lava-drowning animations, item costs for bombs, and newer subscreen life and magic gauges
-- On 2.55 and 3.0 Nightly quests: slopes, bottles and bottle shops, the switch hook, sprite rotation and scaling, script lighting and dark rooms, subscreen widgets and overlay subscreens, subscreens with more than one page, the Moon Pearl and bunny form, the magic mirror, the bug net, lifting and throwing, torches, item pickup messages and secret items. Each has been tried in one to four quests so far
+- On 2.55 and 3.0 Nightly quests: slopes, bottles and bottle shops, the switch hook, sprite rotation and scaling, script lighting and dark rooms, subscreen widgets and overlay subscreens, subscreens with more than one page, 3.0's map charting, the Moon Pearl and bunny form, the magic mirror, the bug net, lifting and throwing, torches, item pickup messages and secret items. Each has been tried in one to four quests so far
 - On 2.55 and 3.0 Nightly quests, compared with 3.0 on the same input: Z-heights, sideview swimming, scrolling regions loading every screen's guys, items and enemies, 3.0's pit falls and respawn points, Once Per Weapon combo triggers, the lantern, ice, light beams, screen tints, bridges, mirrors and the shadows under falling items and thrown objects
 - On 2.55 and 3.0 Nightly quests, also compared with 3.0: every script command the collection's quests use, save menus, the quest's own hearts and damage, sideview ladders, diving, 3.0's enemy death animations, scrolling regions placing every enemy by its own screen, and 3.0's extended view in tall regions
 - A feature test suite (`tests/feature_suite`) that checks the ported 2.55 and 3.0 features against 3.0 on the same input
@@ -88,7 +88,6 @@ What that means in practice:
 
 - 6 of 3.0's script values still read differently, none of them used by a quest in the collection: values that come from the machine's own settings or clock, a stack write past the stack's end, and one line 3.0's own test run prints only because it stops in the middle of a wipe
 - Copying a whole array into an engine array (such as ArrayCopy into Screen->D) doesn't reach the engine array yet
-- Five of the big-enemy animation styles 2.55 added (such as 4-frame 4-direction big) aren't built yet
 
 The [compatibility page](COMPATIBILITY.md#what-still-doesnt-work) has the full list of what still doesn't work, including known bugs.
 
@@ -183,7 +182,7 @@ cmake --build build-switch --target zplayer_nro
 | 2.53.1 and earlier | Plays exactly as before | Opens and saves as 2.53 |
 | 2.55 and 3.0 Nightlies | Plays; never saved as an older quest | Edits and saves in its own version, or as 3.0 Nightly; compiles its ZScript |
 
-Every change has to pass the 2.53 checks. Re-saved reference quests must match byte for byte, and [replays](tests/replay/) must produce identical frames. For 2.55 and 3.0 Nightly quests, the openings of the 93 newer quests in the collection are compared with ZC 3.0's own player after every change, and the [feature test suite](tests/feature_suite/README.txt) checks each ported feature against 3.0 on the same input: every one of its 31 features that isn't random matches 3.0 exactly (the other 7 differ only where the scene is random), and 933 of the 939 3.0 script commands it calls behave as 3.0's, with none left unhandled (none of the rest is used by a quest in the collection).
+Every change has to pass the 2.53 checks. Re-saved reference quests must match byte for byte, and [replays](tests/replay/) must produce identical frames. For 2.55 and 3.0 Nightly quests, the openings of the 93 newer quests in the collection are compared with ZC 3.0's own player after every change, and the [feature test suite](tests/feature_suite/README.txt) checks each ported feature against 3.0 on the same input: every one of its 31 features that isn't random matches 3.0 exactly (the other 7 differ only where the scene is random), and 933 of the 939 3.0 script commands it calls behave as 3.0's, with none left unhandled (none of the rest is used by a quest in the collection). A deeper comparison plays up to five spots in each of those 93 quests (442 in all) against 3.0: 285 match exactly, 52 differ only where the scene is random, and 105 still differ.
 
 ## Repository layout
 

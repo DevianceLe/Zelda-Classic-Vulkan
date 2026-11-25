@@ -45,7 +45,6 @@ The final run was stopped before its last 11 quests. Their results are from the 
 - Quests made in ZC 1.00 and 1.50 can't be opened. None are in this collection.
 - 6 of 3.0's script values still read differently, none of them used by a quest in this collection: values that come from the machine's own settings or clock, a stack write past the stack's end, and one line 3.0's own test run prints only because it stops in the middle of a wipe.
 - Copying a whole array into an engine array (such as ArrayCopy into Screen->D) doesn't reach the engine array.
-- Five of the big-enemy animation styles 2.55 added (such as 4-frame 4-direction big) aren't built.
 
 **Built, but tried in only a few quests**
 
@@ -61,6 +60,8 @@ The final run was stopped before its last 11 quests. Their results are from the 
 - Items numbered 256 and up: tried in Mystical Harps (pickups, drops, the special item rooms, the subscreen) and Tranquil Expression. Shops selling them, and messages that give them, haven't been seen in a quest.
 - 3.0 messages (scrolling text, portraits, shadows, icons, control codes) and the fonts 2.55 and 3.0 added: tried in Tranquil Expression and Mystical Harps.
 - Push blocks falling into pits: tried in Colossal Tower.
+- 3.0's map charting (visited screens kept per DMap, the large map's room square, a scrolling region's rooms joined on the map): Tales of Zelsteria's large map matches 3.0, also after saving and reloading. The 3.0 minimap's visited-room colours aren't built yet.
+- The big-enemy animation styles 2.55 added: 13 quests in this collection use them; Spell of Mudora's 2nd quest was compared with 3.0.
 - Save menus (a quest's own game over and F6 menus): Mystical Harps' and OOT1986's menus load as in 3.0, and a game over menu and an F6 menu were seen opening in this player; they haven't been compared with 3.0's on screen.
 - A quest's own HP per heart, magic per block and damage multipliers: tried in 3.0's z3 test quest and in quests with 32 HP per heart and 16 magic per block, against 3.0.
 - Sideview ladders: tried on Mystical Harps' ladders. Diving with the flippers' own settings and enemies falling into pits: tried on test scenes against 3.0.
