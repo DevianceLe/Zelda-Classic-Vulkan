@@ -1870,6 +1870,138 @@ bool q30_sub_move_legacy(int dir, int &pos)
     return true;
 }
 
+// ---- a 2.55/3.0 quest's older subscreens (read before SUBS version 8) as upstream's pages ------
+// Upstream turns such a subscreen into one page whose item slots (SW_ItemSlot::load_old) are
+// selectable when their pos (d3) is set, can't be equipped with d2 bit 2, and lead up, down, left
+// and right to the slots d4-d7 name.
+
+// The first selectable slot at pos (SubscrPage::get_widg_pos; item_only skips unequippable ones).
+static const subscreen_object *z30_classic_widg_pos(const subscreen_group *g, int pos, bool item_only)
+{
+    for(int i = 0; pos >= 0 && i < MAXSUBSCREENITEMS && g->objects[i].type != ssoNULL; ++i)
+    {
+        const subscreen_object &o = g->objects[i];
+
+        if(o.type == ssoCURRENTITEM && o.d3 == pos && !(item_only && (o.d2 & 2)))
+            return &o;
+    }
+
+    return NULL;
+}
+
+// Whether slot o holds an item it would equip (getItemVal().id > -1).
+static bool z30_classic_has_item(const subscreen_object &o)
+{
+    const int keep = directItem;
+    const int it = z30_btn_item_of(o);
+    directItem = keep;
+    return it != 0;
+}
+
+// Upstream's SubscrPage::movepos_legacy on such a subscreen (the active one shown): from start
+// (0xFF for none) in direction dir (SEL_*), never onto f1-f3; 0xFF for none. upstream's verifyWpn
+// checks the X and Y buttons with it, which 2.53 has no check for.
+int q30_classic_movepos(int dir, int startp, int fp, int fp2, int fp3)
+{
+    const subscreen_group *g = current_subscreen_active;
+
+    if(!g)
+        return startp;
+
+    //what will be returned when all else fails.
+    //don't return the forbiddenpos... no matter what -DD
+    int failpos;
+    const bool start_empty = startp < 0 || startp >= 0xFF;
+
+    if(start_empty)
+    {
+        failpos = 0xFF;
+        startp = 0;
+    }
+    else if(startp == fp || startp == fp2 || startp == fp3)
+        failpos = 0xFF;
+    else
+        failpos = startp;
+
+    bool equip_only = false, item_only = !q30_quest_rule(Z30_QR_FREEFORM_SUBSCREEN_CURSOR);
+
+    if(dir == SEL_VERIFY_RIGHT || dir == SEL_VERIFY_LEFT)
+    {
+        equip_only = true;
+        item_only = !q30_quest_rule(424);   // qr_NO_BUTTON_VERIFY
+
+        if(start_empty && !item_only)
+            return startp;  //empty is valid
+
+        if(startp != fp && startp != fp2 && startp != fp3)
+        {
+            const subscreen_object *w = z30_classic_widg_pos(g, startp, item_only);
+
+            if(w && !(w->d2 & 2) && (!item_only || z30_classic_has_item(*w)))
+                return startp;  //Valid selectable slot
+        }
+    }
+
+    int p = -1, first_valid = -1, first_valid_equip = -1;
+
+    for(int i = 0; i < MAXSUBSCREENITEMS && g->objects[i].type != ssoNULL; ++i)
+    {
+        const subscreen_object &o = g->objects[i];
+
+        if(o.type != ssoCURRENTITEM || o.d3 < 0)
+            continue;
+
+        if(first_valid == -1)
+            first_valid = i;
+
+        if(first_valid_equip == -1 && (!equip_only || !(o.d2 & 2)))
+            first_valid_equip = i;
+
+        if(o.d3 == startp)
+            p = i;
+
+        if(p > -1 && first_valid > -1 && first_valid_equip > -1)
+            break;
+    }
+
+    if(p == -1)
+    {
+        // can't find the current position: a valid slot if there is one
+        if(first_valid_equip >= 0)
+            return g->objects[first_valid_equip].d3;
+
+        return first_valid >= 0 ? g->objects[first_valid].d3 : failpos;
+    }
+
+    std::set<int> seen;
+    seen.insert(startp);
+    const subscreen_object *w = &g->objects[p];
+
+    for(;;)
+    {
+        int cur;
+
+        switch(dir)
+        {
+        case SEL_LEFT: case SEL_VERIFY_LEFT: cur = w->d6; break;
+        case SEL_RIGHT: case SEL_VERIFY_RIGHT: cur = w->d7; break;
+        case SEL_DOWN: cur = w->d5; break;
+        case SEL_UP: cur = w->d4; break;
+        default: return failpos;
+        }
+
+        w = z30_classic_widg_pos(g, cur, false);
+
+        if(!w || seen.count(cur))
+            return failpos;
+
+        seen.insert(cur);
+
+        if(cur != fp && cur != fp2 && cur != fp3 && (!equip_only || !(w->d2 & 2)) && (!item_only || z30_classic_has_item(*w)))
+            return cur;
+    }
+}
+
 // The selected widget (SubscrPage::get_sel_widg: the first selectable widget at pos, whatever it
 // shows or its conditions say), NULL for none.
 static const Z30SubWidget *z30_sel_widget(const Z30SubPage &p, int pos)
@@ -2338,6 +2470,112 @@ bool q30_sub_draw_selector(BITMAP *dest, const subscreen_group *css, const subsc
     return true;
 }
 
+// subscr.cpp's selector object o on a 2.55/3.0 quest's older subscreen: upstream's SW_Selector with
+// no selector override (z30_draw_sel's path for that). With qr_SUBSCR_OLD_SELECTOR the selector
+// item's whole tiles are drawn at the slot under the cursor moved by the item's draw offsets (its
+// big-selector corners 8 rows and columns out), the item first drawn into a bitmap of that size at
+// those offsets too, as upstream draws it; without, the selector's hit box (16x16 of its tile
+// without one) is fitted to the 16x16 slot, or to the slot item's own hit box under
+// qr_SUBSCR_SELECTOR_USES_ITEM_HITBOX. False to leave it to 2.53's drawing (newer subscreens).
+bool q30_sub_draw_old_selector(BITMAP *dest, const subscreen_group *css, const subscreen_object &o, int xofs, int yofs)
+{
+    if(!q30_active() || !css || z30_sub_of_group(css))
+        return false;
+
+    // the slot under the cursor (get_sel_widg), else the one at 0
+    const subscreen_object *slot = z30_classic_widg_pos(css, Bpos, false);
+
+    if(!slot && Bpos)
+        slot = z30_classic_widg_pos(css, 0, false);
+
+    if(!slot)
+        return true;
+
+    const int sel_type = (o.type == ssoSELECTOR2) ? 1 : 0;     // SUBSCR_SELECTOR_USEB
+    const bool oldsel = q30_compat_rule(Z30_QR_SUBSCR_OLD_SELECTOR);
+    const bool big_sel = oldsel && o.d5 != 0;
+    item tempsel((fix)0, (fix)0, (fix)0, sel_type ? iSelectB : iSelectA, 0, 0, true);
+    tempsel.xofs = tempsel.yofs = 0;
+    tempsel.drawstyle = o.d4 ? 1 : 0;   // SUBSCR_SELECTOR_TRANSP
+
+    // the item the slot holds (getItemVal) and that item's own hit box
+    int id = -1;
+    {
+        const int keep = directItem;
+        const int it = z30_btn_item_of(*slot);
+        directItem = keep;
+        id = it ? it : -1;
+    }
+
+    int hx = 0, hy = 0, hw = 16, hh = 16;
+
+    if(id > -1)
+        q30_item_hit_box(id, hx, hy, hw, hh);
+
+    z30_sel_animate(tempsel, q30_subscr_item_clk);
+
+    if(!tempsel.tile)
+        return true;
+
+    const bool ext = tempsel.extend > 2;
+    int sw, sh, sxofs = 0, syofs = 0, dw = 16, dh = 16, dx = (short)slot->x, dy = (short)slot->y;   // (SW_ItemSlot's 16x16 box)
+
+    if(oldsel)
+    {
+        sw = dw = ext ? tempsel.txsz * 16 : 16;
+        sh = dh = ext ? tempsel.tysz * 16 : 16;
+        dx += ext ? (int)tempsel.xofs : 0;
+        dy += ext ? (int)tempsel.yofs : 0;
+    }
+    else
+    {
+        sw = ext ? tempsel.hxsz : 16;
+        sh = ext ? tempsel.hysz : 16;
+        sxofs = ext ? tempsel.hxofs : 0;
+        syofs = ext ? tempsel.hyofs : 0;
+
+        if(q30_compat_rule(Z30_QR_SUBSCR_SELECTOR_USES_ITEM_HITBOX) && id > -1)
+        {
+            dw = hw;
+            dh = hh;
+            dx += hx + (ext ? (int)tempsel.xofs : 0);
+            dy += hy + (ext ? (int)tempsel.yofs : 0);
+        }
+    }
+
+    if(sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0)
+        return true;
+
+    BITMAP *tmp = create_bitmap_ex(8, sw, sh);
+
+    if(!tmp)
+        return true;
+
+    const int sx = vbound(sxofs, 0, sw), sy = vbound(syofs, 0, sh);
+
+    for(int j = 0; j < 4; ++j)
+    {
+        clear_bitmap(tmp);
+        tempsel.x = 0;
+        tempsel.y = 0;
+        tempsel.draw(tmp);
+
+        const int tx = xofs + (big_sel ? (j % 2 ? 8 : -8) : 0);
+        const int ty = yofs + (big_sel ? (j > 1 ? 8 : -8) : 0);
+
+        if(sw - sx > 0 && sh - sy > 0)
+            masked_stretch_blit(tmp, dest, sx, sy, sw - sx, sh - sy, tx + dx, ty + dy, dw, dh);
+
+        if(!big_sel)
+            break;
+
+        tempsel.tile += zc_max(itemsbuf[tempsel.id].frames, 1);
+    }
+
+    destroy_bitmap(tmp);
+    return true;
+}
+
 // A page change animating with SUBSCR_TRANS_NOHIDESELECTOR: upstream draws both pages anew each
 // frame, so their selectors go on animating. The pages' pictures leave them out; this puts page
 // pg's selectors (cursor pos) on such a picture.
@@ -2635,6 +2873,119 @@ bool q30_subscreen_item(const subscreen_object &o, int *id)
     }
 
     return false;
+}
+
+// Upstream's SW_ItemSlot::getDisplayItem and draw for a slot of the bow-and-arrow or arrow class
+// with no item of its own: the arrow Link has, whatever the ammo (2.53 leaves a bow-and-arrow
+// slot's arrow out without any), and on a bow-and-arrow slot the bow drawn over it (*bow, -1 for
+// none; none either without an arrow, where 2.53 shows the bow alone). False for other slots.
+bool q30_subscreen_arrow_slot(const subscreen_object &o, int *arrow, int *bow)
+{
+    if(!q30_active() || !game || o.d8 > 0 || o.d10 > 0 || (o.d1 != itype_bowandarrow && o.d1 != itype_arrow))
+        return false;
+
+    *arrow = current_item_id(itype_arrow, false);
+    *bow = -1;
+
+    if(*arrow < 0 || item_disabled(*arrow))
+        *arrow = -1;
+    else if(o.d1 == itype_bowandarrow && !o.d9)     // (unless SUBSCR_CURITM_IGNR_SP_DISPLAY)
+        *bow = current_item_id(itype_bow, false);
+
+    return true;
+}
+
+// Upstream's FFScript::runScriptedActiveSubscreen (2.55/3.0 quests): Start on a DMap with an
+// active subscreen script runs that script in place of the engine's subscreen until it quits.
+// Each frame the DMap's active script (qr_DMAP_ACTIVE_RUNS_DURING_ACTIVE_SUBSCRIPT) and passive
+// subscreen script (qr_PASSIVE_SUBSCRIPT_RUNS_DURING_ACTIVE_SUBSCRIPT) run first, then it, then
+// their Waitdraw halves; the picture is only what the scripts draw over the cleared screen, with
+// the combos animating. False when the DMap has none. (A warp from it ends it here; upstream runs
+// a game frame in the new place and goes on.)
+void doScriptMenuDraws();       // script_drawing.cpp
+
+bool q30_run_scripted_active_subscreen()
+{
+    enum { QR_PASSIVE_SUBSCRIPT_RUNS_DURING_ACTIVE_SUBSCRIPT = 188, QR_DMAP_ACTIVE_RUNS_DURING_ACTIVE_SUBSCRIPT = 189 };
+
+    if(!zasm30_ffscript_version)
+        return false;
+
+    const int script_dmap = currdmap;
+    const Q30ScriptRef *ref = q30_dmap_script(script_dmap, q30_dmap_active_subscreen);
+    const word active = ref ? ref->script : 0;
+    ffscript *code = active ? zasm30_script_for(SCRIPT_ACTIVESUB, active) : NULL;
+
+    if(!code || code[0].command == 0xFFFF)
+        return false;
+
+    const Q30ScriptRef *pref = q30_dmap_script(script_dmap, q30_dmap_passive_subscreen);
+    const Q30ScriptRef *dref = q30_dmap_script(script_dmap, q30_dmap_active);
+    const word passive = pref ? pref->script : 0, dmap_active = dref ? dref->script : 0;
+    const bool run_dmap = dmap_active && q30_quest_rule(QR_DMAP_ACTIVE_RUNS_DURING_ACTIVE_SUBSCRIPT);
+    const bool run_passive = passive && q30_quest_rule(QR_PASSIVE_SUBSCRIPT_RUNS_DURING_ACTIVE_SUBSCRIPT);
+
+    // the picture as it was when Start was pressed (upstream's script_menu_buf, the latest screen
+    // image), under the scripts' drawings each frame
+    BITMAP *menu_bg = create_bitmap_ex(8, framebuf->w, framebuf->h);
+
+    if(menu_bg)
+        blit(framebuf, menu_bg, 0, 0, 0, 0, framebuf->w, framebuf->h);
+
+    zasm30_drop_instance(SCRIPT_ACTIVESUB, 0);      // (each run starts afresh, as upstream's)
+    Zasm30Instance *in = zasm30_instance(SCRIPT_ACTIVESUB, 0);
+    pause_all_sfx();
+    const bool saved_skip = q30_skip_script_draws;  // (it draws its own frames, as upstream)
+    q30_skip_script_draws = false;
+
+    while(in->doscript && !Quit)
+    {
+        script_drawing_commands.Clear();
+        load_control_state();
+
+        if(run_dmap && zasm30_instance(SCRIPT_DMAP, 0)->doscript)
+            zasm30_run(SCRIPT_DMAP, dmap_active, 0);
+
+        if(run_passive && zasm30_instance(SCRIPT_PASSIVESUB, 0)->doscript)
+            zasm30_run(SCRIPT_PASSIVESUB, passive, 0);
+
+        zasm30_run(SCRIPT_ACTIVESUB, active, 0);
+
+        if(run_dmap)
+            zasm30_run_waitdraw_half(SCRIPT_DMAP, dmap_active, 0);
+
+        if(run_passive)
+            zasm30_run_waitdraw_half(SCRIPT_PASSIVESUB, passive, 0);
+
+        if(in->waitdraw && in->doscript)
+        {
+            zasm30_run(SCRIPT_ACTIVESUB, active, 0);
+            in->waitdraw = false;
+        }
+
+        clear_bitmap(framebuf);
+
+        if(currdmap == script_dmap)
+            animate_combos();
+
+        if(menu_bg)
+            blit(menu_bg, framebuf, 0, 0, 0, 0, framebuf->w, framebuf->h);
+
+        doScriptMenuDraws();
+        advanceframe(true);
+
+        if(currdmap != script_dmap)
+            break;
+    }
+
+    if(menu_bg)
+        destroy_bitmap(menu_bg);
+
+    q30_skip_script_draws = saved_skip;
+    resume_all_sfx();
+    script_drawing_commands.Clear();
+    zasm30_drop_instance(SCRIPT_ACTIVESUB, 0);
+    return true;
 }
 
 // ---- colours, as upstream's SubscrColorInfo get_int_color/set_int_color --------------------------

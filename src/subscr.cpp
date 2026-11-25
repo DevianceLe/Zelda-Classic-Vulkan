@@ -3729,6 +3729,9 @@ static bool q30_minimap_title(BITMAP *dest, int x, int y, const subscreen_object
 // subscreenitem's item override, for an item q30_subscreen_item chose: drawn whenever it's chosen
 // (the 2.53 ownership test goes by family, which these items don't have here).
 bool q30_subscreen_item(const subscreen_object &o, int *id);
+#ifdef ZC_PLAYER_BUILD
+bool q30_subscreen_arrow_slot(const subscreen_object &o, int *arrow, int *bow);     // q30_scripts_subscr.h
+#endif
 
 static void q30_subscreen_item_draw(BITMAP *dest, int x, int y, int id)
 {
@@ -4355,6 +4358,19 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
                             q30_subscreen_item_draw(dest, x, y, q30_id);
                         break;
                     }
+
+#ifdef ZC_PLAYER_BUILD
+                    // a bow-and-arrow or arrow slot: the arrow whatever the ammo, the bow over it
+                    int q30_bow;
+                    if(q30_subscreen_arrow_slot(css->objects[i], &q30_id, &q30_bow))
+                    {
+                        if(q30_id >= 0)
+                            q30_subscreen_item_draw(dest, x, y, q30_id);
+                        if(q30_bow >= 0)
+                            q30_subscreen_item_draw(dest, x, y, q30_bow);
+                        break;
+                    }
+#endif
 #endif
                     subscreenitem(dest, x, y, css->objects[i].d8>0 ? ((css->objects[i].d8-1) | 0x8000) : css->objects[i].d1);
                 }
@@ -4519,6 +4535,11 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
                 // 2.55/3.0 newer subscreens: upstream's selector, on any selectable widget
                 bool q30_sub_draw_selector(BITMAP *dest, const subscreen_group *css, const subscreen_object &o, int xofs, int yofs);
                 if(q30_sub_draw_selector(dest, css, css->objects[i], xofs, yofs))
+                    break;
+
+                // 2.55/3.0 older subscreens: upstream's selector (q30_scripts_subscr.h)
+                bool q30_sub_draw_old_selector(BITMAP *dest, const subscreen_group *css, const subscreen_object &o, int xofs, int yofs);
+                if(q30_sub_draw_old_selector(dest, css, css->objects[i], xofs, yofs))
                     break;
 #endif
                 int p=-1;

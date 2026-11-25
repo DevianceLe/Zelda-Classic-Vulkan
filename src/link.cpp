@@ -5730,16 +5730,20 @@ bool LinkClass::animate(int)
     }
     
     bool q30_open_queued_subscreen();   // q30_scripts_sys.h: a 2.55/3.0 script's subscreendata->Open()
+    bool q30_run_scripted_active_subscreen();   // q30_scripts_subscr.h: a DMap's active subscreen script
 
     if(q30_open_queued_subscreen())
         ;
     else if(rSbtn())
     {
         int tmp_subscr_clk = frame;
-        
+
         switch(lsave)
         {
         case 0:
+            if(q30_run_scripted_active_subscreen())     // (2.55/3.0, in place of the engine's)
+                break;
+
             conveyclk=3;
             if(!q30_no_active_subscreen())
                 dosubscr(&QMisc);
@@ -18356,6 +18360,7 @@ bool q30_sub_new_format();      // q30_scripts_subscr.h
 bool q30_dmap_has_active_subscreen();
 bool q30_old_btn_page();
 int q30_old_btn_movepos(int dir, int start, int f1, int f2, int f3);
+int q30_classic_movepos(int dir, int startp, int fp, int fp2, int fp3);   // (older subscreens)
 int q30_old_btn_item(int pos);
 
 // A 2.55/3.0 quest under qr_OLD_SUBSCR with the newer subscreens and an active subscreen on the
@@ -19065,6 +19070,36 @@ void q30_verify_extra_buttons()
             q30_store_extra_buttons();
         }
 
+        return;
+    }
+
+    // 2.55/3.0 older subscreens (read before SUBS version 8), which upstream makes a page: X and Y
+    // are checked as A and B are (verifyXWpn, verifyYWpn): a button with no slot takes the next
+    // item to the right, unless qr_NO_BUTTON_VERIFY keeps it empty, and one whose item is gone
+    // moves on, never onto another button's slot.
+    if(q30_active() && !q30_sub_new_format() && current_subscreen_active)
+    {
+        const int cond_a = get_bit(quest_rules,qr_SELECTAWPN) ? game->awpn : 0xFF;
+
+        if(q30_use_x_button() && q30_forced_xwpn == -1)
+        {
+            if(!(q30_xpos == Q30_NO_POS && q30_quest_rule(424)))
+                q30_xpos = q30_classic_movepos(SEL_VERIFY_RIGHT, q30_xpos, game->bwpn, cond_a, q30_use_y_button() ? q30_ypos : 0xFF);
+
+            Xwpn = q30_xpos == Q30_NO_POS ? 0 : Bweapon(q30_xpos);
+            directItemX = q30_xpos == Q30_NO_POS ? -1 : directItem;
+        }
+
+        if(q30_use_y_button() && q30_forced_ywpn == -1)
+        {
+            if(!(q30_ypos == Q30_NO_POS && q30_quest_rule(424)))
+                q30_ypos = q30_classic_movepos(SEL_VERIFY_RIGHT, q30_ypos, game->bwpn, q30_use_x_button() ? q30_xpos : 0xFF, cond_a);
+
+            Ywpn = q30_ypos == Q30_NO_POS ? 0 : Bweapon(q30_ypos);
+            directItemY = q30_ypos == Q30_NO_POS ? -1 : directItem;
+        }
+
+        q30_store_extra_buttons();
         return;
     }
 
