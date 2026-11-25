@@ -266,6 +266,7 @@ int q30_summon_layered_enemies(enemy *e, int count, int limit, bool random_count
     return ret;
 }
 bool q30_active();
+extern dword q255_compat_rule_version;      // q255_core.cpp
 const Q30GuyData *q30_guy_data(int guy);     // q30_scripts_data.h: what the 2.55/3.0 reader kept, or NULL
 int q30_guy_defense(int guy, int slot);      // q30_triggers.cpp: a defence as the file stores it
 
@@ -3967,6 +3968,7 @@ void enemy::update_enemy_frame()
     int fx = get_bit(quest_rules, qr_NEWENEMYTILES) ? f4 : f2;
     tile = o_tile;
     int tilerows = 1; // How many rows of tiles? The Extend code needs to know.
+    bool big_anim = false;  // the 'big' styles (upstream's ignore_extend)
     
     switch(anim)
     {
@@ -4469,6 +4471,7 @@ waves2:
     case a2FRMB:
     {
         tile+= 2*(1-f2);
+        big_anim = true;
     }
     break;
     
@@ -4522,6 +4525,7 @@ waves2:
         tilerows = 2;
         tiledir_big(dir,false);
         tile+=2*f4;
+        big_anim = true;
     }
     break;
     
@@ -4941,7 +4945,11 @@ waves2:
     
     int change = tile-o_tile;
     
-    if(extend > 2)
+    // 2.55/3.0: the 'big' styles pick their tile on the fixed 2x2 grid; scaling it by the size
+    // is upstream's qr_BROKEN_BIG_ENEMY_ANIMATION (on for quests before compat rule version 9)
+    if(big_anim && q30_active() && !(q30_quest_rule(290) || q255_compat_rule_version < 9))
+        tile=o_tile+change;
+    else if(extend > 2)
     {
         if(o_tile/TILES_PER_ROW==(o_tile+((txsz*change)/tilerows))/TILES_PER_ROW)
         {

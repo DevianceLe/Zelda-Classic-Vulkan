@@ -3437,6 +3437,8 @@ void draw_lens_over()
 
 //----------------------------------------------------------------
 
+bool q30_active();
+extern int q30_game_frame_base;  // zelda.cpp
 void draw_wavy(BITMAP *source, BITMAP *target, int amplitude, bool interpol)
 {
     //recreating a big bitmap every frame is highly sluggish.
@@ -3450,7 +3452,9 @@ void draw_wavy(BITMAP *source, BITMAP *target, int amplitude, bool interpol)
     //  int wavelength=4;
     amplitude = zc_min(2048,amplitude); // some arbitrary limit to prevent crashing
     int amp2=zc_field_h();  // the rows shown: 168, or 176 with the 232-row picture
-    int i=frame%amp2;
+    // (2.55/3.0: upstream counts the phase by its global frame counter, which the game start
+    // resets and which runs one behind ours: Mystical Harps' wavy rooms row for row)
+    int i=q30_active() ? (((frame - q30_game_frame_base - 1) % amp2) + amp2) % amp2 : frame%amp2;
 
     for(int j=0; j<amp2; j++)
     {

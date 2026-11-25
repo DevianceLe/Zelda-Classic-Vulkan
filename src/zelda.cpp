@@ -349,6 +349,7 @@ int DUkey, DDkey, DLkey, DRkey, DUbtn, DDbtn, DLbtn, DRbtn, ss_after, ss_speed, 
 int hs_startx, hs_starty, hs_xdist, hs_ydist, clockclk, clock_zoras[eMAXGUYS];
 int cheat_goto_dmap=0, cheat_goto_screen=0, currcset;
 int gfc, gfc2, pitx, pity, refill_what, refill_why, heart_beep_timer=0, new_enemy_tile_start=1580;
+int q30_game_frame_base=0;    // 2.55/3.0: the frame counter as the game started (upstream's global_frame = frame - this)
 int nets=1580, magicitem=-1,nayruitem=-1, title_version, magiccastclk, quakeclk=0, wavy=0, castx, casty, df_x, df_y, nl1_x, nl1_y, nl2_x, nl2_y;
 int magicdrainclk=0, conveyclk=3, memrequested=0;
 float avgfps=0;
@@ -1702,6 +1703,7 @@ int init_game()
     zscriptDrawingRenderTarget->SetCurrentRenderTarget(-1);
     
     cheat=0;
+    q30_game_frame_base=frame;  // (upstream resets its global frame counter here)
     wavy=quakeclk=0;
     show_layer_0=show_layer_1=show_layer_2=show_layer_3=show_layer_4=show_layer_5=show_layer_6=true;
     show_layer_over=show_layer_push=show_sprites=show_ffcs=true;
@@ -2548,6 +2550,7 @@ int init_game()
 
 int cont_game()
 {
+    q30_game_frame_base=frame;  // (upstream's init_game_vars(true) resets its global frame counter)
     q30_run_continue();
     q30_bunny_reset();      // 2.55/3.0: as upstream's HeroClass::init on a continue
 

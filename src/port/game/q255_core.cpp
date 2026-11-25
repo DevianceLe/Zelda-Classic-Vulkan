@@ -11,6 +11,7 @@
 #include "zsys.h"
 #ifdef ZC_PLAYER_BUILD
 #include "q30_triggers.h"
+#include "q30_scripts.h"
 #endif
 
 extern const char *skip_text[];
@@ -57,6 +58,8 @@ void q30_high_items_survey();   // link.cpp: ZC_Q30_ITEMDUMP (declared out here:
                                 // unnamed namespace below it would name a function of its own)
 void q30_clear_itemclass_names();                       // q30_scripts_sys.h (same reason)
 void q30_set_itemclass_name(int q, const char *name);   // q30_scripts_sys.h
+extern char *guy_string[];                              // ZC_Q255_DUMP_SCAN
+bool zasm30_screen_script_info(int index, int *script, long *initd);   // q30_scripts_region.h
 #endif
 
 namespace
@@ -461,6 +464,113 @@ int read_sections(PACKFILE *f, zquestheader *header, miscQdata *misc, zctune *tu
     return result;
 }
 
+#ifdef ZC_PLAYER_BUILD
+static std::string q255_script_name(int table, int script)   // script = slot + 1
+{
+    for(std::map<std::string, int>::const_iterator it = q30_script_names[table].begin(); it != q30_script_names[table].end(); ++it)
+        if(it->second + 1 == script)
+            return it->first;
+    char b[16];
+    sprintf(b, "#%d", script);
+    return b;
+}
+
+// ZC_Q255_DUMP_SCAN=<file>: every DMap, and every screen with scripts, scripted enemies, a room
+// type or combos worth testing (water, ice, slopes, signs, cutscenes...), to pick test spots.
+static void q255_dump_scan(const char *path)
+{
+    FILE *f = fopen(path, "w");
+    if(!f)
+        return;
+    for(int d = 0; d < MAXDMAPS; ++d)
+        if(DMaps[d].name[0] || DMaps[d].title[0])
+            fprintf(f, "dmap %d map %d lvl %d xoff %d type %d cont %d name '%.21s' title '%.21s'\n", d, DMaps[d].map + 1, (int)DMaps[d].level, (int)DMaps[d].xoff,
+                    DMaps[d].type & dmfTYPE, DMaps[d].cont, DMaps[d].name, DMaps[d].title);
+    for(int i = 0; i < MAXITEMS; ++i)
+        if(item_string[i] && item_string[i][0])
+            fprintf(f, "item %d fam %ld init %d '%s'\n", i, q30_item_family(i), (int)zinit.items[i], item_string[i]);
+    static const int kinds[] = { 3, 58, 181, 178, 167, 179, 184, 175, 174, 42, 20, 183, 165 };
+    static const char *kname[] = { "water", "shallow", "ice", "slope", "sign", "cutscene", "cuteffect", "prompt", "switchhook", "hookonly", "ladhook", "crumble", "stepsfx" };
+    for(size_t n = 0; n < TheMaps.size(); ++n)
+    {
+        const mapscr &m = TheMaps[n];
+        if(!(m.valid & mVALID))
+            continue;
+        std::string line;
+        char b[200];
+        for(int i = 0; i < m.ffc_count(); ++i)
+            if(m.ffscript[i])
+                line += " ffc:" + q255_script_name(q30_names_ffc, m.ffscript[i]);
+        int ss = 0;
+        long sd[8];
+        if(zasm30_screen_script_info((int)n, &ss, sd) && ss)
+            line += " screen:" + q255_script_name(q30_names_screen, ss);
+        std::map<int, int> en;
+        for(int i = 0; i < 10; ++i)
+            if(m.enemy[i])
+                ++en[m.enemy[i]];
+        for(std::map<int, int>::const_iterator it = en.begin(); it != en.end(); ++it)
+        {
+            const Q30ScriptRef *r = q30_guy_script(it->first);
+            sprintf(b, " en:%d'%.20s'x%d", it->first, guy_string[it->first], it->second);
+            line += b;
+            if(r && r->script)
+                line += "[npc:" + q255_script_name(q30_names_npc, r->script) + "]";
+        }
+        int cnt[sizeof(kinds) / sizeof(kinds[0])] = { 0 };
+        for(size_t p = 0; p < m.data.size(); ++p)
+        {
+            const int t = q30_combo_type(m.data[p]);
+            for(size_t k = 0; k < sizeof(kinds) / sizeof(kinds[0]); ++k)
+                cnt[k] += t == kinds[k];
+        }
+        for(size_t k = 0; k < sizeof(kinds) / sizeof(kinds[0]); ++k)
+            if(cnt[k])
+            {
+                sprintf(b, " %s:%d", kname[k], cnt[k]);
+                line += b;
+            }
+        static const int flags[] = { mfBOMB, mfSBOMB, mfBCANDLE, mfRCANDLE, mfHOOKSHOT, mfDIVE_ITEM, mfRAFT, mfWHISTLE, mfHAMMER, mfARROW };
+        static const char *fname[] = { "f_bomb", "f_sbomb", "f_bcandle", "f_rcandle", "f_hook", "f_dive", "f_raft", "f_whistle", "f_hammer", "f_arrow" };
+        for(size_t k = 0; k < sizeof(flags) / sizeof(flags[0]); ++k)
+        {
+            int c = 0;
+            for(size_t p = 0; p < m.data.size() && p < m.sflag.size(); ++p)
+                c += m.sflag[p] == flags[k] || combobuf[m.data[p]].flag == flags[k];
+            if(c)
+            {
+                sprintf(b, " %s:%d", fname[k], c);
+                line += b;
+            }
+        }
+        if(m.room)
+        {
+            sprintf(b, " room:%d guy:%d", m.room, m.guy);
+            line += b;
+        }
+        if(m.hasitem)
+        {
+            sprintf(b, " item:%d", mapscr_item(&m));
+            line += b;
+        }
+        if(line.empty())
+            continue;
+        fprintf(f, "scr %d/%02x str %d |%s | dmaps", (int)(n / MAPSCRS) + 1, (int)(n % MAPSCRS), m.str, line.c_str());
+        for(int d = 0, shown = 0; d < MAXDMAPS && shown < 3; ++d)
+        {
+            const int sc = (int)(n % MAPSCRS) - DMaps[d].xoff;
+            if(DMaps[d].map == (int)(n / MAPSCRS) && sc >= 0 && sc < 128 && ((DMaps[d].type & dmfTYPE) == dmOVERW || ((n % MAPSCRS) & 15) - DMaps[d].xoff < 8))
+            {
+                fprintf(f, " %d(%02x)", d, sc);
+                ++shown;
+            }
+        }
+        fprintf(f, "\n");
+    }
+    fclose(f);
+}
+#endif
+
 // ZC_Q255_DUMP="dmap,screen": logs what a screen holds, and any string containing ZC_Q255_DUMP_TEXT.
 void dump_loaded_data()
 {
@@ -624,6 +734,11 @@ void dump_loaded_data()
                     al_trace("findstr: map %d scr %d pos %d combo %d (%s)\n", (int)(n / MAPSCRS), (int)(n % MAPSCRS), (int)p, (int)m.data[p], hits[m.data[p]].c_str());
         }
     }
+#endif
+
+#ifdef ZC_PLAYER_BUILD
+    if(const char *scan = getenv("ZC_Q255_DUMP_SCAN"))
+        q255_dump_scan(scan);
 #endif
 
     const char *chain = getenv("ZC_Q255_DUMP_CHAIN");
