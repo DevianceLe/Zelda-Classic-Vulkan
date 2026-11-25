@@ -3599,8 +3599,13 @@ void titlescreen(int lsave)
         {
             currgame = lsave-1;
             
-            if(!saves[currgame].get_quest())
+            // (a slot past the last one, as -load or the config's load_last can name, goes to the
+            // file select screen as an empty one does: upstream bd630652c)
+            if(currgame >= MAXSAVES || !saves[currgame].get_quest())
             {
+                if(currgame >= MAXSAVES)
+                    currgame = 0;
+
                 select_game();
             }
         }

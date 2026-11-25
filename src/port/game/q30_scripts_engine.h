@@ -664,6 +664,26 @@ void q30_sprite_destroyed(long uid)
     zasm30_live_sprite_released(uid);   // and its other owned objects, its knockback (q30_scripts_live.h)
 }
 
+void zasm30_live_owned_released(long uid);     // q30_scripts_live.h
+
+// An enemy weapon Link's shield turned into his own (link.cpp; upstream's weapon::setIsLWeapon,
+// 635e4b842 / 3d0b658cd): the eweapon script it ran ends, with the objects and arrays it owned
+// (upstream's clear_script_engine_data), and it keeps no script number, which named an eweapon
+// script; the lweapon pass would otherwise start the lweapon script of that number. Its other
+// fields (death effects, Misc[]) stay.
+void q30_weapon_left_ewpn_script(long uid)
+{
+    if(!zasm30_ffscript_version)
+        return;
+
+    zasm30_drop_instance(SCRIPT_EWPN, uid);
+    zasm30_sprite_released(uid);
+    zasm30_live_owned_released(uid);
+    Zasm30SpriteState &st = zasm30_sprite_state(uid);
+    st.script_started = true;   // (nor does the lweapon pass give it its item's script)
+    st.script = 0;
+}
+
 static int zasm30_run(byte type, word script, long key, bool)
 {
     zasm30_run_key = key;

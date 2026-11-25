@@ -3565,6 +3565,45 @@ void LinkClass::check_pound_block(int bx, int by)
     return;
 }
 
+void q30_weapon_left_ewpn_script(long uid);     // q30_scripts_engine.h
+
+// 2.55/3.0: an enemy weapon that becomes Link's (moved from Ewpns to Lwpns after weapon::onhit
+// reflected it) no longer runs its eweapon script: its script number named an eweapon script,
+// and the lweapon pass would run the lweapon script of that number (upstream's
+// weapon::setIsLWeapon, 635e4b842 / 3d0b658cd). moved: the caller moves it next.
+static void q30_reflected_ewpn(weapon *ew, bool moved)
+{
+    if(q30_active() && moved)
+        q30_weapon_left_ewpn_script(ew->getUID());
+}
+
+// The same off Link's shield (EwpnHit). Upstream's weapon::onhit moves every weapon it reflects
+// to Lwpns, those that keep their id too (script weapons, wRefBeam, wRefMagic); 2.53 moves only
+// those whose id changed, which EwpnHit does next. oldid: the id before weapon::onhit, which
+// reflects only with collision on.
+static void q30_shield_reflected(weapon *ew, bool reflect, int oldid)
+{
+    if(!q30_active())
+        return;
+
+    if(ew->id != oldid)
+    {
+        q30_reflected_ewpn(ew, true);
+        return;
+    }
+
+    if(!reflect || !(ew->scriptcoldet & 1) || !(oldid == wRefBeam || oldid == wRefMagic || (oldid >= wScript1 && oldid <= wScript10)))
+        return;
+
+    // (with Lwpns full it can't move, and stays an eweapon with its script: upstream's shield
+    // just blocks it then, dbc0b978e)
+    if(Lwpns.Count() >= Lwpns.getMax() || !Ewpns.remove(ew))
+        return;
+
+    q30_reflected_ewpn(ew, true);
+    Lwpns.add(ew);
+}
+
 int LinkClass::EwpnHit()
 {
     for(int i=0; i<Ewpns.Count(); i++)
@@ -3711,6 +3750,7 @@ int LinkClass::EwpnHit()
             
             int oldid = ew->id;
             ew->onhit(false, reflect ? 2 : 1, dir);
+            q30_shield_reflected(ew, reflect, oldid);
             
             if(ew->id != oldid)                                     // changed type from ewX to wX
             {
@@ -4058,6 +4098,7 @@ killweapon:
                             weapon *ew = ((weapon*)t);
                             int oldid = ew->id;
                             ew->onhit(true, reflect ? 2 : 1, s->dir);
+                            q30_reflected_ewpn(ew, ew->id != oldid || (ew->id>=wScript1 && ew->id<=wScript10));
                             
                             /*if (s->dummy_bool[0])
                             {
@@ -18805,9 +18846,22 @@ bool q30_btn_item0[4] = { false, false, false, false };
 
 void q30_set_button_item(bool x, int wpn)
 {
-    (x ? Xwpn : Ywpn) = wpn;
+    // (as upstream's Hero->ItemX / ItemY, 10fb133b6: neither -1 nor an item is refused; -1
+    // empties the button, which holds 0 then, as A and B do; an item newly put there is enabled)
+    if(wpn < -1 || wpn >= q30_items_end())
+    {
+        al_trace("Tried to write an invalid item ID to Hero->Item%c: %d\n", x ? 'X' : 'Y', wpn);
+        return;
+    }
+
+    const bool changed = (x ? Xwpn : Ywpn) != wpn || (wpn == 0 && !q30_btn_item0[x ? 2 : 3]);
+
+    if(wpn >= 0 && wpn < MAXITEMS && changed)  // (items_off holds 2.53's 256)
+        game->items_off[wpn] = 0;
+
+    (x ? Xwpn : Ywpn) = wpn < 0 ? 0 : wpn;
     q30_btn_item0[x ? 2 : 3] = wpn == 0;
-    (x ? directItemX : directItemY) = wpn & 0xFFF;
+    (x ? directItemX : directItemY) = wpn < 0 ? -1 : wpn;
 
     if(q30_paged_buttons())
     {

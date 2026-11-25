@@ -714,7 +714,7 @@ static void zq_long_alert(const char *title, const std::string &text)
 static void zq_newer_file_done(bool saving, const char *path, bool ok, const std::string &why, const std::string &note)
 {
     char name[256];
-    extract_name((char *)path, name, FILENAMEALL);
+    extract_name((char *)path, name, FILENAMEALL, sizeof(name));
     std::string text = std::string(ok ? (saving ? "Saved " : "Loaded ") : (saving ? "Unable to save " : "Unable to load ")) + name;
     const std::string &more = ok ? note : why;
 
@@ -1017,7 +1017,7 @@ static int zq_newer_import_quest(bool packed)
     if(ret != qe_OK && ret != qe_cancel)
     {
         char buf[300],name[256];
-        extract_name(temppath,name,FILENAMEALL);
+        extract_name(temppath,name,FILENAMEALL,sizeof(name));
         sprintf(buf,"Unable to load %s",name);
         jwin_alert("Error",buf,NULL,NULL,"O&K",NULL,'k',0,lfont);
     }

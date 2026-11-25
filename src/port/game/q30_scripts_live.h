@@ -370,6 +370,8 @@ void zasm30_mark_owned(std::vector<long> &work)
             zasm30_mark(it->first, work);
 }
 
+void zasm30_live_owned_released(long uid);
+
 // A sprite is gone (q30_sprite_destroyed): what it owned is no longer held; before version 25 it
 // goes with it, as do the local arrays of a quest from before version 28.
 void zasm30_live_sprite_released(long uid)
@@ -378,7 +380,13 @@ void zasm30_live_sprite_released(long uid)
     zasm30_ewpn_parent.erase(uid);
     zasm30_live_fields.erase(uid);
     z30d_npc_weapdata_released(uid);
+    zasm30_live_owned_released(uid);
+}
 
+// The objects and arrays a sprite owned, released as above; also when an eweapon becomes Link's
+// and the script that owned them ends (q30_weapon_left_ewpn_script).
+void zasm30_live_owned_released(long uid)
+{
     for(std::map<long, long>::iterator it = zasm30_owned.begin(); it != zasm30_owned.end(); )
     {
         if(it->second != uid)

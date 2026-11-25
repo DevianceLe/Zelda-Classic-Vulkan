@@ -94,30 +94,41 @@ char *time_str_short2(dword time)
 
 void extract_name(char *path,char *name,int type)
 {
+    extract_name(path,name,type,(size_t)-1);
+}
+
+// The same into a buffer of size bytes (upstream 775d765a1: a long file name, which can take many
+// more bytes in UTF-8, overran ZQuest's 256-byte ones).
+void extract_name(char *path,char *name,int type,size_t size)
+{
+    if(size==0)
+        return;
+
     int l=(int)strlen(path);
     int i=l;
-    
+
     while(i>0 && path[i-1]!='/' && path[i-1]!='\\')
         --i;
-        
+
     int n=0;
-    
+    const size_t lim=size-1;
+
     if(type==FILENAME8__)
     {
-        while(i<l && n<8 && path[i]!='.')
+        while(i<l && n<8 && path[i]!='.' && (size_t)n<lim)
             name[n++]=path[i++];
     }
     else if(type==FILENAME8_3)
     {
-        while(i<l && n<12)
+        while(i<l && n<12 && (size_t)n<lim)
             name[n++]=path[i++];
     }
     else
     {
-        while(i<l)
+        while(i<l && (size_t)n<lim)
             name[n++]=path[i++];
     }
-    
+
     name[n]=0;
 }
 

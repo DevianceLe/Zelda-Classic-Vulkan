@@ -11075,6 +11075,14 @@ int eManhandla::takehit(weapon *w)
 
 void eManhandla::draw(BITMAP *dest)
 {
+    // 2.55/3.0 (upstream 35452893f): sprite::real_x nudges a sprite facing up-right or down-left
+    // one pixel to the right, and the arms never face those ways, so the body is drawn as if
+    // facing up to stay centred between them. 2.53 quests keep the nudge.
+    const int real_dir = dir;
+
+    if(q30_active())
+        dir = up;
+
     tile=o_tile;
     int fdiv = frate/4;
     int efrate = fdiv == 0 ? 0 : clk/fdiv;
@@ -11086,7 +11094,7 @@ void eManhandla::draw(BITMAP *dest)
     {
         if(!dmisc2)
         {
-            switch(dir-8)                                         //directions get screwed up after 8.  *shrug*
+            switch(real_dir-8)                                    //directions get screwed up after 8.  *shrug*
             {
             case up:                                            //u
                 flip=0;
@@ -11134,7 +11142,7 @@ void eManhandla::draw(BITMAP *dest)
         else
         {
         
-            switch(dir-8)                                         //directions get screwed up after 8.  *shrug*
+            switch(real_dir-8)                                    //directions get screwed up after 8.  *shrug*
             {
             case up:                                            //u
                 flip=0;
@@ -11205,6 +11213,8 @@ void eManhandla::draw(BITMAP *dest)
             yofs-=8;
         }
     }
+
+    dir = real_dir;
 }
 
 esManhandla::esManhandla(fix X,fix Y,int Id,int Clk) : enemy(X,Y,Id,Clk)

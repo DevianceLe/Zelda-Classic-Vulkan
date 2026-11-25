@@ -44,9 +44,9 @@ int filetype(const char *path)
     if(path==NULL || strlen(get_filename(path))==0)
         return 0;
         
-    char ext[40];
-    strcpy(ext,get_extension(path));
-    strupr(ext);
+    // (compared where it is: a copy into a small buffer overran with a long extension, upstream
+    // 775d765a1; every test below ignores case)
+    const char *ext = get_extension(path);
     
     for(int i=0; i<ssfmtMAX; ++i)
     {
