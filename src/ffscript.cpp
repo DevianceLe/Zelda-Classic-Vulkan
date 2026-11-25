@@ -2666,11 +2666,53 @@ int ornextflag(bool flag)
     return f;
 }
 
+// 2.55/3.0 (upstream's clear_ornextflag / ornextflag): the bits in the order written. 2.53's one
+// expression below leaves the order to the compiler (MSVC builds it from the right: a sideview room
+// read as bit 0), so a newer quest's Screen->Flags[] would see the bits moved.
+static long q30_screenflags(mapscr *m, int flagset, bool enemy)
+{
+    long f = 0;
+    int n = 0;
+    const auto add = [&](bool b) { if(b) f |= 1L << n; ++n; };
+
+    if(enemy)
+    {
+        switch(flagset)
+        {
+        case 0: f = m->enemyflags & 0x1F; break;
+        case 1: add(m->enemyflags&32); add(m->enemyflags&64); add(m->flags3&4); add(m->enemyflags&128); add((m->flags2>>4)&4); break;
+        case 2: add(m->flags3&128); add(m->flags&2); add((m->flags2>>4)&8); add(m->flags4&16); add(m->flags9&0x40); break;   // fENEMY_WAVES
+        }
+        return f * 10000;
+    }
+
+    switch(flagset)
+    {
+    case 0: add(m->flags6&1); add(m->flags6&2); add(m->flags7&8); break;   // room type
+    case 1: add(m->flags3&8); add(m->flags7&16); add(m->flags3&16); add(m->flags3&64); add(m->flags7&2); add(m->flags7&1);
+            add(m->flags&4); add(m->flags9&0x08); add(m->flags9&0x10); break;  // view (+ fDARK_DITHER, fDARK_TRANS)
+    case 2: add(m->flags&1); add(m->flags5&16); add(m->flags6&4); add(m->flags6&32); break;   // secrets
+    case 3: add(m->flags5&4); add(m->flags5&8); add(m->flags&64); add(m->flags8&64); add(m->flags3&32);
+            add(m->flags9&0x20); add(m->flags10&0x01); add(m->flags10&0x02); break;  // warp (+ no mirror, maze flags)
+    case 4: add(m->flags3&1); add(m->flags7&4); add(m->flags8&0x40); add(m->flags8&0x80); add(m->flags9&0x01); add(m->flags9&0x02);
+            add(m->flags9&0x04); break;    // item
+    case 5: add((m->flags2>>4)&2); add(m->flags3&2); add(m->flags5&2); add(m->flags6&64); break;    // combo
+    case 6: add(m->flags4&64); add(m->flags4&128); add(m->flags6&8); add(m->flags6&16); break;     // save
+    case 7: add(m->flags6&128); add(m->flags5&128); break;    // FFC
+    case 8: add(m->flags&16); add(m->flags7&64); add(m->flags7&128); break;  // whistle
+    case 9: add(m->flags&32); add(m->flags5&64); f |= (long)m->flags8<<2; break;   // misc
+    }
+    return f * 10000;
+}
+
 long get_screenflags(mapscr *m, int flagset)
 {
     int f=0;
     flagpos = 0;
     
+    if(q30_active())
+        return q30_screenflags(m, flagset, false);
+
     switch(flagset)
     {
     case 0: // Room Type
@@ -2728,6 +2770,9 @@ long get_screeneflags(mapscr *m, int flagset)
     int f=0;
     flagpos = 0;
     
+    if(q30_active())
+        return q30_screenflags(m, flagset, true);
+
     switch(flagset)
     {
     case 0:

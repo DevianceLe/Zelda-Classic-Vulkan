@@ -2348,6 +2348,36 @@ void q30_set_screen_extras(int index, byte lens_show, byte lens_hide, byte hidel
     if(which & 4) { e.gravity = gravity; e.terminal_v = terminal_v; }
 }
 
+// upstream's sprite::get_gravity / get_terminalv for a 2.55/3.0 quest: the screen's own gravity (flags10
+// fSCREEN_GRAVITY) or else the DMap's (dmfCUSTOM_GRAVITY), zfix values (x10000); false when neither sets one
+bool q30_custom_gravity(int index, bool screen_grav, int dmap, long &gravity, long &terminal_v)
+{
+    gravity = terminal_v = 0;
+    if(screen_grav)
+    {
+        std::map<int, Z30dScreenExtra>::const_iterator it = zasm30_screen_extras.find(index);
+
+        if(it != zasm30_screen_extras.end())
+        {
+            gravity = it->second.gravity;
+            terminal_v = it->second.terminal_v;
+        }
+        return true;
+    }
+    if(unsigned(dmap) < MAXDMAPS && (DMaps[dmap].flags & 0x800000))      // dmfCUSTOM_GRAVITY
+    {
+        std::map<int, std::pair<long, long> >::const_iterator it = zasm30_dmap_gravity.find(dmap);
+
+        if(it != zasm30_dmap_gravity.end())
+        {
+            gravity = it->second.first;
+            terminal_v = it->second.second;
+        }
+        return true;
+    }
+    return false;
+}
+
 // The screen's hidden combo layers and hidden script draw layers (bit n = layer n), for drawing:
 // upstream's do_layer / putscr leave a hidden layer's combos out, do_primitives a hidden layer's
 // script drawing. 0 for a screen with none (every 2.53 quest's).

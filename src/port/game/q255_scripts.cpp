@@ -256,8 +256,10 @@ static int skip_meta(Q255Section &s, word meta)
     return s.failed ? qe_invalid : 0;
 }
 
-// A jump outside the script made the engine read past its end; qst.cpp points
-// such jumps at the terminator, so the script simply ends.
+// A jump outside the script (upstream 3.0's zasm_find_invalid_jump: GOTO, GOTOTRUE, GOTOFALSE,
+// GOTOLESS, GOTOMORE, GOTOCMP, CALLFUNC, LOOP to a pc outside the commands and their terminator)
+// disables the whole script, as upstream's read_old_ffscript does ("the script would have ended at
+// the jump anyway, with an error"): it never runs, like an empty slot (the player only).
 static void fix_script_jumps(ffscript *script, long used, int index)
 {
     long len = used + 1;
@@ -272,11 +274,18 @@ static void fix_script_jumps(ffscript *script, long used, int index)
         case GOTOLESS:
         case GOTOMORE:
         case LOOP:
+        case 1105:  // CALLFUNC
+        case 1108:  // GOTOCMP
             if(script[j].arg1 < 0 || script[j].arg1 >= len)
             {
-                al_trace("2.55 script %d: jump at command %ld targets %ld, outside the script (length %ld); it now ends the script\n",
+#ifdef ZC_PLAYER_BUILD
+                al_trace("2.55 script %d: jump at command %ld targets %ld, outside the script (length %ld); the script is disabled\n",
                          index, j, script[j].arg1, len);
-                script[j].arg1 = len - 1;
+                script[0].command = 0xFFFF;
+                return;
+#else
+                script[j].arg1 = len - 1;   // (ZQuest keeps the script; its writers save what was read)
+#endif
             }
             break;
 

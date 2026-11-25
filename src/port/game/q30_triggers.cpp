@@ -8627,14 +8627,34 @@ void q30_revert_gravity()
     g_grav_set = false;
 }
 
+bool q30_custom_gravity(int index, bool screen_grav, int dmap, long &gravity, long &terminal_v);  // q30_scripts_data.h
+
+// upstream's sprite::get_gravity / get_terminalv (in 1/100 px a frame): a trigger's, else the screen's or
+// the DMap's own gravity, else the init data's
 int q30_link_gravity()
 {
-    return (g_grav_set && q30_active()) ? g_grav : (int)zinit.gravity;
+    long g, t;
+
+    if(!q30_active())
+        return (int)zinit.gravity;
+    if(g_grav_set)
+        return g_grav;
+    if(q30_custom_gravity(currmap * MAPSCRS + currscr, (tmpscr->flags10 & 0x03) != 0, currdmap, g, t))
+        return (int)(g / 100);
+    return (int)zinit.gravity;
 }
 
 int q30_link_terminalv()
 {
-    return (g_grav_set && q30_active()) ? g_termv : (int)zinit.terminalv;
+    long g, t;
+
+    if(!q30_active())
+        return (int)zinit.terminalv;
+    if(g_grav_set)
+        return g_termv;
+    if(q30_custom_gravity(currmap * MAPSCRS + currscr, (tmpscr->flags10 & 0x03) != 0, currdmap, g, t))
+        return (int)(t / 100);
+    return (int)zinit.terminalv;
 }
 
 static void reset_screen_effects()
