@@ -399,7 +399,25 @@ static void z30_add_light(BITMAP *mask, int shape, int cx, int cy, int glow, int
         const int trans_rad = glow + z30_scale_perc(glow, trans_perc);
         const int max_rad = zc_max(glow, trans_rad);
 
-        z30_light_shape(dith, shape, cx, cy, dith_rad, dir, 1);
+        if(shape == 0)
+        {
+            // upstream's dithercircfill: its own disk, x*x + y*y <= r*r + r/2 (not circlefill's)
+            const int rsq = dith_rad * dith_rad + dith_rad / 2;
+            const int y0 = zc_max(cy - dith_rad, 0), y1 = zc_min(cy + dith_rad, dith->h - 1);
+            const int x0 = zc_max(cx - dith_rad, 0), x1 = zc_min(cx + dith_rad, dith->w - 1);
+
+            for(int y = y0; y <= y1; ++y)
+            {
+                byte *line = (byte *)dith->line[y];
+
+                for(int x = x0; x <= x1; ++x)
+                    if((x - cx) * (x - cx) + (y - cy) * (y - cy) <= rsq)
+                        line[x] = 1;
+            }
+        }
+        else
+            z30_light_shape(dith, shape, cx, cy, dith_rad, dir, 1);
+
         z30_light_shape(cut, shape, cx, cy, max_rad, dir, 2);
         z30_light_shape(cut, shape, cx, cy, glow, dir, 3);
     }
@@ -435,6 +453,24 @@ void q30_add_light(BITMAP *mask, int shape, int cx, int cy, int rad, int dir, bo
 
 enum { Z30_FDARK_DITHER = 0x08, Z30_FDARK_TRANS = 0x10, Z30_QR_NEWDARK_TRANS_STACKING = 440 };
 
+extern dword q255_compat_rule_version;
+extern int q255_header_version[3];
+
+// qr_NEWDARK_TRANS_STACKING as upstream's readrules leaves it: also on for 3.0 quests saved
+// before compat rule version 66 and for 2.55 quests older than 2.55.9 (core/qst_rules.cpp).
+static bool z30_dark_trans_stacking()
+{
+    if(q30_quest_rule(Z30_QR_NEWDARK_TRANS_STACKING))
+        return true;
+
+    const int *v = q255_header_version;
+
+    if(v[0] >= 3)
+        return q255_compat_rule_version < 66;
+
+    return v[0] < 2 || (v[0] == 2 && (v[1] < 55 || (v[1] == 55 && v[2] < 9)));
+}
+
 // A screen flagged "dark dither" (upstream's fDARK_DITHER) is only dark where the quest's dither
 // pattern passes: the part of the mask from (x0, y0) to (x1, y1) (exclusive) that screen covers.
 void q30_darkness_dither(BITMAP *mask, int x0, int y0, int x1, int y1)
@@ -469,7 +505,7 @@ void q30_darkness_draw(BITMAP *dest, BITMAP *mask, int yofs, const Q30DarkArea *
     if(dark == 0 || count <= 0)
         return;     // upstream's darkness bitmaps are masked: colour 0 never draws
 
-    const bool stack = q30_quest_rule(Z30_QR_NEWDARK_TRANS_STACKING);
+    const bool stack = z30_dark_trans_stacking();
     const int x0 = zc_max(0, dest->cl), x1 = zc_min(mask->w, dest->cr);
 
     for(int y = 0; y < mask->h; ++y)
