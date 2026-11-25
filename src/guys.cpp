@@ -46,6 +46,8 @@ extern byte emulation_patches[emuLAST];
 extern word quest_header_zelda_version;
 extern word quest_header_zelda_build;
 extern int q255_header_build;           // q255_basic.cpp: a 2.55/3.0 quest's header build
+extern int q255_region_mapping;         // q255_init.cpp: the init data's region mapping (0 full, 1 physical)
+void q30_mark_visited(int sc);          // zc_subscr.cpp: upstream's mark_visited (2.55/3.0 only)
 
 bool q30_enemy_death_event(long uid);   // newer quests' ENEMY_DEATH generic script event (below)
 void q30_enemy_killed(long uid);         // an enemy that held a screen state died (q30_triggers.cpp)
@@ -13246,8 +13248,19 @@ void loadguys()
         // (2.55/3.0: upstream's mark_visited marks every screen unless qr_ONLY_MARK_SCREENS_VISITED_IF_MAP_VIEWABLE)
         if((DMaps[currdmap].flags&dmfVIEWMAP) || (q30_active() && !q30_compat_rule(475)))
             game->maps[(currmap*MAPSCRSNORMAL)+currscr] |= mVISITED;          // mark as visited
+
+        // 2.55/3.0, a scrolling region under REGION_MAPPING_FULL: upstream's loadguys runs for each
+        // of its screens as it loads, and each is marked visited and charted
+        if(q30_active() && q255_region_mapping == 0 && q30_region_on())
+        {
+            const int org = q30_region_origin();
+
+            for(int sy = 0; sy < q30_region_screens_high(); ++sy)
+                for(int sx = 0; sx < q30_region_screens_wide(); ++sx)
+                    q30_mark_visited(org + sx + sy * 16);
+        }
     }
-    
+
     // 2.55/3.0 screens (MAP v27+, without qr_OLD_GUY_HANDLING) say themselves whether the Guy
     // has fires and whether it appears outside caves, and may give it another look (upstream's
     // loadguys). False for 2.53 quests, which keep the checks below.

@@ -32,6 +32,7 @@ extern LinkClass   Link;
 extern word quest_header_zelda_version;
 extern int q255_header_build;       // q255_basic.cpp
 bool q30_quest_rule(int id);        // q30_triggers.cpp
+bool q30_compat_rule(int id);       // q30_triggers.cpp
 byte q30_chart_get(int di);         // q30_triggers.cpp: 3.0's map chart, dmap << 7 | screen
 void q30_chart_set(int di, byte v);
 extern int directItem;
@@ -771,6 +772,27 @@ void markBmap(int dir, int sc)
 void markBmap(int dir)
 {
     markBmap(dir, get_currscr());
+}
+
+// 2.55/3.0 only: upstream's markBmap(dir, screen, dmap), as loadscr charts the screen it loaded
+// with the DMap it loads into (a scrolling warp's, before currdmap changes)
+void q30_markBmap_dmap(int dir, int sc, int dmap)
+{
+    if(q30_active())
+        q30_markBmap(dir, sc, dmap);
+}
+
+// 2.55/3.0 only: upstream's mark_visited (a scrolling region's screens: all of them when the region
+// loads, or each one Link steps on, by the init data's region mapping)
+void q30_mark_visited(int sc)
+{
+    if(!q30_active() || sc < 0 || sc >= 0x80)
+        return;
+
+    if(!q30_compat_rule(475) || (DMaps[currdmap].flags&dmfVIEWMAP))   // qr_ONLY_MARK_SCREENS_VISITED_IF_MAP_VIEWABLE
+        game->maps[(currmap*MAPSCRSNORMAL)+sc] |= mVISITED;
+
+    q30_markBmap(-1, sc, -1);
 }
 
 /*** end of subscr.cc ***/

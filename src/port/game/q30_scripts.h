@@ -144,7 +144,7 @@ struct Q30SubTy
     int btn, costind, infchar, mindig, maxdig, number, frame_cset, piece_cset, litems;
     long infitm, iclass, iid, frame_tile, piece_tile;
     int ctrs[3];                    // a counter's counters, a misc gauge's or percent bar's counter
-    enum { C_TXT2, C_SHD2, C_BG2, C_PLR, C_CMPBLNK, C_CMPOFF, C_ROOM, C_VIS, C_UNVIS, C_COUNT };
+    enum { C_TXT2, C_SHD2, C_BG2, C_PLR, C_CMPBLNK, C_CMPOFF, C_ROOM, C_VIS, C_UNVIS, C_RBG, C_COUNT };
     byte ctype[C_COUNT];
     short color[C_COUNT];
 };

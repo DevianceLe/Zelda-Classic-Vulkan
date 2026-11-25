@@ -2687,6 +2687,206 @@ void drawdmap(BITMAP *dest, miscQdata *misc, int x, int y, bool showmap, int sho
     }
 }
 
+#ifdef ZC_PLAYER_BUILD
+// ---- 2.55/3.0 quests: upstream 3.0's minimap (SW_MMap::draw, drawgrid) ----------------------
+bool q30_sub_minimap_info(const subscreen_group *g, int i, dword *flags, byte *ctype, short *color);   // q30_scripts_subscr.h
+byte q30_chart_get(int di);                 // q30_triggers.cpp
+bool q30_quest_rule(int id);
+bool q30_compat_rule(int id);
+extern int q255_header_build;               // q255_basic.cpp
+extern int q255_header_version[3];
+extern std::vector<std::vector<byte> > q255_map_region_ids;    // q255_maps.cpp
+int subscreen_color(miscQdata *misc, int c1, int c2);           // below
+
+static int q30_mmap_region(int map, int scr)
+{
+    if(map < 0 || map >= (int)q255_map_region_ids.size() || scr < 0 || scr >= 128 || q255_map_region_ids[map].size() < 64)
+        return 0;
+
+    const byte b = q255_map_region_ids[map][(scr / 16) * 8 + (scr % 16) / 2];
+    return (scr & 1) ? (b & 0xF) : ((b >> 4) & 0xF);
+}
+
+// a room colour as upstream's SubscrColorInfo::get_color: -1 for none (transparent, "default")
+static int q30_mmap_color(miscQdata *misc, byte type, short color)
+{
+    if(type == ssctSYSTEM && color == -1)
+        return -1;
+
+    if(type == ssctMISC)
+    {
+        if(color == ssctMSGTEXT)
+            color = ssctTEXT;
+        else if(color < 0 || color > ssctMSGTEXT)
+            return -1;
+
+        const int c = subscreen_color(misc, type, color);
+        return c == 255 ? -1 : c;
+    }
+
+    return subscreen_color(misc, type, color);
+}
+
+// upstream's drawgrid: each room of the DMap's grid, a scrolling region's rooms joined; a room is
+// visited by its chart (qr_MINIMAP_VISITED_CHARTED) or by the map's visited mark
+static void q30_drawgrid(BITMAP *dest, int x, int y, int unvis_color, int bg_color, int vis_color)
+{
+    if(unvis_color == 255) unvis_color = -1;
+    if(bg_color == 255) bg_color = -1;
+    if(vis_color == 255) vis_color = -1;
+
+    if(unvis_color < 0 && bg_color < 0 && vis_color < 0)
+        return;
+
+    const int dmid = get_currdmap();
+    const dmap &d = DMaps[dmid];
+    const bool charted = q30_compat_rule(589);  // qr_MINIMAP_VISITED_CHARTED
+
+    for(int y2 = 0; y2 <= 7; ++y2)
+    {
+        const byte dl = d.grid[y2];
+
+        for(int x2 = 0; x2 <= 7; ++x2)
+        {
+            const int scrx = x2 + d.xoff;
+            const bool oob = scrx < 0 || scrx > 15;
+            const int scrid = scrx + y2 * 16;
+            int x_1 = x2 * 8, x_2 = x_1 + 6;
+            int y_1 = y2 * 4, y_2 = y_1 + 2;
+            bool left = false, right = false;
+            const bool map_marked = (dl & (0x80 >> x2)) != 0;
+            const int rid = oob ? 0 : q30_mmap_region(d.map, scrid);
+
+            if(map_marked && rid != 0)
+            {
+                const bool bottom = scrid < 0x70 && rid == q30_mmap_region(d.map, scrid + 16) && (d.grid[y2 + 1] & (0x80 >> x2));
+                left = x2 > 0 && (scrid & 0xF) && rid == q30_mmap_region(d.map, scrid - 1) && (dl & (0x80 >> (x2 - 1)));
+                right = x2 < 7 && (scrid & 0xF) < 0xF && rid == q30_mmap_region(d.map, scrid + 1) && (dl & (0x80 >> (x2 + 1)));
+
+                if(bottom)
+                    y_2 += 1;
+                if(left)
+                    x_1 -= 1;
+                if(right)
+                    x_2 += 1;
+            }
+
+            bool visited = false;
+
+            if(!oob)
+                visited = charted ? q30_chart_get((dmid << 7) | scrid) != 0
+                          : (game->maps[(currmap * MAPSCRSNORMAL) + scrid] & mVISITED) != 0;
+
+            const int fg_color = (visited && vis_color > -1) ? vis_color : unvis_color;
+
+            if(bg_color > -1)
+            {
+                rectfill(dest, x_1 + x, y_1 + y, x_2 + x, y_2 + y, bg_color);
+                if(!left)
+                    x_1 += 2;
+                if(!right)
+                    x_2 -= 2;
+            }
+
+            if(map_marked && fg_color > -1)
+                rectfill(dest, x_1 + x, y_1 + y, x_2 + x, y_2 + y, fg_color);
+        }
+    }
+}
+
+// The map part of a 2.55/3.0 minimap widget (object i of css); the compass and Link's dot as before.
+static void q30_draw_minimap_rooms(BITMAP *dest, miscQdata *misc, const subscreen_group *css, int i, int x, int y)
+{
+    dword flags = 0;
+    byte ct[3] = { ssctSYSTEM, ssctMISC, ssctMISC };
+    short cl[3] = { -1, ssctMSGTEXT + 2, ssctMSGTEXT + 2 };
+    q30_sub_minimap_info(css, i, &flags, ct, cl);
+
+    enum { VISITED_REQ_MAP = 0x8, DRAW_OVER_MAPTILE = 0x10, ONLY_ROOMS = 0x20 };
+    const dmap &d = DMaps[get_currdmap()];
+    const zcolors &c = misc->colors;
+    const int type = d.type & dmfTYPE;
+    const bool has_map = has_item(itype_map, get_dlevel());
+    const int *v = q255_header_version;
+    // upstream's readrules: qr_BROKEN_OVERWORLD_MINIMAP before 2.55 build 53, qr_BS_OW_IGNORES_MAP_ITEM before 2.55.15
+    const bool broken_ow = q30_quest_rule(208) || quest_header_zelda_version < 0x255 || (quest_header_zelda_version == 0x255 && q255_header_build < 53);
+    const bool bs_ignores_map = q30_quest_rule(583) || !(v[0] > 2 || (v[0] == 2 && (v[1] > 55 || (v[1] == 55 && v[2] >= 15))));
+    const bool unvis_default = ct[1] == ssctMISC && cl[1] == ssctMSGTEXT + 2;
+    const bool bg_default = ct[2] == ssctMISC && cl[2] == ssctMSGTEXT + 2;
+    int vis_color = -1, unvis_color = -1, bg_color = -1;
+
+    if(has_map || !(flags & VISITED_REQ_MAP))
+        vis_color = q30_mmap_color(misc, ct[0], cl[0]);
+
+    int maptile = 0, mapcset = 0;
+
+    if(!(flags & ONLY_ROOMS))
+    {
+        switch(type)
+        {
+        case dmOVERW:
+        case dmBSOVERW:
+        {
+            const bool second = !broken_ow && has_map;
+            maptile = second ? d.minimap_2_tile : d.minimap_1_tile;
+            mapcset = second ? d.minimap_2_cset : d.minimap_1_cset;
+
+            if(maptile)
+                draw_block(dest, x, y, maptile, mapcset, 5, 3);
+            else if(c.overworld_map_tile)
+                draw_block(dest, x, y, c.overworld_map_tile, c.overworld_map_cset, 5, 3);
+            else if(c.overw_bg != 255)
+                rectfill(dest, x + 8, y + 8, x + 71, y + 39, c.overw_bg);
+            break;
+        }
+
+        case dmDNGN:
+        case dmCAVE:
+            maptile = has_map ? d.minimap_2_tile : d.minimap_1_tile;
+            mapcset = has_map ? d.minimap_2_cset : d.minimap_1_cset;
+
+            if(maptile)
+                draw_block(dest, x, y, maptile, mapcset, 5, 3);
+            else if(c.dungeon_map_tile)
+                draw_block(dest, x, y, c.dungeon_map_tile, c.dungeon_map_cset, 5, 3);
+            else if(c.dngn_bg != 255)
+                rectfill(dest, x + 8, y + 8, x + 71, y + 39, c.dngn_bg);
+            break;
+        }
+    }
+
+    if(type != dmOVERW && (!maptile || (flags & DRAW_OVER_MAPTILE)))
+    {
+        bool unvis_needs_map = true;
+
+        switch(type)
+        {
+        case dmBSOVERW:
+            if(bs_ignores_map || has_map)
+            {
+                unvis_needs_map = false;
+                unvis_color = c.bs_goal;
+            }
+            bg_color = c.bs_dk;
+            break;
+
+        case dmDNGN:
+        case dmCAVE:
+            if(has_map)
+                unvis_color = (d.flags & dmfMINIMAPCOLORFIX) ? c.cave_fg : c.dngn_fg;
+            break;
+        }
+
+        if(!unvis_default && (has_map || !unvis_needs_map))
+            unvis_color = q30_mmap_color(misc, ct[1], cl[1]);
+        if(!bg_default)
+            bg_color = q30_mmap_color(misc, ct[2], cl[2]);
+
+        q30_drawgrid(dest, x + 8, y + 8, unvis_color, bg_color, vis_color);
+    }
+}
+#endif
+
 
 
 void lifemeter(BITMAP *dest,int x,int y,int tile,bool bs_style)
@@ -4103,8 +4303,16 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
             
             case ssoMINIMAP:
             {
+#ifdef ZC_PLAYER_BUILD
+                // 2.55/3.0: upstream 3.0's rooms (visited, unvisited and background colours)
+                const bool q30_rooms = q30_sub_newer() && css->objects[i].d1 != 0;
+                if(q30_rooms)
+                    q30_draw_minimap_rooms(dest, misc, css, i, x, y);
+#else
+                const bool q30_rooms = false;
+#endif
                 //drawdmap(dest, misc, x, y, showmap,                 showlink,           showcompass,        linkcolor,                                                                 lccolor,                                                                   dccolor)
-                drawdmap(dest, misc, x, y, css->objects[i].d1 != 0, css->objects[i].d2 && !(TheMaps[(DMaps[get_currdmap()].map*MAPSCRS)+get_homescr()].flags7&fNOLINKMARK),
+                drawdmap(dest, misc, x, y, css->objects[i].d1 != 0 && !q30_rooms, css->objects[i].d2 && !(TheMaps[(DMaps[get_currdmap()].map*MAPSCRS)+get_homescr()].flags7&fNOLINKMARK),
                          css->objects[i].d3 && !(DMaps[get_currdmap()].flags&dmfNOCOMPASS), subscreen_color(misc, css->objects[i].colortype1, css->objects[i].color1), subscreen_color(misc, css->objects[i].colortype2, css->objects[i].color2), subscreen_color(misc, css->objects[i].colortype3, css->objects[i].color3));
             }
             break;

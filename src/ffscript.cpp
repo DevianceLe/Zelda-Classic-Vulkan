@@ -5584,7 +5584,10 @@ else \
         break;
         
     case LIT:
-        ret= darkroom ? 0 : 10000;
+        if(q30_active())    // 2.55/3.0: upstream's get_lights (q30_triggers.cpp)
+            ret = q30_get_lights() ? 10000 : 0;
+        else
+            ret= darkroom ? 0 : 10000;
         break;
         
     case WAVY:
@@ -7822,6 +7825,11 @@ case COMBODDM:
         break;
         
     case LIT:
+        if(q30_active())    // 2.55/3.0: upstream's set_lights (q30_triggers.cpp)
+        {
+            q30_set_lights(value != 0);
+            break;
+        }
         naturaldark = !value;
         lighting(false, false);
         break;

@@ -321,6 +321,11 @@ void fade(int level,bool blackall,bool fromblack)
 // 2.55/3.0 quests set it (q30_lighting with stay), so 2.53 quests never see it.
 static bool q30_stay_lit = false;
 
+bool q30_stays_lit()    // (Screen->Lit's get_lights, q30_triggers.cpp)
+{
+    return q30_stay_lit;
+}
+
 // 2.55/3.0 (upstream's lighting): under qr_NEW_DARKROOM (237) a dark screen keeps its palette
 // and the darkness is drawn over it (q30_draw_darkness), so no fade runs (q30_new_darkroom_hook
 // says so). The fade took 16 frames: Link stood still that long whenever a warp or a game start

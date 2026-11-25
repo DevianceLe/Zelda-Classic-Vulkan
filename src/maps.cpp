@@ -38,6 +38,7 @@
 #include "mem_debug.h"
 #include "port/game/q30_triggers.h"
 #include "port/game/q30_regions.h"
+void q30_markBmap_dmap(int dir, int sc, int dmap);  // zc_subscr.cpp: 2.55/3.0 only
 bool q30_msg_blit(BITMAP *dest, int dy, int h);    // q30_msg.cpp: 2.55/3.0 strings, translucent ones too
 bool q30_msg_blit_screen(BITMAP *dest, int dy, int h, int stage);  // ... at their draw layer
 int q30_screen_hidden_layers(int index, bool script);   // q30_scripts_data.h: a 2.55/3.0 screen's hidden layers
@@ -4697,6 +4698,9 @@ void loadscr(int tmp,int destdmap, int scr,int ldir,bool overlay=false)
         q30_trig_screen_load();
         q30_region_screen_loaded(destdmap); // 3.0 scrolling regions: which one this screen is in
         q30_screen_change_events(true); // 2.55+ generic scripts: CHANGE_SCREEN
+        // 2.55/3.0 (upstream's loadscr): the screen is charted as it loads, with the DMap it loads
+        // into (2.53 charts it after a scroll)
+        q30_markBmap_dmap(-1, scr, destdmap);
     }
 }
 

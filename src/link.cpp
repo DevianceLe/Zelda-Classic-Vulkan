@@ -13108,6 +13108,8 @@ void LinkClass::checktouchblk()
 }
 
 extern int q255_header_version[3];      // q255_basic.cpp: a 2.55/3.0 quest's header version
+extern int q255_region_mapping;         // q255_init.cpp: the init data's region mapping (0 full, 1 physical)
+void q30_mark_visited(int sc);          // zc_subscr.cpp: upstream's mark_visited (2.55/3.0 only)
 
 // A position on the screen next to Link's, toward cdir, whose coordinate along cdir is already
 // on that screen: a 3.0 quest keeps the other coordinate on the screen too (upstream ad25219,
@@ -13561,6 +13563,7 @@ void LinkClass::checkspecial2(int *ls)
     int flag3=0;
     int type=0;
     bool water=false;
+    int q30_water_cid = 0;  // (2.55/3.0: the water combo, upstream's onWater)
     int index = 0;
     
     //bool gotpit=false;
@@ -13825,7 +13828,7 @@ void LinkClass::checkspecial2(int *ls)
         y1 = ty+9;
         y2 = ty+15;
 
-        if(q30_can_side_swim())     // (upstream's onWater: the bottom edge a pixel in, like the top)
+        if(q30_active())    // (2.55/3.0, upstream's onWater: the bottom edge a pixel in, like the top)
             y2 = ty+14;
         types[0] = COMBOTYPE(x1,y1);
         
@@ -13851,10 +13854,24 @@ void LinkClass::checkspecial2(int *ls)
                 combo_class_buf[types[2]].water && combo_class_buf[types[3]].water)
             water = true;
 
-        // 2.55/3.0 sideview swimming: upstream's onWater, with water on layers (qr_SMARTER_WATER)
-        if(q30_can_side_swim() && q30_quest_rule(217))
-            water = q30_ss_water(x1,y1) && q30_ss_water(x1,y2) && q30_ss_water(x2,y1) && q30_ss_water(x2,y2)
-                    && q30_ss_water((x1+x2)/2,(y1+y2)/2);
+        // 2.55/3.0: upstream's onWater, the middle point too; with qr_SMARTER_WATER the water on
+        // layers, and solid water Link can't swim (or shallow, flag 4) is no water (q30_ss_water)
+        if(q30_active())
+        {
+            const int mx = (x1+x2)/2, my = (y1+y2)/2;
+
+            if(q30_quest_rule(217))
+                q30_water_cid = (q30_ss_water(x1,y1) && q30_ss_water(x1,y2) && q30_ss_water(x2,y1) && q30_ss_water(x2,y2))
+                                ? q30_ss_water(mx,my) : 0;
+            else
+            {
+                q30_water_cid = MAPFFCOMBO(mx,my) ? MAPFFCOMBO(mx,my) : MAPCOMBO(mx,my);
+                if(!water || !combo_class_buf[MAPFFCOMBO(mx,my) ? FFCOMBOTYPE(mx,my) : COMBOTYPE(mx,my)].water)
+                    q30_water_cid = 0;
+            }
+
+            water = q30_water_cid > 0;
+        }
 
         // 2.55/3.0 (upstream's checkspecial2): on the dive's last frame, a Link that would come up
         // under something solid he dives under (water there only while he is down) stays under
@@ -14004,7 +14021,7 @@ void LinkClass::checkspecial2(int *ls)
     if(water && (get_bit(quest_rules,qr_DROWN) || q30_can_side_swim()) && z==0  && fall>=0 && !ladderx && !hoverclk && action!=rafting && !isSwimming() && !inlikelike && !DRIEDLAKE)
     {
         // (2.55/3.0 sideview swimming: upstream's drown_check, by the water Link is in)
-        if(q30_can_side_swim() ? q30_ss_drowns(q30_ss_water(tx+7,ty+11)) : !current_item(itype_flippers))
+        if(q30_active() ? q30_ss_drowns(q30_water_cid) : !current_item(itype_flippers))
         {
             Drown();
         }
@@ -21986,6 +22003,8 @@ void LinkClass::q30_region_handoff(int ndx, int ndy)
 
     // (opendoors: this screen's own shutter count, from q30_region_restore_screen_state)
     markBmap(-1);
+    if(q255_region_mapping == 1)    // REGION_MAPPING_PHYSICAL: upstream's update_heroscr marks each screen stepped on
+        q30_mark_visited(currscr);
     map_bkgsfx(true);
     playLevelMusic();
 

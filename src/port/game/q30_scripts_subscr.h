@@ -815,6 +815,54 @@ bool q30_sub_object_shown(const subscreen_group *g, int i)
     return true;
 }
 
+// subscr.cpp's 2.55/3.0 minimap (upstream SW_MMap::draw): the flags of the minimap widget object i
+// of subscreen g came from, and its room colours (visited, unvisited, background: type and colour
+// each). False, nothing set, when there is none.
+bool q30_sub_minimap_info(const subscreen_group *g, int i, dword *flags, byte *ctype, short *color)
+{
+    if(!g || i < 0 || !q30_active())
+        return false;
+
+    for(int l = 0; l < 4; ++l)
+    {
+        for(size_t k = 0; k < zasm30_subs[l].size(); ++k)
+        {
+            const Z30Subscreen &s = zasm30_subs[l][k];
+
+            if(s.slot < 0 || s.slot >= MAXCUSTOMSUBSCREENS || &custom_subscreen[s.slot] != g)
+                continue;
+
+            if(s.curpage < 0 || s.curpage >= (int)s.pages.size())
+                return false;
+
+            const std::vector<Z30SubWidget> &ws = s.pages[s.curpage].widgets;
+
+            for(size_t w = 0; w < ws.size(); ++w)
+            {
+                const Z30SubWidget &wd = ws[w];
+
+                if(wd.type != Z30W_MMAP || wd.obj < 0 || i < wd.obj || i >= (wd.obj_end > wd.obj ? wd.obj_end : wd.obj + 1))
+                    continue;
+
+                const int which[3] = { Q30SubTy::C_VIS, Q30SubTy::C_UNVIS, Q30SubTy::C_RBG };
+                *flags = wd.flags;
+
+                for(int q = 0; q < 3; ++q)
+                {
+                    ctype[q] = wd.ty.ctype[which[q]];
+                    color[q] = wd.ty.color[which[q]];
+                }
+
+                return true;
+            }
+
+            return false;
+        }
+    }
+
+    return false;
+}
+
 // The selected text widget (subscr.cpp): the text the selected widget at pos gives in place of
 // an item's name (upstream SW_SelectedText), NULL for none.
 const char *q30_sub_selected_text(const subscreen_group *g, int pos)

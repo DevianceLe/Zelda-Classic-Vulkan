@@ -167,6 +167,7 @@ dword q30_compat_rule_since(int id)
     case 570: return 103;       // qr_OLD_ITEM_HITBOXES
     case 271: return 26;        // qr_SUBSCR_OLD_SELECTOR
     case 571: return 104;       // qr_SUBSCR_SELECTOR_USES_ITEM_HITBOX
+    case 589: return 113;       // qr_MINIMAP_VISITED_CHARTED
     default: return 0;
     }
 }

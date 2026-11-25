@@ -416,6 +416,10 @@ int zc_init_maxlife()
 }
 static byte g_init_msg_advance_delay = 50;
 
+// upstream's init data region mapping: 0 = REGION_MAPPING_FULL (a scrolling region's screens are
+// all marked visited when it loads), 1 = REGION_MAPPING_PHYSICAL (each one as Link steps on it)
+int q255_region_mapping = 0;
+
 static void read_init_new(Q255Section &s, zinitdata &temp)
 {
     const int v = s.version;
@@ -702,9 +706,10 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
 
     // Some z3 builds wrote only the region mapping byte at v40; nothing else follows it there.
     int light_wave_rate = 0, light_wave_size = 0;   // how dark rooms' lights pulse (none before v40)
+    int region_mapping = 0;     // upstream's REGION_MAPPING_FULL (0) or _PHYSICAL (1)
 
     if(v == 40 && s.left() == 1)
-        s.skip(1);
+        region_mapping = s.getc();
     else
     {
         if(v >= 40)
@@ -713,11 +718,14 @@ static void read_init_new(Q255Section &s, zinitdata &temp)
             light_wave_size = s.igetw();
         }
         if(v >= 41)
-            s.skip(1);  // region mapping
+            region_mapping = s.getc();
     }
 
     if(s.keep && !s.failed)
+    {
         q30_set_light_wave(light_wave_rate, light_wave_size);
+        q255_region_mapping = region_mapping;
+    }
 
     if(v >= 43)
     {
@@ -1089,6 +1097,7 @@ int q255_read_initdata(Q255Section &s)
         memcpy(g_kept_ctr, g_init_ctr, sizeof(g_kept_ctr));
         memcpy(g_kept_mctr, g_init_mctr, sizeof(g_kept_mctr));
         q30_set_light_wave(0, 0);   // (these versions have no pulsing lights or camera follow settings)
+        q255_region_mapping = 0;
         q30_set_viewport_follow(-1, false, 0, 0, 0, 0, 10000, 0, 30);
         q255_msg_advance_delay = g_init_msg_advance_delay;
     }
@@ -2202,16 +2211,20 @@ static bool read_widget(Q255Section &s, byte ty, subscreen_object &t, std::strin
         ty_color(Q30SubTy::C_CMPBLNK, c[1]);
         ty_color(Q30SubTy::C_CMPOFF, c[2]);
         {
+            // upstream's defaults (new_subscr.h): no visited colour ({ssctSYSTEM, -1}), unvisited
+            // and background colours "default" ({ssctMISC, ssctDEFAULT}); subscr.cpp draws them
             SubColor255 c2[3];
-            memset(c2, 0, sizeof(c2));
+            c2[0].type = ssctSYSTEM;
+            c2[0].color = -1;
+            c2[1].type = c2[2].type = ssctMISC;
+            c2[1].color = c2[2].color = ssctMSGTEXT + 2;
             if(s.version >= 19)
                 get_sub_color(s, c2[0]);        // visited room colour
             if(s.version >= 20)
                 get_sub_colors(s, c2 + 1, 2);   // unvisited room and background colours
-            if(s.version >= 19)
-                ty_color(Q30SubTy::C_VIS, c2[0]);
-            if(s.version >= 20)
-                ty_color(Q30SubTy::C_UNVIS, c2[1]);
+            ty_color(Q30SubTy::C_VIS, c2[0]);
+            ty_color(Q30SubTy::C_UNVIS, c2[1]);
+            ty_color(Q30SubTy::C_RBG, c2[2]);
         }
 #else
         if(s.version >= 13)

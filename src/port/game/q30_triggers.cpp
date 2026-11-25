@@ -11068,6 +11068,28 @@ static void draw_darkness_view(BITMAP *dest, const Q30ViewScreen *view, int n, c
     q30_draw_script_layer(dest, Q30_SPLAYER_DARKROOM_OVER);
 }
 
+// Screen->Lit in a 2.55/3.0 quest (ffscript.cpp): upstream's get_lights / set_lights. Setting it
+// sets region_is_lit to the opposite (under qr_NEW_DARKROOM that flips which screens are dark);
+// without the rule the palette is lit or darkened as in 2.53 too. Reading it gives
+// !region_is_lit, or with old dark rooms also true while a lasting fire keeps the room lit.
+bool q30_stays_lit();   // pal.cpp
+
+bool q30_get_lights()
+{
+    return new_darkroom_rule() ? !g_region_lit : (!g_region_lit || q30_stays_lit());
+}
+
+void q30_set_lights(bool state)
+{
+    g_region_lit = !state;
+
+    if(!new_darkroom_rule())
+    {
+        naturaldark = !state;
+        lighting(false, false);
+    }
+}
+
 // loadscr's, as a new screen loads (not another screen of its region): upstream's loadscr clears
 // region_is_lit; a scroll's old screen keeps what it had (scrollscr's scrolling_region_is_lit)
 void q30_dark_screen_loaded()
