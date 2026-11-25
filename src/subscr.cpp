@@ -64,6 +64,15 @@ static inline bool q30_sub_newer()
 // While a 2.55/3.0 counter widget with "full" colours is drawn: those colours (text, shadow,
 // background), which counter() uses when every counter it shows is full. NULL otherwise.
 static const int *q30_counter_full = NULL;
+
+bool q30_old_subscreens();              // q255_basic.cpp: a 2.55/3.0 quest under qr_OLD_SUBSCR
+
+// Upstream's SW_Counter under qr_OLD_SUBSCR leaves out a second or third counter that is money or
+// life (an old subscreen's unused counters read as 0, money, once converted).
+static bool q30_ctr_skipped(int q, int ssc)
+{
+    return q > 0 && (ssc == sscRUPEES || ssc == Q30_SSC_COUNTER) && q30_old_subscreens();
+}
 #endif
 
 bool show_subscreen_dmap_dots=true;
@@ -3933,6 +3942,11 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
             
             case ssoBSTIME:
             {
+#ifdef ZC_PLAYER_BUILD
+                // 2.55/3.0: upstream's SW_Time shows any time only when the subscreen should show it
+                if(!showtime && quest_header_zelda_version >= 0x255)
+                    break;
+#endif
                 char *ts;
                 
                 if(game)
@@ -3948,7 +3962,12 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
             case ssoSSTIME:
             case ssoTIME:
             {
-                if(showtime||css->objects[i].type==ssoTIME)
+                bool q30_time = showtime||css->objects[i].type==ssoTIME;
+#ifdef ZC_PLAYER_BUILD
+                if(quest_header_zelda_version >= 0x255)
+                    q30_time = showtime;    // (upstream's SW_Time, as above)
+#endif
+                if(q30_time)
                 {
                     char *ts;
                     
@@ -4306,6 +4325,9 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
                 
                 bool big_sel=css->objects[i].d5 != 0;
                 item *tempsel=(css->objects[i].type==ssoSELECTOR1)?sel_a:sel_b;
+                // 2.55/3.0 older subscreens: upstream's SW_Selector shows the frame of the subscreen
+                // clock (dummyitem_animate), not one stepped on each time the active subscreen is drawn
+                q30_sub_item_frame(tempsel);
                 int temptile=tempsel->tile;
                 tempsel->drawstyle=0;
                 
@@ -4876,7 +4898,7 @@ void counter(BITMAP *dest, int x, int y, FONT *tempfont, int color, int shadowco
             for(int p=0; p<q; ++p)
                 repeated = repeated || types[p]==ty;
 
-            if(repeated)
+            if(repeated || q30_ctr_skipped(q, ty))
                 continue;
 
             if(ty >= Q30_SSC_COUNTER && ty < Q30_SSC_COUNTER+Q30_MAX_COUNTERS)
@@ -4918,7 +4940,7 @@ void counter(BITMAP *dest, int x, int y, FONT *tempfont, int color, int shadowco
             for(int p=0; p<q; ++p)
                 repeated = repeated || types[p]==ty;
 
-            if(!repeated)
+            if(!repeated && !q30_ctr_skipped(q, ty))
                 full = q30_ssc_full(ty);
         }
 
