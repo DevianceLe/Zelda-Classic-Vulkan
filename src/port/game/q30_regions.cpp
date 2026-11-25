@@ -2150,6 +2150,9 @@ bool has_work(const RegionScreen *rs, int scr, int what)
 
         return false;
 
+    case Q30_EACH_AUTO_TRIGGERS:
+        return q30_trig_screen_has_auto(&m, rs->layers);
+
     case Q30_EACH_COMBO_SCRIPTS:
         for(int layer = 0; layer < 7; ++layer)
         {

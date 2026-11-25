@@ -3627,14 +3627,16 @@ bool run_trigger_core(const H &h, size_t idx, int special, weapon *w)
     if(!conditions(h, idx, hasitem, true))
     {
         if(g_trig_trace)
-            al_trace("q30 trig FAIL cid %d idx %d type %d lyr %d pos %d ffc %d wpn %d\n", cid, (int)idx, c->type, h.layer, h.pos, h.ffc, w ? w->id : -1);
+            al_trace("q30 trig FAIL cid %d idx %d type %d lyr %d pos %d ffc %d wpn %d item %d inv %d frame %d\n", cid, (int)idx, c->type, h.layer, h.pos, h.ffc,
+                     w ? w->id : -1, (int)c->triggers[idx].triggeritem, (int)c->triggers[idx].flags.get(Q30TF_INVERTITEM), frame);
 
         trigger_string(t, false);
         return false;
     }
 
     if(g_trig_trace)
-        al_trace("q30 trig RUN cid %d idx %d type %d lyr %d pos %d ffc %d wpn %d special %d swjinx %d timer %d prox %d frame %d linkdir %d destdir %d dest %ld,%ld\n", cid, (int)idx, c->type, h.layer, h.pos, h.ffc, w ? w->id : -1, special, (int)c->triggers[idx].trig_swjinxtime, (int)c->triggers[idx].trigtimer, (int)c->triggers[idx].trigprox, frame, Link.getDir(), (int)c->triggers[idx].dest_player_dir, c->triggers[idx].dest_player_x, c->triggers[idx].dest_player_y);
+        al_trace("q30 trig RUN cid %d idx %d type %d lyr %d pos %d ffc %d wpn %d special %d swjinx %d timer %d prox %d frame %d linkdir %d destdir %d dest %ld,%ld item %d inv %d chg %ld copycat %d\n", cid, (int)idx, c->type, h.layer, h.pos, h.ffc, w ? w->id : -1, special, (int)c->triggers[idx].trig_swjinxtime, (int)c->triggers[idx].trigtimer, (int)c->triggers[idx].trigprox, frame, Link.getDir(), (int)c->triggers[idx].dest_player_dir, c->triggers[idx].dest_player_x, c->triggers[idx].dest_player_y,
+                 (int)c->triggers[idx].triggeritem, (int)c->triggers[idx].flags.get(Q30TF_INVERTITEM), c->triggers[idx].trigchange, (int)c->triggers[idx].trigcopycat);
 
     bool check_bit = w ? wpn_done(w, key) : false;
     bool used_bit = false;
@@ -7129,6 +7131,77 @@ static bool has_step_trigger(const Q30Combo *c)
     return false;
 }
 
+// The automatic triggers of one screen: the current one, or another screen of a 3.0 scrolling
+// region standing in for it (upstream's for_some_rpos in HeroClass::animate visits every screen
+// of the region, row by row, each with its valid layers; without qr_AUTOCOMBO_ANY_LAYER the visit
+// ends at the first layer above 2 it meets, so the screens after that one get none).
+static bool g_auto_ended = false;
+
+static bool auto_layer_ends(const mapscr *scr, int lyr)
+{
+    return lyr > 2 && !rule(qr30_AUTOCOMBO_ANY_LAYER) && scr->valid && !scr->data.empty();
+}
+
+static void auto_triggers_here(int)
+{
+    if(g_auto_ended)
+        return;
+
+    for(int lyr = 0; lyr <= 6; ++lyr)
+    {
+        mapscr *scr = lyr ? &tmpscr2[lyr - 1] : &tmpscr[0];
+
+        if(lyr && (!scr->valid || scr->data.empty()))
+            continue;
+
+        if(auto_layer_ends(scr, lyr))
+        {
+            g_auto_ended = true;
+            return;
+        }
+
+        if(!rule(qr30_AUTOCOMBO_ANY_LAYER))
+        {
+            if(lyr == 1 && !rule(qr30_AUTOCOMBO_LAYER_1))
+                continue;
+
+            if(lyr == 2 && !rule(qr30_AUTOCOMBO_LAYER_2))
+                continue;
+        }
+
+        for(int pos = 0; pos < 176; ++pos)
+            if(q30_combo(scr->data[pos]))
+                execute(H(lyr, pos), cond_auto, NULL);
+    }
+}
+
+// Whether another screen of the region (its base and 6 layers) has automatic triggers to run, or
+// a layer that ends the visit (q30_region_each_screen's Q30_EACH_AUTO_TRIGGERS).
+bool q30_trig_screen_has_auto(const mapscr *base, const mapscr *layers)
+{
+    for(int lyr = 0; lyr <= 6; ++lyr)
+    {
+        const mapscr *m = lyr ? &layers[lyr - 1] : base;
+
+        if(lyr && (!m->valid || m->data.empty()))
+            continue;
+
+        if(auto_layer_ends(m, lyr))
+            return true;
+
+        for(int pos = 0; pos < 176 && pos < (int)m->data.size(); ++pos)
+        {
+            const Q30Combo *c = q30_combo(m->data[pos]);
+
+            for(size_t q = 0; c && q < c->triggers.size(); ++q)
+                if(c->triggers[q].flags.get(Q30TF_AUTOMATIC))
+                    return true;
+        }
+    }
+
+    return false;
+}
+
 void q30_light_update();
 static void lift_frame();
 static void new_darkroom_palette();
@@ -7161,31 +7234,11 @@ if(g_pending_warp_type >= 0)
 
     int x = int(Link.getX()), y = int(Link.getY());
 
-    // automatic triggers
-    {
-        int maxlyr = rule(qr30_AUTOCOMBO_ANY_LAYER) ? 6 : 2;
+    // automatic triggers: every screen of a 3.0 scrolling region, as upstream (else the current one)
+    g_auto_ended = false;
 
-        for(int lyr = 0; lyr <= maxlyr; ++lyr)
-        {
-            if(!rule(qr30_AUTOCOMBO_ANY_LAYER))
-            {
-                if(lyr == 1 && !rule(qr30_AUTOCOMBO_LAYER_1))
-                    continue;
-
-                if(lyr == 2 && !rule(qr30_AUTOCOMBO_LAYER_2))
-                    continue;
-            }
-
-            mapscr *scr = lyr ? &tmpscr2[lyr - 1] : &tmpscr[0];
-
-            if(lyr && (!scr->valid || scr->data.empty()))
-                continue;
-
-            for(int pos = 0; pos < 176; ++pos)
-                if(q30_combo(scr->data[pos]))
-                    execute(H(lyr, pos), cond_auto, NULL);
-        }
-    }
+    if(!q30_region_each_screen(Q30_EACH_AUTO_TRIGGERS, auto_triggers_here, 0))
+        auto_triggers_here(0);
 
     // step triggers
     if(Link.getAction() != freeze && !msgstr_blocking_step() && !Link.q30_step_blocked())

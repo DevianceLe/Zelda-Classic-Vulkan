@@ -795,5 +795,7 @@ void q30_trig_screen_load_other();
 // crumbling floors (q30_trig_screen_busy: whether it has any, its base and its 6 layers).
 void q30_trig_update_other();
 bool q30_trig_screen_busy(const mapscr *base, const mapscr *layers);
+// Whether it has automatic triggers to run (or a layer above 2 that ends upstream's visit).
+bool q30_trig_screen_has_auto(const mapscr *base, const mapscr *layers);
 
 #endif

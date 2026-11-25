@@ -265,7 +265,8 @@ enum
 {
     Q30_EACH_SCREEN_SCRIPT, Q30_EACH_FFC_SCRIPTS, Q30_EACH_FFC_PRELOAD, Q30_EACH_FFC_MOVE,
     Q30_EACH_COMBO_SCRIPTS, Q30_EACH_FFC_WAITDRAW, Q30_EACH_COMBO_WAITDRAW,
-    Q30_EACH_COMBO_CYCLE    // combos cycling, and (another screen) its combo triggers' timers
+    Q30_EACH_COMBO_CYCLE,   // combos cycling, and (another screen) its combo triggers' timers
+    Q30_EACH_AUTO_TRIGGERS  // its combos' automatic triggers (Link's frame)
 };
 
 // Runs fn(arg) for every screen of the region that has something to do for `what` (the current
