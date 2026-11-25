@@ -398,8 +398,16 @@ void dosubscr(miscQdata *misc)
     bool q30_exit = false;
     q30_subscreen_script_reset();
 
+    // 2.55/3.0 (upstream's dosubscr): the input is read as each slide frame starts, and while the
+    // subscreen is open right after each frame's advance, where the Start check looks at it, so the
+    // subscreen starts closing on the frame Start is pressed. 2.53 reads it at the top of the next
+    // pass and stays open a frame longer (the game, its combo animation too, resumes a frame later).
+    const bool q30_input = q30_active();
+
     for(ay=-distance; ay<=0 && !q30_exit; ay+=step)
     {
+        if(q30_input)
+            load_control_state();
         if(q30_active())
             script_drawing_commands.Clear();    // (2.55/3.0: a frame's script drawings, as upstream)
         q30_active_sub_yoff = ay-playing_field_offset;
@@ -434,9 +442,13 @@ void dosubscr(miscQdata *misc)
     bool done=false;
     int q30_held = 0xFF;    // buttons held as the subscreen opens don't count as pressed
 
+    if(q30_input)
+        load_control_state();   // (upstream: what came in during the opening slide is consumed)
+
     do
     {
-        load_control_state();
+        if(!q30_input)
+            load_control_state();
         if(q30_active())
             script_drawing_commands.Clear();
         if(!q30_exit && (q30_exit = q30_run_subscreen_script()))
@@ -590,6 +602,10 @@ void dosubscr(miscQdata *misc)
         
         advanceframe(false);
         
+        // (2.55/3.0: the next frame's input, for the checks below and the next pass)
+        if(q30_input)
+            load_control_state();
+        
         if(NESquit && Up() && cAbtn() && cBbtn())
         {
             Udown=true;
@@ -609,6 +625,8 @@ void dosubscr(miscQdata *misc)
     // (upstream starts closing from where the opening stopped, at most 0)
     for(ay=zc_min(ay,0); ay>=-distance; ay-=step)
     {
+        if(q30_input)
+            load_control_state();
         if(q30_active())
             script_drawing_commands.Clear();
         q30_active_sub_yoff = ay-playing_field_offset;

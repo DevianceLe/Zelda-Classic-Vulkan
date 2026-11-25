@@ -5072,6 +5072,14 @@ void openscreen(int shape)
     Link.setDontDraw(false);
     show_subscreen_items=true;
     show_subscreen_dmap_dots=true;
+
+    // 2.55/3.0 (upstream's openscreen): the counters and the life meter come back as the opening
+    // ends, so the walk out of a cave after it shows them; 2.53 leaves them hidden until the warp ends
+    if(q30_active())
+    {
+        show_subscreen_numbers=true;
+        show_subscreen_life=true;
+    }
 }
 
 // openscreen backwards (upstream's closescreen, which only 2.55/3.0 scripts start here)
