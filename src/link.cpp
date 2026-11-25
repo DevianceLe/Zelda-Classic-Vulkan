@@ -18290,6 +18290,55 @@ int getWpnPressed(int itype)
     return -1;
 }
 
+bool q30_old_subscreens();      // q255_basic.cpp
+bool q30_sub_new_format();      // q30_scripts_subscr.h
+bool q30_dmap_has_active_subscreen();
+bool q30_old_btn_page();
+int q30_old_btn_movepos(int dir, int start, int f1, int f2, int f3);
+int q30_old_btn_item(int pos);
+
+// A 2.55/3.0 quest under qr_OLD_SUBSCR with the newer subscreens and an active subscreen on the
+// dmap: its item buttons start, are checked and move as upstream's do, by movepos_legacy on the
+// shown page (init_game, verifyWpn, selectNextBTNWpn), each keeping clear of the others' slots.
+// Upstream sets and checks no button without an active subscreen.
+bool q30_old_movepos_buttons()
+{
+    return q30_old_subscreens() && q30_sub_new_format() && q30_dmap_has_active_subscreen() && q30_old_btn_page();
+}
+
+// The other buttons' slots as upstream's checks keep clear of them (COND_AWPN, COND_XWPN,
+// COND_YWPN): none for a button not in use. X's and Y's are read from the save, where they are
+// kept (so the checks before init_game sets them see the save's, as upstream's).
+static int q30_saved_extra_pos(bool x);
+
+static int q30_old_cond_a()
+{
+    return get_bit(quest_rules,qr_SELECTAWPN) ? game->awpn : 0xFF;
+}
+
+static int q30_old_cond_x()
+{
+    return q30_use_x_button() ? q30_saved_extra_pos(true) : 0xFF;
+}
+
+static int q30_old_cond_y()
+{
+    return q30_use_y_button() ? q30_saved_extra_pos(false) : 0xFF;
+}
+
+// upstream's verifyWpn (dir SEL_VERIFY_RIGHT) and selectNextBTNWpn for one button under
+// q30_old_movepos_buttons: its slot pos moves to the next slot f1-f3 don't hold (an empty one stays
+// empty under qr_NO_BUTTON_VERIFY), and wpn and direct take that slot's item.
+static void q30_old_btn_check(int dir, int &pos, int &wpn, int &direct, int f1, int f2, int f3)
+{
+    if(pos == 0xFF && q30_quest_rule(424))  // qr_NO_BUTTON_VERIFY: "intentional nothingness"
+        return;
+
+    pos = q30_old_btn_movepos(dir, pos, f1, f2, f3);
+    wpn = pos == 0xFF ? 0 : q30_old_btn_item(pos);
+    direct = pos == 0xFF ? -1 : directItem;
+}
+
 void selectNextAWpn(int type)
 {
     if(!get_bit(quest_rules,qr_SELECTAWPN))
@@ -18298,6 +18347,14 @@ void selectNextAWpn(int type)
     if(q30_paged_buttons())     // 2.55/3.0, the newer subscreens: on A's own page
     {
         q30_btn_shift(Q30_BTN_A, type, false);
+        return;
+    }
+
+    if(q30_old_movepos_buttons())
+    {
+        int pos = game->awpn;
+        q30_old_btn_check(type, pos, Awpn, directItemA, game->bwpn, q30_old_cond_x(), q30_old_cond_y());
+        game->awpn = pos;
         return;
     }
 
@@ -18312,6 +18369,14 @@ void selectNextBWpn(int type)
     if(q30_paged_buttons())     // 2.55/3.0, the newer subscreens: on B's own page
     {
         q30_btn_shift(Q30_BTN_B, type, false);
+        return;
+    }
+
+    if(q30_old_movepos_buttons())
+    {
+        int pos = game->bwpn;
+        q30_old_btn_check(type, pos, Bwpn, directItemB, q30_old_cond_a(), q30_old_cond_x(), q30_old_cond_y());
+        game->bwpn = pos;
         return;
     }
 
@@ -18338,6 +18403,12 @@ void verifyAWpn()
     }
     else if(q30_paged_buttons())    // 2.55/3.0, the newer subscreens: on A's own page
         q30_btn_verify(Q30_BTN_A);
+    else if(q30_old_movepos_buttons())
+    {
+        int pos = game->awpn;
+        q30_old_btn_check(SEL_VERIFY_RIGHT, pos, Awpn, directItemA, game->bwpn, q30_old_cond_x(), q30_old_cond_y());
+        game->awpn = pos;
+    }
     else
     {
         // some newer quests let a button stay empty on purpose
@@ -18358,6 +18429,14 @@ void verifyBWpn()
     if(q30_paged_buttons())     // 2.55/3.0, the newer subscreens: on B's own page
     {
         q30_btn_verify(Q30_BTN_B);
+        return;
+    }
+
+    if(q30_old_movepos_buttons())
+    {
+        int pos = game->bwpn;
+        q30_old_btn_check(SEL_VERIFY_RIGHT, pos, Bwpn, directItemB, q30_old_cond_a(), q30_old_cond_x(), q30_old_cond_y());
+        game->bwpn = pos;
         return;
     }
 
@@ -18419,18 +18498,23 @@ void q30_btnsel_trace(const char *where)
 
     const int now[4] = { game->awpn, game->bwpn, Awpn, Bwpn };
     static int last_slots[4] = { -2, -2, -2, -2 };     // (newer subscreens: the slots by page)
+    static int last_xy[4] = { -2, -2, -2, -2 };        // (X and Y: pos and item)
+    const int xy[4] = { q30_xpos, q30_ypos, Xwpn, Ywpn };
     const bool paged = q30_paged_buttons();
 
-    if(memcmp(now, last, sizeof(now)) || (paged && memcmp(q30_btn, last_slots, sizeof(last_slots))))
+    if(memcmp(now, last, sizeof(now)) || (paged && memcmp(q30_btn, last_slots, sizeof(last_slots))) || memcmp(xy, last_xy, sizeof(xy)))
     {
         memcpy(last, now, sizeof(now));
         memcpy(last_slots, q30_btn, sizeof(last_slots));
+        memcpy(last_xy, xy, sizeof(xy));
         al_trace("q30 btnsel: %s frame %d: A pos %d item %d, B pos %d item %d (forced %d %d; bombs %d, super bombs %d)\n", where, frame,
                  game->awpn, Awpn, game->bwpn, Bwpn, q30_forced_awpn, q30_forced_bwpn, game->get_bombs(), game->get_sbombs());
 
         if(paged)
             al_trace("q30 btnsel: slots by page A 0x%04x B 0x%04x X 0x%04x Y 0x%04x (X item %d, Y item %d)\n", q30_btn[0], q30_btn[1],
                      q30_btn[2], q30_btn[3], Xwpn, Ywpn);
+        else if(q30_use_x_button() || q30_use_y_button())
+            al_trace("q30 btnsel: X pos %d item %d, Y pos %d item %d\n", q30_xpos, Xwpn, q30_ypos, Ywpn);
     }
 }
 
@@ -18456,15 +18540,15 @@ void q30_counter_changed()
     verifyBothWeapons();
 }
 
-// put_passive_subscr, as it draws subscreen g, with the newer subscreens: upstream checks the
-// buttons' items again whenever it draws a button item (SW_ButtonItem::draw, in play and from
-// replay version 19), so in effect every frame the passive subscreen shows one. An empty button
-// is filled that way, the moment an item it can hold turns up (rule 424 aside).
+// put_passive_subscr, as it draws subscreen g, with the newer subscreens (also under qr_OLD_SUBSCR):
+// upstream checks the buttons' items again whenever it draws a button item (SW_ButtonItem::draw,
+// in play and from replay version 19), so in effect every frame the passive subscreen shows one.
+// An empty button is filled that way, the moment an item it can hold turns up (rule 424 aside).
 bool q30_sub_object_shown(const subscreen_group *g, int i);    // q30_scripts_subscr.h
 
 void q30_button_items_drawn(const subscreen_group *g)
 {
-    if(!q30_paged_buttons() || !g || !show_subscreen_items || !game || !Playing)
+    if(!(q30_paged_buttons() || q30_old_movepos_buttons()) || !g || !show_subscreen_items || !game || !Playing)
         return;
 
     for(int i = 0; i < MAXSUBSCREENITEMS && g->objects[i].type != ssoNULL; ++i)
@@ -18493,6 +18577,11 @@ bool q30_use_x_button()
 bool q30_use_y_button()
 {
     return q30_quest_rule(Q30_QR_SET_Y_ITEMS);
+}
+
+static int q30_saved_extra_pos(bool x)
+{
+    return (game->get_generic(x ? Q30_GEN_XPOS : Q30_GEN_YPOS) + 255) & 0xFF;
 }
 
 static void q30_store_extra_buttons()
@@ -18883,6 +18972,28 @@ void q30_verify_extra_buttons()
         return;
     }
 
+    if(q30_old_movepos_buttons())   // (upstream's verifyXWpn, verifyYWpn)
+    {
+        // the save's slots (before init_game sets them, as upstream's game->xwpn and ywpn); each
+        // is kept there at once, for the next check to keep clear of
+        q30_xpos = q30_saved_extra_pos(true);
+        q30_ypos = q30_saved_extra_pos(false);
+
+        if(q30_use_x_button() && q30_forced_xwpn == -1)
+        {
+            q30_old_btn_check(SEL_VERIFY_RIGHT, q30_xpos, Xwpn, directItemX, game->bwpn, q30_old_cond_a(), q30_old_cond_y());
+            q30_store_extra_buttons();
+        }
+
+        if(q30_use_y_button() && q30_forced_ywpn == -1)
+        {
+            q30_old_btn_check(SEL_VERIFY_RIGHT, q30_ypos, Ywpn, directItemY, game->bwpn, q30_old_cond_x(), q30_old_cond_a());
+            q30_store_extra_buttons();
+        }
+
+        return;
+    }
+
     if(q30_xpos != Q30_NO_POS)
     {
         Xwpn = Bweapon(q30_xpos);
@@ -18896,24 +19007,9 @@ void q30_verify_extra_buttons()
     }
 }
 
-bool q30_old_subscreens();      // q255_basic.cpp
-int q30_old_init_button_pos(int start, int f1, int f2, int f3);    // q30_scripts_subscr.h
-bool q30_dmap_has_active_subscreen();
-
-// Whether init_game sets the buttons as upstream's does under qr_OLD_SUBSCR with the X or Y button
-// in use: a 2.55/3.0 quest with that rule, the newer subscreens, and an active subscreen on the
-// dmap (upstream sets no button at all without one).
-bool q30_old_init_buttons()
-{
-    return q30_old_subscreens() && q30_sub_new_format() && q30_dmap_has_active_subscreen()
-           && (q30_use_x_button() || q30_use_y_button());
-}
-
 // init_game: the X and Y buttons (2.55/3.0, the quest rules that use them) take the save's slots.
-// Under q30_old_init_buttons (upstream's init_game with qr_OLD_SUBSCR): each takes its saved slot
-// (a new game none) or the next slot right of it that holds an item and that A, B (and X) don't
-// hold (movepos_legacy).
-void q30_load_extra_buttons(bool usesaved, int apos, int bpos)
+// (Under q30_old_movepos_buttons, q30_old_init_buttons sets all four instead.)
+void q30_load_extra_buttons()
 {
     q30_forced_awpn = q30_forced_bwpn = -1;
     Xwpn = Ywpn = 0;
@@ -18926,28 +19022,86 @@ void q30_load_extra_buttons(bool usesaved, int apos, int bpos)
     q30_xpos = (game->get_generic(Q30_GEN_XPOS) + 255) & 0xFF;
     q30_ypos = (game->get_generic(Q30_GEN_YPOS) + 255) & 0xFF;
 
-    if(q30_old_init_buttons())
-    {
-        const int sx = usesaved ? q30_xpos : 0xFF, sy = usesaved ? q30_ypos : 0xFF;
-        const int fa = get_bit(quest_rules, qr_SELECTAWPN) ? apos : 0xFF;
-        q30_xpos = q30_ypos = Q30_NO_POS;
-
-        if(q30_use_x_button())
-            q30_xpos = q30_old_init_button_pos(sx, fa, bpos, 0xFF);
-
-        if(q30_use_y_button())
-            q30_ypos = q30_old_init_button_pos(sy, fa, bpos, q30_xpos);
-
-        q30_store_extra_buttons();
-    }
-
-    if(getenv("ZC_Q30_BTNSEL"))     // diagnostics only
-        al_trace("q30 btnsel: init X/Y: old init %d (dmap %d active subscreen %d), X pos %d, Y pos %d\n", q30_old_init_buttons() ? 1 : 0,
-                 get_currdmap(), (int)DMaps[get_currdmap()].active_subscreen, q30_xpos, q30_ypos);
-
     const int keep = directItem;    // (init_game reads B's directItem after this)
     q30_verify_extra_buttons();
     directItem = keep;
+}
+
+// init_game under q30_old_movepos_buttons (upstream's, with qr_OLD_SUBSCR): each button starts on
+// its saved slot (a new game's on none) or the next slot movepos_legacy finds that the buttons set
+// before it don't hold; without the X and Y buttons, B takes A's slot when it finds none. Nothing is
+// checked yet, so a button left on none shows slot 0's item until it is (upstream's
+// get_item_pos(0xFF >> 8)).
+void q30_old_init_buttons(bool firstplay, bool usesaved)
+{
+    const bool use_x = q30_use_x_button(), use_y = q30_use_y_button(), sel_a = get_bit(quest_rules, qr_SELECTAWPN) != 0;
+    const int sa = usesaved ? game->awpn : 0xFF, sb = usesaved ? game->bwpn : 0xFF;
+    // (a new game's X and Y are on none first, whatever the checks before this did; init_game
+    // sets its A and B so)
+    const int sx = usesaved && !firstplay ? q30_saved_extra_pos(true) : 0xFF;
+    const int sy = usesaved && !firstplay ? q30_saved_extra_pos(false) : 0xFF;
+    int apos = 0xFF, bpos;
+
+    q30_forced_awpn = q30_forced_bwpn = q30_forced_xwpn = q30_forced_ywpn = -1;
+    Xwpn = Ywpn = 0;
+    directItemX = directItemY = -1;
+    q30_xpos = q30_ypos = Q30_NO_POS;
+
+    if(sel_a)
+        apos = q30_old_btn_movepos(SEL_VERIFY_RIGHT, sa, 0xFF, 0xFF, 0xFF);
+
+    bpos = q30_old_btn_movepos(SEL_VERIFY_RIGHT, sb, apos, 0xFF, 0xFF);
+
+    if(use_x || use_y)
+    {
+        if(use_x)
+            q30_xpos = q30_old_btn_movepos(SEL_VERIFY_RIGHT, sx, apos, bpos, 0xFF);
+
+        if(use_y)
+            q30_ypos = q30_old_btn_movepos(SEL_VERIFY_RIGHT, sy, apos, bpos, q30_xpos);
+    }
+    else if(sel_a && bpos == 0xFF)
+    {
+        bpos = apos;
+        apos = 0xFF;
+    }
+
+    if(sel_a)
+    {
+        Awpn = q30_old_btn_item(apos == 0xFF ? 0 : apos);
+        directItemA = directItem;
+    }
+    else
+    {
+        directItem = -1;
+        directItemA = -1;
+        Awpn = selectSword();
+    }
+
+    game->awpn = apos;
+    game->bwpn = bpos;
+
+    if(use_x)
+    {
+        Xwpn = q30_old_btn_item(q30_xpos == 0xFF ? 0 : q30_xpos);
+        directItemX = directItem;
+    }
+
+    if(use_y)
+    {
+        Ywpn = q30_old_btn_item(q30_ypos == 0xFF ? 0 : q30_ypos);
+        directItemY = directItem;
+    }
+
+    if(use_x || use_y)
+        q30_store_extra_buttons();
+
+    Bwpn = q30_old_btn_item(bpos == 0xFF ? 0 : bpos);
+    directItemB = directItem;
+
+    if(getenv("ZC_Q30_BTNSEL"))     // diagnostics only
+        al_trace("q30 btnsel: old init (dmap %d active subscreen %d): A pos %d, B pos %d, X pos %d, Y pos %d\n",
+                 get_currdmap(), (int)DMaps[get_currdmap()].active_subscreen, game->awpn, game->bwpn, q30_xpos, q30_ypos);
 }
 
 void q30_select_next_button_item(bool x, int type)
@@ -18958,6 +19112,20 @@ void q30_select_next_button_item(bool x, int type)
     if(q30_paged_buttons())     // (newer subscreens: on its own page, upstream's selectNextXWpn)
     {
         q30_btn_shift(x ? Q30_BTN_X : Q30_BTN_Y, type, false);
+        return;
+    }
+
+    if(q30_old_movepos_buttons())   // (upstream's selectNextXWpn, selectNextYWpn)
+    {
+        q30_xpos = q30_saved_extra_pos(true);
+        q30_ypos = q30_saved_extra_pos(false);
+
+        if(x)
+            q30_old_btn_check(type, q30_xpos, Xwpn, directItemX, game->bwpn, q30_old_cond_a(), q30_old_cond_y());
+        else
+            q30_old_btn_check(type, q30_ypos, Ywpn, directItemY, game->bwpn, q30_old_cond_x(), q30_old_cond_a());
+
+        q30_store_extra_buttons();
         return;
     }
 

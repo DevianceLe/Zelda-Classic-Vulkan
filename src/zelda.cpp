@@ -115,7 +115,9 @@ extern word quest_header_zelda_build; //2.53 ONLY. In 2.55, we have an array for
 extern int directItem;
 extern int directItemA;
 extern int directItemB;
-void q30_load_extra_buttons(bool usesaved, int apos, int bpos);
+void q30_load_extra_buttons();
+bool q30_old_movepos_buttons();
+void q30_old_init_buttons(bool firstplay, bool usesaved);
 extern byte emulation_patches[emuLAST];
 bool is_large=false;
 
@@ -2236,6 +2238,8 @@ int init_game()
 
     if(q30_paged)
         q30_init_paged_buttons(firstplay);
+    else if(q30_old_movepos_buttons())  // 2.55/3.0 under qr_OLD_SUBSCR with the newer subscreens (link.cpp)
+        q30_old_init_buttons(firstplay, usesaved);
     else
     {
 //load the previous weapons -DD
@@ -2270,7 +2274,7 @@ int init_game()
         game->awpn = apos;
         game->bwpn = bpos;
         Bwpn = Bweapon(bpos);
-        q30_load_extra_buttons(usesaved, apos, bpos);
+        q30_load_extra_buttons();
         directItemB = directItem;
     }
 

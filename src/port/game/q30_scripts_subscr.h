@@ -1755,19 +1755,24 @@ bool q30_sub_move_cursor(int dir, int &pos)
     }
 }
 
-// init_game under qr_OLD_SUBSCR (upstream's zelda.cpp): the slot an X or Y button starts on, on the
-// shown page of the current active subscreen (movepos_legacy, SEL_VERIFY_RIGHT). start and f1-f3 are
-// slot positions, 0xFF for none; returns a position, 0xFF for none.
-int q30_old_init_button_pos(int start, int f1, int f2, int f3)
+// qr_OLD_SUBSCR with the newer subscreens: upstream moves the item buttons by movepos_legacy on the
+// shown page of the current active subscreen (init_game, verifyWpn, selectNextBTNWpn). Positions
+// here are slot positions on that page, 0xFF for none (2.53's save keeps no page).
+// Whether there is such a page (upstream's new_subscreen_active).
+bool q30_old_btn_page()
+{
+    const Z30Subscreen *s = z30_shown_active();
+    return s && s->curpage >= 0 && s->curpage < (int)s->pages.size();
+}
+
+// movepos_legacy (dir SEL_*) from start, f1-f3 forbidden: returns a position, 0xFF for none. As
+// upstream's, an empty start under qr_NO_BUTTON_VERIFY gives slot 0 ("empty is valid" returns the
+// start it set to 0).
+int q30_old_btn_movepos(int dir, int start, int f1, int f2, int f3)
 {
     Z30Subscreen *s = z30_shown_active();
 
-    if(!s || s->curpage < 0 || s->curpage >= (int)s->pages.size())
-        return 0xFF;
-
-    // Under qr_NO_BUTTON_VERIFY an empty button stays empty ("empty is valid"; upstream's play shows
-    // it so, e.g. Lana Again's new game)
-    if((start < 0 || start >= 0xFF) && q30_quest_rule(424))
+    if(!q30_old_btn_page())
         return 0xFF;
 
     const int pg = s->curpage;
@@ -1777,8 +1782,20 @@ int q30_old_init_button_pos(int start, int f1, int f2, int f3)
     for(int i = 0; i < 4; ++i)
         ws[i] = (w[i] < 0 || w[i] >= 0xFF) ? 0xFF : ((w[i] << 8) | pg);
 
-    const int r = z30_btn_movepos(*s, pg, SEL_VERIFY_RIGHT, ws[0], ws[1], ws[2], ws[3], true, true);
+    const int r = z30_btn_movepos(*s, pg, dir, ws[0], ws[1], ws[2], ws[3], true, true);
     return (r & 0xFF) == 0xFF ? 0xFF : (r >> 8) & 0xFF;
+}
+
+// get_item_pos(pos) on that page: the item the slot holds (0 for none), directItem set.
+int q30_old_btn_item(int pos)
+{
+    directItem = -1;
+
+    if(!q30_old_btn_page() || pos < 0 || pos >= 0xFF)
+        return 0;
+
+    const Z30Subscreen *s = z30_shown_active();
+    return z30_btn_item_at(*s, s->curpage, pos, true);
 }
 
 // Whether the current dmap has an active subscreen as upstream sees it (update_subscreens: its
