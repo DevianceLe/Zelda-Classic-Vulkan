@@ -1588,6 +1588,14 @@ void replay_capture_frame(BITMAP *frame)
         char path[2048];
         snprintf(path, sizeof(path), "%s/frame%06d.bmp", g_dump_dir.c_str(), g_frame);
         path[sizeof(path)-1] = 0;
+
+        // ZC_DUMP_RAMPAL (test runs only): the frame in the game's palette (RAMpal), as upstream's replay
+        // snapshots are saved. Its wave warps fade only the palette shown (hw_palette), which they never hold.
+        static const bool dump_rampal = getenv("ZC_DUMP_RAMPAL") != NULL;
+
+        if(dump_rampal)
+            memcpy(pal, RAMpal, sizeof(PALETTE));
+
         if(save_bmp(path, frame, pal) != 0)
             say("cannot write %s", path);
     }
