@@ -22,6 +22,12 @@ extern word animated_combos;
 // it into range instead.
 static bool z30d_index(long index, long size, bool compat_bound, long &out)
 {
+    if(zasm30_size_probe)       // (an internal array's size: q30_scripts_arrays.h)
+    {
+        zasm30_probed_size = size;
+        return false;
+    }
+
     if(compat_bound && q30_compat_rule(Z30_QR_OLD_ARRAY_INDEX) && !(index >= 0 && index < size))
     {
         if(size <= 0)

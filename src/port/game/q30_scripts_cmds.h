@@ -432,6 +432,7 @@ static long z30_new_file()
                 z30_files[n].path.clear();
                 z30_files[n].id = id;
                 zasm30_file_ids[id] = n;
+                zasm30_obj_new(id);     // (version 28 on: counted, q30_scripts_arrays.h)
                 return id;
             }
         }
@@ -826,6 +827,7 @@ static long z30_load_dir(const std::string &user)
                 z30_dirs[n].id = id;
                 zasm30_dir_ids[id] = n;
                 z30_dir_load(z30_dirs[n]);
+                zasm30_obj_new(id);     // (version 28 on: counted, q30_scripts_arrays.h)
                 return id;
             }
         }
@@ -885,6 +887,39 @@ static void zasm30_sweep_handles(bool sweep)
     }
 
     zasm30_handle_marks.clear();
+}
+
+// A counted file, directory or stack whose count reached 0 goes (zasm30_free_dead).
+static bool zasm30_free_handle(long id)
+{
+    std::map<long, int>::const_iterator f = zasm30_file_ids.find(id);
+
+    if(f != zasm30_file_ids.end())
+    {
+        z30_file_release(&z30_files[f->second]);
+        return true;
+    }
+
+    std::map<long, int>::const_iterator d = zasm30_dir_ids.find(id);
+
+    if(d != zasm30_dir_ids.end())
+    {
+        z30_dir_release(&z30_dirs[d->second]);
+        return true;
+    }
+
+    if(zasm30_stacks.erase(id))
+    {
+        zasm30_object_id_free(id);
+        return true;
+    }
+
+    return false;
+}
+
+static bool zasm30_handle_marked(long id)
+{
+    return zasm30_handle_marks.count(id) != 0;
 }
 
 // A stack can hold the only reference to an array.
@@ -3872,6 +3907,7 @@ static bool zasm30_command(word cmd)
         }
 
         zasm30_stacks[id];
+        zasm30_obj_new(id);     // (version 28 on: counted, q30_scripts_arrays.h)
         Z30_REF(STACK) = id;
         ri->d[2] = id;
         return true;

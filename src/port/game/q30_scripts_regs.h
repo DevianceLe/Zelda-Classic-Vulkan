@@ -295,6 +295,9 @@ static bool zasm30_sprite_read(const long arg, long &ret, const Z30Sprite &r)
     {
         long n = Z30_INDEX;
 
+        if(zasm30_size_probe)       // (its size as an internal array: q30_scripts_arrays.h)
+            zasm30_probed_size = isffc ? 16 : 32;
+
         if(isffc)
         {
             ret = (n >= 0 && n < 16) ? ffmisc[f][n] : 0;
@@ -1272,6 +1275,12 @@ enum { Z30_QR_OLD_ARRAY_INDEX = 487, Z30_QR_OLD_ARRAY_DEFAULT = 488 };
 // negative one counts from the end, unless Z30_QR_OLD_ARRAY_INDEX, which fails it too.
 static bool z30_array_index(long index, long size, long &out)
 {
+    if(zasm30_size_probe)       // (an internal array's size: q30_scripts_arrays.h)
+    {
+        zasm30_probed_size = size;
+        return false;
+    }
+
     if(index >= 0 && index < size)
         out = index;
     else if(index < 0 && size + index >= 0 && !q30_compat_rule(Z30_QR_OLD_ARRAY_INDEX))

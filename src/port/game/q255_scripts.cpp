@@ -383,8 +383,9 @@ static int read_stream(Q255Section &s)
 
         skip_or_keep_literal(s, code ? &code[j] : NULL, s.keep);
 
-        // STACKWRITEATVV_IF is the one command that needs its third argument, the condition
-        if(code && command == 1115)
+        // STACKWRITEATVV_IF needs its third argument (the condition), LOAD_INTERNAL_ARRAY_REF its
+        // ref register
+        if(code && (command == 1115 || command == 1152))
             zasm30_literals[&code[j]].vec.assign(1, arg3);
     }
 
@@ -664,7 +665,7 @@ static int read_one_script(Q255Section &s, word meta, ffscript **slot, int kind,
             if(s.version >= 21)
                 skip_or_keep_literal(s, &script[j], true);
 
-            if(script[j].command == 1115)
+            if(script[j].command == 1115 || script[j].command == 1152)
                 zasm30_literals[&script[j]].vec.assign(1, arg3);
         }
         s.pos = end;

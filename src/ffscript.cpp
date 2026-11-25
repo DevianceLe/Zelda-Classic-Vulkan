@@ -1935,7 +1935,7 @@ enum
     ZASM30_LOAD = 1116, ZASM30_STORE = 1117, ZASM30_STOREV = 1118,
     ZASM30_REF_INC = 1126, ZASM30_REF_DEC = 1127, ZASM30_REF_AUTORELEASE = 1128, ZASM30_REF_REMOVE = 1129, ZASM30_REF_COUNT = 1130,
     ZASM30_MARK_TYPE_STACK = 1131, ZASM30_MARK_TYPE_REG = 1132, ZASM30_STORE_OBJECT = 1134, ZASM30_GC = 1135, ZASM30_SET_OBJECT = 1136,
-    ZASM30_LOAD_FFC = 1143, ZASM30_MARK_TYPE_VARG = 1181, ZASM30_GOTOTABLE = 1187, ZASM30_GOTORANGES = 1188,
+    ZASM30_LOAD_FFC = 1143, ZASM30_MARK_TYPE_VARG = 1181, ZASM30_LOAD_INTERNAL_ARRAY = 1151, ZASM30_LOAD_INTERNAL_ARRAY_REF = 1152, ZASM30_GOTOTABLE = 1187, ZASM30_GOTORANGES = 1188,
     ZASM30_PUSHVARGSTACK = 286, ZASM30_POPVARGSTACK = 287, ZASM30_STRINGCOMPARE = 724, ZASM30_RESIZEARRAYR = 907,
     ZASM30_LOADGENERICDATA = 933, ZASM30_GETGENERICSCRIPT = 936, ZASM30_ARRAYPUSH = 1070, ZASM30_ARRAYPOP = 1071
 };
@@ -2132,12 +2132,14 @@ enum { Z30_OWN_NONE, Z30_OWN_SPRITE, Z30_OWN_SCRIPT, Z30_OWN_GLOBAL };
 struct Zasm30Object
 {
     std::vector<long> data;
+    std::vector<byte> types;    // which fields hold objects (ZCLASS_MARK_TYPE, version 28 on)
+    long nvars;     // data[nvars..] are its member arrays
     long owner;     // the owning sprite's uid (Z30_OWN_SPRITE)
     long id;        // what scripts hold (zasm30_object_ids)
     byte own;
     bool live;
 
-    Zasm30Object() : owner(0), id(0), own(Z30_OWN_NONE), live(false) {}
+    Zasm30Object() : nvars(0), owner(0), id(0), own(Z30_OWN_NONE), live(false) {}
 };
 
 static std::vector<Zasm30Object> zasm30_objects;
@@ -2231,9 +2233,12 @@ static std::vector<Zasm30Instance *> zasm30_retired;
 // generic slot. run_script is still using that memory, and scripts nested inside one another may
 // be using each other's. So while any script runs an instance only leaves the table; run_script
 // stops the script after the current command and the memory goes when the outermost run returns.
+static void zasm30_release_frame(Zasm30Frame &f);     // q30_scripts_arrays.h
+
 static void zasm30_retire_instance(Zasm30Instance *in)
 {
     zasm30_free_instance_arrays(in);
+    zasm30_release_frame(in->frame);    // (its typed stack slots let go, version 28 on)
 
     if(zasm30_run_depth > 0)
     {
@@ -2295,6 +2300,7 @@ static void zasm30_begin(long inits)
     f.ffc_screen = -1;
     memset(f.inst, 0, sizeof(f.inst));
     memset(f.refs, 0, sizeof(f.refs));
+    zasm30_release_frame(f);
     f.objpos.clear();
 
     if(f.wstack.empty())
@@ -2426,8 +2432,14 @@ static void zasm30_object_ids_reset()
     zasm30_ids_live.clear();
 }
 
+static void zasm30_free_dead();     // q30_scripts_arrays.h
+static void zasm30_obj_forget(long id);
+
 static long zasm30_object_id_new()
 {
+    // (what reached 0 goes first, so its id is the next one, as upstream frees at once)
+    zasm30_free_dead();
+
     if(zasm30_id_freelist.empty() && zasm30_ids_live.empty())
         zasm30_object_ids_reset();
 
@@ -2451,6 +2463,8 @@ static long zasm30_object_id_new()
 
 static void zasm30_object_id_free(long id)
 {
+    zasm30_obj_forget(id);
+
     if(zasm30_ids_live.erase(id) && zasm30_id_freelist.size() < 10000)
         zasm30_id_freelist.push_back(id);
 }
@@ -3159,6 +3173,9 @@ public:
     // quests' IsValidArray()).
     static bool isValid(const long ptr)
     {
+        if(zasm30_is_iarr_proxy(ptr))     // an internal array (q30_scripts_arrays.h)
+            return zasm30_iarr_of(ptr) != NULL;
+
         if(ptr <= 0)
             return false;
 
@@ -3171,6 +3188,9 @@ public:
     //Returns a reference to the correct array based on pointer passed
     static ZScriptArray& getArray(const long ptr)
     {
+        if(zasm30_is_iarr_proxy(ptr))     // an internal array: a copy of its elements
+            return zasm30_iarr_copy(ptr);
+
         if(ptr <= 0)
             return InvalidError(ptr);
             
@@ -3203,6 +3223,9 @@ public:
     
     static size_t getSize(const long ptr)
     {
+        if(zasm30_is_iarr_proxy(ptr))
+            return size_t(zasm30_iarr_len(ptr));
+
         ZScriptArray& a = getArray(ptr);
         
         if(a == INVALIDARRAY)
@@ -3264,6 +3287,9 @@ public:
     //Get element from array
     static INLINE long getElement(const long ptr, const long offset)
     {
+        if(zasm30_is_iarr_proxy(ptr))     // through the register, with its own bound check
+            return zasm30_iarr_get(ptr, offset);
+
         ZScriptArray& a = getArray(ptr);
         
         if(a == INVALIDARRAY)
@@ -3278,6 +3304,12 @@ public:
     //Set element in array
     static INLINE void setElement(const long ptr, const long offset, const long value)
     {
+        if(zasm30_is_iarr_proxy(ptr))
+        {
+            zasm30_iarr_set(ptr, offset, value);
+            return;
+        }
+
         ZScriptArray& a = getArray(ptr);
         
         if(a == INVALIDARRAY)
@@ -9395,7 +9427,12 @@ void do_tracetobase()
 void do_arraysize()
 {
     long arrayptr = zasm30_aptr(get_register(sarg1));
-    set_register(sarg1, (long)(ArrayH::getSize(arrayptr) * 10000));
+
+    // 2.55 and 3.0 put the size in EXP1 (a range for passes the array in INDEX); 2.53 in the argument
+    if(zasm30_ffscript_version > 0)
+        ri->d[2] = (long)(ArrayH::getSize(arrayptr) * 10000);
+    else
+        set_register(sarg1, (long)(ArrayH::getSize(arrayptr) * 10000));
 }
 
 void do_getsavename()
@@ -9838,7 +9875,7 @@ static void zasm30_mark(long v, std::vector<long> &work)
 
     if(zasm30_gc_arrays())          // (version 28 on: array ids, q30_scripts_arrays.h)
     {
-        if(v <= 0 || !(p = zasm30_aptr(v)))
+        if(v <= 0 || (p = zasm30_aptr(v)) <= 0)      // (an internal array's proxy is below 0)
             return;
     }
     else
@@ -9864,7 +9901,14 @@ static void zasm30_mark_script(const refInfo &r, const long *stack_base, const Z
     for(int n = 0; n < 2 && !zasm30_mark_no_regs; ++n)
         zasm30_mark(r.a[n], work);
 
-    if(!frame.wstack.empty())
+    if(!frame.wstack.empty() && zasm30_mark_no_regs)
+    {
+        // (only the slots typed as objects: a variable that left scope leaves its id behind)
+        for(std::set<long>::const_iterator it = frame.objpos.begin(); it != frame.objpos.end(); ++it)
+            if(*it >= 0 && *it < (long)frame.wstack.size())
+                zasm30_mark(frame.wstack[*it], work);
+    }
+    else if(!frame.wstack.empty())
     {
         // (a script can leave its stack pointer anywhere: below the stack there is nothing to mark)
         for(long n = frame.sp < 0 ? 0 : frame.sp; n < ZASM30_STACK_SIZE && n < (long)frame.wstack.size(); ++n)
@@ -9892,7 +9936,7 @@ static void zasm30_mark_script(const refInfo &r, const long *stack_base, const Z
 
     // (the file, directory and stack a script last used: only the running script's count, in
     // zasm30_collect; the others would keep a file open that nothing can reach)
-    for(int n = 0; n < Z30REF_COUNT; ++n)
+    for(int n = 0; n < Z30REF_COUNT && !zasm30_mark_no_regs; ++n)
         if(n != Z30REF_FILE && n != Z30REF_DIRECTORY && n != Z30REF_STACK)
             zasm30_mark(frame.refs[n], work);
 }
@@ -9957,7 +10001,7 @@ static void zasm30_collect_mark()
             if(game->screen_d[n][m])
                 zasm30_mark(game->screen_d[n][m], work);
 
-    if(zasm30_cur_frame)    // the running script's file, directory and stack registers
+    if(zasm30_cur_frame && !zasm30_mark_no_regs)    // the running script's file, directory and stack registers
     {
         zasm30_mark(zasm30_cur_frame->refs[Z30REF_FILE], work);
         zasm30_mark(zasm30_cur_frame->refs[Z30REF_DIRECTORY], work);
@@ -9988,6 +10032,22 @@ static void zasm30_collect_mark()
         for(dword m = 0; m < a.Size(); ++m)
             zasm30_mark(a[m], work);
     }
+}
+
+static bool zasm30_handle_marked(long id);     // q30_scripts_cmds.h
+
+// Did the last mark reach this object? (zasm30_free_dead)
+static bool zasm30_reached(long id)
+{
+    if(const long p = zasm30_counted_slot(id))
+        return zasm30_gc_marked[p];
+
+    const long n = zasm30_object_index(id);
+
+    if(n >= 0)
+        return n < (long)zasm30_obj_marked.size() && zasm30_obj_marked[n];
+
+    return zasm30_handle_marked(id);
 }
 
 static void zasm30_collect()
@@ -10100,18 +10160,29 @@ static long zasm30_construct(const std::vector<long> &layout)
         return 0;
     }
 
-    Zasm30Object &o = zasm30_objects[n];
-    o.live = true;
-    o.owner = 0;
-    o.id = id;
-    zasm30_object_ids[id] = n;
-    o.own = Z30_OWN_GLOBAL;     // nothing holds it yet: a collection for its arrays must keep it
-    o.data.assign((size_t)vbound(layout[0], 0, 214748), 0);
+    {
+        Zasm30Object &o = zasm30_objects[n];
+        o.live = true;
+        o.owner = 0;
+        o.id = id;
+        zasm30_object_ids[id] = n;
+        o.own = Z30_OWN_GLOBAL;     // nothing holds it yet: a collection for its arrays must keep it
+        o.data.assign((size_t)vbound(layout[0], 0, 214748), 0);
+        o.types.clear();
+        o.nvars = (long)o.data.size();
+    }
+
+    // version 28 on: one reference, in the autorelease pool; the object holds its member arrays
+    zasm30_obj_new(id);
 
     for(size_t k = 1; k < layout.size(); ++k)
-        o.data.push_back(zasm30_new_array_or_collect(layout[k]));
+    {
+        const long a = zasm30_new_array_or_collect(layout[k]);
+        zasm30_objects[n].data.push_back(a);
+        zasm30_ref_inc(a);
+    }
 
-    o.own = Z30_OWN_NONE;
+    zasm30_objects[n].own = Z30_OWN_NONE;
     return id;
 }
 
@@ -10129,6 +10200,9 @@ void zasm30_sprite_released(long uid)
         {
             o.own = Z30_OWN_NONE;
             o.owner = 0;
+
+            if(zasm30_obj_refcount(o.id) == 0)      // (nothing else holds it: it goes)
+                zasm30_dead.push_back(o.id);
         }
     }
 }
@@ -12267,7 +12341,16 @@ int run_script(const byte type, const word script, const byte i)
             Zasm30Object *o = zasm30_object(get_register(sarg1));
 
             if(o && sarg2 >= 0 && sarg2 < (long)o->data.size())
+            {
+                // a field typed as an object holds a reference (upstream's writeclass_impl)
+                if(sarg2 < (long)o->types.size() && o->types[sarg2])
+                {
+                    zasm30_ref_inc(ri->d[2]);
+                    zasm30_ref_dec(o->data[sarg2]);
+                }
+
                 o->data[sarg2] = ri->d[2];
+            }
             break;
         }
 
@@ -12327,9 +12410,37 @@ int run_script(const byte type, const word script, const byte i)
                 zasm30_mark_type_stack(sarg1, sarg2);
             break;
 
+        // (index, type) pairs: which of `this`'s fields hold objects (upstream's var_types)
+        case ZASM30_ZCLASS_MARK_TYPE:
+            if(zasm30_gc_arrays())
+            {
+                std::map<const ffscript *, Zasm30Literal>::iterator it = zasm30_literals.find(&curscript[pc]);
+                Zasm30Object *o = zasm30_object(zasm30_frame().thiskey);
+
+                if(it != zasm30_literals.end() && o)
+                {
+                    const std::vector<long> &vec = it->second.vec;
+
+                    for(size_t k = 0; k + 1 < vec.size(); k += 2)
+                    {
+                        if(vec[k] < 0 || vec[k] >= o->nvars || vec[k + 1] <= 0)
+                            continue;
+
+                        if((long)o->types.size() <= vec[k])
+                            o->types.resize(vec[k] + 1, 0);
+                        o->types[vec[k]] = 1;
+                    }
+                }
+            }
+            break;
+
+        case ZASM30_LOAD_INTERNAL_ARRAY:
+        case ZASM30_LOAD_INTERNAL_ARRAY_REF:
+            zasm30_load_internal_array(scommand == ZASM30_LOAD_INTERNAL_ARRAY_REF, &curscript[pc]);
+            break;
+
         case ZASM30_REF_COUNT:
         case ZASM30_MARK_TYPE_REG:
-        case ZASM30_ZCLASS_MARK_TYPE:
         case ZASM30_GC:
             break;
 

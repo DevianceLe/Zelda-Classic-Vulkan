@@ -972,8 +972,13 @@ static bool q30_repeated_scripterr(const std::string &line, std::string &note)
     return false;
 }
 
+extern bool zasm30_size_probe;     // ffscript.cpp: an internal array's size is being read
+
 void Z_scripterrlog(const char * const format,...)
 {
+    if(zasm30_size_probe)
+        return;
+
     if((get_bit(quest_rules,qr_SCRIPTERRLOG) || DEVLEVEL > 0) && quest_header_zelda_version >= 0x255)
     {
         // 2.55/3.0 quests: the whole line at once, unless it repeats one shown in the last 300
