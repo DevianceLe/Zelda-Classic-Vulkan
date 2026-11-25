@@ -20,6 +20,19 @@
 
 extern ffscript *zasm30_stream;
 
+// Upstream's ustricmp and ustrnicmp as its players run them: on UTF-8 text (Allegro's default
+// format, which upstream keeps outside the ending), so "É" and "é" are equal and n counts
+// characters, whatever text format this engine runs in (2.53's ASCII). Upstream 2.55.19
+// (637497cd1) moved stricmp() onto ustricmp to match strnicmp(), which already used ustrnicmp.
+static int z30_utf8_stricmp(const char *a, const char *b, int n = -1)
+{
+    const int was = get_uformat();
+    set_uformat(U_UTF8);
+    const int r = n < 0 ? ustricmp(a, b) : ustrnicmp(a, b, n);
+    set_uformat(was);
+    return r;
+}
+
 #include "q30_scripts_light.h"
 #include "subscr.h"
 #include "q30_scripts_subscr.h"
@@ -3243,7 +3256,8 @@ static bool zasm30_command(word cmd)
         ArrayH::getString(zasm30_aptr(ri->d[0]), a);
         ArrayH::getString(zasm30_aptr(ri->d[3]), b);
         long len = ri->d[2] / 10000;
-        int r = cmd == Z30C_STRINGNCOMPARE ? strncmp(a.c_str(), b.c_str(), len) : strnicmp(a.c_str(), b.c_str(), len);
+        int r = cmd == Z30C_STRINGNCOMPARE ? strncmp(a.c_str(), b.c_str(), len) :
+                len > 0 ? z30_utf8_stricmp(a.c_str(), b.c_str(), (int)len) : 0;     // (ustrnicmp: nothing to compare)
         set_register(sarg1, vbound(r, -1, 1) * 10000);
         return true;
     }
@@ -3253,7 +3267,7 @@ static bool zasm30_command(word cmd)
         string a, b;
         ArrayH::getString(zasm30_aptr(ri->d[0]), a);
         ArrayH::getString(zasm30_aptr(ri->d[1]), b);
-        set_register(sarg1, vbound(stricmp(a.c_str(), b.c_str()), -1, 1) * 10000);
+        set_register(sarg1, vbound(z30_utf8_stricmp(a.c_str(), b.c_str()), -1, 1) * 10000);
         return true;
     }
 
@@ -4908,6 +4922,9 @@ static bool zasm30_command(word cmd)
         ri->d[2] = f ? fgetc(f->f) * 10000 : -10000;
         return true;
     }
+    // A string's characters are 0-255 (upstream 2.55.19, 074995ea8): those and -128 to -1 (from
+    // scripts written when they were negative) go in as they are, so 255 is no longer taken for
+    // EOF; anything else is logged and cut to a byte.
     case Z30C_FILEPUTCHAR:
     {
         Z30File *f = z30_file(Z30_REF(FILE), true);

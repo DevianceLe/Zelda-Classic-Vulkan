@@ -1585,6 +1585,12 @@ int readsaves(gamedata *savedata, PACKFILE *f)
             
         if(tempdword != 0) //Might not be any at all
         {
+            // A damaged save's sizes would use up all memory before anything is read, so they
+            // are checked first, as upstream 2.55.19 does (bc1f27182): scripts can't make more
+            // global arrays than this (the 2.55/3.0 store adds a few of its own at the end).
+            if(tempdword > 214748 + 64)
+                return 53;
+
             //Then we allocate the vector
             savedata[i].globalRAM.resize(tempdword);
             
@@ -1596,7 +1602,10 @@ int readsaves(gamedata *savedata, PACKFILE *f)
                 if(!p_igetl(&tempdword, f, true))
                     return 54;
                     
-                //We allocate the container
+                //We allocate the container (no real save holds an array anywhere near this)
+                if(tempdword > (1 << 24))
+                    return 54;
+
                 a.Resize(tempdword);
                 
                 //And then fill in the contents

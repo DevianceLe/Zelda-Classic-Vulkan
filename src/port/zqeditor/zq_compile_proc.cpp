@@ -14,6 +14,7 @@
 #include "zq_compile_proc.h"
 
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <thread>
@@ -215,6 +216,22 @@ struct Child
         GetExitCodeProcess(process, &code);
         return (int)code;
     }
+
+    // How the compiler ended, once its pipe closed: as upstream 2.55.19's describe_exit
+    // (a79ba718d). It may still be finishing, so it gets two seconds.
+    std::string describe_exit()
+    {
+        if(!process)
+            return "was killed";
+        if(WaitForSingleObject(process, 2000) != WAIT_OBJECT_0)
+            return "is still running";
+        DWORD code = 0;
+        if(!GetExitCodeProcess(process, &code))
+            return "exited for an unknown reason";
+        char b[64];
+        snprintf(b, sizeof(b), "exited with code %d (0x%08lX)", (int)code, (unsigned long)code);
+        return b;
+    }
 };
 
 #else
@@ -223,8 +240,10 @@ struct Child
 {
     pid_t pid;
     int in_w, out_r;
+    bool reaped;        // waited for: status holds how it ended
+    int status;
 
-    Child() : pid(-1), in_w(-1), out_r(-1) {}
+    Child() : pid(-1), in_w(-1), out_r(-1), reaped(false), status(0) {}
     ~Child() { close(); }
 
     void close()
@@ -340,27 +359,79 @@ struct Child
         return true;
     }
 
+    // Waits for the child if it has ended (block: until it does), keeping its wait status, as
+    // upstream 2.55.19's process_killer (a79ba718d). ECHILD (reaped elsewhere) counts as reaped.
+    void reap(bool block)
+    {
+        if(reaped || pid <= 0)
+            return;
+        int st = 0;
+        pid_t r;
+        do
+            r = waitpid(pid, &st, block ? 0 : WNOHANG);
+        while(r < 0 && errno == EINTR);
+        if(r == pid)
+        {
+            reaped = true;
+            status = st;
+        }
+        else if(r < 0 && errno == ECHILD)
+            reaped = true;
+    }
+
+    // Up to n tries 10 ms apart for the child to end by itself.
+    void reap_within(int n)
+    {
+        for(int i = 0; i < n && !reaped; ++i)
+        {
+            reap(false);
+            if(!reaped)
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+
+    // A pid already waited for may belong to another process by now: never signalled.
     void kill()
     {
-        if(pid > 0)
+        reap(false);
+        if(pid > 0 && !reaped)
+        {
             ::kill(pid, SIGKILL);
+            reap(true);
+        }
     }
 
     int wait_exit()
     {
         if(pid <= 0)
             return -1;
-        int st = 0;
-        for(int i = 0; i < 500; ++i)
+        reap_within(500);
+        return reaped && WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    }
+
+    // How the compiler ended, once its pipe closed: as upstream's describe_exit. It may still
+    // be finishing, so it gets two seconds.
+    std::string describe_exit()
+    {
+        if(pid <= 0)
+            return "was killed";
+        reap_within(200);
+        if(!reaped)
+            return "is still running";
+        char b[96];
+        if(WIFSIGNALED(status))
         {
-            pid_t r = waitpid(pid, &st, WNOHANG);
-            if(r == pid)
-                return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
-            if(r < 0)
-                return -1;
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            const int sig = WTERMSIG(status);
+            const char *name = strsignal(sig);
+            snprintf(b, sizeof(b), "was killed by signal %d (%s)", sig, name ? name : "unknown");
+            return b;
         }
-        return -1;
+        if(WIFEXITED(status))
+        {
+            snprintf(b, sizeof(b), "exited with code %d", WEXITSTATUS(status));
+            return b;
+        }
+        return "exited for an unknown reason";
     }
 };
 
@@ -449,9 +520,13 @@ int zq_run_linked_compiler(const std::string &exe, const std::vector<std::string
         return ZQ_PROC_TIMEOUT;
     }
 
+    // The pipe closed or the compiler broke the protocol: how it ended (killing it first would
+    // only report the kill), then it is stopped if it hasn't ended, as upstream 2.55.19 says
+    // (a79ba718d): "The parser process died unexpectedly: zscript ...".
+    const std::string how = c.describe_exit();
     c.kill();
-    int exit_code = c.wait_exit();
-    why = "the compiler stopped unexpectedly (exit code " + std::to_string(exit_code) + ")";
+    c.wait_exit();
+    why = "the compiler stopped unexpectedly: it " + how;
     return ZQ_PROC_DIED;
 }
 

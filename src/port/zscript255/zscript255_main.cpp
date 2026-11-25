@@ -203,6 +203,9 @@ struct LinkedPipe
 	}
 };
 static LinkedPipe* ConsoleWrite = nullptr;
+// Where console text goes when it can't be sent through ConsoleWrite. In linked mode stdout is
+// the pipe to the parent, so this is stderr there (as upstream 2.55.19, a9981a9f6).
+static FILE* console_fallback_out = stdout;
 
 static void write_message_line(char const* str, int32_t code)
 {
@@ -246,7 +249,7 @@ void _console_print(char const* str, int32_t code)
 		ConsoleWrite->write(&code, sizeof(int32_t));
 		ConsoleWrite->read(&code, sizeof(int32_t));
 	}
-	else printf("%s\n", str);
+	else fprintf(console_fallback_out, "%s\n", str);
 }
 
 // Upstream formats its messages with Microsoft's _vsnprintf on Windows. Unlike the
@@ -412,11 +415,13 @@ int main(int argc, char **argv)
 		}
 		else
 		{
-			fprintf(stderr, "zscript255: upstream ZQuest Classic 2.55.18's ZScript compiler.\n"
+			fprintf(stderr, "zscript255: upstream ZQuest Classic 2.55.19's ZScript compiler.\n"
 				"Needs -linked or -unlinked, and -input <file>; see zscript255_main.cpp.\n");
 			return 1;
 		}
 	}
+	if(linked)
+		console_fallback_out = stderr;
 	// Files named on the command line are relative to where the program was started,
 	// whatever -chdir does.
 	std::error_code start_ec;
@@ -516,7 +521,6 @@ int main(int argc, char **argv)
 	}
 
 	std::unique_ptr<LinkedPipe> cph(linked ? new LinkedPipe() : nullptr);
-	ConsoleWrite = cph.get();
 
 	if (!zscript_load_base_config("base_config/zscript.cfg"))
 	{
@@ -571,6 +575,11 @@ int main(int argc, char **argv)
 
 	if(linked)
 	{
+		// Only send console messages to the parent from here on. It reads this first value
+		// without replying, so a message sent before it (like an error above) would leave both
+		// processes waiting on each other. Earlier errors go to stderr, and the parent sees
+		// this process exit (upstream 2.55.19, a9981a9f6).
+		ConsoleWrite = cph.get();
 		cph->write(&syncthing, sizeof(int32_t));
 	}
 

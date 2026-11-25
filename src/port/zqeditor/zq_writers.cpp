@@ -1345,7 +1345,7 @@ ZqNewerRegistration::ZqNewerRegistration(dword id, ZqNewerWriter writer, const c
 
 const char *zq_newer_target_name(int target)
 {
-    return target == ZQ_NEWER_255 ? "2.55.18" : "3.0 Nightly";
+    return target == ZQ_NEWER_255 ? "2.55.19" : "3.0 Nightly";
 }
 
 bool zq_newer_upgrades(int target)

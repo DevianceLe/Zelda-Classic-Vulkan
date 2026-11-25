@@ -3434,6 +3434,8 @@ public:
                 return _Overflow;
             }
             
+            // 2.55/3.0 quests: a character outside ASCII is 0-255 on every platform, as upstream
+            // 2.55.19 gives it (8ff70647a); 2.53 quests keep 2.53's signed char
             if(BC::checkUserArrayIndex(i, a.Size()) == _NoError)
                 a[i] = (bytes ? (int)(byte)s2[i] : (int)s2[i]) * 10000;
         }

@@ -312,7 +312,7 @@ int zqn_header(PACKFILE *f, const ZqNewerContext &ctx)
     }
     else
     {
-        o.l(2); o.l(55); o.l(18); o.l(0);   // 2.55.18 (V_ZC_THIRD: all its writer changed from 2.55.17's)
+        o.l(2); o.l(55); o.l(19); o.l(0);   // 2.55.19 (V_ZC_THIRD; its sections are 2.55.18's, which changed from 2.55.17's)
         o.l(0); o.l(0); o.l(0); o.l(1);     // a release
     }
 
@@ -807,7 +807,7 @@ int zqn_advmusic(PACKFILE *f, const ZqNewerContext &ctx)
     return emit(f, ID_ADVMUSIC_, 1, 1, NULL, o);
 }
 
-ZqNewerRegistration g_reg_header(ID_HEADER, zqn_header, "header for 2.55.18 and 3.0");
+ZqNewerRegistration g_reg_header(ID_HEADER, zqn_header, "header for 2.55.19 and 3.0");
 ZqNewerRegistration g_reg_zinfo(ID_ZINFO_, zqn_zinfo, "editor names for 2.55.18 and 3.0");
 ZqNewerRegistration g_reg_rules(ID_RULES, zqn_rules_section, "rules for 2.55.18 and 3.0");
 ZqNewerRegistration g_reg_doors(ID_DOORS, zqn_doors, "door combo sets for 2.55.18 and 3.0");

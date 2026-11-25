@@ -1108,9 +1108,11 @@ static int zq_save_own(const char *path)
 // The versions Save As offers: the quest's own, or newer ones (never an older one).
 enum { ZQV_CANCEL, ZQV_OWN, ZQV_253, ZQV_255, ZQV_30 };
 
-// Whether a quest was made in the 2.55 release "As 2.55.18" writes for, or a later one: saving
-// such a quest "as 2.55.18" would only mark it as older. A quest made in 2.55.17 or before is
-// offered it: 2.55.18 writes every section as 2.55.17 does, and its header says 2.55.18 saved it.
+// Whether a quest was made in 2.55.18 or a later 2.55 release: "As 2.55.19" isn't offered for it.
+// 2.55.19 writes every section in 2.55.18's formats, so such a quest is already in them (a quest
+// made in 2.55.19 or later would only be marked as older), and its own version keeps it as made.
+// A quest made in 2.55.17 or before is offered it: its sections come up to 2.55.18's formats,
+// and the header says 2.55.19 saved it, as 2.55.19 itself does.
 static bool zq_made_in_255_release(const std::string &made, long patch)
 {
     if(made.compare(0, 5, "2.55.") != 0)
@@ -1158,7 +1160,7 @@ static int zq_choose_version()
 
     if(up.size() > 1)
     {
-        const char *label[4] = { "", "", "As 2.53.1", "As 2.55.18" };
+        const char *label[4] = { "", "", "As 2.53.1", "As 2.55.19" };
         const char *b[3] = { NULL, NULL, NULL };
 
         for(size_t i = 0; i < up.size(); ++i)
@@ -1175,7 +1177,7 @@ static int zq_choose_version()
 
     if(pick == ZQV_255 || pick == ZQV_30)
     {
-        const char *t = pick == ZQV_255 ? "2.55.18" : "3.0 Nightly";
+        const char *t = pick == ZQV_255 ? "2.55.19" : "3.0 Nightly";
         std::string q = std::string("Older versions of ZC can't open a ") + t + " quest file.";
         std::string a = std::string("Save this quest as ") + t + "?";
 
@@ -1602,7 +1604,7 @@ static bool zq_map_file_too_new(const char *path)
     snprintf(l1, sizeof(l1), "This map file's screens are in map format %d: ZC 2.55 or 3.0 Nightly wrote it.", version);
     snprintf(l2, sizeof(l2), "This quest was made in ZC %s, whose file format holds screens up to format %d.", zq_made_in().c_str(), V_MAPS);
 
-    if(jwin_alert("Import", l1, l2, "Save the quest as 2.55.18 or 3.0 Nightly first, then import the file?", "&Save As...", "&Cancel", 's', 'c', lfont) == 1)
+    if(jwin_alert("Import", l1, l2, "Save the quest as 2.55.19 or 3.0 Nightly first, then import the file?", "&Save As...", "&Cancel", 's', 'c', lfont) == 1)
         onSaveAs();
 
     return true;
@@ -1825,7 +1827,7 @@ static bool zq_import_too_new(const char *path)
     else
         snprintf(l2, sizeof(l2), "This quest was made in ZC %s, whose file format holds %s up to format %d.", zq_made_in().c_str(), what, newest);
 
-    if(jwin_alert("Import", l1, l2, "Save the quest as 2.55.18 or 3.0 Nightly first, then import the file?", "&Save As...", "&Cancel", 's', 'c', lfont) == 1)
+    if(jwin_alert("Import", l1, l2, "Save the quest as 2.55.19 or 3.0 Nightly first, then import the file?", "&Save As...", "&Cancel", 's', 'c', lfont) == 1)
         onSaveAs();
 
     return true;

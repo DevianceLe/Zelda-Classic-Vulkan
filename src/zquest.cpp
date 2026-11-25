@@ -630,7 +630,7 @@ static int newer_feature_refused(const char *title, const char *what, const char
     return D_O_K;
 }
 
-static const char *const needs_255_or_30 = "2.55.18 or 3.0 Nightly";
+static const char *const needs_255_or_30 = "2.55.19 or 3.0 Nightly";
 static const char *const needs_30 = "3.0 Nightly";
 
 // Edit > Maps > Scrolling Regions: the current map's region ids (3.0 quests whose map section

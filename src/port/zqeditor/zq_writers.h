@@ -103,11 +103,11 @@ std::string zq_part_name(const ZqQuestPart &p);
 
 enum ZqNewerTarget
 {
-    ZQ_NEWER_255 = 1,       // ZC 2.55.17, the last 2.55 release
+    ZQ_NEWER_255 = 1,       // ZC 2.55.19, the last 2.55 release (its section formats are 2.55.18's)
     ZQ_NEWER_30 = 2         // ZC 3.0 Nightly (upstream main at ef321f8)
 };
 
-const char *zq_newer_target_name(int target);      // "2.55.18", "3.0 Nightly"
+const char *zq_newer_target_name(int target);      // "2.55.19", "3.0 Nightly"
 
 // What a newer-version writer knows about the quest it converts. Upstream's loader converts an
 // old quest's data as it reads it, by the quest's header version and by each section's own
