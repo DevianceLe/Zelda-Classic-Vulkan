@@ -3438,6 +3438,7 @@ void draw_lens_over()
 //----------------------------------------------------------------
 
 bool q30_active();
+bool q30_quest_rule(int id);     // q30_triggers.cpp
 extern int q30_game_frame_base;  // zelda.cpp
 void draw_wavy(BITMAP *source, BITMAP *target, int amplitude, bool interpol)
 {
@@ -3451,12 +3452,27 @@ void draw_wavy(BITMAP *source, BITMAP *target, int amplitude, bool interpol)
     //  int amplitude=8;
     //  int wavelength=4;
     amplitude = zc_min(2048,amplitude); // some arbitrary limit to prevent crashing
-    int amp2=zc_field_h();  // the rows shown: 168, or 176 with the 232-row picture
+    int rows=zc_field_h();  // the rows shown: 168, or 176 with the 232-row picture
+    int amp2=rows;
+
+    if(q30_active())
+    {
+        // 2.55/3.0 (upstream's flash_reduction_enabled(): the player's flash reduction setting or
+        // the quest's epilepsy rule): a smaller, slower wave unless the quest's rules turn that off
+        bool flash = epilepsyFlashReduction || q30_quest_rule(169);    // qr_EPILEPSY
+
+        if(flash && !q30_quest_rule(298))       // qr_WAVY_NO_EPILEPSY
+            amplitude = zc_min(16,amplitude);
+
+        if(flash && !q30_quest_rule(299))       // qr_WAVY_NO_EPILEPSY_2
+            amp2*=2;
+    }
+
     // (2.55/3.0: upstream counts the phase by its global frame counter, which the game start
     // resets and which runs one behind ours: Mystical Harps' wavy rooms row for row)
     int i=q30_active() ? (((frame - q30_game_frame_base - 1) % amp2) + amp2) % amp2 : frame%amp2;
 
-    for(int j=0; j<amp2; j++)
+    for(int j=0; j<rows; j++)
     {
         if(j&1 && interpol)
         {

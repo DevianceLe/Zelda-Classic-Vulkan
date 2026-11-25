@@ -311,6 +311,19 @@ void q30_savemenu_game_over()
         z30_savemenu_run(zasm30_save_menus[ix]);
 }
 
+// A save point combo's menu (upstream trigger_save): the quest's save menu the combo names
+// (1-based); false when there is none, and the old save screen opens instead
+bool q30_savemenu_save_point(int menu, bool continue_point)
+{
+    const int ix = menu - 1;
+
+    if(ix < 0 || ix >= Q30_NUM_SAVE_MENUS || !z30_savemenu_valid(zasm30_save_menus[ix]))
+        return false;
+
+    z30_savemenu_run(zasm30_save_menus[ix], -1, continue_point);
+    return true;
+}
+
 // F6 and Game->ShowF6Screen in a 2.55/3.0 quest (upstream's onTryQuit, then runF6Engine at the
 // end of a frame): the quest's F6 global script runs as a menu, else its F6 save menu opens,
 // else the end-game question. With qr_OLD_F6, the end-game question at once, as before.

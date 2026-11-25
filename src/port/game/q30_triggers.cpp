@@ -47,6 +47,10 @@ static bool msgstr_blocking_step()
     return msgstr != 0 && get_bit(quest_rules, qr_MSGFREEZE);
 }
 
+// A save point combo's own save menu (q30_scripts_sys.h): false when it names none
+bool q30_savemenu_save_point(int menu, bool continue_point);
+bool save_game(bool savepoint, int type);   // title.cpp
+
 // 2.55/3.0 scripts' saved portals (q30_scripts_sys.h): kept in the state array below as kind 9
 void q30_saved_portals_store(std::vector<long> &out);
 void q30_saved_portals_load(const std::vector<long> &kv);
@@ -3681,6 +3685,37 @@ void trigger_chest(const H &h, const Q30Combo *c);
 void trigger_lockblock(const H &h, const Q30Combo *c);
 void trigger_armos_grave(const H &h, const Q30Combo *c);
 
+// A save point combo's "Cmb Type Effects" (upstream combos.cpp trigger_save): flag 1 refills life
+// to attribute 8 percent, flag 2 magic to attribute 9 percent, then attribute 10's save menu
+// (1-based) or the save screen (Save and Quit for Save Point 2).
+void trigger_save(const Q30Combo *c)
+{
+    const int save_type = c->type == cSAVE2 ? 1 : 0;
+
+    if(c->usrflags & 0x1)       // restore life
+    {
+        word life = c->attributes[8] >= 100 * 10000L ? game->get_maxlife()
+                    : word((int64_t)c->attributes[8] * game->get_maxlife() / (100 * 10000L));
+
+        if(game->get_life() < life)
+            game->set_life(life);
+    }
+
+    if(c->usrflags & 0x2)       // restore magic
+    {
+        word magic = c->attributes[9] >= 100 * 10000L ? game->get_maxmagic()
+                     : word((int64_t)c->attributes[9] * game->get_maxmagic() / (100 * 10000L));
+
+        if(game->get_magic() < magic)
+            game->set_magic(magic);
+    }
+
+    const bool continue_point = (tmpscr->flags4 & fSAVEROOM) != 0;
+
+    if(!q30_savemenu_save_point(a_int(c->attributes[10]), continue_point))
+        save_game(continue_point, save_type);
+}
+
 // A warp can't run while triggers are being walked: Link's frame picks it up.
 void queue_warp(int type)
 {
@@ -3831,6 +3866,10 @@ void trigger_type_effects(const H &h, const Q30Combo *c, const Q30Trigger &t, si
 
     case Q30C_CUTSCENETRIG:
         q30_cutscene_flags(c);
+        break;
+
+    case cSAVE: case cSAVE2:
+        trigger_save(c);
         break;
 
     default:

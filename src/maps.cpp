@@ -2241,6 +2241,25 @@ void bombdoor(int x,int y)
 enum { Q30_FFC_ALL = 100 };
 static int q30_ffc_pass = Q30_FFC_ALL, q30_ffc_pass_also = Q30_FFC_ALL;
 
+// A combo drawn over the screen (layers 1-6, push blocks, overhead combos): opaque, or translucent
+// at the layer's opacity. 2.55/3.0 quests (upstream's draw_cmb): a combo with the "transparent"
+// animation flag (AF_TRANSPARENT) flips the layer's translucency, and translucent is always 128.
+bool combo_transparent(int cmbdat);     // tiles.cpp
+static void layer_overcombo(BITMAP *bmp, int x, int y, int cmbdat, int cset, int opacity)
+{
+    if(tiles_newer_combo_flags)
+    {
+        if((opacity != 255) != combo_transparent(cmbdat))
+            overcombotranslucent(bmp, x, y, cmbdat, cset, 128);
+        else
+            overcombo(bmp, x, y, cmbdat, cset);
+    }
+    else if(opacity == 255)
+        overcombo(bmp, x, y, cmbdat, cset);
+    else
+        overcombotranslucent(bmp, x, y, cmbdat, cset, opacity);
+}
+
 void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool scrolling, int tempscreen)
 {
     static int mf;
@@ -2297,7 +2316,7 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
             
             if(mf==mfPUSHUD || mf==mfPUSH4 || mf==mfPUSHED || ((mf>=mfPUSHLR)&&(mf<=mfPUSHRINS)))
             {
-                overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,layer->data[i],layer->cset[i]);
+                layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,layer->data[i],layer->cset[i],255);
             }
             else
             {
@@ -2305,7 +2324,7 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
                 
                 if(mf==mfPUSHUD || mf==mfPUSH4 || mf==mfPUSHED || ((mf>=mfPUSHLR)&&(mf<=mfPUSHRINS)))
                 {
-                    overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,layer->data[i],layer->cset[i]);
+                    layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,layer->data[i],layer->cset[i],255);
                 }
             }
         }
@@ -2320,7 +2339,7 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
             if(combo_class_buf[combobuf[layer->data[i]].type].overhead
                || (tiles_newer_combo_flags && (combobuf[layer->data[i]].animflags & 0x40)))
             {
-                overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,layer->data[i],layer->cset[i]);
+                layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,layer->data[i],layer->cset[i],255);
             }
         }
         
@@ -2345,14 +2364,14 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
                         {
                             for(int i=0; i<176; i++)
                             {
-                                overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i]);
+                                layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i],255);
                             }
                         }
                         else
                         {
                             for(int i=0; i<176; i++)
                             {
-                                overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i]);
+                                layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i],255);
                             }
                         }
                     }
@@ -2362,14 +2381,14 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
                         {
                             for(int i=0; i<176; i++)
                             {
-                                overcombotranslucent(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i],layer->layeropacity[type]);
+                                layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i],layer->layeropacity[type]);
                             }
                         }
                         else
                         {
                             for(int i=0; i<176; i++)
                             {
-                                overcombotranslucent(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i],layer->layeropacity[type]);
+                                layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i],layer->layeropacity[type]);
                             }
                         }
                     }
@@ -2382,14 +2401,14 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
                         {
                             for(int i=0; i<176; i++)
                             {
-                                overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i]);
+                                layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i],255);
                             }
                         }
                         else
                         {
                             for(int i=0; i<176; i++)
                             {
-                                overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i]);
+                                layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i],255);
                             }
                         }
                     }
@@ -2399,14 +2418,14 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
                         {
                             for(int i=0; i<176; i++)
                             {
-                                overcombotranslucent(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i],layer->layeropacity[type]);
+                                layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i],layer->layeropacity[type]);
                             }
                         }
                         else
                         {
                             for(int i=0; i<176; i++)
                             {
-                                overcombotranslucent(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i],layer->layeropacity[type]);
+                                layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i],layer->layeropacity[type]);
                             }
                         }
                     }
@@ -2448,14 +2467,14 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
                             {
                                 for(int i=0; i<176; i++)
                                 {
-                                    overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i]);
+                                    layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i],255);
                                 }
                             }
                             else
                             {
                                 for(int i=0; i<176; i++)
                                 {
-                                    overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i]);
+                                    layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i],255);
                                 }
                             }
                         }
@@ -2485,14 +2504,14 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
                             {
                                 for(int i=0; i<176; i++)
                                 {
-                                    overcombotranslucent(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i],layer->layeropacity[type]);
+                                    layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i],layer->layeropacity[type]);
                                 }
                             }
                             else
                             {
                                 for(int i=0; i<176; i++)
                                 {
-                                    overcombotranslucent(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i],layer->layeropacity[type]);
+                                    layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i],layer->layeropacity[type]);
                                 }
                             }
                         }
@@ -2525,14 +2544,14 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
                             {
                                 for(int i=0; i<176; i++)
                                 {
-                                    overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i]);
+                                    layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i],255);
                                 }
                             }
                             else
                             {
                                 for(int i=0; i<176; i++)
                                 {
-                                    overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i]);
+                                    layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i],255);
                                 }
                             }
                         }
@@ -2562,14 +2581,14 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
                             {
                                 for(int i=0; i<176; i++)
                                 {
-                                    overcombotranslucent(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i],layer->layeropacity[type]);
+                                    layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i],layer->layeropacity[type]);
                                 }
                             }
                             else
                             {
                                 for(int i=0; i<176; i++)
                                 {
-                                    overcombotranslucent(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i],layer->layeropacity[type]);
+                                    layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i],layer->layeropacity[type]);
                                 }
                             }
                         }
@@ -2612,14 +2631,14 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
                             {
                                 for(int i=0; i<176; i++)
                                 {
-                                    overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i]);
+                                    layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i],255);
                                 }
                             }
                             else
                             {
                                 for(int i=0; i<176; i++)
                                 {
-                                    overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i]);
+                                    layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i],255);
                                 }
                             }
                         }
@@ -2649,14 +2668,14 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
                             {
                                 for(int i=0; i<176; i++)
                                 {
-                                    overcombotranslucent(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i],layer->layeropacity[type]);
+                                    layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i],layer->layeropacity[type]);
                                 }
                             }
                             else
                             {
                                 for(int i=0; i<176; i++)
                                 {
-                                    overcombotranslucent(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i],layer->layeropacity[type]);
+                                    layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i],layer->layeropacity[type]);
                                 }
                             }
                         }
@@ -2689,14 +2708,14 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
                             {
                                 for(int i=0; i<176; i++)
                                 {
-                                    overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i]);
+                                    layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i],255);
                                 }
                             }
                             else
                             {
                                 for(int i=0; i<176; i++)
                                 {
-                                    overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i]);
+                                    layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i],255);
                                 }
                             }
                         }
@@ -2726,14 +2745,14 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
                             {
                                 for(int i=0; i<176; i++)
                                 {
-                                    overcombotranslucent(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i],layer->layeropacity[type]);
+                                    layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr2[type].data[i],tmpscr2[type].cset[i],layer->layeropacity[type]);
                                 }
                             }
                             else
                             {
                                 for(int i=0; i<176; i++)
                                 {
-                                    overcombotranslucent(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i],layer->layeropacity[type]);
+                                    layer_overcombo(bmp,((i&15)<<4)-x,(i&0xF0)+playing_field_offset-y,tmpscr3[type].data[i],tmpscr3[type].cset[i],layer->layeropacity[type]);
                                 }
                             }
                         }
