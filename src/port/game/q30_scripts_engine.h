@@ -290,7 +290,18 @@ void q30_generic_time_exit(int state)
     if(!zasm30_ffscript_version)
         return;
 
-    for(int q = 1; q <= zasm30_max_generic; ++q)
+    // Upstream counts the generic scripts as init_game loads their run flags, before its first
+    // loadscr, so that loadscr's CHANGE_SCREEN already stops the ones set to (a shop's
+    // Screen->D[0] = 1 never runs at the start: Tranquil Expression's heart icon). Ours counts
+    // in q30_game_init, after that loadscr: count here until then.
+    int maxq = zasm30_max_generic;
+
+    if(!maxq)
+        for(int q = 1; q < Q30_GENERIC_SLOTS; ++q)
+            if(q30_generic_scripts[q])
+                maxq = q;
+
+    for(int q = 1; q <= maxq; ++q)
     {
         Zasm30Generic &g = zasm30_generic[q];
 

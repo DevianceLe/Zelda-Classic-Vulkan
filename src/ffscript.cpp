@@ -9576,6 +9576,9 @@ void do_copytile(const bool v, const bool v2)
     if(tile < 0 || tile >= NEWMAXTILES || tile2 < 0 || tile2 >= NEWMAXTILES)
         return;
     copy_tile(newtilebuf, tile, tile2, false);
+
+    if(q30_active())    // 2.55/3.0: upstream's copy_tile carries the blank mark over (else a copy onto a blank tile never draws)
+        blank_tile_table[tile2] = blank_tile_table[tile];
 }
 
 void do_swaptile(const bool v, const bool v2)
@@ -9586,6 +9589,13 @@ void do_swaptile(const bool v, const bool v2)
     if(tile < 0 || tile >= NEWMAXTILES || tile2 < 0 || tile2 >= NEWMAXTILES)
         return;
     copy_tile(newtilebuf, tile, tile2, true);
+
+    if(q30_active() && tile != tile2)   // 2.55/3.0: upstream's copy_tile swaps the blank marks too
+    {
+        const bool b = blank_tile_table[tile2];
+        blank_tile_table[tile2] = blank_tile_table[tile];
+        blank_tile_table[tile] = b;
+    }
 }
 
 void do_overlaytile(const bool v, const bool v2)

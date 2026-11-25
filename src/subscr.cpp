@@ -3139,6 +3139,10 @@ static inline void sub_item_place(sprite *s)
     s->yofs = 0;
 #ifdef ZC_PLAYER_BUILD
     s->xofs = 0;
+    // 2.55/3.0: then upstream's dummyitem_animate gives the item its own draw offsets back (with no
+    // playing field offset): a 32x32 sword drawn 2 px up and left, say
+    if(q30_active())
+        q30_item_apply_size(s, s->id, true);
 #elif defined(ZC_ZQEDITOR)
     if(q30_sub_newer())
         s->xofs = 0;
