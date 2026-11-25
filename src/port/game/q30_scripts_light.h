@@ -232,15 +232,16 @@ void q30_set_light_init(int dith_type, int dith_arg, int dith_perc, int light_ra
 
 int q30_default_light_radius() { return zasm30_light_init.light_rad; }
 
-// The light wave (init data): rate in frames, size in pixels; 0 is steady. Its clock is the
-// engine's frame counter (upstream counts the frames played since the game began, so the wave's
-// phase can differ; its size and speed are the same).
+// The light wave (init data): rate in frames, size in pixels; 0 is steady (its clock: z30_wave_rad).
 static int zasm30_light_wave_rate = 0, zasm30_light_wave_size = 0;
 
 void q30_set_light_wave(int rate, int size)
 {
     zasm30_light_wave_rate = rate;
     zasm30_light_wave_size = size;
+
+    if(getenv("ZC_Q30_LIGHTLOG") && (rate || size))     // (tests: which quests pulse their lights)
+        al_trace("test: q30 light wave rate %d size %d\n", rate, size);
 }
 
 // Game->Generic[] for a 2.55/3.0 script where upstream's generic_ind names a value the player
@@ -309,11 +310,15 @@ static bool zasm30_generic_set(long index, long value)
     return true;
 }
 
-// Upstream's calc_wave_rad: the radius swung by the sine of the clock over 2 * rate frames.
+// Upstream's calc_wave_rad: the radius swung by the sine of the clock over 2 * rate frames. The
+// clock is upstream's light_wave_clk: 0 as a game starts or continues, then one per frame drawn
+// while playing and not paused (updatescr; zelda.cpp).
+extern unsigned q30_light_wave_clk;
+
 static int z30_wave_rad(int rad)
 {
     const int rate = zasm30_light_wave_rate, size = zasm30_light_wave_size;
-    const unsigned clk = (unsigned)frame;
+    const unsigned clk = q30_light_wave_clk;
 
     if(rate <= 0 || !size || !clk)
         return rad;

@@ -3489,6 +3489,7 @@ int q30_scroll_view_screens(Q30ViewScreen *out, int sx, int sy, int *vx, int *vy
     out[n].oy = oby;
     out[n].base = &tmpscr[1];
     out[n].layers = tmpscr3;
+    out[n].old_scroll = true;
     ++n;
     out[n].ox = nbx;
     out[n].oy = nby;
@@ -3510,6 +3511,7 @@ int q30_scroll_view_screens(Q30ViewScreen *out, int sx, int sy, int *vx, int *vy
             out[n].oy = (isnew ? nby : oby) + (s.horiz ? step * 176 : 0);
             out[n].base = &rs->base;
             out[n].layers = rs->layers;
+            out[n].old_scroll = !isnew;
             ++n;
         }
 

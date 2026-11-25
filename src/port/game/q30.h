@@ -156,8 +156,9 @@ int q30_msg_layer();
 // The string onto dest at row dy (h rows), its frame and text translucent when the string says;
 // false for 2.53 quests, which draw msgdisplaybuf as before.
 bool q30_msg_blit(struct BITMAP *dest, int dy, int h);
-// draw_screen's draws of it: before the passive subscreen, or after it and layer 7's drawing,
+// draw_screen's draws of it: before the passive subscreen (stage 0), after it and layer 7's
+// drawing (1: a layer 6 string), or after the darkness and layer 7's FFCs (2: a layer 7 string),
 // as the string's draw layer says; false for 2.53 quests
-bool q30_msg_blit_screen(struct BITMAP *dest, int dy, int h, bool after_subscreen);
+bool q30_msg_blit_screen(struct BITMAP *dest, int dy, int h, int stage);
 
 #endif

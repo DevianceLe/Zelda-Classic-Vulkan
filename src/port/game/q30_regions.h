@@ -130,6 +130,7 @@ struct Q30ViewScreen
     int ox, oy;
     const mapscr *base;
     const mapscr *layers;       // its 6 layers (valid 0: none)
+    bool old_scroll = false;    // a scroll's old screen (or one beside it): lit as before the scroll
 };
 enum { Q30_VIEW_SCREENS = 25 };
 int q30_region_view_screens(Q30ViewScreen *out, int extra);

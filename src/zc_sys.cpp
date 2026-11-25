@@ -3440,6 +3440,7 @@ void draw_lens_over()
 bool q30_active();
 bool q30_quest_rule(int id);     // q30_triggers.cpp
 extern int q30_game_frame_base;  // zelda.cpp
+extern unsigned q30_light_wave_clk;  // zelda.cpp
 void draw_wavy(BITMAP *source, BITMAP *target, int amplitude, bool interpol)
 {
     //recreating a big bitmap every frame is highly sluggish.
@@ -3650,6 +3651,9 @@ void updatescr(bool allowwavy)
         wavy = 0; // Wavy was set by a DMap flag. Clear it.
     else if(Playing && !Paused)
         wavy--; // Wavy was set by a script. Decrement it.
+        
+    if(Playing && !Paused)
+        ++q30_light_wave_clk;   // 2.55/3.0: upstream's light_wave_clk (q30_scripts_light.h)
         
     if(!(msgdisplaybuf->clip) && Playing && msgpos && !screenscrolling)
     {

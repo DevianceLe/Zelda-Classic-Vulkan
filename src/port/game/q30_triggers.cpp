@@ -2305,6 +2305,22 @@ bool rule(int id)
     return g_rules_known && get_bit(g_rules, id) != 0;
 }
 
+// Upstream's region_is_lit (qr_NEW_DARKROOM, 237): a "toggle darkness" trigger flips it, and
+// while it is set the dark screens show no darkness and the lit ones are dark (is_dark). Each
+// screen load clears it; a scroll's old screens keep the value it had (scrolling_region_is_lit).
+bool g_region_lit = false, g_scroll_region_lit = false;
+
+bool new_darkroom_rule()
+{
+    return rule(237);
+}
+
+bool screen_dark(const mapscr *s, bool old_scroll_screen = false)
+{
+    const bool dark = (s->flags & fDARK) != 0;
+    return (old_scroll_screen ? g_scroll_region_lit : g_region_lit) ? !dark : dark;
+}
+
 // upstream's rule numbers, from qrs.h
 enum
 {
@@ -2876,7 +2892,8 @@ bool conditions(const H &h, size_t idx, bool &hasitem, bool side_effects)
 
     if(t.flags.get(Q30TF_COND_DARK) || t.flags.get(Q30TF_COND_NODARK))
     {
-        bool lit = !darkroom;
+        // (upstream's get_lights: with the new dark rooms the screen's darkness as drawn)
+        bool lit = new_darkroom_rule() ? !screen_dark(&tmpscr[0]) : !darkroom;
 
         if(t.flags.get(Q30TF_COND_DARK) && lit)
             return false;
@@ -3152,9 +3169,15 @@ void results(const H &h, const Q30Trigger &t, size_t idx, bool &hasitem, bool &u
 
     if(t.flags.get(Q30TF_TOGGLEDARK))
     {
-        // same effect as lit/dark toggling
-        naturaldark = !naturaldark;
-        lighting(false, false);
+        // upstream's toggle_lights: the new dark rooms' region_is_lit, else the palette's
+        // lit/dark toggling
+        if(new_darkroom_rule())
+            g_region_lit = !g_region_lit;
+        else
+        {
+            naturaldark = !naturaldark;
+            lighting(false, false);
+        }
     }
 
     if(t.flags.get(Q30TF_SECRETS))
@@ -10925,7 +10948,7 @@ static void draw_darkness_view(BITMAP *dest, const Q30ViewScreen *view, int n, c
     bool any_dark = false;
 
     for(int i = 0; i < n; ++i)
-        any_dark |= (view[i].base->flags & fDARK) != 0;
+        any_dark |= screen_dark(view[i].base, view[i].old_scroll);
 
     if(!any_dark)
         return;
@@ -10962,7 +10985,7 @@ static void draw_darkness_view(BITMAP *dest, const Q30ViewScreen *view, int n, c
         a.y1 = a.y0 + 176;
         a.trans = (s->flags9 & FDARK_TRANS) != 0;
 
-        if(!(s->flags & fDARK))
+        if(!screen_dark(s, view[i].old_scroll))
             rectfill(g_dark_mask, a.x0, a.y0, a.x1 - 1, a.y1 - 1, 0);     // a lit screen
         else if(s->flags9 & FDARK_DITHER)
             q30_darkness_dither(g_dark_mask, a.x0, a.y0, a.x1, a.y1);
@@ -11045,12 +11068,68 @@ static void draw_darkness_view(BITMAP *dest, const Q30ViewScreen *view, int n, c
     q30_draw_script_layer(dest, Q30_SPLAYER_DARKROOM_OVER);
 }
 
+// loadscr's, as a new screen loads (not another screen of its region): upstream's loadscr clears
+// region_is_lit; a scroll's old screen keeps what it had (scrollscr's scrolling_region_is_lit)
+void q30_dark_screen_loaded()
+{
+    g_scroll_region_lit = g_region_lit;
+    g_region_lit = false;
+
+    // ZC_Q30_DARKSCAN (tests): the quest's dark screens with a torch combo, once, to pick test spots
+    static bool scanned = false;
+
+    if(!scanned && getenv("ZC_Q30_DARKSCAN") && q30_active())
+    {
+        scanned = true;
+        al_trace("test: darkscan new_darkroom %d\n", new_darkroom_rule() ? 1 : 0);
+
+        for(size_t n = 0; n < TheMaps.size(); ++n)
+        {
+            const mapscr &m = TheMaps[n];
+            int torches = 0;
+
+            if(!(m.valid & mVALID) || !(m.flags & fDARK))
+                continue;
+
+            for(int lyr = 0; lyr <= 6; ++lyr)
+            {
+                const int at = lyr ? (m.layermap[lyr - 1] - 1) * MAPSCRS + m.layerscreen[lyr - 1] : (int)n;
+
+                if(lyr && (!m.layermap[lyr - 1] || at < 0 || at >= (int)TheMaps.size()))
+                    continue;
+
+                const mapscr &l = TheMaps[at];
+
+                for(int pos = 0; pos < 176 && pos < (int)l.data.size(); ++pos)
+                {
+                    const Q30Combo *c = q30_combo(l.data[pos]);
+                    torches += c && c->type == Q30C_TORCH;
+                }
+            }
+
+            al_trace("test: darkscan map %d screen %02X flags9 %x torches %d\n", (int)(n / MAPSCRS) + 1, (int)(n % MAPSCRS),
+                     (int)m.flags9, torches);
+        }
+    }
+}
+
+// Where the darkness goes: with qr_NEWDARK_L6 right over layer 6, under the strings and the
+// passive subscreen (late false); without it after the subscreen, a layer 6 string and layer 7's
+// script drawing, which it darkens too (late true: upstream's draw_screen_post_passive_subscreen
+// and scrollscr's second scrollscr_handle_dark).
+enum { qr30_NEWDARK_L6 = 238 };
+
+static bool darkness_here(bool late)
+{
+    return q30_active() && rule(qr30_NEW_DARKROOM) && rule(qr30_NEWDARK_L6) != late;
+}
+
 // draw_screen's: the screen Link is on, or in a scrolling region every screen the camera shows,
 // lit by torches up to 128 pixels outside the view (positions from the current screen's top-left
 // less the camera, (cx, cy); 0 outside regions).
-void q30_draw_darkness(BITMAP *dest)
+void q30_draw_darkness(BITMAP *dest, bool late)
 {
-    if(!q30_active() || !rule(qr30_NEW_DARKROOM))
+    if(!darkness_here(late))
         return;
 
     int cx, cy;
@@ -11071,9 +11150,9 @@ void q30_draw_darkness(BITMAP *dest)
 // A scroll's (LinkClass::scrollscr, at its view sx, sy): the old and the new screen, and the
 // screens beside them a 3.0 scroll's view shows, each dark or lit (upstream draws the darkness
 // through the scroll; 2.53's lighting only fades the palette).
-void q30_draw_scroll_darkness(BITMAP *dest, int sx, int sy)
+void q30_draw_scroll_darkness(BITMAP *dest, int sx, int sy, bool late)
 {
-    if(!q30_active() || !rule(qr30_NEW_DARKROOM))
+    if(!darkness_here(late))
         return;
 
     Q30ViewScreen view[Q30_VIEW_SCREENS];

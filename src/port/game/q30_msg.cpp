@@ -3054,12 +3054,13 @@ bool q30_msg_blit(BITMAP *dest, int dy, int h)
 }
 
 // draw_screen's string draws for 2.55/3.0 quests, where upstream 3.0's draw_msgstr calls go
-// (its maps.cpp). Before the passive subscreen (after_subscreen false): a layer 6 string unless
+// (its maps.cpp). Before the passive subscreen (stage 0): a layer 6 string unless
 // qr_LAYER6_STRINGS_OVER_SUBSCREEN, and the lower layers, which upstream draws among the
-// layers. After the subscreen and layer 7's script drawing: a layer 6 string again (twice with
-// that rule; upstream draws it both times, which shows on translucent strings), then a layer 7
-// string. False for 2.53 quests and while no string is up (as q30_msg_blit).
-bool q30_msg_blit_screen(BITMAP *dest, int dy, int h, bool after_subscreen)
+// layers. After the subscreen and layer 7's script drawing (stage 1): a layer 6 string again
+// (twice with that rule; upstream draws it both times, which shows on translucent strings);
+// the darkness and layer 7's FFCs come next, then a layer 7 string (stage 2). False for 2.53
+// quests and while no string is up (as q30_msg_blit).
+bool q30_msg_blit_screen(BITMAP *dest, int dy, int h, int stage)
 {
     if(!q30_msg_engine() || !allocate_bmps() || !any_part_shown())
         return false;
@@ -3067,11 +3068,11 @@ bool q30_msg_blit_screen(BITMAP *dest, int dy, int h, bool after_subscreen)
     const bool l6_over = qr(QR_LAYER6_STRINGS_OVER_SUBSCREEN);
     int draws = 0;
 
-    if(!after_subscreen)
+    if(stage == 0)
         draws = (layer < 6 || (layer == 6 && !l6_over)) ? 1 : 0;
-    else if(layer == 6)
+    else if(stage == 1 && layer == 6)
         draws = l6_over ? 2 : 1;
-    else if(layer == 7)
+    else if(stage == 2 && layer == 7)
         draws = 1;
 
     for(int i = 0; i < draws; ++i)

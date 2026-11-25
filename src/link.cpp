@@ -17572,8 +17572,9 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
         q30_scroll_layer(framebuf, -4, true, tx, ty, true);
         q30_scroll_layer(framebuf, 5, true, tx, ty, false);
 
-        // 2.55/3.0 new dark rooms over both screens (nothing for 2.53 quests)
-        q30_draw_scroll_darkness(framebuf, sx, sy);
+        // 2.55/3.0 new dark rooms over both screens (nothing for 2.53 quests): here with
+        // qr_NEWDARK_L6, else after the subscreen and layer 7's drawing, as upstream
+        q30_draw_scroll_darkness(framebuf, sx, sy, false);
 
         if(msgdisplaybuf->clip == 0)
             masked_blit(msgdisplaybuf, framebuf, tx2, ty2, 0, playing_field_offset, 256, zc_field_h());
@@ -17583,6 +17584,8 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
         if(get_bit(quest_rules,qr_SUBSCREENOVERSPRITES))
             do_primitives(framebuf, 7, newscr, 0, playing_field_offset);
             
+        q30_draw_scroll_darkness(framebuf, sx, sy, true);
+        
         //end drawing
         lastaction = action;
         action = scrolling;

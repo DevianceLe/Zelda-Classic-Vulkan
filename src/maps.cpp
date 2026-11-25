@@ -39,7 +39,7 @@
 #include "port/game/q30_triggers.h"
 #include "port/game/q30_regions.h"
 bool q30_msg_blit(BITMAP *dest, int dy, int h);    // q30_msg.cpp: 2.55/3.0 strings, translucent ones too
-bool q30_msg_blit_screen(BITMAP *dest, int dy, int h, bool after_subscreen);  // ... at their draw layer
+bool q30_msg_blit_screen(BITMAP *dest, int dy, int h, int stage);  // ... at their draw layer
 int q30_screen_hidden_layers(int index, bool script);   // q30_scripts_data.h: a 2.55/3.0 screen's hidden layers
 static mapscr *q30_layer_draws_only = NULL;   // do_layer: this screen's script drawing on the layer without its combos
 
@@ -3828,8 +3828,8 @@ void draw_screen(mapscr* this_screen, bool showlink)
     blit(temp_buf, framebuf, 0, 0, 0, 0, 256, zc_view_h);
 
     // 2.55/3.0 new dark rooms: over every layer up to 6 and the sprites above them, as upstream
-    // draws them (under the message text and the subscreen here)
-    q30_draw_darkness(framebuf);
+    // draws them (with qr_NEWDARK_L6 here, under the message text and the subscreen; else below)
+    q30_draw_darkness(framebuf, false);
 
     //11. Draw some text on framebuf
     q30_region_end_sprites();   // the playfield is done; text and the subscreen don't move
@@ -3841,7 +3841,7 @@ void draw_screen(mapscr* this_screen, bool showlink)
     {
         // 2.55/3.0: the string's parts as upstream draws them, translucent ones too, here when its
         // draw layer goes under the subscreen (q30_msg.cpp)
-        if(!q30_msg_blit_screen(framebuf, playing_field_offset, zc_field_h(), false))
+        if(!q30_msg_blit_screen(framebuf, playing_field_offset, zc_field_h(), 0))
             masked_blit(msgdisplaybuf,framebuf,0,0,0,playing_field_offset,256,zc_field_h());
         if(!q30_msg_blit(scrollbuf, playing_field_offset, zc_field_h()))
             masked_blit(msgdisplaybuf,scrollbuf,0,0,0,playing_field_offset,256,zc_field_h());
@@ -3857,12 +3857,16 @@ void draw_screen(mapscr* this_screen, bool showlink)
         do_primitives(framebuf, 7, this_screen, 0, playing_field_offset); //Layer '7' appears above subscreen if quest rule is set
     }
     
+    // 2.55/3.0, as upstream's draw_screen_post_passive_subscreen (nothing for 2.53 quests): a
+    // layer 6 string over the subscreen and layer 7's drawing (q30_msg.cpp), the new dark rooms
+    // without qr_NEWDARK_L6 (over that string too), FFCs on layer 7, then a layer 7 string
+    q30_msg_blit_screen(framebuf, playing_field_offset, zc_field_h(), 1);
+    q30_draw_darkness(framebuf, true);
+    
     // FFCs on layer 7 go over the subscreen, as upstream's
     q30_ffc_layer(framebuf, 7, 7, this_screen, false);
     
-    // 2.55/3.0: layer 6 and 7 strings over the subscreen and layer 7's drawing, as upstream
-    // (q30_msg.cpp; nothing for 2.53 quests)
-    q30_msg_blit_screen(framebuf, playing_field_offset, zc_field_h(), true);
+    q30_msg_blit_screen(framebuf, playing_field_offset, zc_field_h(), 2);
     
     set_clip_rect(scrollbuf, 0, 0, scrollbuf->w, scrollbuf->h);
 }
@@ -4364,6 +4368,7 @@ void loadscr(int tmp,int destdmap, int scr,int ldir,bool overlay=false)
     if(tmp==0 && !region_other)
     {
         q30_clear_secrets_note();
+        q30_dark_screen_loaded();
         q30_screen_change_events(false);    // 2.55+ generic scripts: DMap, level, screen changes
     }
 

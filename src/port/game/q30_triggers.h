@@ -618,9 +618,11 @@ void q30_set_init_sideswim(int up_step, int side_step, int down_step, long jump,
 long *q30_sideswim_generic(int index);
 long *q30_triggers_generic(int index);
 int q255_hero_lift_frames(int dir);          // liftingspr's frame count, 1-255
-void q30_draw_darkness(BITMAP *dest);
+void q30_dark_screen_loaded();      // loadscr: a new screen clears a "toggle darkness" (2.55/3.0)
+// late: the call after the passive subscreen (drawn there without qr_NEWDARK_L6, as upstream)
+void q30_draw_darkness(BITMAP *dest, bool late);
 // The same through a scroll (LinkClass::scrollscr, its view at sx, sy): the old and new screens.
-void q30_draw_scroll_darkness(BITMAP *dest, int sx, int sy);
+void q30_draw_scroll_darkness(BITMAP *dest, int sx, int sy, bool late);
 void q30_cutscene_flags(const Q30Combo *c);
 void q30_cutscene_clear();
 void q30_cutscene_input();                  // call after the control state is read
