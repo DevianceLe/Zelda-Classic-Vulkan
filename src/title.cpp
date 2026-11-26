@@ -3488,6 +3488,7 @@ static void test_reload_from_disk()
 }
 
 extern bool game_reloading;
+bool replay_active();                       // replay.cpp
 static bool q30_standalone_quit_screen();
 static bool title_game_loaded = false;      // a game was started from here (upstream: a save is selected)
 
@@ -3507,7 +3508,9 @@ void titlescreen(int lsave)
     // 2.55/3.0 in standalone mode (upstream 3.0): there is no file select screen to go back to,
     // so a game quit from the continue screen, a save menu or a script asks whether to close the
     // program or load the last save again. Dying without a continue screen loads it at once.
-    if(standalone_mode && q==qQUIT && title_game_loaded && q30_active())
+    // Never in a replay or a test start (upstream stops its replay first, and its test mode,
+    // which ZC_TEST_START's standalone runs stand for, starts the game again).
+    if(standalone_mode && q==qQUIT && title_game_loaded && q30_active() && !replay_active() && !getenv("ZC_TEST_START"))
     {
         const bool load_last = q30_standalone_quit_screen();
 
