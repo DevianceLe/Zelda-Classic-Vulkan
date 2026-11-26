@@ -18,6 +18,7 @@
 
 #include <string.h>
 #include <set>
+#include <map>
 #include <algorithm>
 #include <stdio.h>
 
@@ -65,6 +66,7 @@ extern int draw_screen_clip_rect_y2;
 //extern bool draw_screen_clip_rect_show_link;
 extern bool global_wait;
 extern bool q30_reset_game_frame;   // zelda.cpp: a 2.55/3.0 scroll ended, the next frame starts at once
+extern std::map<long, byte> g_q30_door_none;  // q255_maps.cpp: doors a 2.55/3.0 quest left as dNONE (read as walls)
 
 // 2.55/3.0 with the newer respawn points: the DMap and screen of the respawn point (entry_x,
 // entry_y), upstream's respawn_dmap / respawn_scr. A scroll onto unsafe ground keeps the point
@@ -17112,6 +17114,10 @@ void LinkClass::checkscroll()
         
         if(doit || action==inwind)
         {
+            // (2.53 and 2.55 go on to scroll the screen Link stepped out to; upstream 3.0's
+            // do_scroll_direction stops after the cave's exit, for every quest)
+            const bool q30_cave_exit = q30_active() && currscr>=128;
+            
             if(currscr>=128)
             {
                 if(specialcave >= GUYCAVE)
@@ -17119,7 +17125,10 @@ void LinkClass::checkscroll()
                 else stepout();
             }
             
-            if(action==inwind)
+            if(q30_cave_exit)
+            {
+            }
+            else if(action==inwind)
             {
                 if(DMaps[currdmap].flags&dmfWHIRLWINDRET)
                 {
@@ -17170,6 +17179,10 @@ void LinkClass::checkscroll()
         
         if(doit || action==inwind)
         {
+            // (2.53 and 2.55 go on to scroll the screen Link stepped out to; upstream 3.0's
+            // do_scroll_direction stops after the cave's exit, for every quest)
+            const bool q30_cave_exit = q30_active() && currscr>=128;
+            
             if(currscr>=128)
             {
                 if(specialcave >= GUYCAVE)
@@ -17177,7 +17190,10 @@ void LinkClass::checkscroll()
                 else stepout();
             }
             
-            if(action==inwind)
+            if(q30_cave_exit)
+            {
+            }
+            else if(action==inwind)
             {
                 if(DMaps[currdmap].flags&dmfWHIRLWINDRET)
                 {
@@ -18327,7 +18343,15 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
     opendoors=0;
     markBmap(-1);
     
-    if(isdungeon())
+    // 2.55/3.0: a side the quest left with no dungeon door at all (dNONE, read here as a wall):
+    // upstream's scrollscr only turns Link the scroll's way there, he takes no steps in
+    std::map<long, byte>::const_iterator q30_dn = g_q30_door_none.find(long(currmap) * MAPSCRS + currscr);
+    const bool q30_no_door = q30_active() && currscr < 128 && tmpscr->door[scrolldir^1] == dWALL
+                             && q30_dn != g_q30_door_none.end() && ((q30_dn->second >> (scrolldir^1)) & 1);
+    
+    if(isdungeon() && q30_no_door)
+        dir = scrolldir;
+    else if(isdungeon())
     {
         switch(tmpscr->door[scrolldir^1])
         {
