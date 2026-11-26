@@ -12,12 +12,14 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdlib.h>
 #include <list>
 #include <string>
 #include <vector>
 
 #include "zdefs.h"
 #include "jwin.h"
+#include "tab_ctl.h"
 #include "zq_ui_profile.h"
 #include "zq_ui_dialogs_table.h"
 
@@ -73,13 +75,13 @@ const KnownProc *known(const char *name)
 std::string kind_of(const char *type)
 {
     std::string t(type ? type : "");
+    // in this order: "textbox" before "text", "droplist" and any "...list..." before the rest
     struct { const char *part; const char *kind; } kinds[] =
     {
-        { "win_proc", "window" }, { "shadow_box", "window" }, { "func_button", "button" }, { "button", "button" },
-        { "check", "check" }, { "radio", "radio" }, { "ctext", "text" }, { "rtext", "text" },
-        { "text_proc", "text" }, { "numedit", "edit" }, { "hexedit", "edit" }, { "edit_proc", "edit" },
-        { "droplist", "list" }, { "abclist", "list" }, { "list_proc", "list" }, { "tab_proc", "tab" },
-        { "keyboard", "keyboard" }, { "timer", "timer" }, { "dummy", "dummy" },
+        { "win_proc", "window" }, { "shadow_box", "window" }, { "keyboard", "keyboard" }, { "timer", "timer" },
+        { "dummy", "dummy" }, { "button", "button" }, { "check", "check" }, { "radio", "radio" },
+        { "textbox", "textbox" }, { "edit", "edit" }, { "list", "list" }, { "text", "text" },
+        { "tab_proc", "tab" }, { "frame", "frame" }, { "slider", "slider" },
     };
 
     for(size_t i = 0; i < sizeof(kinds) / sizeof(kinds[0]); ++i)
@@ -89,6 +91,7 @@ std::string kind_of(const char *type)
     return t;
 }
 
+// a text as compared across builds: letters and digits, lower case; 2.55/3.0's "Hero" is 2.53's "Link"
 std::string norm(const char *s)
 {
     std::string out;
@@ -96,6 +99,11 @@ std::string norm(const char *s)
     for(; s && *s; ++s)
         if(isalnum((unsigned char)*s))
             out += (char)tolower((unsigned char)*s);
+
+    size_t at;
+
+    while((at = out.find("hero")) != std::string::npos)
+        out.replace(at, 4, "link");
 
     return out;
 }
@@ -179,6 +187,12 @@ std::string build_id()
     const char *name = zq_ui_profile_name();
     int a = 0, b = 0, n = 0;
 
+    // a test switch: every profile but 2.53.1's shows that build's dialogs (zquiinv's id, "1.92b114")
+    const char *force = getenv("ZQ_UI_DIALOG_BUILD");
+
+    if(force && force[0] && name && strcmp(name, "2.53.1"))
+        return force;
+
     if(!name || !strcmp(name, "2.53.1"))
         return "";
 
@@ -198,13 +212,75 @@ std::string build_id()
     return name;
 }
 
-// the build's own name for a dialog ours is ("scrdata_dlg" was 1.92's "scrflags_dlg")
+// how many of our dialog's texts the build's dialog has
+int shared_texts(int ours_def, int theirs_def)
+{
+    const ZqUiDlgDef &a = zq_ui_dlg_defs[ours_def], &b = zq_ui_dlg_defs[theirs_def];
+    int n = 0;
+
+    for(int i = 0; i < a.count; ++i)
+    {
+        const char *t = zq_ui_dlg_widgets[a.first + i].text;
+
+        if(!t || !t[0] || kind_of(zq_ui_dlg_widgets[a.first + i].type) == "window")
+            continue;
+
+        const std::string nt = norm(t);
+
+        if(nt.size() < 3)
+            continue;
+
+        for(int j = 0; j < b.count; ++j)
+            if(zq_ui_dlg_widgets[b.first + j].text && norm(zq_ui_dlg_widgets[b.first + j].text) == nt)
+            {
+                ++n;
+                break;
+            }
+    }
+
+    return n;
+}
+
+// the build's own name for a dialog ours is ("scrdata_dlg" was 1.92's "scrflags_dlg"; 3.0's builder
+// dialogs have other names): the same name, a known rename, else the dialog of the same editor
+// (zquiinv's category) that shares the most texts with ours
 int build_def(const std::string &build, const char *name)
 {
     int def = find_def(build.c_str(), name);
 
     if(def >= 0)
         return def;
+
+    const int ours = find_def("2.53.1", name);
+    const char *cat = NULL;
+
+    for(int i = 0; i < zq_ui_dlg_use_count && !cat; ++i)
+        if(!strcmp(zq_ui_dlg_uses[i].build, "2.53.1") && !strcmp(zq_ui_dlg_uses[i].name, name))
+            cat = zq_ui_dlg_uses[i].category;
+
+    if(ours >= 0 && cat && cat[0])
+    {
+        int best = -1, best_n = 0;
+
+        for(int i = 0; i < zq_ui_dlg_use_count; ++i)
+        {
+            const ZqUiDlgUse &u = zq_ui_dlg_uses[i];
+
+            if(strcmp(u.build, build.c_str()) || strcmp(u.category, cat))
+                continue;
+
+            const int n = shared_texts(ours, u.def);
+
+            if(n > best_n)
+            {
+                best_n = n;
+                best = u.def;
+            }
+        }
+
+        if(best >= 0 && best_n >= 3)
+            return best;
+    }
 
     static const struct { const char *ours; const char *theirs; } renames[] =
     {
@@ -225,7 +301,90 @@ struct Saved
 };
 
 std::list<Saved> g_saved;           // the dialogs laid out now (nested ones too)
+
+// a builder dialog's pages shown by our tab object
+struct Pages
+{
+    DIALOG *d;
+    std::vector<std::string> names;
+    std::vector<std::vector<int> > lists;   // each page's objects (indices into d), -1 at the end
+    std::vector<TABPANEL> panels;
+};
+
+std::list<Pages> g_pages;
 std::list<std::string> g_titles;    // the build's window titles shown
+
+void put_back(DIALOG *d);
+
+// a button that ends the dialog the way Escape or Done does
+bool is_way_out(const DIALOG &o, const ZqUiDlgWidget &w)
+{
+    if(o.proc != jwin_button_proc || !(o.flags & D_EXIT))
+        return false;
+
+    if(o.key == 27)
+        return true;
+
+    const std::string t = norm(w.text);
+    return t == "cancel" || t == "done" || t == "close" || t == "ok" || t == "exit";
+}
+
+// How many of the widgets shown together (on the same page of the tab object, or on none) now cover
+// another one: check boxes, buttons, fields and lists (texts and frames may touch).
+int overlapping(DIALOG *d, int rows, const ZqUiDlgWidget *ours)
+{
+    std::vector<int> page(rows, -1);
+
+    for(int t = 1; t < rows; ++t)
+    {
+        if(d[t].proc != jwin_tab_proc || (d[t].flags & D_HIDDEN) || !d[t].dp || !d[t].dp3)
+            continue;
+
+        TABPANEL *panel = (TABPANEL *)d[t].dp;
+        DIALOG *base = (DIALOG *)d[t].dp3;
+
+        for(int p = 0; panel[p].text; ++p)
+            for(int k = 0; panel[p].dialog && panel[p].dialog[k] >= 0; ++k)
+            {
+                const long i = (base + panel[p].dialog[k]) - d;
+
+                if(i > 0 && i < rows)
+                    page[i] = p;
+            }
+    }
+
+    std::vector<int> solid;
+
+    for(int i = 1; i < rows; ++i)
+    {
+        const std::string k = kind_of(ours[i].type);
+
+        if((d[i].flags & D_HIDDEN) || unseen(ours[i]) || k == "text" || k == "frame" || k == "tab" || k == "window")
+            continue;
+
+        solid.push_back(i);
+    }
+
+    int n = 0;
+
+    for(size_t a = 0; a < solid.size(); ++a)
+        for(size_t b = a + 1; b < solid.size(); ++b)
+        {
+            const DIALOG &p = d[solid[a]], &q = d[solid[b]];
+            const int pa = page[solid[a]], pb = page[solid[b]];
+
+            if(pa >= 0 && pb >= 0 && pa != pb)
+                continue;
+
+            const int w = (std::min)(p.x + p.w, q.x + q.w) - (std::max)(p.x, q.x);
+            const int h = (std::min)(p.y + p.h, q.y + q.h) - (std::max)(p.y, q.y);
+
+            if(w > 2 && h > 2)
+                ++n;
+        }
+
+    return n;
+}
 
 void lay_out(DIALOG *d)
 {
@@ -346,7 +505,7 @@ void lay_out(DIALOG *d)
                 const bool same = pass == 0 ? !strcmp(ours[i].type, theirs[j].type) : kind_of(ours[i].type) == k;
 
                 // a text widget only takes one of the same text
-                if(same && (pass == 0 || !(theirs[j].text && theirs[j].text[0])))
+                if(same && (pass == 0 || !(theirs[j].text && theirs[j].text[0]) || k == "button"))
                 {
                     match[j] = i;
                     taken[i] = true;
@@ -363,6 +522,66 @@ void lay_out(DIALOG *d)
     {
         g_titles.push_back(theirs[win].text);
         d[0].dp = (void *)g_titles.back().c_str();
+    }
+
+    // a builder dialog's pages: our tab object shows them (its pages, the widgets matched on each)
+    int their_tab = -1, our_tab = -1;
+
+    for(int j = 0; j < their_count && their_tab < 0; ++j)
+        if(!strcmp(theirs[j].type, "jwin_tab_proc") && theirs[j].text && strchr(theirs[j].text, '|'))
+            their_tab = j;
+
+    for(int i = 1; i < rows && our_tab < 0 && their_tab >= 0; ++i)
+        if(d[i].proc == jwin_tab_proc)
+            our_tab = i;
+
+    if(their_tab >= 0 && our_tab >= 0)
+    {
+        // our tab object may have been matched to another widget: take it back for the pages
+        for(int j = 0; j < their_count; ++j)
+            if(match[j] == our_tab)
+                match[j] = -1;
+
+        match[their_tab] = our_tab;
+        std::vector<std::string> names;
+        std::string all(theirs[their_tab].text);
+
+        for(size_t at = 0;;)
+        {
+            const size_t bar = all.find('|', at);
+            names.push_back(all.substr(at, bar == std::string::npos ? std::string::npos : bar - at));
+
+            if(bar == std::string::npos)
+                break;
+
+            at = bar + 1;
+        }
+
+        g_pages.push_back(Pages());
+        Pages &pg = g_pages.back();
+        pg.d = d;
+        pg.names = names;
+        pg.lists.resize(names.size());
+
+        for(int j = 0; j < their_count; ++j)
+            if(match[j] > 0 && match[j] != our_tab && theirs[j].page >= 0 && theirs[j].page < (int)names.size())
+                pg.lists[theirs[j].page].push_back(match[j]);
+
+        pg.panels.resize(names.size() + 1);
+
+        for(size_t p = 0; p < names.size(); ++p)
+        {
+            pg.lists[p].push_back(-1);
+            TABPANEL &t = pg.panels[p];
+            memset(&t, 0, sizeof(t));
+            t.text = (char *)pg.names[p].c_str();
+            t.flags = p == 0 ? D_SELECTED : 0;
+            t.dialog = &pg.lists[p][0];
+        }
+
+        memset(&pg.panels[names.size()], 0, sizeof(TABPANEL));
+        d[our_tab].dp = &pg.panels[0];
+        d[our_tab].dp3 = d;
     }
 
     std::vector<bool> shown(rows, false);
@@ -396,12 +615,33 @@ void lay_out(DIALOG *d)
         if(shown[i] || unseen(ours[i]))
             continue;
 
+        if(is_way_out(d[i], ours[i]))
+        {
+            d[i].x = X + W - (int)((ours[0].x + ours[0].w - ours[i].x) * s + 0.5);
+            d[i].y = Y + H - (int)((ours[0].y + ours[0].h - ours[i].y) * s + 0.5);
+            d[i].flags &= ~D_HIDDEN;
+            shown[i] = true;
+            continue;
+        }
+
         // tabs: the build's dialog has its own (or none): ours stop showing and hiding their pages
         if(d[i].proc == jwin_tab_proc)
             d[i].dp3 = NULL;
 
+        // a widget on one of the build's pages but shown by none: hidden as the rest
+
         d[i].flags |= D_HIDDEN;
         ++hidden;
+    }
+
+    const int overlaps = overlapping(d, rows, ours);
+
+    if(overlaps >= 2)
+    {
+        put_back(d);
+        al_trace("zq_ui: %s: %s not laid out as %s's (%d widgets would cover others)\n", zq_ui_profile_name(), name,
+                 build.c_str(), overlaps);
+        return;
     }
 
     int moved = 0;
@@ -426,9 +666,12 @@ void put_back(DIALOG *d)
                 o.flags = (o.flags & ~D_HIDDEN) | (w.flags & D_HIDDEN);
                 o.dp3 = w.dp3;
 
-                if(i == 0)
+                if(i == 0 || o.proc == jwin_tab_proc)
                     o.dp = w.dp;
             }
+
+            for(std::list<Pages>::iterator p = g_pages.begin(); p != g_pages.end(); )
+                p = p->d == d ? g_pages.erase(p) : ++p;
 
             g_saved.erase(it);
             return;
