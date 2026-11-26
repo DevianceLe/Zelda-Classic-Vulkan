@@ -1,3 +1,34 @@
+## What's new in X.13
+
+The version is now named X.13: the "X" is the brand, and the quest format is unchanged.
+
+**ZQuest: every ZC build, for New and Save As**
+
+- File > New and Save As list every build: 1.90, 1.92, 2.10.0 to 2.10.3, the 2.11 betas, 2.50.0 to 2.50.3, 2.53.0 and 2.53.1, all twenty 2.55 releases (2.55.0 to 2.55.19), and every 3.0 prerelease (1 to 239) and 3.0 Nightly
+- A quest saves in the build it was made in or any newer one, never an older one
+- New starts from each build's own new quest: its Classic and Cambria tilesets, its rulesets, and the tileset wizard where the build had one; 1.92 and 1.90 quests are built the way their ZQuests built them
+- Saving an older quest as a newer old build converts it the way that build's own ZQuest did (passwords kept)
+
+**ZQuest: each build's own interface**
+
+- ZQuest switches to the interface of the build a quest is for, on New and when a quest is opened: that build's menus, editor size and layout, colours, keys and dialogs (1.92's yellow on blue, 2.10's small editor, 2.55's and 3.0's dark theme and 912x684 layouts)
+- Interface menu and Etc > Interface...: match the quest's build, use the newest interface, or pick any newer build's; only the interface changes, and what the quest can hold still follows its own build
+
+**Playing as in 3.0**
+
+- Enemies scripted with ghost.zh walk in as in 3.0: older 3.0 scripts get the array slots 3.0 gives them, and enemy scripts run on the frame an enemy spawns
+- Screen scripts that run when a screen loads, respawn points after drowning, upstream's standalone quit screen, and Game->SaveAndQuit after onExit
+- Sideview DMaps, the drowning checks, swimming after a warp, step triggers without gridlock, and no steps into a dungeon through a side with no door
+- The Active script set up before the opening under the old Init timing, a heart-piece slot in older subscreens, sword beam shards, animated combos restarting at each game start
+- Script and music files that name a Windows device (COM1 and the like) are refused
+
+**Testing**
+
+- A deep sweep plays 984 spots of 900 frames in the 93 newer quests: 464 match 3.0 exactly, 413 differ only where the scene is random, and 107 still differ (130 before this release's last round)
+- New and Save As were checked in every build: all 89 3.0 formats (356 runs, no failures), all twenty 2.55 releases and every older build; upstream 2.55.17 and 3.0 open the saved files
+
+**Tested:** the 2.53 quests are unchanged (four re-saves byte for byte, and the recorded 1st Quest run, all 2,478 frames); the 93 newer quests open and re-save unchanged in ZQuest; their openings were compared with 3.0 after every change and none got worse.
+
 ## What's new in 2.53.444.12
 
 **2.55.19 and the newest 3.0**

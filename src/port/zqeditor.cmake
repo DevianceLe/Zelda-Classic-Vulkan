@@ -167,7 +167,7 @@ target_include_directories(zqeditor PRIVATE
 # The game's main() becomes zcport_game_main(); see src/port/entry/zplayer_main.cpp.
 # (On the target: a source file's properties would reach zplayer's copy too.)
 target_compile_definitions(zqeditor PRIVATE ZCPORT_MAGIC_MAIN ZC_ZQEDITOR
-	"ZPLAYER_WINDOW_TITLE=\"ZQuest Vulkan 2.53.444.7\"")
+	"ZPLAYER_WINDOW_TITLE=\"ZQuest Vulkan X.13\"")
 target_link_libraries(zqeditor PRIVATE zcport_sdl zcport zc_stb_vorbis zc_minimp3 zc_gme zc_dumb)
 # the build catalog's other generations: zq_builds.cpp's stand-ins give way once their files are there
 if(EXISTS ${ZCPORT_DIR}/zqeditor/zq_builds_old.cpp)
