@@ -5510,8 +5510,23 @@ bool LinkClass::animate(int)
         if(false == (last_hurrah = !last_hurrah))
         {
             drunkclk=0;
+
+            // 2.55/3.0 (upstream): the Hero's onDeath script runs to its end before the death
+            // animation, or after it with qr_ONDEATH_RUNS_AFTER_DEATH_ANIM (662)
+            const bool ondeath = q30_active(), ondeath_after = ondeath && q30_quest_rule(662);
+
+            if(ondeath && !ondeath_after)
+                q30_run_ondeath();
+
             gameover();
-            
+
+            if(ondeath_after)
+            {
+                Playing = true;
+                q30_run_ondeath();
+                Playing = false;
+            }
+
             return true;
         }
     }

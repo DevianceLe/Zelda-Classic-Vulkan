@@ -3742,7 +3742,14 @@ void updatescr(bool allowwavy)
     
     bool nosubscr = (tmpscr->flags3&fNOSUBSCR && !(tmpscr->flags3&fNOSUBSCROFFSET));
     
-    if(nosubscr)
+    if(nosubscr && q30_active())
+    {
+        // 2.55/3.0 (upstream): the whole picture cleared, the field from its offset moved up by half
+        // of it (a quake's offset too), so no rows of an earlier frame stay at the bottom
+        clear_to_color(panorama,0);
+        blit(wavybuf,panorama,0,playing_field_offset,0,playing_field_offset/2,256,zc_view_h-playing_field_offset);
+    }
+    else if(nosubscr)
     {
         const int field = zc_field_h();     // 168, or 176 with the 232-row picture
         rectfill(panorama,0,0,255,passive_subscreen_height/2,0);
@@ -4870,7 +4877,10 @@ void advanceframe(bool allowwavy, bool sfxcleanup)
 void zapout()
 {
     set_clip_rect(scrollbuf, 0, 0, scrollbuf->w, scrollbuf->h);
-    blit(framebuf,scrollbuf,0,0,256,0,256,zc_view_h);
+    // 2.55/3.0 (upstream's latest_screen_image()): the picture last shown, so on a screen without a
+    // subscreen the field moved up for it is moved up once more as the zap is shown
+    BITMAP *zsrc = (q30_active() && q30_last_shown) ? q30_last_shown : framebuf;
+    blit(zsrc,scrollbuf,0,0,256,0,256,zc_view_h);
     
     script_drawing_commands.Clear();
     

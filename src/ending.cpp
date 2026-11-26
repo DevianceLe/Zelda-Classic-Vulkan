@@ -241,7 +241,7 @@ void ending()
     draw_screen_clip_rect_x1=0;
     draw_screen_clip_rect_x2=255;
     draw_screen_clip_rect_y1=0;
-    draw_screen_clip_rect_y2=223;
+    draw_screen_clip_rect_y2=zc_view_h-1;    // 223; 231 for a 2.55/3.0 game's 232 rows (upstream)
     //draw_screen_clip_rect_show_link=true;
     //draw_screen_clip_rect_show_guys=false;
     
@@ -447,7 +447,7 @@ void ending()
     }
     
     clear_bitmap(scrollbuf);
-    blit(framebuf,scrollbuf,0,0,0,0,256,224);
+    blit(framebuf,scrollbuf,0,0,0,0,256,zc_view_h);     // (2.55/3.0: the game's 232 rows, upstream's framebuf->h)
     endingpal();
     // draw the brick
     puttile16(scrollbuf,3,256,0,csBOSS,0);
@@ -558,7 +558,7 @@ void ending()
             blit(scrollbuf,scrollbuf,0,1,0,0,256,232);
         }
         
-        blit(scrollbuf,framebuf,0,0,0,0,256,224);
+        blit(scrollbuf,framebuf,0,0,0,0,256,zc_view_h);
         advanceframe(true);
         
         if(Quit)

@@ -5077,7 +5077,8 @@ int main(int argc, char* argv[])
             
             initZScriptGlobalRAM();
             ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_END);
-            zc_set_view_height(224);    // the ending is drawn for 224 rows
+            if(!q30_active())           // the 2.53 ending is drawn for 224 rows; 2.55/3.0 (upstream)
+                zc_set_view_height(224);    // keep the game's picture, 232 rows when the bottom 8 show
             ending();
         }
         break;
