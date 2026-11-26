@@ -14144,7 +14144,8 @@ void LinkClass::checkspecial2(int *ls)
     y1 = ty;
     y2 = ty+15;
     
-    if(diagonalMovement)
+    // (2.55/3.0: upstream looks at the inset corners with no gridlock too)
+    if(diagonalMovement || (q30_active() && q30_no_gridlock()))
     {
         x1 = tx+4;
         x2 = tx+11;
@@ -15025,6 +15026,21 @@ void LinkClass::q30_start_respawn_point()
 
 void LinkClass::setEntryPoints(int x2, int y2)
 {
+    // 2.55/3.0 with the newer respawn points: upstream's set_respawn_point sets the warp point,
+    // then the respawn point only where every frame's check (q30_keep_respawn_point) finds it safe
+    if(q30_new_respawn_points() && !q30_respawn_forced())
+    {
+        warpx = x2;
+        warpy = y2;
+        const fix ox = x, oy = y;
+        x = x2;
+        y = y2;
+        q30_keep_respawn_point();
+        x = ox;
+        y = oy;
+        return;
+    }
+
     if(q30_respawn_forced() || q30_unsafe_ground(x2, y2))
         return;
 

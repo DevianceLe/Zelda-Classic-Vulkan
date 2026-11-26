@@ -13,6 +13,7 @@
 #include "precompiled.h" //always first
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -606,8 +607,11 @@ void q30_region_sprlog()
 
     if(!screenscrolling)
     {
-        hx = int(Link.getX()) + ox;
-        hy = int(Link.getY()) + oy;
+        // (whole pixels as upstream's zfix getInt, the nearest with halves away from 0: a Link at
+        // y -0.5 is logged at -1, as upstream's "h" step)
+        auto px = [](double v) { return (int)(v < 0 ? std::ceil(v - 0.5) : std::floor(v + 0.5)); };
+        hx = px(double(Link.getX())) + ox;
+        hy = px(double(Link.getY())) + oy;
     }
 
     fprintf(f, "%d scr %02X hero %d %d view %d %d", frame, currscr, hx, hy, vx, vy);
