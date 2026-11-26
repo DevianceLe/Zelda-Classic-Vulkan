@@ -352,6 +352,9 @@ Q30ItemRec *q30_item_rec(int item);     // NULL: none (a 2.53 quest, or past the
 // upstream's weapon::load_weap_data in the weapon constructor: a weapon an item of a 2.55/3.0
 // quest makes takes on that item's weapon data (q30_scripts_data.h)
 void q30_weapon_load_item_data(weapon *w);
+// upstream's weapon::useweapon: the weapon type an lweapon imitates for collisions and triggers
+// (0: none; always 0 for 2.53 quests). q30_weapon_fx.h
+int q30_weapon_imitates(weapon *w);
 // A DMap's disabled items past 255 (the DMap reader; dmap -1 clears them all), and whether the
 // current DMap disables such an item (item_disabled).
 void q30_set_dmap_item_disabled(int dmap, int item);

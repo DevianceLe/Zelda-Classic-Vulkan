@@ -51,6 +51,17 @@ int q30_weapon_data_burn(long uid)
     return st ? (int)((st->weapon_flags >> 3) & 0xF) : 0;
 }
 
+// upstream's weapon::useweapon: the weapon type an lweapon acts as for collisions and triggers
+// (its weapon data's "imitate weapon", or a script's lweapon->Weapon); 0 for none
+int q30_weapon_imitates(weapon *w)
+{
+    if(!w || !q30_active())
+        return 0;
+
+    const long v = zasm30_store_get(Z30R_LWPNUSEWEAPON, w->getUID(), 0) / 10000;
+    return (v > 0 && v < 256) ? (int)v : 0;
+}
+
 // upstream's blast under qr_BOMB_BOOMS_CLEAR_SCRIPTS: scrconfig.script = 0, FFCore.destroySprite
 void q30_weapon_clear_script(weapon *w)
 {

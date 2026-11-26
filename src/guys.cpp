@@ -2049,6 +2049,11 @@ int enemy::q30_defend_events(int wpnId, int *power, int edef, weapon *w)
 int enemy::takehit(weapon *w)
 {
     int wpnId = w->id;
+
+    // 2.55/3.0: a weapon imitating another (upstream's useweapon) hits as that one
+    if(const int imitated = q30_weapon_imitates(w))
+        wpnId = imitated;
+
     int power = w->power;
     int wpnx = w->x;
     int wpny = w->y;

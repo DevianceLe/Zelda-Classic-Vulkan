@@ -61,6 +61,7 @@ void q30_saved_portals_load(const std::vector<long> &kv);
 extern int (*zc_cs2_cset)(int cset, int cofs);     // tiles.cpp
 
 int q30_weapon_data_burn(long uid);         // q30_weapon_fx.h: the levels a weapon's flags burn with
+int q30_weapon_imitates(weapon *w);         // q30_weapon_fx.h: the weapon type it acts as (0 none)
 int q30_wpn_trigger_burn(long uid);         // below: the levels combo triggers lit it with
 int q30_weapon_lift_data(weapon *w, int *time, long *height);  // q30_weapon_fx.h: its LiftLevel, LiftTime, LiftHeight
 extern bool q30_weapon_still_hits;  // q30_weapon_fx.h: WFLAG_NO_COLL_WHEN_STILL is ignored while set
@@ -6775,6 +6776,10 @@ static bool match_weapon(weapon *w, const Q30Trigger &t)
             return false;
     }
 
+    // a weapon imitating another matches that one's trigger (upstream MatchComboTrigger)
+    if(const int imitated = q30_weapon_imitates(w))
+        wid = imitated;
+
     int f = -1;
 
     switch(wid)
@@ -6913,6 +6918,62 @@ static void match_weapon_at(weapon *w, int bx, int by, int layer)
 static bool switch_weapon_check(weapon *w);
 static void trig_weapon_frame(weapon *w);
 
+// upstream HeroClass::check_wpn_triggers: an lweapon imitating another weapon (its useweapon)
+// triggers that weapon's secret flags where it is, and one imitating a bomb blast opens bomb
+// doors (upstream a98662295; the engine's own blasts open them on their detonation timer)
+static void imitated_wpn_triggers(weapon *w, int imitated, int bx, int by)
+{
+    bx = vbound(bx, 0, 255);
+    by = vbound(by, 0, 175);
+
+    switch(imitated)
+    {
+    case wArrow:
+        findentrance(bx, by, mfARROW, true);
+        findentrance(bx, by, mfSARROW, true);
+        findentrance(bx, by, mfGARROW, true);
+        break;
+
+    case wBeam: case wRefBeam:
+        for(int i = 0; i < 4; ++i)
+            findentrance(bx, by, mfSWORDBEAM + i, true);
+
+        break;
+
+    case wHookshot:
+        findentrance(bx, by, mfHOOKSHOT, true);
+        break;
+
+    case wBrang:
+        for(int i = 0; i < 3; ++i)
+            findentrance(bx, by, mfBRANG + i, true);
+
+        break;
+
+    case wMagic: case wRefMagic:
+        findentrance(bx, by, mfWANDMAGIC, true);
+        break;
+
+    case wRefFireball:
+        findentrance(bx, by, mfREFFIREBALL, true);
+        break;
+
+    case wBomb: case wSBomb:
+        findentrance(bx + w->txsz, by + Link.tysz + ((tmpscr->flags7 & fSIDEVIEW) ? 2 : -3), imitated == wBomb ? mfBOMB : mfSBOMB, true);
+
+        if(w->id != wBomb && w->id != wSBomb)
+            bombdoor(bx, by);
+
+        break;
+
+    case wFire:     // (any, strong and magic fire)
+        findentrance(bx, by, mfBCANDLE, true);
+        findentrance(bx, by, mfRCANDLE, true);
+        findentrance(bx, by, mfWANDFIRE, true);
+        break;
+    }
+}
+
 void q30_trig_weapon(weapon *w)
 {
     TrigFrameMap frame;
@@ -6935,7 +6996,10 @@ static void trig_weapon_frame(weapon *w)
 if(!q30_active() || screenscrolling || (w->dead != -1 && w->dead != 0 && w->id != wBomb && w->id != wSBomb && w->id != ewBomb && w->id != ewSBomb))
         return;
 
-    switch(w->id)
+    // (upstream CanComboTrigger: a weapon imitating another counts as that one)
+    const int imitated = q30_weapon_imitates(w);
+
+    switch(imitated ? imitated : w->id)
     {
     case wSword: case wBeam: case wBrang: case wBomb: case wSBomb: case wLitBomb: case wLitSBomb:
     case wArrow: case wFire: case wWhistle: case wBait: case wWand: case wMagic: case wWind:
@@ -6980,22 +7044,42 @@ int hw = zc_max(1, w->hxsz), hh = zc_max(1, w->hysz);
         return;
     }
 
+    // (only lweapons imitate for the secret flags, as upstream's weapon::animate)
+    const int imit = (imitated && ((w->id >= wScript1 && w->id <= wScript10) ? Lwpns.getByUID(w->getUID()) == w
+                                                                             : w->id < wEnemyWeapons)) ? imitated : 0;
+
     for(int dx = 0; dx < hw; dx += 16)
     {
         for(int dy = 0; dy < hh; dy += 16)
+        {
             for(int ly = 0; ly < layercount; ++ly)
                 match_weapon_at(w, wx + dx + w->hxofs, wy + dy + w->hyofs, ly);
 
+            if(imit)
+                imitated_wpn_triggers(w, imit, wx + dx + w->hxofs, wy + dy + w->hyofs);
+        }
+
         for(int ly = 0; ly < layercount; ++ly)
             match_weapon_at(w, wx + dx + w->hxofs, wy + w->hyofs + (hh - 1), ly);
+
+        if(imit)
+            imitated_wpn_triggers(w, imit, wx + dx + w->hxofs, wy + w->hyofs + (hh - 1));
     }
 
     for(int dy = 0; dy < hh; dy += 16)
+    {
         for(int ly = 0; ly < layercount; ++ly)
             match_weapon_at(w, wx + w->hxofs + (hw - 1), wy + dy + w->hyofs, ly);
 
+        if(imit)
+            imitated_wpn_triggers(w, imit, wx + w->hxofs + (hw - 1), wy + dy + w->hyofs);
+    }
+
     for(int ly = 0; ly < layercount; ++ly)
         match_weapon_at(w, wx + w->hxofs + (hw - 1), wy + w->hyofs + (hh - 1), ly);
+
+    if(imit)
+        imitated_wpn_triggers(w, imit, wx + w->hxofs + (hw - 1), wy + w->hyofs + (hh - 1));
 }
 
 void q30_trig_fire(weapon *w, int x, int y, int levels)

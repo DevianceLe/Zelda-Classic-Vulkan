@@ -516,6 +516,204 @@ static bool q30_item_jinx_ok(int item, bool sword)
 
     return uses_sword ? LinkSwordClk() == 0 : LinkItemClk() == 0;
 }
+
+// ---- 2.55/3.0 active shields (upstream usingActiveShield, getCurrentShield, refreshActiveShield,
+// compareDir and compareShield). A shield with item flag 9 ("Active Use") is raised only while a
+// button it is on, or one of its own buttons (misc 5), is held: then it blocks with the sides of
+// flags 1-4 and gives its LTM, Link can't attack, flag 11 locks his direction and flag 10 changes
+// his speed (misc 7 percent, misc 8 step bonus); lowered it blocks with flags 5-8 and gives its
+// "inactive" tile modifier (misc 6). Raising it plays its second use sound. Passive shields block
+// with flags 1-4. 2.53 quests: none of it (the 2.53 code below). Item cooldowns and the item
+// script run on raising it aren't in this engine.
+static bool q30_shield_on = false;          // upstream shield_active
+static int q30_shield_forcedir = -1;        // shield_forcedir
+static int q30_shield_id = -1;              // active_shield_id
+long q30_live_state(int what, bool write, long value);  // q30_triggers.cpp (12: Hero->LiftFlags)
+
+static int q30_btn_item_id(int wpn)
+{
+    return (wpn & 0xF000) == 0xF000 ? wpn - 0xF000 : (wpn & 0xFFF);
+}
+
+static bool q30_is_active_shield(int itm)
+{
+    return itm >= 0 && itm < MAXITEMS && itemsbuf[itm].family == itype_shield && q30_item_flag(itm, Q30_ITEM_FLAG9);
+}
+
+// upstream getIntBtnInput(btns, INPUT_DRUNK | INPUT_PEEK): one of these buttons (A 1, B 2, L 4,
+// R 8, Ex1-4 16-128) held
+static bool q30_int_btns_held(int intbtn)
+{
+    return ((intbtn & 1) && DrunkcAbtn()) || ((intbtn & 2) && DrunkcBbtn()) || ((intbtn & 4) && DrunkcLbtn())
+        || ((intbtn & 8) && DrunkcRbtn()) || ((intbtn & 16) && cEx1btn()) || ((intbtn & 32) && cEx2btn())
+        || ((intbtn & 64) && cEx3btn()) || ((intbtn & 128) && cEx4btn());
+}
+
+// upstream isItmPressed: the item is on a button that is held
+static bool q30_item_btn_held(int itm)
+{
+    return (itm == q30_btn_item_id(Bwpn) && DrunkcBbtn()) || (itm == q30_btn_item_id(Awpn) && DrunkcAbtn())
+        || (q30_use_x_button() && itm == q30_btn_item_id(Xwpn) && cEx1btn())
+        || (q30_use_y_button() && itm == q30_btn_item_id(Ywpn) && cEx2btn());
+}
+
+bool q30_using_active_shield(int itm)
+{
+    if(!q30_active() || q30_shield_jinxed())
+        return false;
+
+    switch(Link.getAction())
+    {
+    case none: case walking: case rafting: case gothit: case swimhit:
+        break;
+
+    default:
+        return false;
+    }
+
+    if(q30_lifting() && (q30_live_state(12, false, 0) & 1))  // LIFTFL_DIS_SHIELD
+        return false;
+
+    if(itm < 0)
+        itm = q30_shield_id < 0 ? current_item_id(itype_shield, true) : q30_shield_id;
+
+    if(itm < 0 || itm >= MAXITEMS || item_disabled(itm) || !q30_item_jinx_ok(itm, false)
+       || !q30_item_flag(itm, Q30_ITEM_FLAG9))
+        return false;
+
+    if(!q30_item_btn_held(itm) && (!itemsbuf[itm].misc5 || !q30_int_btns_held(itemsbuf[itm].misc5 & 0xFF)))
+        return false;
+
+    return checkmagiccost(itm);     // (bunny included)
+}
+
+// upstream getCurrentShield: the raised active shield, else (requireActive false) the best shield
+int q30_current_shield(bool require_active)
+{
+    if(q30_shield_jinxed())
+        return -1;
+
+    if(q30_shield_id > -1 && q30_using_active_shield(q30_shield_id))
+        return q30_shield_id;
+
+    return require_active ? -1 : current_item_id(itype_shield, false);
+}
+
+static int q30_refresh_active_shield()
+{
+    int id = -1;
+
+    if(DrunkcBbtn() && q30_is_active_shield(q30_btn_item_id(Bwpn)))
+        id = q30_btn_item_id(Bwpn);
+
+    if(id < 0 && DrunkcAbtn() && q30_is_active_shield(q30_btn_item_id(Awpn)))
+        id = q30_btn_item_id(Awpn);
+
+    if(id < 0 && q30_use_x_button() && cEx1btn() && q30_is_active_shield(q30_btn_item_id(Xwpn)))
+        id = q30_btn_item_id(Xwpn);
+
+    if(id < 0 && q30_use_y_button() && cEx2btn() && q30_is_active_shield(q30_btn_item_id(Ywpn)))
+        id = q30_btn_item_id(Ywpn);
+
+    if(id < 0)
+    {
+        const int s = current_item_id(itype_shield, false);
+
+        if(q30_is_active_shield(s) && q30_int_btns_held(itemsbuf[s].misc5 & 0xFF))
+            id = s;
+    }
+
+    return q30_using_active_shield(id) ? id : -1;
+}
+
+// upstream HeroClass::animate's "active shield handling", each frame before the action
+static void q30_active_shield_frame()
+{
+    if(!q30_active())
+    {
+        q30_shield_on = false;
+        q30_shield_forcedir = -1;
+        q30_shield_id = -1;
+        return;
+    }
+
+    q30_shield_id = q30_refresh_active_shield();
+    const bool sh = q30_shield_id > -1;
+    q30_shield_forcedir = -1;
+
+    if(sh && Link.getAction() != rafting && q30_item_flag(q30_shield_id, Q30_ITEM_FLAG11))     // Lock Direction
+        q30_shield_forcedir = Link.getDir();
+
+    if(sh != q30_shield_on)
+    {
+        q30_shield_on = sh;
+
+        if(sh && q30_item_usesound2(q30_shield_id) > 0)    // 'Activate' sound
+            sfx(q30_item_usesound2(q30_shield_id));
+    }
+}
+
+// upstream compareDir + compareShield: whether the shield covers the side a weapon moving in
+// wdir comes at (dirs past 7 never hit shields)
+static bool q30_shield_covers(int wdir, int itm)
+{
+    enum { CMP_FRONT = 1, CMP_BACK = 2, CMP_LEFT = 4, CMP_RIGHT = 8 };
+
+    if(wdir < 0 || wdir > 7 || itm < 0)
+        return false;
+
+    const int xd = (wdir == left || wdir == l_up || wdir == l_down) ? left : (wdir == right || wdir == r_up || wdir == r_down) ? right : -1;
+    const int yd = (wdir == up || wdir == l_up || wdir == r_up) ? up : (wdir == down || wdir == l_down || wdir == r_down) ? down : -1;
+    const int d = q30_shield_forcedir < 0 ? Link.getDir() : q30_shield_forcedir;
+    int cmp = 0;
+
+    switch(d)
+    {
+    case up:
+        cmp |= (xd == left ? CMP_RIGHT : xd == right ? CMP_LEFT : 0) | (yd == up ? CMP_BACK : yd == down ? CMP_FRONT : 0);
+        break;
+
+    case down:
+        cmp |= (xd == left ? CMP_LEFT : xd == right ? CMP_RIGHT : 0) | (yd == up ? CMP_FRONT : yd == down ? CMP_BACK : 0);
+        break;
+
+    case left:
+        cmp |= (xd == left ? CMP_BACK : xd == right ? CMP_FRONT : 0) | (yd == up ? CMP_LEFT : yd == down ? CMP_RIGHT : 0);
+        break;
+
+    case right:
+        cmp |= (xd == left ? CMP_FRONT : xd == right ? CMP_BACK : 0) | (yd == up ? CMP_RIGHT : yd == down ? CMP_LEFT : 0);
+        break;
+    }
+
+    const dword f = q30_item_flags(itm);
+    // a passive shield, or a raised active one, uses flags 1-4; a lowered active one flags 5-8
+    const bool standard = !(f & Q30_ITEM_FLAG9) || q30_using_active_shield(-1);
+    const dword fr = standard ? ITEM_FLAG1 : ITEM_FLAG5, bk = standard ? ITEM_FLAG2 : Q30_ITEM_FLAG6;
+    const dword lf = standard ? ITEM_FLAG3 : Q30_ITEM_FLAG7, rt = standard ? ITEM_FLAG4 : Q30_ITEM_FLAG8;
+
+    return ((cmp & CMP_FRONT) && (f & fr)) || ((cmp & CMP_BACK) && (f & bk)) || ((cmp & CMP_LEFT) && (f & lf))
+        || ((cmp & CMP_RIGHT) && (f & rt));
+}
+
+// upstream mod_steps / moveOld2 (the new movement rules): a raised active shield with flag 10
+// ("Change Speed") scales Link's step by misc 7 percent (negative: that much more) plus misc 8
+// hundredths of a pixel
+static double q30_shield_step(double step)
+{
+    const int s = q30_current_shield(true);
+
+    if(s < 0 || !q30_item_flag(s, Q30_ITEM_FLAG10))
+        return step;
+
+    double perc = itemsbuf[s].misc7 / 100.0;
+
+    if(perc < 0)
+        perc = -perc + 1;
+
+    return step * perc + itemsbuf[s].misc8 / 100.0;
+}
+
 static int q30_sprite_index(sprite_list &list, int index, long uid);    // below
 void q30_shield_jinx_reset(bool all);
 void q30_bubble_shield_jinx(int guy, int dm7, int divisor, bool ringflag1);   // (q30_scripts_regs.h)
@@ -3664,17 +3862,36 @@ int LinkClass::EwpnHit()
                 return i;
             }
             
-            if(!hitshield || action==attacking || action==swimming || charging > 0 || spins > 0 || hopclk==0xFF)
+            int itemid = -1;
+
+            if(q30_active())
             {
-                return i;
+                // upstream: the raised active shield, else the best one, and the sides it
+                // covers (compareShield); an active shield isn't let down by attacking,
+                // swimming, charging, spinning or hopping
+                itemid = q30_current_shield(false);
+
+                if(itemid<0 || !checkmagiccost(itemid) || !q30_shield_covers(ew->dir, itemid))
+                    return i;
+
+                if(!q30_item_flag(itemid, Q30_ITEM_FLAG9) && ((q30_lifting() && (q30_live_state(12, false, 0) & 1))
+                   || action==attacking || action==swimming || charging > 0 || spins > 0 || hopclk==0xFF))
+                    return i;
             }
-            
-            int itemid = q30_shield_jinxed() ? -1 : current_item_id(itype_shield);
-            
-            if(itemid<0 || !checkmagiccost(itemid)) return i;
-            
+            else
+            {
+                if(!hitshield || action==attacking || action==swimming || charging > 0 || spins > 0 || hopclk==0xFF)
+                {
+                    return i;
+                }
+
+                itemid = q30_shield_jinxed() ? -1 : current_item_id(itype_shield);
+
+                if(itemid<0 || !checkmagiccost(itemid)) return i;
+            }
+
             paymagiccost(itemid);
-            
+
             bool reflect = false;
             
             switch(ew->id)
@@ -3817,9 +4034,13 @@ int LinkClass::LwpnHit()                                    //only here to check
                 break;
             }
             
-            int itemid = q30_shield_jinxed() ? -1 : current_item_id(itype_shield);
+            // (2.55/3.0: the raised active shield, else the best one, and the sides it covers)
+            int itemid = q30_active() ? q30_current_shield(false) : q30_shield_jinxed() ? -1 : current_item_id(itype_shield);
             bool reflect = false;
-            
+
+            if(q30_active())
+                hitshield = q30_shield_covers(lw->dir, itemid);
+
             switch(lw->id)
             {
             case wRefFireball:
@@ -3869,9 +4090,10 @@ int LinkClass::LwpnHit()                                    //only here to check
                 return -1;
             }
             
-            if(!hitshield || action==attacking || action==swimming || hopclk==0xFF)
+            if(!hitshield || ((!q30_active() || !q30_item_flag(itemid, Q30_ITEM_FLAG9))
+                              && (action==attacking || action==swimming || hopclk==0xFF)))
                 return i;
-                
+
             if(itemid<0 || !checkmagiccost(itemid)) return i;
             
             paymagiccost(itemid);
@@ -5230,7 +5452,9 @@ bool LinkClass::animate(int)
     {
         holdclk=0;
     }
-    
+
+    q30_active_shield_frame();  // 2.55/3.0: an active shield raised or lowered
+
     // 2.55/3.0 sideview swimming (upstream's sideswimming, sideswimattacking and sideswimhit)
     if(q30_is_side_swim() && (action==swimming || action==attacking || action==swimhit))
         q30_side_swim_tick();
@@ -5417,6 +5641,9 @@ bool LinkClass::animate(int)
     }
 
     q30_slopes_snap_down();
+
+    if(q30_shield_forcedir > -1 && action != rafting)   // 2.55/3.0: a raised shield's Lock Direction
+        dir = q30_shield_forcedir;
 
     // check for ladder removal
     if(diagonalMovement||q30_no_gridlock())
@@ -6904,7 +7131,7 @@ bool LinkClass::doattack()
 
 bool LinkClass::can_attack()
 {
-    if(q30_link_stunned())
+    if(q30_link_stunned() || q30_using_active_shield(-1))    // (2.55/3.0: not with a shield raised)
         return false;
 
 if(action==hopping || (action==swimming && !q30_is_side_swim()) || action==freeze ||
@@ -9602,7 +9829,7 @@ void LinkClass::q30_free_walk(int push)
     // (top-down swimming comes here only under the new movement rules: upstream's movehero, or
     // moveOld2)
     const bool swim = action == swimming;
-    double step = new_movement ? (q30_steprate + q30_step_boost) / 100.0 : 1.5;
+    double step = new_movement ? q30_shield_step((q30_steprate + q30_step_boost) / 100.0) : 1.5;
     bool slowcombo = (combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement && (z == 0 || (tmpscr->flags2 & fAIRCOMBOS))) ||
                      (isSideview() && (ON_SIDEPLATFORM || q30_on_svladder) && combo_class_buf[combobuf[MAPCOMBO(x+7,y+8)].type].slow_movement);
     bool slowcharging = charging > 0 &&     // (2.55/3.0: the sword's flag 10)
@@ -9660,7 +9887,7 @@ void LinkClass::q30_free_walk(int push)
 
     if(new_movement && !q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2))
     {
-        const double movepix = (q30_steprate + q30_step_boost) / 100.0;
+        const double movepix = q30_shield_step((q30_steprate + q30_step_boost) / 100.0);
         const bool walkable = !sv_block && q30_fit_step(movedir, q30_hero_newstep, -1, 0);
         still = !walkable;
 
