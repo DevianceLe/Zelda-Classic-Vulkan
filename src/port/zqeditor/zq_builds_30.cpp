@@ -80,6 +80,10 @@ extern zquestheader header;
 // zq_builds_30_new.cpp
 bool zq30_new_quest(const zq_build &b, int fmt);
 bool zq30_new_from(int fmt, const char *version_name, int which, int ruleset, bool bugfix, bool zs_bugfix, std::string &why);
+// zq_builds_30_maps.cpp
+void zq30_maps_read(dword id, word v, const std::vector<byte> &data);
+bool zq30_maps_step(dword id, word &v, int to, std::vector<byte> &data, std::string &why);
+void (*zq30_dmap_prep(void (*next)(Tape &, int), int from, int to))(Tape &, int);
 
 int zq30_format_count();
 int zq30_save_as(int fmt, const char *path, std::string &why);
@@ -897,9 +901,6 @@ bool map_records(Sec &s, int to, int weap_v, std::string &why)
     // states moved; before 31 the region ids are the DMaps'
     // before 31 the region ids are the DMaps'; 34 widened the screen states to 32 bits (the low 16
     // are the older ones, the loader sets the rest for an older map)
-    if(to < 31)
-        return refuse(why, s, to, "the region ids before map format 31 are the DMaps' (not written yet)");
-
     if(to < 37 && !g_music_read)
         return refuse(why, s, to, "its music objects (AMUS) couldn't be read");
 
@@ -1238,6 +1239,9 @@ bool down_section(Sec &s, const Zq30Format &F, std::string &why)
         }
     }
 
+    if(!zq30_maps_step(s.id, s.v, to, s.data, why))
+        return false;
+
     // a section the newest save wrote in an older format than the build's (3.0 writes scripts last
     // compiled by an old compiler in the old layout): the build reads it as it is
     if(to < s.v)
@@ -1285,6 +1289,7 @@ bool down_section(Sec &s, const Zq30Format &F, std::string &why)
                 return refuse(why, s, to, "its music objects (AMUS) couldn't be read");
 
             g_prep = to < 25 && s.v >= 25 ? prep_dmap_music : NULL;
+            g_prep = zq30_dmap_prep(g_prep, s.v, to);
             g_music_error.clear();
             ok = counted_records(zq_tape_dmap, s, to, weap_v, why);
             g_prep = NULL;
@@ -1681,6 +1686,9 @@ int save_as_format(int fmt, const char *path, std::string &why)
     for(size_t i = 0; i < q.secs.size(); ++i)
         if(q.secs[i].id == section_id(S_ADVMUSIC))
             g_music_read = read_music(q.secs[i].data);
+
+    for(size_t i = 0; i < q.secs.size(); ++i)
+        zq30_maps_read(q.secs[i].id, q.secs[i].v, q.secs[i].data);
 
     std::vector<Sec> kept;
     std::string fails;

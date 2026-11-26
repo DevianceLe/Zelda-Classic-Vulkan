@@ -85,6 +85,7 @@ set(ZQEDITOR_SOURCES
 	${ZCPORT_DIR}/zqeditor/zq_new_quest.cpp
 	${ZCPORT_DIR}/zqeditor/zq_builds_30.cpp
 	${ZCPORT_DIR}/zqeditor/zq_builds_30_new.cpp
+	${ZCPORT_DIR}/zqeditor/zq_builds_30_maps.cpp
 	# the build catalog: every ZC build File > New starts in and Save As saves as (zq_builds.h)
 	${ZCPORT_DIR}/zqeditor/zq_builds.cpp
 	${ZCPORT_DIR}/zqeditor/zq_builds_255.cpp
