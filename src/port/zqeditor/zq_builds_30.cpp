@@ -55,7 +55,7 @@ bool zq30_combos_down(const std::vector<byte> &body, word from_v, word to_v, int
                       std::string &why);
 // q255_scripts.cpp
 bool q255_ffscript_meta_spans(const byte *data, size_t size, word v, std::vector<size_t> &meta_v_at,
-                              std::vector<std::pair<size_t, size_t> > &spans);
+                              std::vector<std::pair<size_t, size_t> > &spans, std::vector<std::pair<size_t, size_t> > *attrs);
 // zq_builds_30_new.cpp
 bool zq30_new_quest(const zq_build &b, int fmt);
 bool zq30_new_from(int fmt, const char *version_name, int which, int ruleset, bool bugfix, bool zs_bugfix, std::string &why);
@@ -419,6 +419,217 @@ bool blank_config_blob(const std::string &key, const std::vector<byte> &b)
     return false;
 }
 
+// zqn255_tape_rebuild, and a field whose kind changed between the versions converted: a bit
+// string (from format 47 on, the init data's starting items) and a fixed bit field.
+bool tape_rebuild(Schema schema, const Tape &src, int v, std::vector<byte> &out)
+{
+    Tape t;
+    const TapeIndex index(src);
+    TapeParser p(&src, &t, &index);
+
+    if(!schema(p, v) || p.bad)
+        return false;
+
+    for(size_t i = 0; i < t.f.size(); ++i)
+    {
+        TapeField &f = t.f[i];
+        const TapeField *from = index.find(f.key);
+
+        if(!from)
+            continue;
+
+        if(f.kind == TK_BITFIELD && from->kind == TK_BITSTR)
+        {
+            std::vector<byte> bits = zq_bitstr_bits(from->bytes);
+            bits.resize((size_t)f.width, 0);
+            f.bytes = bits;
+        }
+        else if(f.kind == TK_BITSTR && from->kind == TK_BITFIELD)
+            f.bytes = zq_bitstr_store(from->bytes, (unsigned)from->bytes.size() * 8);
+    }
+
+    out.clear();
+    t.encode(out);
+    return true;
+}
+
+// ---- music before prerelease 157 ---------------------------------------------------------
+//
+// From 157 the quest's music is a list of music objects (AMUS): a DMap (format 25 on) and a
+// screen (map format 37 on) name one by its number (a screen: -1 its DMap's, 0 none). Before, a
+// DMap held a MIDI number (0 none, 1 overworld, 2 dungeon, 3 level 9, 4 on the quest's tunes)
+// and a music file with its track, loop and crossfade, a screen only a MIDI number (-1 its
+// DMap's). Upstream's loader makes one music object of each older DMap's and screen's
+// (convert_from_old_midi_id); this goes back.
+
+struct Music
+{
+    std::string name, path;
+    long loop_start, loop_end, xfade_in, xfade_out;
+    int track, midi;
+};
+
+std::vector<Music> g_music;        // the quest's music objects while a save runs
+bool g_music_read = false;
+std::string g_music_error;         // what a record's music couldn't be written as
+
+bool read_music(const std::vector<byte> &d)
+{
+    g_music.clear();
+
+    if(d.size() < 2)
+        return false;
+
+    const size_t n = le16(d, 0);
+    size_t at = 2;
+
+    for(size_t q = 0; q < n; ++q)
+    {
+        Music m;
+
+        if(at + 2 > d.size())
+            return false;
+
+        const size_t nl = le16(d, at);
+        at += 2;
+
+        if(at + nl + 1 > d.size())
+            return false;
+
+        m.name.assign((const char *)&d[at], nl);
+        at += nl;
+        const size_t pl = d[at++];
+
+        if(at + pl > d.size())
+            return false;
+
+        m.path.assign((const char *)&d[at], pl);
+        at += pl;
+        m.loop_start = m.loop_end = m.xfade_in = m.xfade_out = 0;
+        m.track = 0;
+
+        if(pl)
+        {
+            if(at + 17 > d.size())
+                return false;
+
+            m.loop_start = (long)(int32_t)le32(d, at);
+            m.loop_end = (long)(int32_t)le32(d, at + 4);
+            m.xfade_in = (long)(int32_t)le32(d, at + 8);
+            m.xfade_out = (long)(int32_t)le32(d, at + 12);
+            m.track = d[at + 16];
+            at += 17;
+        }
+
+        if(at + 2 > d.size())
+            return false;
+
+        m.midi = (short)le16(d, at);
+        at += 2;
+        g_music.push_back(m);
+    }
+
+    return at == d.size();
+}
+
+// a music object's MIDI as the older number (convert_from_old_midi_id the other way): -1 when
+// none fits (the game over tune)
+int old_midi(int midi)
+{
+    switch(midi)
+    {
+    case 0: return 0;
+    case -5: return 1;      // overworld
+    case -1: return 2;      // dungeon
+    case -4: return 3;      // level 9
+    }
+
+    return midi > 0 && midi + 3 <= 255 ? midi + 3 : -1;
+}
+
+void set_num(Tape &t, const char *key, int64_t v)
+{
+    if(TapeField *f = t.find(key))
+        f->value = v;
+    else
+    {
+        TapeField x;
+        x.key = key;
+        x.value = v;
+        t.f.push_back(x);
+    }
+}
+
+// a DMap's music for a format before 25
+void prep_dmap_music(Tape &t, int rec)
+{
+    const int n = (int)t.get("music");
+    Music none;
+    none.loop_start = none.loop_end = none.xfade_in = none.xfade_out = 0;
+    none.track = none.midi = 0;
+    const Music &m = n > 0 && n <= (int)g_music.size() ? g_music[(size_t)n - 1] : none;
+    const int midi = old_midi(m.midi);
+
+    if(midi < 0 || m.path.size() > 55)
+    {
+        char b[96];
+        snprintf(b, sizeof(b), "DMap %d's music (%s) has no older form", rec, midi < 0 ? "its MIDI" : "its file name");
+        g_music_error = b;
+        return;
+    }
+
+    set_num(t, "midi", midi);
+    std::vector<byte> text(56, 0);
+
+    if(!m.path.empty())
+        memcpy(&text[0], m.path.data(), m.path.size());
+
+    if(TapeField *f = t.find("tmusic"))
+        f->bytes = text;
+    else
+    {
+        TapeField x;
+        x.key = "tmusic";
+        x.kind = TK_TEXT;
+        x.width = 56;
+        x.bytes = text;
+        t.f.push_back(x);
+    }
+
+    set_num(t, "tmusictrack", m.track);
+    set_num(t, "loop_start", m.loop_start);
+    set_num(t, "loop_end", m.loop_end);
+    set_num(t, "xfade_in", m.xfade_in);
+    set_num(t, "xfade_out", m.xfade_out);
+}
+
+// a screen's music for a map format before 37: a MIDI only
+void prep_screen_music(Tape &t, int rec)
+{
+    const int n = (int)(int32_t)t.get("music", -1);
+    int sm = n < 0 ? -1 : 0;
+
+    if(n > 0)
+    {
+        const Music *m = n <= (int)g_music.size() ? &g_music[(size_t)n - 1] : NULL;
+        sm = m && m->path.empty() ? old_midi(m->midi) : -1;
+
+        if(!m || !m->path.empty() || sm < 0)
+        {
+            char b[96];
+            snprintf(b, sizeof(b), "screen %d plays %s, which a screen before map format 37 can't", rec,
+                     m && !m->path.empty() ? "a music file" : "music with no older form");
+            g_music_error = b;
+            return;
+        }
+    }
+
+    set_num(t, "screen_midi", sm);
+}
+
+void (*g_prep)(Tape &, int) = NULL;     // a record's last change before it is laid out again
+int g_prep_rec = 0;
+
 // One record (or whole section) at data[at...] of version from, laid out in version to. *end:
 // where it ended. weap_v: the build's weapon data version.
 bool rebuild(Schema schema, const std::vector<byte> &data, size_t at, int from, int to, int weap_v, size_t *end,
@@ -432,6 +643,9 @@ bool rebuild(Schema schema, const std::vector<byte> &data, size_t at, int from, 
 
     *end = p.pos;
 
+    if(g_prep)
+        g_prep(t, g_prep_rec);
+
     for(size_t i = 0; i < t.f.size(); ++i)
     {
         const std::string &k = t.f[i].key;
@@ -443,7 +657,7 @@ bool rebuild(Schema schema, const std::vector<byte> &data, size_t at, int from, 
 
     add_config_aliases(t, true);
 
-    if(!zqn255_tape_rebuild(schema, t, to, out))
+    if(!tape_rebuild(schema, t, to, out))
         return false;
 
     // what of the script data comes back when the older record is read and laid out as the newer
@@ -457,7 +671,7 @@ bool rebuild(Schema schema, const std::vector<byte> &data, size_t at, int from, 
 
     std::vector<byte> again;
 
-    if(!zqn255_tape_rebuild(schema, back, from, again))
+    if(!tape_rebuild(schema, back, from, again))
         return false;
 
     TapeParser r(again.empty() ? NULL : &again[0], again.size(), 0, &up);
@@ -541,6 +755,8 @@ bool counted_records(Schema schema, Sec &s, int to, int weap_v, std::string &why
         std::vector<byte> rec;
         std::string lost;
 
+        g_prep_rec = i;
+
         if(!rebuild(schema, s.data, at, s.v, to, weap_v, &end, rec, lost))
             return refuse(why, s, to, "a record doesn't read as its format says");
 
@@ -601,15 +817,18 @@ bool item_records(Sec &s, int to, int weap_v, std::string &why)
 
     const int count = le16(s.data, 0);
 
-    if((s.v < 67) != (to < 67))
-        return refuse(why, s, to, "the item names move out of the records there (not written yet)");
+    if(s.v < 67 && to >= 67)
+        return refuse(why, s, to, "an older item format than the newest's");
 
+    // from 67 (pr.161) each item's name is a counted string in its record; before, a table of
+    // 64-byte names follows the count
+    const bool names_out = s.v >= 67 && to < 67;
     size_t at = 2 + (s.v < 67 ? 64 * (size_t)count : 0);
 
     if(at > s.data.size())
         return refuse(why, s, to, "it is too short");
 
-    std::vector<byte> out(s.data.begin(), s.data.begin() + at);
+    std::vector<byte> out(s.data.begin(), s.data.begin() + at), recs;
 
     for(int i = 0; i < count; ++i)
     {
@@ -623,13 +842,28 @@ bool item_records(Sec &s, int to, int weap_v, std::string &why)
         if(!lost.empty())
             return lost_script(why, s, to, i, lost);
 
-        out.insert(out.end(), rec.begin(), rec.end());
+        if(names_out)
+        {
+            Tape t;
+            TapeParser p(&s.data[0], s.data.size(), at, &t);
+            zq_tape_item(p, s.v);
+            const TapeField *nf = t.find("name");
+            std::vector<byte> nm(64, 0);
+
+            if(nf)
+                memcpy(&nm[0], nf->bytes.empty() ? NULL : &nf->bytes[0], nf->bytes.size() < 63 ? nf->bytes.size() : 63);
+
+            out.insert(out.end(), nm.begin(), nm.end());
+        }
+
+        recs.insert(recs.end(), rec.begin(), rec.end());
         at = end;
     }
 
     if(at != s.data.size())
         return refuse(why, s, to, "it has bytes past its last item");
 
+    out.insert(out.end(), recs.begin(), recs.end());
     s.data.swap(out);
     return true;
 }
@@ -640,8 +874,13 @@ bool map_records(Sec &s, int to, int weap_v, std::string &why)
 {
     // before 37 a screen's music is a MIDI number, not 3.0's music list's; before 34 the screen
     // states moved; before 31 the region ids are the DMaps'
-    if(to < 37)
-        return refuse(why, s, to, "screen music before format 37 is a MIDI number (not written yet)");
+    // before 31 the region ids are the DMaps'; 34 widened the screen states to 32 bits (the low 16
+    // are the older ones, the loader sets the rest for an older map)
+    if(to < 31)
+        return refuse(why, s, to, "the region ids before map format 31 are the DMaps' (not written yet)");
+
+    if(to < 37 && !g_music_read)
+        return refuse(why, s, to, "its music objects (AMUS) couldn't be read");
 
     if(s.data.size() < 2)
         return refuse(why, s, to, "it is too short");
@@ -666,7 +905,15 @@ bool map_records(Sec &s, int to, int weap_v, std::string &why)
         if(at + head > s.data.size())
             return refuse(why, s, to, "it is too short");
 
-        out.insert(out.end(), s.data.begin() + at, s.data.begin() + at + head);
+        // the auto layer combos; the auto palette from 36; the region ids from 31
+        out.insert(out.end(), s.data.begin() + at, s.data.begin() + at + 12);
+
+        if(to >= 36)
+            out.insert(out.end(), s.data.begin() + at + 12, s.data.begin() + at + 14);
+
+        if(to >= 31)
+            out.insert(out.end(), s.data.begin() + at + 14, s.data.begin() + at + head);
+
         at += head;
 
         for(int j = 0; j < 136; ++j)
@@ -675,7 +922,16 @@ bool map_records(Sec &s, int to, int weap_v, std::string &why)
             std::vector<byte> rec;
             std::string lost;
 
-            if(!rebuild(zq_tape_screen, s.data, at, s.v, to, weap_v, &end, rec, lost))
+            g_prep = to < 37 && s.v >= 37 ? prep_screen_music : NULL;
+            g_prep_rec = m * 136 + j;
+            g_music_error.clear();
+            const bool read_ok = rebuild(zq_tape_screen, s.data, at, s.v, to, weap_v, &end, rec, lost);
+            g_prep = NULL;
+
+            if(read_ok && !g_music_error.empty())
+                return refuse(why, s, to, g_music_error.c_str());
+
+            if(!read_ok)
                 return refuse(why, s, to, "a screen doesn't read as its format says");
 
             if(!lost.empty())
@@ -788,14 +1044,25 @@ bool down_section(Sec &s, const Zq30Format &F, std::string &why)
     }
 
     // the scripts' metadata is laid out as its version (the extra word) says: 7 to 6 leaves out
-    // each script's info and setup text (q255_ffscript_meta_spans finds them)
+    // each script's info and setup text, 6 to 5 lays its attribute labels out as three fixed lists
+    // (q255_ffscript_meta_spans finds them)
     if(s.id == ID_FFSCRIPT && s.extra.size() == 2 && le16(s.extra, 0) != F.v[S_METADATA])
     {
         std::vector<size_t> meta_v_at;
         std::vector<std::pair<size_t, size_t> > spans;
 
-        if(le16(s.extra, 0) != 7 || F.v[S_METADATA] != 6 ||
-           !q255_ffscript_meta_spans(s.data.empty() ? NULL : &s.data[0], s.data.size(), s.v, meta_v_at, spans))
+        std::vector<std::pair<size_t, size_t> > attrs;
+        const int want = F.v[S_METADATA];
+        const bool walked = le16(s.extra, 0) == 7 &&
+            q255_ffscript_meta_spans(s.data.empty() ? NULL : &s.data[0], s.data.size(), s.v, meta_v_at, spans, &attrs);
+
+        // no script holds a meta at all: any layout reads the section alike
+        if(walked && meta_v_at.empty())
+        {
+            s.extra.clear();
+            put16(s.extra, (word)F.v[S_METADATA]);
+        }
+        else if(!walked || want < 5 || want > 6 || (want == 5 && attrs.size() != meta_v_at.size()))
         {
             char b[96];
             snprintf(b, sizeof(b), "its scripts' metadata layout %d to %d isn't written yet", (int)le16(s.extra, 0),
@@ -803,29 +1070,88 @@ bool down_section(Sec &s, const Zq30Format &F, std::string &why)
             return refuse(why, s, F.v[k], b);
         }
 
-        std::vector<byte> out;
-        size_t from = 0, sp = 0, mv = 0;
-
-        for(; sp <= spans.size(); ++sp)
+        // every change in file order: a meta_v word set to the layout, a span left out (layout 7's
+        // info and setup) or, for layout 5, an attribute label list laid out as 10, 8 and 8 labels
+        // with their help (attributes, attribytes, attrishorts; labels past those are editor text
+        // the layout has no room for)
+        struct Change
         {
-            const size_t to_at = sp < spans.size() ? spans[sp].first : s.data.size();
+            size_t at, end;
+            int kind;       // 0 meta_v, 1 leave out, 2 label list
+        };
 
-            for(; mv < meta_v_at.size() && meta_v_at[mv] + 2 <= to_at; ++mv)
-                if(meta_v_at[mv] >= from)
-                {
-                    // the bytes before it, then the meta's own layout version: 6
-                    out.insert(out.end(), s.data.begin() + from, s.data.begin() + meta_v_at[mv]);
-                    put16(out, 6);
-                    from = meta_v_at[mv] + 2;
-                }
+        std::vector<Change> ch;
 
-            out.insert(out.end(), s.data.begin() + from, s.data.begin() + to_at);
-            from = sp < spans.size() ? spans[sp].second : s.data.size();
+        for(size_t i = 0; i < meta_v_at.size(); ++i)
+        {
+            Change c = { meta_v_at[i], meta_v_at[i] + 2, 0 };
+            ch.push_back(c);
         }
 
-        s.data.swap(out);
-        s.extra.clear();
-        put16(s.extra, 6);
+        for(size_t i = 0; i < spans.size(); ++i)
+        {
+            Change c = { spans[i].first, spans[i].second, 1 };
+            ch.push_back(c);
+        }
+
+        for(size_t i = 0; want == 5 && i < attrs.size(); ++i)
+        {
+            Change c = { attrs[i].first, attrs[i].second, 2 };
+            ch.push_back(c);
+        }
+
+        for(size_t i = 1; i < ch.size(); ++i)
+            for(size_t j = i; j > 0 && ch[j].at < ch[j - 1].at; --j)
+                std::swap(ch[j], ch[j - 1]);
+
+        std::vector<byte> out;
+        size_t from = 0;
+
+        for(size_t i = 0; i < ch.size(); ++i)
+        {
+            const Change &c = ch[i];
+
+            if(c.at < from)
+                return refuse(why, s, F.v[k], "its scripts' metadata isn't laid out as expected");
+
+            out.insert(out.end(), s.data.begin() + from, s.data.begin() + c.at);
+
+            if(c.kind == 0)
+                put16(out, (word)want);
+            else if(c.kind == 2)
+            {
+                // the list: a count, then each label (a byte count) and help (a word count)
+                size_t at = c.at + 2;
+                const size_t n = le16(s.data, c.at);
+
+                for(size_t q = 0; q < 26; ++q)
+                {
+                    if(q < n && at < c.end)
+                    {
+                        const size_t ll = s.data[at];
+                        const size_t hl = le16(s.data, at + 1 + ll);
+                        out.insert(out.end(), s.data.begin() + at, s.data.begin() + at + 1 + ll + 2 + hl);
+                        at += 1 + ll + 2 + hl;
+                    }
+                    else
+                    {
+                        out.push_back(0);
+                        put16(out, 0);
+                    }
+                }
+            }
+
+            from = c.end;
+        }
+
+        out.insert(out.end(), s.data.begin() + from, s.data.end());
+
+        if(le16(s.extra, 0) != want)
+        {
+            s.data.swap(out);
+            s.extra.clear();
+            put16(s.extra, (word)want);
+        }
     }
 
     // a section the newest save wrote in an older format than the build's (3.0 writes scripts last
@@ -871,10 +1197,17 @@ bool down_section(Sec &s, const Zq30Format &F, std::string &why)
         case S_SUBSCREEN: ok = whole_section(zq_tape_subscreens, s, to, weap_v, why); if(!ok) return false; break;
         case S_LINKSPRITES: ok = whole_section(zq_tape_link, s, to, weap_v, why); if(!ok) return false; break;
         case S_DMAPS:
-            if(to < 25)
-                return refuse(why, s, to, "DMap music before format 25 is a MIDI number (not written yet)");
+            if(to < 25 && !g_music_read)
+                return refuse(why, s, to, "its music objects (AMUS) couldn't be read");
 
+            g_prep = to < 25 && s.v >= 25 ? prep_dmap_music : NULL;
+            g_music_error.clear();
             ok = counted_records(zq_tape_dmap, s, to, weap_v, why);
+            g_prep = NULL;
+
+            if(ok && !g_music_error.empty())
+                return refuse(why, s, to, g_music_error.c_str());
+
             if(!ok) return false;
             break;
         case S_GUYS: ok = guy_records(s, to, weap_v, why); if(!ok) return false; break;
@@ -915,6 +1248,168 @@ bool down_section(Sec &s, const Zq30Format &F, std::string &why)
             std::vector<byte> out(s.data.begin(), s.data.begin() + 2);
             out.insert(out.end(), names.begin(), names.end());
             out.insert(out.end(), recs.begin(), recs.end());
+            s.data.swap(out);
+            ok = true;
+            break;
+        }
+
+        case S_SFX:
+        {
+            // 9 (pr.160): a count, then each sound's type (0 none, 1 WAV, 2 OGG), name and data,
+            // WAV as Allegro 5 holds it (depth, channel setup, rate, frames, signed samples).
+            // 8: which of sounds 1-255 there are (32 bytes of bits), their 36-byte names, then each
+            // as an old Allegro SAMPLE (bits, stereo, rate, priority, frames, loop, param, unsigned
+            // samples). Upstream reads 8 into 9 by flipping the sign bit; this does it back.
+            if(s.v != 9 || to != 8 || s.data.size() < 2)
+                break;
+
+            const size_t count = le16(s.data, 0);
+            size_t at = 2;
+            std::vector<byte> flags(32, 0), names, bodies;
+
+            for(size_t q = 0; q < count; ++q)
+            {
+                const size_t id = q + 1;
+
+                if(at + 2 > s.data.size())
+                    return refuse(why, s, to, "a sound doesn't read as its format says");
+
+                const byte type = s.data[at++];
+                const size_t nl = s.data[at++];
+
+                if(at + nl > s.data.size())
+                    return refuse(why, s, to, "a sound doesn't read as its format says");
+
+                std::vector<byte> nm(36, 0);
+                memcpy(&nm[0], &s.data[at], nl < 35 ? nl : 35);
+                at += nl;
+
+                if(type == 0)
+                    continue;
+
+                if(type != 1)
+                    return refuse(why, s, to, "an OGG sound, which format 8 has no room for");
+
+                if(id > 255 || at + 10 > s.data.size())
+                    return refuse(why, s, to, id > 255 ? "a sound past 255, which format 8 has no room for" :
+                                  "a sound doesn't read as its format says");
+
+                const byte depth = s.data[at], conf = s.data[at + 1];
+                const dword freq = le32(s.data, at + 2), frames = le32(s.data, at + 6);
+                at += 10;
+                const int base = depth & ~8, channels = (conf >> 4) + (conf & 0xF);
+                const bool is_unsigned = (depth & 8) != 0;
+
+                if(base > 1 || channels < 1 || channels > 2)
+                    return refuse(why, s, to, "a sound with more than 16 bits or two channels, which format 8 has no room for");
+
+                const size_t bytes = (size_t)frames * channels * (base ? 2 : 1);
+
+                if(at + bytes > s.data.size())
+                    return refuse(why, s, to, "a sound doesn't read as its format says");
+
+                flags[(id - 1) >> 3] |= (byte)(1 << ((id - 1) & 7));
+                names.insert(names.end(), nm.begin(), nm.end());
+                put32(bodies, base ? 16 : 8);
+                put32(bodies, channels == 2 ? 1 : 0);
+                put32(bodies, freq);
+                put32(bodies, 128);     // priority, Allegro's default
+                put32(bodies, frames);
+                put32(bodies, 0);       // loop start
+                put32(bodies, frames);  // loop end
+                put32(bodies, 0);       // param
+
+                // the old format stores the data as 16-bit words: an odd last byte isn't stored
+                for(size_t b = 0; b < (bytes & ~(size_t)1); ++b)
+                {
+                    byte x = s.data[at + b];
+
+                    // the sign bit: each byte of 8-bit samples, the high byte of 16-bit ones
+                    if(!is_unsigned && (!base || (b & 1)))
+                        x ^= 0x80;
+
+                    bodies.push_back(x);
+                }
+
+                at += bytes;
+            }
+
+            if(at != s.data.size())
+                return refuse(why, s, to, "it has bytes past its last sound");
+
+            std::vector<byte> out(flags);
+            out.insert(out.end(), names.begin(), names.end());
+            out.insert(out.end(), bodies.begin(), bodies.end());
+            s.data.swap(out);
+            ok = true;
+            break;
+        }
+
+        case S_MIDIS:
+        {
+            // 5 (pr.157): which tunes there are as a bit string, a count, then each tune's title
+            // as a counted string; 4: 32 bytes of bits for 252 tunes and 36-byte titles. The rest
+            // of each tune (start, loop, volume, flags, format, the MIDI: its divisions, then 32
+            // tracks of a big-endian length and data) is alike.
+            if(s.v != 5 || to != 4)
+                break;
+
+            Tape bt;
+            TapeParser bp(s.data.empty() ? NULL : &s.data[0], s.data.size(), 0, &bt);
+            bp.bitstr("bits", "tunes", TL_NONE);
+
+            if(bp.bad || bp.pos + 2 > s.data.size())
+                return refuse(why, s, to, "its tunes aren't laid out as expected");
+
+            const std::vector<byte> bits = zq_bitstr_bits(bt.f[0].bytes);
+            size_t at = bp.pos;
+            const size_t count = le16(s.data, at);
+            at += 2;
+            std::vector<byte> flags(32, 0), body;
+
+            for(size_t q = 0; q < count; ++q)
+            {
+                if(q / 8 >= bits.size() || !((bits[q / 8] >> (q & 7)) & 1))
+                    continue;
+
+                if(q >= 252)
+                    return refuse(why, s, to, "a tune past 252, which format 4 has no room for");
+
+                if(at + 2 > s.data.size())
+                    return refuse(why, s, to, "a tune doesn't read as its format says");
+
+                const size_t tl = le16(s.data, at);
+                at += 2;
+
+                if(at + tl + 16 + 2 > s.data.size())
+                    return refuse(why, s, to, "a tune doesn't read as its format says");
+
+                std::vector<byte> title(36, 0);
+                memcpy(&title[0], &s.data[at], tl < 35 ? tl : 35);
+                at += tl;
+                const size_t start = at;
+                at += 4 + 4 + 4 + 2 + 2 + 1 + 1 + 2;
+
+                for(int c = 0; c < 32 && at + 4 <= s.data.size(); ++c)
+                {
+                    const size_t len = ((size_t)s.data[at] << 24) | ((size_t)s.data[at + 1] << 16) |
+                                       ((size_t)s.data[at + 2] << 8) | (size_t)s.data[at + 3];
+                    at += 4 + ((int32_t)len > 0 ? len : 0);
+                }
+
+                if(at > s.data.size())
+                    return refuse(why, s, to, "a tune doesn't read as its format says");
+
+                flags[q >> 3] |= (byte)(1 << (q & 7));
+                body.insert(body.end(), title.begin(), title.end());
+                body.insert(body.end(), s.data.begin() + start, s.data.begin() + at);
+            }
+
+            if(at != s.data.size())
+                return refuse(why, s, to, "it has bytes past its last tune");
+
+            std::vector<byte> out(flags);
+            out.insert(out.end(), body.begin(), body.end());
             s.data.swap(out);
             ok = true;
             break;
@@ -1092,6 +1587,13 @@ int save_as_format(int fmt, const char *path, std::string &why)
     }
 
     remove(tmp.c_str());
+    g_music_read = true;    // none: no music objects
+    g_music.clear();
+
+    for(size_t i = 0; i < q.secs.size(); ++i)
+        if(q.secs[i].id == section_id(S_ADVMUSIC))
+            g_music_read = read_music(q.secs[i].data);
+
     std::vector<Sec> kept;
     std::string fails;
 
@@ -1110,10 +1612,11 @@ int save_as_format(int fmt, const char *path, std::string &why)
             continue;
         }
 
-        // a section the build doesn't have: 3.0's music objects before pr.157
+        // a section the build doesn't have: 3.0's music objects before pr.157, whose music the
+        // DMaps and screens take back (prep_dmap_music, prep_screen_music)
         if(k >= 0 && !F.v[k])
         {
-            if(s.data.size() > 2 && (s.data[0] || s.data[1]))
+            if(k != S_ADVMUSIC && s.data.size() > 2 && (s.data[0] || s.data[1]))
                 fails += (fails.empty() ? "" : "; ") + sec_name(s.id) + ": the build has no place for it";
 
             continue;
@@ -1280,7 +1783,7 @@ const char *zq30_format_date(int fmt)
 // The oldest run Save As and New are done for: every run from it to the newest has a way down for
 // each of its sections (checked: Save As and New, then opened again). Older runs are offered once
 // their sections' steps are written; -qst-save-as-build still tries them.
-const char *const OLDEST_OFFERED = "2026-02-16";
+const char *const OLDEST_OFFERED = "2025-02-18";
 
 void zq_builds_30(std::vector<zq_build> &out)
 {
