@@ -167,6 +167,7 @@ int  g_warnings = 0;
 // What the game reads during g_frame.
 char g_keys[KEY_MAX];
 int  g_mouse[4];                // x, y, z, b
+bool g_mouse_set = false;       // playback: a step has moved the mouse
 std::vector<int> g_chars;       // keyboard buffer entries (readkey() format)
 size_t g_char_pos = 0;          // playback: next entry keypressed()/readkey() return
 JoyState g_joy;
@@ -1167,6 +1168,7 @@ void begin_frame_input()
                 g_chars.push_back(e.a);
                 break;
             case 'm':
+                g_mouse_set = true;
                 g_mouse[0] = e.a;
                 g_mouse[1] = e.b;
                 g_mouse[2] = e.c;
@@ -1256,6 +1258,13 @@ void start(int argc, char *argv[])
 }
 
 } // namespace
+
+// Playing back, before any step moved the mouse (ffscript.cpp: 2.55/3.0 quests then read it at the
+// game's top-left corner, as upstream's replays have it).
+bool replay_mouse_unset()
+{
+    return g_mode == MODE_PLAYBACK && !g_mouse_set;
+}
 
 // ---- public hooks ------------------------------------------------------------
 

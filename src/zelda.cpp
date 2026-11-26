@@ -2411,8 +2411,13 @@ int init_game()
     // with the old Init timing: their global script is set up only after it, below. When that
     // frame ran the global script, the game's first frame is no longer its first (upstream's
     // global script waits out an opening string from then on).
+    // 2.55/3.0 quests with the old Init timing: upstream sets the active global script up here,
+    // before the opening, so its warp check runs it as with the newer timing; Init then runs after
+    // the opening with the active script's place kept (q30_run_global_aside, below).
     const int q30_warp_runs = q30_warp_global_runs;
-    q30_warp_scripts_held = !q30_early_init;
+    if(q30_generic_first)
+        initZScriptGlobalRAM();
+    q30_warp_scripts_held = !q30_early_init && !q30_generic_first;
     if(q30_active() && getenv("ZC_Q30_TRACE"))     // diagnostics only
         al_trace("q30: game start: early init %d, generic first %d, draws in warps (rule 165) %d\n", q30_early_init ? 1 : 0,
                  q30_generic_first ? 1 : 0, q30_quest_rule(165) ? 1 : 0);
@@ -2451,17 +2456,24 @@ int init_game()
         if(firstplay)
         {
             memset(game->screen_d, 0, MAXDMAPS * 64 * 8 * sizeof(long));
-            ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_INIT);
+
+            if(q30_generic_first)
+                q30_run_global_aside(GLOBAL_SCRIPT_INIT);
+            else
+                ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_INIT);
 
             if(!q30_generic_first)
                 q30_run_hero_script(1); // the hero's init script (2.53 quests: none)
         }
+        else if(q30_generic_first)
+            q30_run_global_aside(GLOBAL_SCRIPT_CONTINUE);
         else
         {
             ZScriptVersion::RunScript(SCRIPT_GLOBAL, GLOBAL_SCRIPT_CONTINUE); //Do this after global arrays have been loaded
         }
 
-        initZScriptGlobalRAM(); //Call again so we're set up for GLOBAL_SCRIPT_GAME
+        if(!q30_generic_first)  // (newer quests: the active script was set up before the opening)
+            initZScriptGlobalRAM(); //Call again so we're set up for GLOBAL_SCRIPT_GAME
 
         if(!q30_generic_first || q30_compat_rule(348))
             ffscript_engine(true);  //Here is a much safer place...
@@ -2472,7 +2484,8 @@ int init_game()
             q30_game_init(firstplay);
         }
 
-        q30_global_first_frame = q30_scripts_active();
+        // (as above: a global script the opening already ran is past its first frame)
+        q30_global_first_frame = q30_scripts_active() && !(q30_generic_first && q30_warp_global_runs != q30_warp_runs);
     }
     else if(!q30_early_preload)
         ffscript_engine(true);  // newer quests with qr_FFCPRELOAD_BUGGED_LOAD: 2.53's place

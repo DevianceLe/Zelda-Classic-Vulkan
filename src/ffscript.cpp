@@ -3728,6 +3728,36 @@ static long q30_link_zlong(fix f)
 // -1 in 2.53 quests
 #define Z30_BAD_FFC_VALUE (zasm30_ffscript_version ? 0 : -10000)
 
+bool replay_mouse_unset();      // replay.cpp
+bool q30_active();
+
+// 2.55/3.0 quests: upstream's Input->Mouse[] X and Y (get_mouse_state). Upstream's replays keep the
+// mouse in game coordinates, 0 until a replay step moves it; ours keep the window's, so a playback
+// that never moved the mouse has it at the game's top-left corner here, as upstream's has
+// (Darkside's hero faces its cursor, drawn there). Upstream's Y doesn't wind the quake clock down.
+static bool q30_mouse_xy(int index, long &ret)
+{
+    if(!q30_active())
+        return false;
+
+    const int offset = (quakeclk > 0) ? 56 + int(sin(double(quakeclk * 2 - frame)) * 4) : playing_field_offset;
+
+    if(replay_mouse_unset())
+    {
+        ret = (index ? -offset : 0) * 10000;
+        return true;
+    }
+
+    if(index)
+    {
+        const int topOffset = (resy / 2) - ((112 - offset) * screen_scale);
+        ret = ((gui_mouse_y() - topOffset) / screen_scale) * 10000;
+        return true;
+    }
+
+    return false;
+}
+
 long get_register(const long arg)
 {
     long ret = 0;
@@ -4098,13 +4128,19 @@ long get_register(const long arg)
         
     case INPUTMOUSEX:
     {
+        if(q30_mouse_xy(0, ret))
+            break;
+
         int leftOffset=(resx/2)-(128*screen_scale);
         ret=((gui_mouse_x()-leftOffset)/screen_scale)*10000;
         break;
     }
-    
+
     case INPUTMOUSEY:
     {
+        if(q30_mouse_xy(1, ret))
+            break;
+
 	int mousequakeoffset = 56+((int)(sin((double)(--quakeclk*2-frame))*4));
 	int tempoffset = (quakeclk > 0) ? mousequakeoffset : playing_field_offset;
         int topOffset=(resy/2)-((112-tempoffset)*screen_scale);

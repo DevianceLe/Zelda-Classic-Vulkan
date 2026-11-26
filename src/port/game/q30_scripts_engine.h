@@ -1503,6 +1503,34 @@ void q30_warp_script_check()
     }
 }
 
+// 2.55/3.0 quests with the old Init timing (qr_OLD_INIT_SCRIPT_TIMING): upstream's init_game sets
+// up the active global script before the opening, whose warp check can give it its first frame,
+// and runs Init (or onSaveLoad) only after the opening, each script with its own data, so the
+// active script then goes on from where it waited (Dragon Dream's Active script copies a HUD icon's
+// tiles before the first frame). This engine keeps one slot for the global scripts 0-3: the Init
+// or onSaveLoad script runs here with that slot's state set aside, and put back after.
+void q30_run_global_aside(word script)
+{
+    static long saved_stack[ZSCRIPT_STACK_ALLOC];
+    const refInfo saved_ri = globalScriptData;
+    memcpy(saved_stack, global_stack, sizeof(saved_stack));
+    Zasm30Frame saved_frame;
+    std::swap(saved_frame, zasm30_frames[33]);
+    const word saved_doscript = g_doscript;
+    const bool saved_wait = global_wait;
+
+    globalScriptData.Clear();
+    clear_global_stack();
+    ZScriptVersion::RunScript(SCRIPT_GLOBAL, script);
+
+    zasm30_release_frame(zasm30_frames[33]);
+    std::swap(saved_frame, zasm30_frames[33]);
+    globalScriptData = saved_ri;
+    memcpy(global_stack, saved_stack, sizeof(saved_stack));
+    g_doscript = saved_doscript;
+    global_wait = saved_wait;
+}
+
 void q30_run_onlaunch()
 {
     if(zasm30_ffscript_version && q30_global_scripts[4] && q30_global_scripts[4][0].command != 0xFFFF)

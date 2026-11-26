@@ -265,6 +265,7 @@ void q30_run_screen_waitdraw();
 void q30_run_item_scripts(bool waitdraw);
 void q30_run_waitdraw_scripts();
 void q30_warp_script_check();       // upstream's warpScriptCheck: before a screen opening, fade or warp
+void q30_run_global_aside(word script); // old Init timing: Init/onSaveLoad keep the active script's place
 extern bool q30_warp_scripts_held;  // init_game/cont_game: scripts not set up yet, run none there
 extern int q30_warp_global_runs;    // times that check ran the global script
 void q30_game_init(bool first);     // before the first frame of a game: run Init-type scripts
