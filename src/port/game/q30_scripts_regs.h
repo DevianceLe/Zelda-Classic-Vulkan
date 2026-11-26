@@ -163,6 +163,79 @@ static Zasm30SpriteState *z30_sprite_st(const Z30Sprite &r)
     return &zasm30_sprite_state(r.s->getUID());
 }
 
+// lweapon/eweapon/item/npc/Hero->Misc[] (LWPNMISCD, EWPNMISCD, ITEMMISCD, NPCMISCD, LINKMISCD): 32
+// slots, as upstream's sprites have (miscellaneous[32]), where 2.53's handlers keep 16. Slots 16-31
+// live in the script state, as Sprite->Misc[] keeps them. The index as upstream's internal arrays
+// take it (scripting/arrays.h): under qr_OLD_SCRIPTS_INTERNAL_ARRAYS_BOUND_INDEX the weapon and Hero
+// ones clamp it and the others give their default (an npc's -10000 under
+// qr_OLD_SCRIPTS_ARRAYS_NON_ZERO_DEFAULT_VALUE); without it a negative index counts from the end.
+// NULL for a bad sprite or index; *dflt is what a read gives then.
+static long *z30_misc32_slot(const long arg, long n, long *dflt)
+{
+    long uid = 0;
+    int kind = Z30S_NONE;
+
+    switch(arg)
+    {
+    case Z30R_LWPNMISCD: uid = ri->lwpn; kind = Z30S_LWPN; break;
+    case Z30R_EWPNMISCD: uid = ri->ewpn; kind = Z30S_EWPN; break;
+    case Z30R_ITEMMISCD: uid = ri->itemref; kind = Z30S_ITEM; break;
+    case Z30R_NPCMISCD: uid = ri->guyref; kind = Z30S_NPC; break;
+    case Z30R_LINKMISCD: uid = Link.getUID(); kind = Z30S_HERO; break;
+    default: return NULL;
+    }
+
+    *dflt = 0;
+    const Z30Sprite r = z30_sprite(uid);
+
+    if(!r.s || r.kind != kind)
+        return NULL;
+
+    if(q30_compat_rule(487))        // qr_OLD_SCRIPTS_INTERNAL_ARRAYS_BOUND_INDEX
+    {
+        if(kind == Z30S_LWPN || kind == Z30S_EWPN || kind == Z30S_HERO)
+            n = vbound(n, 0, 31);
+        else if(kind == Z30S_NPC && q30_compat_rule(488))   // qr_OLD_SCRIPTS_ARRAYS_NON_ZERO_DEFAULT_VALUE
+            *dflt = -10000;
+    }
+    else if(n < 0)
+        n += 32;
+
+    if(n < 0 || n >= 32)
+        return NULL;
+
+    if(n < 16)
+        return &r.s->miscellaneous[n];
+
+    Zasm30SpriteState *st = z30_sprite_st(r);
+    return st ? &st->misc2[n - 16] : NULL;
+}
+
+static bool z30_misc32_get(const long arg, long &ret)
+{
+    long dflt;
+
+    if(arg != Z30R_LWPNMISCD && arg != Z30R_EWPNMISCD && arg != Z30R_ITEMMISCD && arg != Z30R_NPCMISCD && arg != Z30R_LINKMISCD)
+        return false;
+
+    const long *p = z30_misc32_slot(arg, Z30_INDEX, &dflt);
+    ret = p ? *p : dflt;
+    return true;
+}
+
+static bool z30_misc32_set(const long arg, const long value)
+{
+    long dflt;
+
+    if(arg != Z30R_LWPNMISCD && arg != Z30R_EWPNMISCD && arg != Z30R_ITEMMISCD && arg != Z30R_NPCMISCD && arg != Z30R_LINKMISCD)
+        return false;
+
+    if(long *p = z30_misc32_slot(arg, Z30_INDEX, &dflt))
+        *p = value;
+
+    return true;
+}
+
 static bool zasm30_sprite_read(const long arg, long &ret, const Z30Sprite &r)
 {
     sprite *s = r.s;

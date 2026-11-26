@@ -2097,6 +2097,8 @@ static bool zasm30_item_waitdraw_allowed();
 static void zasm30_item_run_command(int id, long mode);
 static bool zasm30_get_register(const long arg, long &ret);
 static bool zasm30_set_register(const long arg, const long value);
+static bool z30_misc32_get(const long arg, long &ret);          // (q30_scripts_regs.h: 2.55/3.0 sprites'
+static bool z30_misc32_set(const long arg, const long value);   // 32 Misc[] slots)
 static bool zasm30_command(word cmd);
 static void zasm30_log_once(const char *kind, long id);
 static bool zasm30_family_get(const long arg, long &ret);
@@ -3730,7 +3732,11 @@ long get_register(const long arg)
     // the region (q30_scripts_region.h); not for 2.53 quests
     if(zasm30_ffscript_version >= 26 && zasm30_region_ffc_get(arg, ret))
         return ret;
-    
+
+    // 2.55/3.0 quests: a sprite's Misc[] has 32 slots, where the 2.53 cases below keep 16
+    if(zasm30_ffscript_version && z30_misc32_get(arg, ret))
+        return ret;
+
     switch(arg)
     {
 ///----------------------------------------------------------------------------------------------------//
@@ -5767,6 +5773,10 @@ void set_register(const long arg, const long value)
 {
     // 3.0 scrolling regions (as in get_register)
     if(zasm30_ffscript_version >= 26 && zasm30_region_ffc_set(arg, value))
+        return;
+
+    // 2.55/3.0 quests: 32 Misc[] slots (as in get_register)
+    if(zasm30_ffscript_version && z30_misc32_set(arg, value))
         return;
 
     switch(arg)
