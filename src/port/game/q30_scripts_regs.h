@@ -2441,10 +2441,10 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
         ret = (unsigned(id) < MAXDMAPS && (DMaps[id].flags & (1 << Z30_INDEX))) ? 10000 : 0;
         return true;
     }
-    case Z30R_DMAPINITD:
+    case Z30R_DMAPINITD:            // (upstream: run_args, whether or not a script is set)
     {
-        const Q30ScriptRef *r = q30_dmap_script(Z30_REF(DMAPDATA), q30_dmap_active);
-        ret = (r && Z30_INDEX >= 0 && Z30_INDEX < 8) ? r->initd[Z30_INDEX] : -10000;
+        const long *v = q30_dmap_initd(Z30_REF(DMAPDATA), q30_dmap_active);
+        ret = (unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS && Z30_INDEX >= 0 && Z30_INDEX < 8) ? (v ? v[Z30_INDEX] : 0) : -10000;
         return true;
     }
 
@@ -3006,10 +3006,10 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
         ret = (unsigned(id) < MAXDMAPS && n >= 0 && n < iMax) ? (DMaps[id].disableditems[n] ? 10000 : 0) : -10000;
         return true;
     }
-    case Z30R_DMAPDATAMAPINITD:
+    case Z30R_DMAPDATAMAPINITD:     // (the same for the map script's)
     {
-        const Q30ScriptRef *r = q30_dmap_script(Z30_REF(DMAPDATA), q30_dmap_onmap);
-        ret = (r && Z30_INDEX >= 0 && Z30_INDEX < 8) ? r->initd[Z30_INDEX] : -10000;
+        const long *v = q30_dmap_initd(Z30_REF(DMAPDATA), q30_dmap_onmap);
+        ret = (unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS && Z30_INDEX >= 0 && Z30_INDEX < 8) ? (v ? v[Z30_INDEX] : 0) : -10000;
         return true;
     }
     case Z30R_DMAPSCRIPT:
@@ -3526,15 +3526,25 @@ static bool zasm30_set_register_inner(const long arg, const long value)
         }
         return true;
     }
-    case Z30R_DMAPINITD:            // (upstream: the dmap's active script's InitD)
+    case Z30R_DMAPINITD:            // (upstream: the dmap's active script's InitD, with or without the script)
     {
-        const Q30ScriptRef *r = q30_dmap_script(Z30_REF(DMAPDATA), q30_dmap_active);
+        const long id = Z30_REF(DMAPDATA);
 
-        if(r && Z30_INDEX >= 0 && Z30_INDEX < 8)
+        if(unsigned(id) < MAXDMAPS && Z30_INDEX >= 0 && Z30_INDEX < 8)
         {
-            Q30ScriptRef ref = *r;
-            ref.initd[Z30_INDEX] = value;
-            q30_set_dmap_script(Z30_REF(DMAPDATA), q30_dmap_active, ref.script, ref.initd);
+            const Q30ScriptRef *r = q30_dmap_script(id, q30_dmap_active);
+            const long *v = q30_dmap_initd(id, q30_dmap_active);
+            long initd[8] = { 0 };
+
+            if(v)
+                memcpy(initd, v, sizeof(initd));
+
+            initd[Z30_INDEX] = value;
+
+            if(r)
+                q30_set_dmap_script(id, q30_dmap_active, r->script, initd);
+            else
+                q30_set_dmap_initd(id, q30_dmap_active, initd);
         }
         return true;
     }

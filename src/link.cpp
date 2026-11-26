@@ -14710,6 +14710,19 @@ void LinkClass::q30_keep_respawn_point()
     y = oldy;
 }
 
+// The game's start (upstream's init_game: Hero.init, then the start position, then
+// set_respawn_point): the respawn point stays where Hero.init put it (the screen's arrival
+// square) unless Link starts on safe ground, so a fall into a pit he starts on brings him back
+// there, not to where he started.
+void LinkClass::q30_start_respawn_point()
+{
+    warpx = x;
+    warpy = y;
+
+    if(!q30_respawn_forced())
+        q30_keep_respawn_point();
+}
+
 void LinkClass::setEntryPoints(int x2, int y2)
 {
     if(q30_respawn_forced() || q30_unsafe_ground(x2, y2))

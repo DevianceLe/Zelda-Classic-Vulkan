@@ -795,6 +795,17 @@ void dismissmsg()
 
 bool q30_compat_rule(int id);
 bool q30_quest_rule(int id);
+bool q30_active();
+bool q30_new_respawn_points();  // q30_triggers.cpp
+
+// 2.55/3.0 quests: a game started, continued or restarted in a Ganon room runs the Ganon intro
+// there, as upstream (zelda.cpp init_game/cont_game/restart_level), unless the quest keeps
+// qr_GANON_CANT_SPAWN_ON_CONTINUE (325; on for quests before compat rule version 21, as in 2.53).
+static bool q30_ganon_on_start()
+{
+    return q30_active() && tmpscr->room == rGANON && !q30_compat_rule(325);
+}
+
 bool q30_show_bottom_8px();     // q30_triggers.cpp
 void q30_reset_subscr_speed();  // zc_subscr.cpp
 bool q30_msg_more_icon(int str, int *x, int *y, int *sprite);  // q30_core.cpp (q30.h)
@@ -2205,7 +2216,10 @@ int init_game()
         q30_run_hero_script(1); // the hero's init script
     }
 
-    Link.setEntryPoints(LinkX(),LinkY());
+    if(q30_new_respawn_points())
+        Link.q30_start_respawn_point();     // (2.55/3.0: only on safe ground, as upstream)
+    else
+        Link.setEntryPoints(LinkX(),LinkY());
 
     copy_pal((RGB*)data[PAL_GUI].dat,RAMpal);
     loadfullpal();
@@ -2396,7 +2410,10 @@ int init_game()
     show_subscreen_numbers=true;
     show_subscreen_life=true;
     dointro();
-    loadguys();
+    const bool q30_ganon = q30_ganon_on_start();
+
+    if(!q30_ganon)
+        loadguys();
     
     activated_timed_warp=false;
     newscr_clk = frame;
@@ -2407,7 +2424,12 @@ int init_game()
     }
     
     if(!Quit)
-        playLevelMusic();
+    {
+        if(q30_ganon)
+            Link.q30_ganon_intro();
+        else
+            playLevelMusic();
+    }
         
     if(!q30_early_init)
     {
@@ -2698,18 +2720,25 @@ int cont_game()
     show_subscreen_numbers=true;
     show_subscreen_life=true;
     dointro();
-    loadguys();
+    const bool q30_ganon = q30_ganon_on_start();
+
+    if(!q30_ganon)
+        loadguys();
     
     if(!Quit)
     {
         //play_DmapMusic();
-        playLevelMusic();
+        if(!q30_ganon)
+            playLevelMusic();
         
         if(isdungeon())
             Link.stepforward(get_bit(quest_rules,qr_LTTPWALK)?11:12, false);
             
         newscr_clk=frame;
         activated_timed_warp=false;
+
+        if(q30_ganon)
+            Link.q30_ganon_intro();
     }
     
     initZScriptGlobalRAM();
@@ -2768,18 +2797,25 @@ void restart_level()
     Link.setEntryPoints(LinkX(),LinkY());
     show_subscreen_numbers=true;
     show_subscreen_life=true;
-    loadguys();
+    const bool q30_ganon = q30_ganon_on_start();
+
+    if(!q30_ganon)
+        loadguys();
     
     if(!Quit)
     {
         //play_DmapMusic();
-        playLevelMusic();
+        if(!q30_ganon)
+            playLevelMusic();
         
         if(isdungeon())
             Link.stepforward(get_bit(quest_rules,qr_LTTPWALK)?11:12, false);
             
         newscr_clk=frame;
         activated_timed_warp=false;
+
+        if(q30_ganon)
+            Link.q30_ganon_intro();
     }
 }
 

@@ -1013,7 +1013,12 @@ static void store_dmap_script(int dmap, int kind, word script, const long *initd
 {
     q30_set_dmap_script(dmap, kind, script, initd);
 
-    if(!script)
+    bool initd_set = false;     // (InitD without a script is kept too, as upstream)
+
+    for(int i = 0; i < 8; ++i)
+        initd_set = initd_set || initd[i] != 0;
+
+    if(!script && !initd_set)
         return;
 
     DMapScriptRef r;

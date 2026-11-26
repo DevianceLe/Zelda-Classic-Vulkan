@@ -82,6 +82,7 @@ const MsgLayout *msg_layout(int str)
     return it == g_msg_layouts.end() ? NULL : &it->second;
 }
 std::map<int, Q30ScriptRef> g_dmap_scripts[q30_dmap_kinds];
+std::map<int, Q30ScriptRef> g_dmap_initd[q30_dmap_kinds];  // every dmap's InitD, with or without a script
 std::map<int, std::pair<int, int> > g_dmap_subscreens;    // overlay, map
 std::map<int, std::pair<std::string, long> > g_dmap_texts;  // title, intro string
 std::map<int, int> g_dmap_floors;
@@ -348,7 +349,10 @@ void q30_clear_tables()
     g_combo_scripts.clear();
 
     for(int i = 0; i < q30_dmap_kinds; ++i)
+    {
         g_dmap_scripts[i].clear();
+        g_dmap_initd[i].clear();
+    }
 
     g_dmap_subscreens.clear();
     g_dmap_texts.clear();
@@ -398,12 +402,39 @@ const Q30ScriptRef *q30_combo_script(int combo)
 void q30_set_dmap_script(int dmap, int kind, word script, const long *initd)
 {
     if(kind >= 0 && kind < q30_dmap_kinds)
+    {
         put(g_dmap_scripts[kind], dmap, script, initd);
+        q30_set_dmap_initd(dmap, kind, initd);
+    }
 }
 
 const Q30ScriptRef *q30_dmap_script(int dmap, int kind)
 {
     return (kind >= 0 && kind < q30_dmap_kinds) ? get(g_dmap_scripts[kind], dmap) : NULL;
+}
+
+// Upstream keeps a dmap's InitD (dmap::active_scrconfig.run_args and the others) whether or not
+// a script is set, and dmapdata->InitD[] reads and writes it either way.
+void q30_set_dmap_initd(int dmap, int kind, const long *initd)
+{
+    if(kind < 0 || kind >= q30_dmap_kinds)
+        return;
+
+    bool any = false;
+
+    for(int i = 0; initd && i < 8; ++i)
+        any = any || initd[i] != 0;
+
+    if(!any)
+        g_dmap_initd[kind].erase(dmap);
+    else
+        memcpy(g_dmap_initd[kind][dmap].initd, initd, sizeof(long) * 8);
+}
+
+const long *q30_dmap_initd(int dmap, int kind)
+{
+    const Q30ScriptRef *r = (kind >= 0 && kind < q30_dmap_kinds) ? get(g_dmap_initd[kind], dmap) : NULL;
+    return r ? r->initd : NULL;
 }
 
 void q30_set_dmap_subscreens(int dmap, int overlay, int map)

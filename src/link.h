@@ -353,12 +353,14 @@ private:
     
 public:
     void q30_enemies_gone() { checkspecial(true); }    // (q30_regions.cpp: another screen of a 3.0 region)
+    void q30_ganon_intro() { ganon_intro(); }           // (zelda.cpp: a 2.55/3.0 game starting in a Ganon room)
 
     void checkitems(int index = -1);
     int DrunkClock();
     void setDrunkClock(int newdrunkclk);
     void setEntryPoints(int x, int y);
     void q30_keep_respawn_point();      // (2.55/3.0 quests with upstream's newer respawn points)
+    void q30_start_respawn_point();     // (the same at the game's start: zelda.cpp init_game)
     int getEntryX() const { return int(entry_x); }   // for 3.0 scripts' Screen->EntryX/Y
     int getEntryY() const { return int(entry_y); }
     void q30_set_respawn(fix nx, fix ny) { entry_x = nx; entry_y = ny; }  // (Hero->RespawnX/Y)

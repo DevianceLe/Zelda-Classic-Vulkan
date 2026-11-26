@@ -150,6 +150,7 @@ dword q30_compat_rule_since(int id)
     {
     case Q30_QR_ENEMIES_SECRET_ONLY_16_31: return 1;
     case 242: return 3;         // qr_HARDCODED_ENEMY_ANIMS
+    case 325: return 21;        // qr_GANON_CANT_SPAWN_ON_CONTINUE
     case Q30_QR_STEPTEMP_SECRET_ONLY_16_31: return 6;
     case Q30_QR_ALLTRIG_PERMSEC_NO_TEMP: return 7;
     case Q30_QR_DMAP_0_CONTINUE_BUG: return 24;
