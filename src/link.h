@@ -531,6 +531,7 @@ extern int q30_forced_awpn, q30_forced_bwpn;
 // slot: with the newer subscreens, the button's slot by page (below); -1 for pos on the page shown
 void q30_set_button_slot(bool x, int wpn, int pos, int direct, int slot = -1);
 void q30_verify_extra_buttons();
+void q30_unforce_extra_buttons(int itemid);  // an item downgraded away: a script's X or Y item it was
 void q30_load_extra_buttons();
 void q30_select_next_button_item(bool x, int type);
 // 2.55/3.0 with the newer subscreens: each item button's slot as upstream keeps it, pos << 8 |

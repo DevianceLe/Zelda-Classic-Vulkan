@@ -2413,6 +2413,9 @@ int init_game()
     // global script waits out an opening string from then on).
     const int q30_warp_runs = q30_warp_global_runs;
     q30_warp_scripts_held = !q30_early_init;
+    if(q30_active() && getenv("ZC_Q30_TRACE"))     // diagnostics only
+        al_trace("q30: game start: early init %d, generic first %d, draws in warps (rule 165) %d\n", q30_early_init ? 1 : 0,
+                 q30_generic_first ? 1 : 0, q30_quest_rule(165) ? 1 : 0);
     openscreen();
     q30_warp_scripts_held = false;
 

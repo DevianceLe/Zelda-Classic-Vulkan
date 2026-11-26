@@ -2092,7 +2092,14 @@ void draw_textbox(BITMAP *dest, int x, int y, int w, int h, FONT *tempfont, char
 
         /* a box narrower than the next character: take it on its own line rather than
            never moving on (the loop below would run forever, or off the string) */
-        if(scanned == printed && ugetc(scanned))
+#ifdef Q30_SUB_DRAW
+        // 2.55/3.0 (upstream's draw_textbox): such a box shows nothing; its empty lines run on
+        // down past its height, where the rest of the text is passed over (q2's 0-wide name box)
+        const bool q30_empty_lines = q30_sub_newer() && text_height(tempfont) > 0;
+#else
+        const bool q30_empty_lines = false;
+#endif
+        if(scanned == printed && ugetc(scanned) && !q30_empty_lines)
             scanned += uwidth(scanned);
 
         /* check if we are to print it */

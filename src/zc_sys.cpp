@@ -1717,7 +1717,8 @@ bool q30_active();
 // subscreen there (layer 7 script drawing, layer 7 FFCs, strings, darkness) stays over it. Its second
 // draw still happens, off screen and first, for what drawing does besides (the random numbers and the
 // items' animation it takes): the game and the subscreen draw_screen shows run on as before.
-static void q30_opening_frame()
+// The wavy and zap warps start from the same picture (upstream's wavyout, wavyin, zapin: draw_screen).
+static void q30_opening_frame(bool showlink = true)
 {
     static BITMAP *offscreen = NULL;
 
@@ -1736,12 +1737,12 @@ static void q30_opening_frame()
             q30_subscr_clk_hold = true;     // (drawn twice a frame: upstream's selector clock counts once)
             put_passive_subscr(offscreen,&QMisc,0,passive_subscreen_offset,false,sspUP);
             q30_subscr_clk_hold = false;
-            draw_screen(tmpscr);
+            draw_screen(tmpscr, showlink);
             return;
         }
     }
 
-    draw_screen(tmpscr);
+    draw_screen(tmpscr, showlink);
     q30_subscr_clk_hold = true;     // (drawn twice a frame: upstream's selector clock counts once)
     put_passive_subscr(framebuf,&QMisc,0,passive_subscreen_offset,false,sspUP);
     q30_subscr_clk_hold = false;
@@ -4901,11 +4902,15 @@ void zapout()
 void zapin()
 {
     q30_warp_script_check();    // 2.55/3.0 quests' scripts get a frame first (nothing for 2.53)
-    draw_screen(tmpscr);
+    if(q30_active())
+        q30_opening_frame();    // (2.55/3.0: draw_screen's picture; the passive subscreen counted once)
+    else
+        draw_screen(tmpscr);
     set_clip_rect(scrollbuf, 0, 0, scrollbuf->w, scrollbuf->h);
-    put_passive_subscr(framebuf,&QMisc,0,passive_subscreen_offset,false,sspUP);
+    if(!q30_active())
+        put_passive_subscr(framebuf,&QMisc,0,passive_subscreen_offset,false,sspUP);
     blit(framebuf,scrollbuf,0,0,256,0,256,zc_view_h);
-    
+
     // zap out
     for(int i=24; i>=1; i--)
     {
@@ -4923,9 +4928,14 @@ void zapin()
 
 void wavyout(bool showlink)
 {
-    draw_screen(tmpscr, showlink);
-    put_passive_subscr(framebuf,&QMisc,0,passive_subscreen_offset,false,sspUP);
-    
+    if(q30_active())
+        q30_opening_frame(showlink);    // (2.55/3.0: draw_screen's picture; the passive subscreen counted once)
+    else
+    {
+        draw_screen(tmpscr, showlink);
+        put_passive_subscr(framebuf,&QMisc,0,passive_subscreen_offset,false,sspUP);
+    }
+
     BITMAP *wavebuf = create_bitmap_ex(8,288,zc_view_h);
     clear_to_color(wavebuf,0);
     blit(framebuf,wavebuf,0,0,16,0,256,zc_view_h);
@@ -4986,9 +4996,14 @@ void wavyout(bool showlink)
 
 void wavyin()
 {
-    draw_screen(tmpscr);
-    put_passive_subscr(framebuf,&QMisc,0,passive_subscreen_offset,false,sspUP);
-    
+    if(q30_active())
+        q30_opening_frame();    // (2.55/3.0: draw_screen's picture; the passive subscreen counted once)
+    else
+    {
+        draw_screen(tmpscr);
+        put_passive_subscr(framebuf,&QMisc,0,passive_subscreen_offset,false,sspUP);
+    }
+
     BITMAP *wavebuf = create_bitmap_ex(8,288,zc_view_h);
     clear_to_color(wavebuf,0);
     blit(framebuf,wavebuf,0,0,16,0,256,zc_view_h);

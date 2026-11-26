@@ -164,6 +164,13 @@ static void put_active_at(miscQdata *misc, int ay, int pos)
     show_custom_subscreen(framebuf, misc, current_subscreen_active, 0, ay, q30_should_show_time(), pos);
 }
 
+// What the subscreen loop fills the screen with first (hall of mirrors): palette index 0 for 2.53,
+// upstream's BLACK (the system palette's black) for 2.55/3.0 quests, whose index 0 can be any colour.
+static int q30_subscr_black()
+{
+    return q30_active() ? BLACK : 0;
+}
+
 void put_active_subscr(miscQdata *misc, int y, int pos)
 {
     put_active_at(misc, 6-y, pos);
@@ -433,7 +440,7 @@ void dosubscr(miscQdata *misc)
         do_dcounters();
         Link.refill();
         //fill in the screen with black to prevent the hall of mirrors effect
-        rectfill(framebuf, 0, 0, 255, zc_view_h-1, 0);
+        rectfill(framebuf, 0, 0, 255, zc_view_h-1, q30_subscr_black());
 
         if(ext_view)
             blit(ext_field,framebuf,0,0,0,COOLSCROLL ? 0 : ay+distance,256,240);
@@ -612,7 +619,7 @@ void dosubscr(miscQdata *misc)
         //put_active_subscr(misc,miny,true);
         
         //fill in the screen with black to prevent the hall of mirrors effect
-        rectfill(framebuf, 0, 0, 255, zc_view_h-1, 0);
+        rectfill(framebuf, 0, 0, 255, zc_view_h-1, q30_subscr_black());
 
         if(ext_view)
             blit(ext_field,framebuf,0,0,0,COOLSCROLL ? 0 : distance,256,240);
@@ -666,7 +673,7 @@ void dosubscr(miscQdata *misc)
         do_dcounters();
         Link.refill();
         //fill in the screen with black to prevent the hall of mirrors effect
-        rectfill(framebuf, 0, 0, 255, zc_view_h-1, 0);
+        rectfill(framebuf, 0, 0, 255, zc_view_h-1, q30_subscr_black());
 
         if(ext_view)
             blit(ext_field,framebuf,0,0,0,COOLSCROLL ? 0 : ay+distance,256,240);

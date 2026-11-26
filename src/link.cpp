@@ -6994,6 +6994,7 @@ bool LinkClass::startwpn(int itemid)
             verifyAWpn();
         }
 
+        q30_unforce_extra_buttons(itemid);   // (upstream: a forced X or Y holding it is checked again)
         q30_verify_extra_buttons();
     }
     
@@ -19045,11 +19046,16 @@ void q30_counter_changed()
 // upstream checks the buttons' items again whenever it draws a button item (SW_ButtonItem::draw,
 // in play and from replay version 19), so in effect every frame the passive subscreen shows one.
 // An empty button is filled that way, the moment an item it can hold turns up (rule 424 aside).
+// A 2.55 quest whose subscreens are in 2.53's format is no exception: upstream reads them into its
+// newer subscreens, button items and all (a new game's B, put on the first slot, moves on to an
+// item the first frame).
 bool q30_sub_object_shown(const subscreen_group *g, int i);    // q30_scripts_subscr.h
 
 void q30_button_items_drawn(const subscreen_group *g)
 {
-    if(!(q30_paged_buttons() || q30_old_movepos_buttons()) || !g || !show_subscreen_items || !game || !Playing)
+    const bool newer = q30_paged_buttons() || q30_old_movepos_buttons();
+
+    if(!(newer || (q30_active() && current_subscreen_active)) || !g || !show_subscreen_items || !game || !Playing)
         return;
 
     for(int i = 0; i < MAXSUBSCREENITEMS && g->objects[i].type != ssoNULL; ++i)
@@ -19212,11 +19218,8 @@ void q30_btn_copy(int b, int from)
 
 void q30_btn_here(int b, int pos)
 {
-    if(!q30_paged_buttons())
-        return;
-
-    q30_btn_put(b, (pos < 0 || pos >= 255) ? 255 : (pos << 8) | q30_btn_curpage());
-
+    // (upstream clears forced_awpn..forced_ywpn for whatever subscreen sets the button; the
+    // buttons' checks run each frame for every 2.55/3.0 quest. 2.53 quests force none.)
     if(b == Q30_BTN_A)
         q30_forced_awpn = -1;
     else if(b == Q30_BTN_B)
@@ -19225,6 +19228,11 @@ void q30_btn_here(int b, int pos)
         q30_forced_xwpn = -1;
     else
         q30_forced_ywpn = -1;
+
+    if(!q30_paged_buttons())
+        return;
+
+    q30_btn_put(b, (pos < 0 || pos >= 255) ? 255 : (pos << 8) | q30_btn_curpage());
 }
 
 // init_game (upstream's): a new game's buttons start on the active subscreen's default slots; a
@@ -19317,6 +19325,41 @@ void q30_set_button_item(bool x, int wpn)
         directItem = keep;
         (x ? q30_forced_xwpn : q30_forced_ywpn) = wpn >= 0 ? wpn : -1;
     }
+    else if(changed)    // (any subscreen: the buttons' checks leave a script's item alone, as upstream's)
+    {
+        (x ? q30_forced_xwpn : q30_forced_ywpn) = wpn >= 0 ? wpn : -1;
+
+        // the slot holding it, else none (upstream's get_page_pos, as q30_set_ab_item does), so
+        // the other buttons' checks aren't kept off the slot it had
+        if(wpn >= 0 && current_subscreen_active && q30_active())
+        {
+            const int keep = directItem;
+            int found = Q30_NO_POS;
+
+            for(int pos = 0; wpn > 0 && pos < 0xFF; ++pos)
+            {
+                if(Bweapon(pos) == wpn)
+                {
+                    found = pos;
+                    break;
+                }
+            }
+
+            (x ? q30_xpos : q30_ypos) = found;
+            q30_store_extra_buttons();
+            directItem = keep;
+        }
+    }
+}
+
+// upstream's item downgrade: a button holding the item is checked again, forced or not
+void q30_unforce_extra_buttons(int itemid)
+{
+    if(q30_forced_xwpn != -1 && Xwpn == itemid)
+        q30_forced_xwpn = -1;
+
+    if(q30_forced_ywpn != -1 && Ywpn == itemid)
+        q30_forced_ywpn = -1;
 }
 
 // 2.55/3.0 scripts: Hero->ItemA / ItemB put an item on the button whether Link owns it or not
@@ -19555,7 +19598,7 @@ void q30_verify_extra_buttons()
 // (Under q30_old_movepos_buttons, q30_old_init_buttons sets all four instead.)
 void q30_load_extra_buttons()
 {
-    q30_forced_awpn = q30_forced_bwpn = -1;
+    q30_forced_awpn = q30_forced_bwpn = q30_forced_xwpn = q30_forced_ywpn = -1;
     Xwpn = Ywpn = 0;
     directItemX = directItemY = -1;
     q30_xpos = q30_ypos = Q30_NO_POS;
