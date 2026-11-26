@@ -24422,6 +24422,15 @@ int main(int argc,char **argv)
             exit(zq_compare_quests(argv[compare_arg+1],argv[compare_arg+2],argv[compare_arg+3]) == 0 ? 0 : 3);
         }
 
+        // -qst-save-as-build: Save As or New in one of the 3.0 builds (port/zqeditor/zq_builds_30.cpp)
+        int build30_arg = used_switch(argc,argv,"-qst-save-as-build");
+
+        if(build30_arg)
+        {
+            extern int zq_builds_30_cli(int argc, char **argv, int at);
+            exit(zq_builds_30_cli(argc, argv, build30_arg));
+        }
+
         // -qst-save-newer in.qst out.qst 255|30 report.txt: Save As a newer version, without the
         // dialogs (zq_writers.h); the report says what was saved or why not
         int newer_arg = used_switch(argc,argv,"-qst-save-newer");

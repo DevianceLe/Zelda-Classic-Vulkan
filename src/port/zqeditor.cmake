@@ -83,6 +83,8 @@ set(ZQEDITOR_SOURCES
 	${ZCPORT_DIR}/zqeditor/zq_rule_names.cpp
 	${ZCPORT_DIR}/zqeditor/zq_rules_editor.cpp
 	${ZCPORT_DIR}/zqeditor/zq_new_quest.cpp
+	${ZCPORT_DIR}/zqeditor/zq_builds_30.cpp
+	${ZCPORT_DIR}/zqeditor/zq_builds_30_new.cpp
 	# compiling 2.55 / 3.0 quests' ZScript with zscript255 / zscript30
 	${ZCPORT_DIR}/zqeditor/zq_compile.cpp
 	${ZCPORT_DIR}/zqeditor/zq_compile_dialog.cpp

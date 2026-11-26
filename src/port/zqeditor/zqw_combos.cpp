@@ -2810,3 +2810,67 @@ bool zq255_combo_import(const std::vector<byte> &data, word v, int count, int de
 
     return true;
 }
+
+// ---- 3.0 builds (zq_builds_30.cpp): a combo section laid out in an older 3.0 build's format ----
+
+// The data of a CMBO section (its count, then the combos) of format from_v, every combo read as
+// the loader reads it and written again in format to_v (33 to 73), with the groups it had; weapon
+// data in weap_v (the build's V_WEAP_DATA; -1: the build has none). False (why says) when a combo
+// holds what to_v has no room for.
+bool zq30_combos_down(const std::vector<byte> &body, word from_v, word to_v, int weap_v, std::vector<byte> &out,
+                      std::string &why)
+{
+    In in(body, 0);
+    const int count = in.g16();
+    size_t pos = 2;
+    Out o;
+    o.p16((word)count);
+
+    for(int i = 0; i < count; ++i)
+    {
+        size_t end = pos;
+        newcombo c;
+        Q30Combo x;
+
+        if(in.bad || !read_combo_255x(body, pos, from_v, &end, c, x))
+        {
+            why = "a combo couldn't be read";
+            return false;
+        }
+
+        std::vector<byte> raw(body.begin() + pos, body.begin() + end);
+        pos = end;
+        const dword tile = raw_tile(raw, from_v);
+        word keep = raw.empty() ? 0 : (from_v < 55 || raw.size() < 2) ? raw[0] : (word)(raw[0] | (raw[1] << 8));
+
+        if(to_v < 55)
+            keep &= 0xFF;
+
+        if(x.lift_weap.data_version >= 0)
+            x.lift_weap.data_version = weap_v;
+
+        if(x.misc_weap.data_version >= 0)
+            x.misc_weap.data_version = weap_v;
+
+        Out e;
+
+        if(!encode_grouped(e, to_v, c, x, tile, keep, weap_v, true))
+        {
+            char b[96];
+            snprintf(b, sizeof(b), "combo %d has what combo format %d has no room for", i, (int)to_v);
+            why = b;
+            return false;
+        }
+
+        o.pn(e.b.empty() ? NULL : &e.b[0], e.b.size());
+    }
+
+    if(pos != body.size())
+    {
+        why = "the combo section has bytes past its last combo";
+        return false;
+    }
+
+    out.swap(o.b);
+    return true;
+}
