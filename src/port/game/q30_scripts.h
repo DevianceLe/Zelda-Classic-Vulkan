@@ -284,6 +284,10 @@ void q30_generic_reload_state(int state);
 // deleted by its own script, so the caller must not touch it any more.
 bool q30_run_npc_script(sprite *spr);
 
+// upstream loadenemies / side_load_enemies: an enemy the screen loads runs its script once on the frame
+// it comes (not its fake gravity), unless qr_ENEMIES_DONT_SCRIPT_FIRST_FRAME (357).
+void q30_npc_spawn_script(sprite *spr);
+
 // How a 2.55+ quest's enemy of a script family is built (guys.cpp).
 bool q30_item_collect_hook(int item_id); // an item was collected this frame
 

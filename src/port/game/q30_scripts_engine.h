@@ -569,7 +569,7 @@ static void zasm30_setup_frame(byte type)
     // reads it (upstream's set_script_this_ref(ri->ffcref()) on every run). Left at 0 it made
     // every 3.0 FFC script act on FFC 1: the VulturPeak cart made FFC 1 solid, not itself.
     if(type == SCRIPT_FFC && zasm30_ffscript_version)
-        f.inst[0] = zasm30_ffscript_version >= 26 ? zasm30_ffc_ref(currscr, ri->ffcref) : ri->ffcref * 10000;
+        f.inst[0] = zasm30_zscript_version >= 26 ? zasm30_ffc_ref(currscr, ri->ffcref) : ri->ffcref * 10000;
 }
 
 // The script ran off its end, or quit.
@@ -636,7 +636,10 @@ void q30_sprite_appearance(sprite *s, int *tile, int *flip, fix *yofs);
 void q30_clear_engine()
 {
     if(quest_header_zelda_version < 0x255)
+    {
         zasm30_ffscript_version = 0; // a 2.53 quest loaded after a newer one
+        zasm30_zscript_version = 0;
+    }
 
     zasm30_drop_all_state();
     q30_set_generic_script_runner(zasm30_launch_generic_slot);
@@ -1037,6 +1040,22 @@ bool q30_run_npc_script(sprite *spr)
 
     // The script may have deleted the enemy.
     return guys.getByUID(uid) == NULL;
+}
+
+FILE *q31_enemy_trace_file();   // guys.cpp
+
+void q30_npc_spawn_script(sprite *spr)
+{
+    if(!zasm30_ffscript_version || !q30_scripts_active() || q30_quest_rule(357))
+        return;
+
+    Zasm30SpriteState *st = zasm30_npc_state(spr);
+
+    if(FILE *tf = q31_enemy_trace_file())   // diagnostics (ZC_ENEMY_TRACE)
+        fprintf(tf, "spawn script id %d script %d\n", spr->id & 0xFFF, int(st->script));
+
+    if(st->script)
+        zasm30_run_sprite(SCRIPT_NPC, st->script, spr->getUID(), false);
 }
 
 void q30_run_npc_scripts(bool waitdraw)
@@ -1564,8 +1583,11 @@ static void z30_scrdata_savetest();
 static void zasm30_subdump_tick();
 static void z30_clear_script_lights();
 
+void q31_enemy_watch(int stage);   // guys.cpp: diagnostics (ZC_ENEMY_TRACE)
+
 void q30_gen_timing(int timing)
 {
+    q31_enemy_watch(timing);
     if(!zasm30_ffscript_version)
         return;
 

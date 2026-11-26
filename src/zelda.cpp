@@ -3603,7 +3603,15 @@ void game_loop()
         items.animate();
         items.check_conveyor();
         q30_gen_timing(Z30T_POST_ITEMSPRITE_ANIMATE);
+        {
+            void q31_enemy_trace_pre();     // guys.cpp: diagnostics (ZC_ENEMY_TRACE)
+            q31_enemy_trace_pre();
+        }
         guys.animate();
+        {
+            void q31_enemy_trace_frame();   // guys.cpp: diagnostics (ZC_ENEMY_TRACE)
+            q31_enemy_trace_frame();
+        }
         q30_gen_timing(Z30T_POST_NPC_ANIMATE);
         roaming_item();
         dragging_item();

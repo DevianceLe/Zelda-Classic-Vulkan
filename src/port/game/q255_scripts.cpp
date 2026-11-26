@@ -89,6 +89,21 @@ void q30_script_tables_reset()
 }
 
 extern long zasm30_ffscript_version;
+// upstream's ZScriptVersion: the newest ffscript_v the quest's scripts carry in their meta (a 0
+// there counts as 16), not the section's version; it decides gc, FFC refs as sprite ids and
+// arrays as objects (ZScriptVersion::gc / ffcRefIsSpriteId / gc_arrays). 0 for a 2.53 quest.
+long zasm30_zscript_version = 0;
+static word g_meta_ffscript_v = 0;     // the last meta read
+static long g_zscript_max = -1;        // the section's newest so far (-1: none)
+
+// A script that was read and kept: its meta's ffscript_v counts (upstream's read_scripts).
+static void note_zscript_version()
+{
+    const long v = g_meta_ffscript_v ? (long)g_meta_ffscript_v : 16;
+
+    if(v > g_zscript_max)
+        g_zscript_max = v;
+}
 extern ffscript *ffscripts[512];
 extern ffscript *itemscripts[256];
 extern ffscript *guyscripts[256];
@@ -205,7 +220,9 @@ static void skip_label_and_help(Q255Section &s, int count)
 
 static int skip_meta(Q255Section &s, word meta)
 {
-    s.skip(2 + 2 + 2 + 1); // zasm_v, meta_v, ffscript_v, script type
+    s.skip(2 + 2);         // zasm_v, meta_v
+    g_meta_ffscript_v = s.igetw();
+    s.skip(1);             // script type
 
     for(int i = 0; i < 8 && !s.failed; ++i) // run identifiers
     {
@@ -544,6 +561,9 @@ static int read_stream_script(Q255Section &s, word meta, ffscript **slot, int ki
         if(s.version >= 30 && read_instance_tables(s, inits))
             return qe_invalid;
 
+        if(slot && start >= 0)
+            note_zscript_version();
+
         if(!slot)
             ++g_dropped_with_code[kind];
     }
@@ -595,6 +615,9 @@ static int read_one_script(Q255Section &s, word meta, ffscript **slot, int kind,
         int ret = skip_meta(s, meta);
         if(ret)
             return ret;
+
+        if(slot && num_commands > 0)
+            note_zscript_version();
     }
 
     // Walk it first: the count may claim more than is there, so the real length
@@ -810,6 +833,7 @@ static int read_section(Q255Section &s, word meta)
     {
         g_script_lengths.clear();
         zasm30_stream_len = 0;
+        g_zscript_max = -1;
     }
 
     if(v >= 27 && (ret = read_stream(s)) != 0)
@@ -859,6 +883,12 @@ static int read_section(Q255Section &s, word meta)
     {
         word count = s.igetw(); // subscreen scripts
         if((ret = read_scripts(s, meta, count, q30_subscreen_scripts, Q30_SUBSCREEN_SLOTS, kind_generic)) != 0) return ret;
+    }
+
+    if(s.keep)
+    {
+        zasm30_zscript_version = (v >= 16 && g_zscript_max >= 0) ? g_zscript_max : v;
+        al_trace("2.55 scripts: section version %d, ZScript version %ld\n", (int)v, zasm30_zscript_version);
     }
 
     long source_bytes = s.igetl_s();

@@ -11013,6 +11013,7 @@ void LinkClass::q30_slopes_begin()
     {
         fprintf(link_trace, "%d scr %d x %.4f y %.4f dir %d action %d keys %d%d%d%d ctype %d conv %d\n", frame, currscr, double(x), double(y), dir, int(action),
                 Up(), Down(), Left(), Right(), COMBOTYPE(x+7,y+(bigHitbox?8:12)), is_on_conveyor ? 1 : 0);
+        fprintf(link_trace, "    lstep %d pushing %d attackclk %d link_count %d style %d\n", int(lstep), int(pushing), int(attackclk), int(link_count), int(zinit.linkanimationstyle));
         fflush(link_trace);
     }
 

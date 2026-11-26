@@ -1984,6 +1984,8 @@ struct Zasm30Frame
 };
 
 // Everything one running script owns, for the script types 2.53 has no storage for.
+FILE *q31_enemy_trace_file();     // guys.cpp: diagnostics (ZC_ENEMY_TRACE)
+
 struct Zasm30Instance
 {
     refInfo ri;
@@ -2117,6 +2119,7 @@ static long zasm30_ffc_ref(int screen, int index);
 static long zasm30_selected_ffc_id();
 static int zasm30_script_screen();
 long zasm30_ffscript_version = 0; // the quest's script format version (0 for a 2.53 quest)
+extern long zasm30_zscript_version;   // q255_scripts.cpp: upstream's ZScriptVersion (gc, FFC refs, arrays as objects)
 static bool zasm30_generic_get(long index, long &ret);    // Game->Generic[] (q30_scripts_light.h)
 static bool zasm30_generic_set(long index, long value);
 static refInfo zasm30_screen_ri;
@@ -2261,7 +2264,7 @@ struct Zasm30RunDepth
     ~Zasm30RunDepth()
     {
         // the end of a (top-level) script run: the autorelease pool lets go, as upstream's
-        if(zasm30_run_depth == 1 && zasm30_ffscript_version >= 28)
+        if(zasm30_run_depth == 1 && zasm30_zscript_version >= 28)
             zasm30_drain_pool();
 
         if(--zasm30_run_depth == 0 && !zasm30_retired.empty())
@@ -3765,7 +3768,7 @@ long get_register(const long arg)
 
     // 3.0 scrolling regions: an FFC's X and Y are region pixels and its screen may be another of
     // the region (q30_scripts_region.h); not for 2.53 quests
-    if(zasm30_ffscript_version >= 26 && zasm30_region_ffc_get(arg, ret))
+    if(zasm30_zscript_version >= 26 && zasm30_region_ffc_get(arg, ret))
         return ret;
 
     // 2.55/3.0 quests: a sprite's Misc[] has 32 slots, where the 2.53 cases below keep 16
@@ -5699,7 +5702,7 @@ else \
 //Misc./Internal
     case REFFFC:
         // (3.0: upstream's sprite id, across the region in a scrolling region)
-        ret = zasm30_ffscript_version >= 26 ? zasm30_selected_ffc_ref() : ri->ffcref * 10000;
+        ret = zasm30_zscript_version >= 26 ? zasm30_selected_ffc_ref() : ri->ffcref * 10000;
         break;
         
     // A failed Load/Create leaves LONG_MAX here. A 3.0 script gets 0 (NULL) instead, as upstream
@@ -5814,7 +5817,7 @@ static bool zasm30_bad_combo_type(const long value)
 void set_register(const long arg, const long value)
 {
     // 3.0 scrolling regions (as in get_register)
-    if(zasm30_ffscript_version >= 26 && zasm30_region_ffc_set(arg, value))
+    if(zasm30_zscript_version >= 26 && zasm30_region_ffc_set(arg, value))
         return;
 
     // 2.55/3.0 quests: 32 Misc[] slots (as in get_register)
@@ -7137,6 +7140,9 @@ void set_register(const long arg, const long value)
         {
             const long ny = value / 10000 - q30_region_origin_y();
             fix oldy = GuyH::getNPC()->y;
+
+            if(FILE *tf = q31_enemy_trace_file())   // diagnostics (ZC_ENEMY_TRACE): who moves an enemy
+                fprintf(tf, "%d npc->Y %ld by type %d script %d\n", frame, ny, int(curScriptType), int(curScriptNum));
             GuyH::getNPC()->y = fix(ny);
             GuyH::getNPC()->floor_y += (ny - oldy);
             
@@ -7212,6 +7218,8 @@ if(GuyH::loadNPC(ri->guyref, str) == SH::_NoError) \
 }
     
     case NPCDIR:
+        if(FILE *tf = q31_enemy_trace_file())   // diagnostics (ZC_ENEMY_TRACE): who turns an enemy
+            fprintf(tf, "%d npc->Dir %ld by type %d script %d\n", frame, value / 10000, int(curScriptType), int(curScriptNum));
         SET_NPC_VAR_INT(dir, "npc->Dir") break;
         
     case NPCRATE:
@@ -7947,7 +7955,7 @@ case COMBODDM:
     case REFFFC:
         // a 3.0 script names an FFC by its sprite id, which in a scrolling region can be one of
         // another screen of it; NULL (0) is no FFC there, as upstream (q30_scripts_region.h)
-        if(zasm30_ffscript_version >= 26)
+        if(zasm30_zscript_version >= 26)
             zasm30_select_ffc(value);
         else
             ri->ffcref = (value >= 0x7FF00000L) ? (byte)(value - 0x7FF00000L) : (byte)(value / 10000);
@@ -8118,7 +8126,7 @@ void do_allocatemem(const bool v, const bool local, const byte i)
 
         // upstream's global arrays are objects (version 28 on): the game's first one starts the
         // ids again (init_script_objects), each takes one
-        if(zasm30_ffscript_version >= 28)
+        if(zasm30_zscript_version >= 28)
         {
             if(ptrval == 0)
             {
@@ -10113,7 +10121,7 @@ static void zasm30_collect_mark()
 
     // Objects of quests from before reference counting (ZScript version 25) live for good.
     // From then on only owned and global objects are roots; the rest live while reached.
-    const bool counted = zasm30_ffscript_version >= 25;
+    const bool counted = zasm30_zscript_version >= 25;
 
     for(size_t n = 0; n < zasm30_objects.size(); ++n)
         if(zasm30_objects[n].live && (!counted || zasm30_objects[n].own != Z30_OWN_NONE))
@@ -10181,7 +10189,7 @@ static bool zasm30_reached(long id)
 static void zasm30_collect()
 {
     zasm30_collect_mark();
-    const bool counted = zasm30_ffscript_version >= 25;
+    const bool counted = zasm30_zscript_version >= 25;
 
     for(long p = 1; p < Z30_LOCALRAM_SIZE; ++p)
     {
@@ -10250,7 +10258,7 @@ static void zasm30_allocate(bool v)
 
     zasm30_collect_if_due();
 
-    if(size < 0 || (size == 0 && zasm30_ffscript_version < 28))
+    if(size < 0 || (size == 0 && zasm30_zscript_version < 28))
     {
         Z_scripterrlog("Array initialized to invalid size of %d\n", size);
         set_register(sarg1, 0);
@@ -10258,6 +10266,30 @@ static void zasm30_allocate(bool v)
     }
 
     set_register(sarg1, zasm30_new_array_or_collect(size));
+}
+
+// ALLOCATEMEMR/V from a 3.0 quest's script compiled before ZScript version 28 (upstream's
+// allocatemem_old): a local array in the slots below MAX_ZCARRAY_SIZE, the lowest free one, as
+// upstream's localRAM, owned by the running script (freed by DEALLOCATEMEMR or its end) and never
+// collected. Its pointer is a small number then, as upstream's: ghost.zh keeps one or'ed with
+// 65536 in an enemy's Misc[], which a heap slot's pointer (100000 up) did not survive.
+static void zasm30_allocate_old(bool v, byte ffc)
+{
+    const long size = SH::get_arg(sarg2, v) / 10000;
+
+    if(size <= 0)
+    {
+        Z_scripterrlog("Array initialized to invalid size of %d\n", size);
+        set_register(sarg1, 0);
+        return;
+    }
+
+    do_allocatemem(v, true, ffc);
+
+    const long p = get_register(sarg1) / 10000;
+
+    if(p > 0 && p < MAX_ZCARRAY_SIZE)
+        zasm30_array_inst[p] = zasm30_cur_inst;
 }
 
 // ZCLASS_CONSTRUCT: a new object of `layout[0]` fields, then one heap array per further entry
@@ -10658,7 +10690,7 @@ int run_script(const byte type, const word script, const byte i)
     // this->X, this->Flags[] and so on went to the screen's first FFC (Mystical Harps' KeyFFC
     // never hid the key it later drops, and its Red Koopas stood still). Scripts compiled before
     // version 26 name FFCs by index * 10000. (Not for 2.53 quests.)
-    if(type == SCRIPT_FFC && zasm30_ffscript_version >= 26)
+    if(type == SCRIPT_FFC && zasm30_zscript_version >= 26)
         zasm30_ffc_this(i);
     else if(type == SCRIPT_FFC && zasm30_wide)
     {
@@ -10971,15 +11003,19 @@ int run_script(const byte type, const word script, const byte i)
             break;
             
         case ALLOCATEMEMR:
-            if(curscript == zasm30_stream)
+            if(curscript == zasm30_stream && zasm30_zscript_version >= 28)
                 zasm30_allocate(false);
+            else if(curscript == zasm30_stream)
+                zasm30_allocate_old(false, type==SCRIPT_FFC?i:255);
             else
                 do_allocatemem(false, true, type==SCRIPT_FFC?i:255);
             break;
             
         case ALLOCATEMEMV:
-            if(curscript == zasm30_stream)
+            if(curscript == zasm30_stream && zasm30_zscript_version >= 28)
                 zasm30_allocate(true);
+            else if(curscript == zasm30_stream)
+                zasm30_allocate_old(true, type==SCRIPT_FFC?i:255);
             else
                 do_allocatemem(true, true, type==SCRIPT_FFC?i:255);
             break;
@@ -12373,7 +12409,7 @@ int run_script(const byte type, const word script, const byte i)
             long id = get_register(sarg1) / 10000 - 1;
 
             // (in a 3.0 scrolling region the IDs go across it: q30_scripts_region.h)
-            if(zasm30_ffscript_version >= 26)
+            if(zasm30_zscript_version >= 26)
                 set_register(sarg1, zasm30_load_ffc(id));
             else
                 set_register(sarg1, get_register(sarg1) - 10000);
@@ -12384,7 +12420,7 @@ int run_script(const byte type, const word script, const byte i)
         {
             // Screen->LoadFFC(screen, index): upstream's index is 0-based, on a screen of the
             // region (the current screen outside one)
-            if(zasm30_ffscript_version >= 26)
+            if(zasm30_zscript_version >= 26)
                 set_register(sarg1, zasm30_load_ffc_at(get_register(sarg1) / 10000, get_register(sarg2) / 10000));
             else
                 set_register(sarg1, get_register(sarg2) - 10000);

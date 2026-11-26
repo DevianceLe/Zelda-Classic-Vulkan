@@ -148,7 +148,7 @@ enum { Z30_MAX_FILES = 256, Z30_MAX_DIRS = 256, Z30_MAX_STACKS = 256, Z30_MAX_AR
 enum { Z30_FILE_BASE = 0x7E100000, Z30_DIR_BASE = 0x7E200000, Z30_STACK_BASE = 0x7E300000, Z30_HANDLE_END = 0x7E400000 };
 static std::set<long> zasm30_handle_marks;
 
-static bool z30_counted() { return zasm30_ffscript_version >= 25; }
+static bool z30_counted() { return zasm30_zscript_version >= 25; }
 
 // A file's or directory's id is from the shared object pool (upstream's user_files /
 // user_dirs.get_free); these say which slot each id names.

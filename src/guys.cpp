@@ -14086,6 +14086,68 @@ bool can_side_load(int id)
 }
 
 
+// diagnostics (ZC_ENEMY_TRACE=<file>): the enemies after each frame's animate and the side loader's steps
+FILE *q31_enemy_trace_file()
+{
+    static FILE *f = getenv("ZC_ENEMY_TRACE") ? fopen(getenv("ZC_ENEMY_TRACE"), "w") : NULL;
+    return (f && frame <= 420) ? f : NULL;
+}
+
+void q31_enemy_watch(int stage)  // the frame stage where an enemy's x, y or dir changed
+{
+    FILE *f = q31_enemy_trace_file();
+
+    if(!f)
+        return;
+
+    static std::map<long, int> last;
+
+    for(int i = 0; i < guys.Count(); i++)
+    {
+        enemy *e = (enemy*)guys.spr(i);
+        const int key = (int(e->x) & 0x3FF) | ((int(e->y) & 0x3FF) << 10) | ((e->dir & 0xFF) << 20);
+        std::map<long, int>::iterator it = last.find(e->getUID());
+
+        if(it != last.end() && it->second != key)
+            fprintf(f, "  watch stage %d: %d x %d y %d dir %d\n", stage, i, int(e->x), int(e->y), e->dir);
+
+        last[e->getUID()] = key;
+    }
+}
+
+void q31_enemy_trace_pre()     // the same before guys.animate (one line per enemy)
+{
+    FILE *f = q31_enemy_trace_file();
+
+    if(!f)
+        return;
+
+    for(int i = 0; i < guys.Count(); i++)
+    {
+        enemy *e = (enemy*)guys.spr(i);
+        fprintf(f, "  pre %d id %d x %d y %d dir %d clk %d\n", i, e->id & 0xFFF, int(e->x), int(e->y), e->dir, e->clk);
+    }
+}
+
+void q31_enemy_trace_frame()
+{
+    FILE *f = q31_enemy_trace_file();
+
+    if(!f)
+        return;
+
+    fprintf(f, "%d scr %d n %d le %d pat %d\n", frame, currscr, guys.Count(), loaded_enemies ? 1 : 0, tmpscr->pattern);
+
+    for(int i = 0; i < guys.Count(); i++)
+    {
+        enemy *e = (enemy*)guys.spr(i);
+        fprintf(f, "  %d id %d fam %d x %d y %d clk %d sspr %d sclk %d sfrm %d fad %d dir %d hx %d\n", i, e->id & 0xFFF, e->family,
+                int(e->x), int(e->y), e->clk, e->q30_spawn_spr, e->q30_spawn_clk, e->q30_spawn_frm, e->fading, e->dir, int(e->hxofs));
+    }
+
+    fflush(f);
+}
+
 void side_load_enemies()
 {
     if(sle_clk==0)
@@ -14154,6 +14216,9 @@ void side_load_enemies()
     {
         int dir = next_side_pos(tmpscr->pattern==pSIDESR);
         
+        if(FILE *tf = q31_enemy_trace_file())
+            fprintf(tf, "%d sle clk %d cnt %d dir %d at %d,%d close %d\n", frame, sle_clk, sle_cnt, dir, sle_x, sle_y, tooclose(sle_x,sle_y,32) ? 1 : 0);
+
         if(dir==-1 || tooclose(sle_x,sle_y,32))
         {
             return;
@@ -14167,7 +14232,10 @@ void side_load_enemies()
         if(sle_cnt > 0)
         {
             if(addenemy(sle_x,sle_y,tmpscr->enemy[--sle_cnt],0))
+            {
                 guys.spr(enemy_slot)->dir = dir;
+                q30_npc_spawn_script(guys.spr(enemy_slot));   // (2.55/3.0 only)
+            }
         }
     }
     
@@ -14307,7 +14375,13 @@ void loadenemies()
         if(DMaps[currdmap].flags&dmfCAVES) return;
         
         for(int i=0; i<4; i++)
+        {
+            const int pre = guys.Count();
             addenemy(dngn_enemy_x[i],96,tmpscr->enemy[i]?tmpscr->enemy[i]:(int)eKEESE1,-14-i);
+
+            if(guys.Count() > pre)
+                q30_npc_spawn_script(guys.spr(guys.Count()-1));   // (2.55/3.0 only)
+        }
             
         return;
     }
@@ -14357,12 +14431,30 @@ void loadenemies()
     int clk=-15,x=0,y=0,fastguys=0;
     int i=0,guycnt=0;
     
+    if(FILE *tf = q31_enemy_trace_file())   // diagnostics (ZC_ENEMY_TRACE): the screen's enemies and spawn flags
+    {
+        fprintf(tf, "%d loadenemies loadcnt %d pos %d pattern %d enemies", frame, loadcnt, pos, tmpscr->pattern);
+        for(int k = 0; k < 10; ++k)
+            fprintf(tf, " %d", tmpscr->enemy[k]);
+        fprintf(tf, "\n");
+        for(int sy = 0; sy < 176; sy += 16)
+            for(int sx = 0; sx < 256; sx += 16)
+            {
+                const int f1 = MAPFLAG(sx, sy), f2 = MAPCOMBOFLAG(sx, sy);
+                if((f1 >= mfENEMY0 && f1 <= mfENEMY0 + 9) || (f2 >= mfENEMY0 && f2 <= mfENEMY0 + 9) || f1 == 164 || f2 == 164)
+                    fprintf(tf, "  flag at %d,%d screen %d combo %d\n", sx, sy, f1, f2);
+            }
+    }
+    
     for(; i<loadcnt && tmpscr->enemy[i]>0; i++)             /* i=0 */
     {
         bool placed=false;
         int t=-1;
+        const int preguycount = guys.Count();
         
         // First: enemy combo flags
+        const bool q30_flag_all = q30_active();    // 2.55/3.0: the "Enemy (All)" flag (mfENEMYALL, 164) takes any of them
+        
         for(int sy=0; sy<176; sy+=16)
         {
             for(int sx=0; sx<256; sx+=16)
@@ -14370,7 +14462,7 @@ void loadenemies()
                 int cflag = MAPFLAG(sx, sy);
                 int cflag2 = MAPCOMBOFLAG(sx, sy);
                 
-                if(((cflag==mfENEMY0+i)||(cflag2==mfENEMY0+i)) && (!placed))
+                if(((q30_flag_all && (cflag==164 || cflag2==164))||(cflag==mfENEMY0+i)||(cflag2==mfENEMY0+i)) && (!placed))
                 {
                     if(!ok2add(tmpscr->enemy[i]))
                         ++loadcnt;
@@ -14488,6 +14580,13 @@ placed_enemy:
             }
         }
         
+        if(guys.Count() > preguycount)
+        {
+            if(FILE *tf = q31_enemy_trace_file())
+                fprintf(tf, "  placed %d id %d at %d,%d clk %d\n", i, tmpscr->enemy[i], int(guys.spr(guys.Count()-1)->x), int(guys.spr(guys.Count()-1)->y), ((enemy*)guys.spr(guys.Count()-1))->clk);
+            q30_npc_spawn_script(guys.spr(guys.Count()-1));   // (2.55/3.0 only)
+        }
+
         --clk;
     }                                                       // for
     

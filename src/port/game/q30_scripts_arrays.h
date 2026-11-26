@@ -25,7 +25,7 @@
 // The check that nothing else refers to it marks from the scripts' typed stack slots only: the id
 // a variable that left scope leaves behind in its slot keeps nothing alive.
 
-static inline bool zasm30_gc_arrays() { return zasm30_ffscript_version >= 28; }
+static inline bool zasm30_gc_arrays() { return zasm30_zscript_version >= 28; }
 
 struct Zasm30Internal;
 static const Zasm30Internal *zasm30_internal(long id);

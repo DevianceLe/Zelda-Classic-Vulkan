@@ -345,7 +345,7 @@ static void zasm30_own_array(long ptr, long type)
 
     zasm30_owned[ptr] = uid;
 
-    if(zasm30_ffscript_version < 28 && p > 0 && p < MAX_ZCARRAY_SIZE)
+    if(zasm30_zscript_version < 28 && p > 0 && p < MAX_ZCARRAY_SIZE)
     {
         zasm30_array_owned[p] = true;      // the end of its scope leaves it (upstream's specOwned)
         zasm30_array_destroyed[p] = false;
@@ -355,7 +355,7 @@ static void zasm30_own_array(long ptr, long type)
 // deallocateArray: the end of a scope leaves an array a living sprite owns
 bool zasm30_live_array_owned(long ptr)
 {
-    if(zasm30_owned.empty() || zasm30_ffscript_version >= 28)
+    if(zasm30_owned.empty() || zasm30_zscript_version >= 28)
         return false;
 
     std::map<long, long>::const_iterator it = zasm30_owned.find(ptr * 10000);
@@ -402,7 +402,7 @@ void zasm30_live_owned_released(long uid)
         {
             const long p = v / 10000;
 
-            if(zasm30_ffscript_version < 28)
+            if(zasm30_zscript_version < 28)
             {
                 if(p < MAX_ZCARRAY_SIZE)
                 {

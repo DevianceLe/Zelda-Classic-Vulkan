@@ -486,7 +486,12 @@ static bool zasm30_sprite_write(const long arg, const long value, const Z30Sprit
             const fix ny = fix(value / 10000 - q30_region_origin_y());
 
             if(r.kind == Z30S_NPC)
+            {
+                if(FILE *tf = q31_enemy_trace_file())
+                    fprintf(tf, "%d npc Y %ld by type %d script %d pc %ld\n", frame, value / 10000, int(curScriptType), int(curScriptNum), zasm30_dbg_pc);
+
                 ((enemy *)s)->floor_y += ny - s->y;
+            }
             s->y = ny;
         }
         return true;
