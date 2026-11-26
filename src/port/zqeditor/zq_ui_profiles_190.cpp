@@ -1120,6 +1120,54 @@ const zq_ui_menu_row menu_2_11_beta_18[] =
     { 1, "&Take Snapshot\tZ", "Etc/Take Snapshot", 0 },
 };
 
+// The main screen's keys that differ from today's (each build's "dialogs" table of d_keyboard_proc
+// entries against today's): "" where the build had no such key; the F-keys and Del follow the
+// menu rows' shortcut texts. 1.92's B showed the current layer in a box, 2.10's rebuilt the
+// translucency table as today's does: B stays today's.
+// 1.90, 1.92 (Beta 114)
+const zq_ui_key keys_1_90[] =
+{
+    { "H", "", 0 },
+    { "K", "", 0 },
+    { "N", "", 0 },
+    { "O", "", 0 },
+    { "P", "Etc/View Pic...", 0 },
+    { "T", "", 0 },
+    { "X", "", 0 },
+    { "Y", "", 0 },
+    { "Enter", "", 0 },
+    { "Equals", "", 0 },
+    { "Minus", "", 0 },
+};
+
+// 2.10.0, 2.10.1, 2.10.2, 2.10.3
+const zq_ui_key keys_2_10_0[] =
+{
+    { "H", "", 0 },
+    { "K", "", 0 },
+    { "N", "", 0 },
+    { "O", "", 0 },
+    { "P", "Etc/View Pic...", 0 },
+    { "T", "", 0 },
+    { "X", "", 0 },
+    { "Y", "", 0 },
+    { "Equals", "", 0 },
+    { "Minus", "", 0 },
+};
+
+// 2.11 Beta 6, 2.11 Beta 11, 2.11 Beta 12, 2.11 Beta 13, 2.11 Beta 14, 2.11 Beta 15, 2.11 Beta 18
+const zq_ui_key keys_2_11_beta_6[] =
+{
+    { "H", "", 0 },
+    { "K", "", 0 },
+    { "N", "", 0 },
+    { "P", "Etc/View Pic...", 0 },
+    { "T", "", 0 },
+    { "Y", "", 0 },
+    { "Equals", "", 0 },
+    { "Minus", "", 0 },
+};
+
 // The Small screen (320x240), which every one of these ZQuests opened in (-large gave 2.10 and 2.11
 // an 800x600 one). 1.92 and 2.10 put the panels at x 64, 192 wide, and 2.10 its combo list scroller
 // at the panel's x+177, y+13; 2.11 has today's Small places (panels at 58, 198 wide).
@@ -1128,20 +1176,21 @@ const zq_ui_rect rects_192[] =
     { "panel", -1, 64, ZQ_UI_KEEP, 192, ZQ_UI_KEEP },
     { "combolistscrollers", 0, 241, 205, 11, 11 },
 };
-const zq_ui_layout layout_192 = { "1.92 Small", 0, 0, 0, rects_192, (int)(sizeof(rects_192) / sizeof(rects_192[0])) };
-const zq_ui_layout layout_210 = { "2.10 Small", 0, 0, 0, rects_192, (int)(sizeof(rects_192) / sizeof(rects_192[0])) };
-const zq_ui_layout layout_211 = { "2.11 Small", 0, 0, 0, NULL, 0 };
+const zq_ui_layout layout_192 = { "1.92 Small", 0, 320, 240, rects_192, (int)(sizeof(rects_192) / sizeof(rects_192[0])) };
+const zq_ui_layout layout_210 = { "2.10 Small", 0, 320, 240, rects_192, (int)(sizeof(rects_192) / sizeof(rects_192[0])) };
+const zq_ui_layout layout_211 = { "2.11 Small", 0, 320, 240, NULL, 0 };
 
 // 1.92: Allegro's own GUI in the editor's VGA colours (zquest.dat's PAL_ZQUEST, entries vc(0..15)):
 // yellow vc(14) on blue vc(1), light blue vc(9) for disabled entries, white vc(15) titles, light red
-// vc(12) in edit fields, black shadows; the panel's dark blue is dvc(9) (vc(9) halfway to black).
+// vc(12) in edit fields; the panel's dark blue is dvc(9) (vc(9) halfway to black). Allegro outlined
+// boxes, buttons and check boxes in the text colour: the frames' dark side is yellow too.
 //   dvc 1 black, 2 blue, 3 light blue, 4 yellow, 5 white, 6 light red, 7 the panel's dark blue, 8 cyan
 const zq_ui_look look_192 =
 {
     "1.92 Allegro GUI", false,
     { 0, 0x000000, 0x0000AA, 0x5555FF, 0xFFFF55, 0xFFFFFF, 0xFF5555, 0x28287D, 0x55FFFF },
     0, 0, 0,
-    { 2, 4, 2, 3, 1, 4, 2, 2, 5, 2, 6, 4, 2 },
+    { 2, 4, 2, 3, 4, 4, 2, 2, 5, 2, 6, 4, 2 },
     1, 1
 };
 
@@ -1157,21 +1206,22 @@ const zq_ui_look look_210 =
 
 #define ZQ_UI_ROWS(t) t, (int)(sizeof(t) / sizeof(t[0]))
 
+// build, gen, menu, layout, look, dialogs (zquicore draws every build's from zquiinv's data), order, keys
 const zq_ui_profile profiles[] =
 {
-    { "1.90", 0x190, ZQ_UI_ROWS(menu_1_90), &layout_192, &look_192, NULL, 0, 0 },
-    { "1.92 (Beta 114)", 0x192, ZQ_UI_ROWS(menu_1_90), &layout_192, &look_192, NULL, 0, 0 },
-    { "2.10.0", 0x210, ZQ_UI_ROWS(menu_2_10_0), &layout_210, &look_210, NULL, 0, 0 },
-    { "2.10.1", 0x210, ZQ_UI_ROWS(menu_2_10_0), &layout_210, &look_210, NULL, 0, 0 },
-    { "2.10.2", 0x210, ZQ_UI_ROWS(menu_2_10_0), &layout_210, &look_210, NULL, 0, 0 },
-    { "2.10.3", 0x210, ZQ_UI_ROWS(menu_2_10_0), &layout_210, &look_210, NULL, 0, 0 },
-    { "2.11 Beta 6", 0x211, ZQ_UI_ROWS(menu_2_11_beta_6), &layout_211, &look_210, NULL, 0, 0 },
-    { "2.11 Beta 11", 0x211, ZQ_UI_ROWS(menu_2_11_beta_6), &layout_211, &look_210, NULL, 0, 20080112 },
-    { "2.11 Beta 12", 0x211, ZQ_UI_ROWS(menu_2_11_beta_12), &layout_211, &look_210, NULL, 0, 20080113 },
-    { "2.11 Beta 13", 0x211, ZQ_UI_ROWS(menu_2_11_beta_13), &layout_211, &look_210, NULL, 0, 20080114 },
-    { "2.11 Beta 14", 0x211, ZQ_UI_ROWS(menu_2_11_beta_13), &layout_211, &look_210, NULL, 0, 20080115 },
-    { "2.11 Beta 15", 0x211, ZQ_UI_ROWS(menu_2_11_beta_15), &layout_211, &look_210, NULL, 0, 20080116 },
-    { "2.11 Beta 18", 0x211, ZQ_UI_ROWS(menu_2_11_beta_18), &layout_211, &look_210, NULL, 0, 0 },
+    { "1.90", 0x190, ZQ_UI_ROWS(menu_1_90), &layout_192, &look_192, NULL, 0, 0, ZQ_UI_ROWS(keys_1_90) },
+    { "1.92 (Beta 114)", 0x192, ZQ_UI_ROWS(menu_1_90), &layout_192, &look_192, NULL, 0, 0, ZQ_UI_ROWS(keys_1_90) },
+    { "2.10.0", 0x210, ZQ_UI_ROWS(menu_2_10_0), &layout_210, &look_210, NULL, 0, 0, ZQ_UI_ROWS(keys_2_10_0) },
+    { "2.10.1", 0x210, ZQ_UI_ROWS(menu_2_10_0), &layout_210, &look_210, NULL, 0, 0, ZQ_UI_ROWS(keys_2_10_0) },
+    { "2.10.2", 0x210, ZQ_UI_ROWS(menu_2_10_0), &layout_210, &look_210, NULL, 0, 0, ZQ_UI_ROWS(keys_2_10_0) },
+    { "2.10.3", 0x210, ZQ_UI_ROWS(menu_2_10_0), &layout_210, &look_210, NULL, 0, 0, ZQ_UI_ROWS(keys_2_10_0) },
+    { "2.11 Beta 6", 0x211, ZQ_UI_ROWS(menu_2_11_beta_6), &layout_211, &look_210, NULL, 0, 0, ZQ_UI_ROWS(keys_2_11_beta_6) },
+    { "2.11 Beta 11", 0x211, ZQ_UI_ROWS(menu_2_11_beta_6), &layout_211, &look_210, NULL, 0, 20080112, ZQ_UI_ROWS(keys_2_11_beta_6) },
+    { "2.11 Beta 12", 0x211, ZQ_UI_ROWS(menu_2_11_beta_12), &layout_211, &look_210, NULL, 0, 20080113, ZQ_UI_ROWS(keys_2_11_beta_6) },
+    { "2.11 Beta 13", 0x211, ZQ_UI_ROWS(menu_2_11_beta_13), &layout_211, &look_210, NULL, 0, 20080114, ZQ_UI_ROWS(keys_2_11_beta_6) },
+    { "2.11 Beta 14", 0x211, ZQ_UI_ROWS(menu_2_11_beta_13), &layout_211, &look_210, NULL, 0, 20080115, ZQ_UI_ROWS(keys_2_11_beta_6) },
+    { "2.11 Beta 15", 0x211, ZQ_UI_ROWS(menu_2_11_beta_15), &layout_211, &look_210, NULL, 0, 20080116, ZQ_UI_ROWS(keys_2_11_beta_6) },
+    { "2.11 Beta 18", 0x211, ZQ_UI_ROWS(menu_2_11_beta_18), &layout_211, &look_210, NULL, 0, 0, ZQ_UI_ROWS(keys_2_11_beta_6) },
 };
 
 #undef ZQ_UI_ROWS

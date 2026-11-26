@@ -91,16 +91,16 @@ def strip_comments(s):
 
 
 def split_top(body):
-    """Splits at commas outside braces, parentheses and strings."""
+    """Splits at commas outside braces, parentheses, strings and character literals (')', ',')."""
     parts = []
     depth = 0
     cur = []
     i = 0
     while i < len(body):
         c = body[i]
-        if c == '"':
+        if c == '"' or c == "'":
             j = i + 1
-            while body[j] != '"':
+            while body[j] != c:
                 j += 2 if body[j] == '\\' else 1
             cur.append(body[i:j + 1])
             i = j + 1
@@ -177,6 +177,73 @@ def parse_menus(text):
     return menus
 
 
+KEY_NAMES = {'KEY_UP': 'Up', 'KEY_DOWN': 'Down', 'KEY_LEFT': 'Left', 'KEY_RIGHT': 'Right', 'KEY_PGUP': 'PgUp',
+             'KEY_PGDN': 'PgDn', 'KEY_SPACE': 'Space', 'KEY_ENTER': 'Enter', 'KEY_ESC': 'Esc', 'KEY_MINUS': 'Minus',
+             'KEY_EQUALS': 'Equals'}
+
+
+def key_name(ch, d1):
+    """The framework's name of a d_keyboard_proc's key (zq_ui_key), or None: the menu rows' F-keys and Del,
+    and the keypad and punctuation keys, are left as the framework binds them."""
+    ch = ch.strip()
+    d1 = d1.strip()
+    c = None
+    if re.match(r"^'.'$", ch):
+        c = ch[1]
+    elif re.match(r'^\d+$', ch) and int(ch):
+        c = chr(int(ch))
+    if c is not None:
+        if c.isalpha():
+            return c.upper()
+        if c.isdigit():
+            return c
+        return {',': 'Comma', '.': 'Period', ' ': 'Space', chr(27): 'Esc'}.get(c)
+    m = re.match(r'^KEY_([A-Z0-9])$', d1)
+    if m:
+        return m.group(1)
+    return KEY_NAMES.get(d1)
+
+
+def parse_keys(text):
+    """{key name: editor function} of the main dialog's d_keyboard_proc entries (the first of a key wins)."""
+    s = strip_comments(text)
+    s = re.sub(r'(?m)^[ \t]*#.*$', '', s)
+    m = re.search(r'\bDIALOG\s+dialogs\s*\[\s*\]\s*=\s*\{', s)
+    b = m.end() - 1
+    depth = 0
+    k = b
+    while True:
+        c = s[k]
+        if c == '"':
+            k += 1
+            while s[k] != '"':
+                k += 2 if s[k] == '\\' else 1
+        elif c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0:
+                break
+        k += 1
+    keys = {}
+    for el in split_top(s[b + 1:k]):
+        if not el.startswith('{'):
+            continue
+        f = split_top(el[1:-1])
+        if len(f) < 12 or f[0].strip() != 'd_keyboard_proc':
+            continue
+        n = key_name(f[7], f[9])
+        if n:
+            keys.setdefault(n, ident(f[11]))
+    return keys
+
+
+# Key functions that do the same as today's under another name; and ones that do nothing.
+KEY_SAME = {'onW': 'onShowWalkability', 'onF': 'onShowFlags', 'onQ': 'onShowComboInfoCSet', 'onL': 'onShowDarkness',
+            'onD': 'onToggleDarkness', 'onB': 'onResetTransparency', 'onX': 'onPreviewMode', 'onString': 'onSKey'}
+KEY_NOTHING = {'onJ', 'onM', 'onY'}
+
+
 def audit_text(t):
     t = t.split('\t')[0].replace('&', '')
     return t.rstrip(' ')
@@ -245,16 +312,56 @@ def c_quote(t):
     return '"' + t.replace('\\', '\\\\').replace('"', '\\"').replace('\t', '\\t') + '"'
 
 
+today_keys = parse_keys(open(today_src, encoding='latin-1').read())
+
+
+def keys_of(old, unknown):
+    """The keys whose binding differs from today's: (key, action); "" where the build's key did nothing."""
+    out = []
+    for n in sorted(set(today_keys) | set(old), key=lambda n: (len(n) > 1, n)):
+        t = today_keys.get(n)
+        t = None if t in KEY_NOTHING else t
+        p = old.get(n)
+        p = None if p in KEY_NOTHING else p
+        if p is None and t is None:
+            continue
+        if p is None:
+            out.append((n, ''))
+            continue
+        if KEY_SAME.get(p, p) == t:
+            continue
+        out.append((n, action_for(n, p, '0', unknown)))
+    return out
+
+
+def name_of(prefix, name):
+    return prefix + re.sub(r'\W+', '_', name.replace(' (Beta 114)', '')).strip('_').lower()
+
+
 groups = {}         # rows (as a tuple) -> table name
 order = []
 build_rows = {}
+kgroups = {}        # key rows -> table name
+korder = []
+build_keys = {}
 unknown = set()
 for name, gen, ref, path, lay, look in BUILDS:
-    rows = tuple(rows_of(parse_menus(git_show(ref, path)), unknown))
+    src = git_show(ref, path)
+    rows = tuple(rows_of(parse_menus(src), unknown))
     if rows not in groups:
-        groups[rows] = 'menu_' + re.sub(r'\W+', '_', name.replace(' (Beta 114)', '')).strip('_').lower()
+        groups[rows] = name_of('menu_', name)
         order.append(rows)
     build_rows[name] = groups[rows]
+    keys = tuple(keys_of(parse_keys(src), unknown))
+    if keys not in kgroups:
+        kgroups[keys] = name_of('keys_', name)
+        korder.append(keys)
+    build_keys[name] = kgroups[keys]
+
+for k in korder:
+    for n, a in k:
+        if a and not a.startswith('@') and a not in known_paths:
+            sys.exit('key %s: action %r is no entry of today\'s menus' % (n, a))
 
 for r in order:
     for d, t, a in r:
@@ -295,6 +402,20 @@ for r in order:
     o.append('};')
     o.append('')
 
+o.append('// The main screen\'s keys that differ from today\'s (each build\'s "dialogs" table of d_keyboard_proc')
+o.append('// entries against today\'s): "" where the build had no such key; the F-keys and Del follow the')
+o.append('// menu rows\' shortcut texts. 1.92\'s B showed the current layer in a box, 2.10\'s rebuilt the')
+o.append('// translucency table as today\'s does: B stays today\'s.')
+for k in korder:
+    users = [b for b in build_keys if build_keys[b] == kgroups[k]]
+    o.append('// %s' % ', '.join(users))
+    o.append('const zq_ui_key %s[] =' % kgroups[k])
+    o.append('{')
+    for n, a in k:
+        o.append('    { %s, %s, 0 },' % (c_quote(n), c_quote(a)))
+    o.append('};')
+    o.append('')
+
 o.append('''// The Small screen (320x240), which every one of these ZQuests opened in (-large gave 2.10 and 2.11
 // an 800x600 one). 1.92 and 2.10 put the panels at x 64, 192 wide, and 2.10 its combo list scroller
 // at the panel's x+177, y+13; 2.11 has today's Small places (panels at 58, 198 wide).
@@ -303,20 +424,21 @@ const zq_ui_rect rects_192[] =
     { "panel", -1, 64, ZQ_UI_KEEP, 192, ZQ_UI_KEEP },
     { "combolistscrollers", 0, 241, 205, 11, 11 },
 };
-const zq_ui_layout layout_192 = { "1.92 Small", 0, 0, 0, rects_192, (int)(sizeof(rects_192) / sizeof(rects_192[0])) };
-const zq_ui_layout layout_210 = { "2.10 Small", 0, 0, 0, rects_192, (int)(sizeof(rects_192) / sizeof(rects_192[0])) };
-const zq_ui_layout layout_211 = { "2.11 Small", 0, 0, 0, NULL, 0 };
+const zq_ui_layout layout_192 = { "1.92 Small", 0, 320, 240, rects_192, (int)(sizeof(rects_192) / sizeof(rects_192[0])) };
+const zq_ui_layout layout_210 = { "2.10 Small", 0, 320, 240, rects_192, (int)(sizeof(rects_192) / sizeof(rects_192[0])) };
+const zq_ui_layout layout_211 = { "2.11 Small", 0, 320, 240, NULL, 0 };
 
 // 1.92: Allegro's own GUI in the editor's VGA colours (zquest.dat's PAL_ZQUEST, entries vc(0..15)):
 // yellow vc(14) on blue vc(1), light blue vc(9) for disabled entries, white vc(15) titles, light red
-// vc(12) in edit fields, black shadows; the panel's dark blue is dvc(9) (vc(9) halfway to black).
+// vc(12) in edit fields; the panel's dark blue is dvc(9) (vc(9) halfway to black). Allegro outlined
+// boxes, buttons and check boxes in the text colour: the frames' dark side is yellow too.
 //   dvc 1 black, 2 blue, 3 light blue, 4 yellow, 5 white, 6 light red, 7 the panel's dark blue, 8 cyan
 const zq_ui_look look_192 =
 {
     "1.92 Allegro GUI", false,
     { 0, 0x000000, 0x0000AA, 0x5555FF, 0xFFFF55, 0xFFFFFF, 0xFF5555, 0x28287D, 0x55FFFF },
     0, 0, 0,
-    { 2, 4, 2, 3, 1, 4, 2, 2, 5, 2, 6, 4, 2 },
+    { 2, 4, 2, 3, 4, 4, 2, 2, 5, 2, 6, 4, 2 },
     1, 1
 };
 
@@ -335,14 +457,15 @@ LAYOUT = {'L192': '&layout_192', 'L210': '&layout_210', 'L211': '&layout_211'}
 LOOK = {'K192': '&look_192', 'K210': '&look_210'}
 o.append('#define ZQ_UI_ROWS(t) t, (int)(sizeof(t) / sizeof(t[0]))')
 o.append('')
+o.append('// build, gen, menu, layout, look, dialogs (zquicore draws every build\'s from zquiinv\'s data), order, keys')
 o.append('const zq_ui_profile profiles[] =')
 o.append('{')
 for name, gen, ref, path, lay, look in BUILDS:
     # a beta the catalog names only while its quest is open: zq_builds_old.cpp's order for it
     m = re.match(r'2\.11 Beta (\d+)$', name)
     bo = 20080101 + int(m.group(1)) if m and name not in ('2.11 Beta 6', '2.11 Beta 18') else 0
-    o.append('    { %s, 0x%x, ZQ_UI_ROWS(%s), %s, %s, NULL, 0, %d },' % (c_quote(name), gen, build_rows[name],
-                                                                        LAYOUT[lay], LOOK[look], bo))
+    o.append('    { %s, 0x%x, ZQ_UI_ROWS(%s), %s, %s, NULL, 0, %d, ZQ_UI_ROWS(%s) },'
+             % (c_quote(name), gen, build_rows[name], LAYOUT[lay], LOOK[look], bo, build_keys[name]))
 o.append('};')
 o.append('')
 o.append('#undef ZQ_UI_ROWS')
