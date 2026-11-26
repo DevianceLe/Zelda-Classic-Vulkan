@@ -24225,6 +24225,15 @@ int main(int argc,char **argv)
                 exit(r);
         }
 
+        // -qst-build-save, -qst-build-new, -qst-build-list (port/zqeditor/zq_builds_old.cpp)
+        {
+            extern int zq_builds_old_switches(int argc, char **argv);
+            int r = zq_builds_old_switches(argc, argv);
+
+            if(r >= 0)
+                exit(r);
+        }
+
         // -qst-own-save in.qst out.qst: loads the quest and saves it in its own version, not
         // encoded (ZQ_OWN_SAVE_ALL=1: every part through its writer), as File > Save does
         int own_save_arg = used_switch(argc,argv,"-qst-own-save");

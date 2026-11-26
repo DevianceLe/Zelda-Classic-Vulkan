@@ -67,6 +67,7 @@ set(ZQEDITOR_SOURCES
 	${ZCPORT_DIR}/zqeditor/q255_store_zq.cpp
 	${ZCPORT_DIR}/zqeditor/zq_sections.cpp
 	${ZCPORT_DIR}/zqeditor/zq_writers.cpp
+	${ZCPORT_DIR}/zqeditor/zq_builds_old.cpp
 	${ZCPORT_DIR}/zqeditor/zq_tests.cpp
 	${ZCPORT_DIR}/zqeditor/zq_audit.cpp
 	${ZCPORT_DIR}/zqeditor/zq_tile_refs.cpp
