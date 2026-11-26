@@ -2092,6 +2092,14 @@ int init_game()
             homescr = currscr = sc + DMaps[currdmap].xoff;
             game->set_continue_dmap(currdmap);
             al_trace("test: start on dmap %d screen %d\n", dm, (int)currscr);
+
+            // a 2.55/3.0 quest: the hero's name upstream's test mode and replays give the new
+            // game ("Hero", zelda.cpp), not the quest file's name the standalone save took
+            if(q30_active())
+            {
+                char hero[] = "Hero";
+                game->set_name(hero);
+            }
         }
     }
 

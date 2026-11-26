@@ -2208,10 +2208,13 @@ bool zasm30_draw_origin_offset(int origin, int target, int xoff, int yoff, int &
 // upstream defers every bitmap command to drawing time and runs them in order, so the blit sees
 // the bitmap as the commands before it left it. Here bitmap commands run at once, so the source
 // rectangle is copied now and drawn onto the layer with the frame's other screen drawing.
-// Screen->DrawOrigin places dx, dy (zasm30_capture_draw_origin). Rotation, flips and lit colour
-// aren't drawn (logged once).
+// Screen->DrawOrigin places dx, dy (zasm30_capture_draw_origin). Rotation, a pivot, flips and a
+// lit colour are drawn as upstream's bmp_do_drawbitmapexr draws them (q30_scripts_bmpblit.h), on
+// a sub-bitmap the size of the whole source bitmap, which the command keeps.
+#include "q30_scripts_bmpblit.h"
+
 static void z30_queue_screen_blit(BITMAP *src, int layer, int sx, int sy, int sw, int sh, int dx, int dy, int dw, int dh, int mode,
-                                  bool masked, bool rotated)
+                                  bool masked, int rot, int cx, int cy, int lit)
 {
     if(zasm30_trace_on)
     {
@@ -2226,8 +2229,15 @@ static void z30_queue_screen_blit(BITMAP *src, int layer, int sx, int sy, int sw
     if(!src || sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0 || sw > 4096 || sh > 4096)
         return;
 
-    if(rotated || (mode & ~1))
-        zasm30_log_once("blit to the screen with rotation, pivot or flip (drawn plain)", 657);
+    if(zasm30_trace_on && (rot != 0 || (mode & ~1)))
+    {
+        static int shown_r = 0;
+
+        if(shown_r++ < 20)
+            al_trace("q30: rotated or flipped blit to the screen: layer %d, %dx%d from %d,%d to %d,%d (%dx%d), rotation %d, "
+                     "pivot %d,%d, mode %d, lit %d, source %dx%d, frame %d\n", layer, sw, sh, sx, sy, dx, dy, dw, dh, rot, cx, cy,
+                     mode, lit, src->w, src->h, frame);
+    }
 
     if(q30_skip_script_draws)
         return;
@@ -2250,6 +2260,12 @@ static void z30_queue_screen_blit(BITMAP *src, int layer, int sx, int sy, int sw
     script_drawing_commands[j][7] = dh;
     script_drawing_commands[j][8] = mode;
     script_drawing_commands[j][9] = masked ? 1 : 0;
+    script_drawing_commands[j][10] = rot;
+    script_drawing_commands[j][11] = cx;
+    script_drawing_commands[j][12] = cy;
+    script_drawing_commands[j][13] = lit;
+    script_drawing_commands[j][14] = src->w;     // (the sub-bitmap upstream rotates or flips)
+    script_drawing_commands[j][15] = src->h;
     script_drawing_commands[j][18] = -1;    // the screen, whatever the current render target
     zasm30_capture_draw_origin(j);
 
@@ -2285,6 +2301,14 @@ void zasm30_do_screen_blit(BITMAP *bmp, int i, int *sdci, int xoffset, int yoffs
             _putpixel(tmp, x, y, (int)(*v)[(size_t)y * sw + x]);
 
     const int x = sdci[4] + xoffset, y = sdci[5] + yoffset;    // (offsets from the command's draw origin)
+
+    if(sdci[10] != 0 || (sdci[8] & ~1))     // rotation, a pivot or flips: upstream's own drawing
+    {
+        z30b_blit_rotated(bmp, tmp, 0, 0, sw, sh, x, y, dw, dh, (float)sdci[10], sdci[11], sdci[12], sdci[8], sdci[13],
+                          sdci[9] != 0, sdci[14], sdci[15]);
+        destroy_bitmap(tmp);
+        return;
+    }
 
     BITMAP *drawn = tmp;
 
@@ -3744,9 +3768,26 @@ static bool zasm30_command(word cmd)
         return true;
     case Z30C_REGENERATEBITMAP:
     {
-        long ref = Z30_REF(BITMAP);
+        // bitmap->Create(layer, width, height), as upstream's run_script and bmp_do_regenr: the
+        // pointer at SP+3 and the size on the stack (swapped under qr_OLDCREATEBITMAP_ARGS, as
+        // Game->CreateBitmap above). A pointer that names no bitmap gets a new one. D3 (rEXP2)
+        // gives the pointer back; the compiler assigns it to the variable Create was called on.
+        extern int q255_header_build;
+        const bool old_args = q30_quest_rule(652) || quest_header_zelda_version == 0x254
+                              || (quest_header_zelda_version == 0x255 && q255_header_build < 44);
+        long ref = SH::read_stack(SPR + 3);
+        int w = SH::read_stack(SPR + 1) / 10000, h = SH::read_stack(SPR) / 10000;
+
+        if(old_args)
+            std::swap(w, h);
+
+        if(!zasm30_bitmaps.count(ref))
+        {
+            ri->d[3] = z30_new_bitmap(w, h);
+            return true;
+        }
+
         zasm30_bitmap_unsized.erase(ref);
-        int w = ri->d[1] / 10000, h = ri->d[0] / 10000;
         BITMAP *&b = zasm30_bitmaps[ref];
 
         if(b)
@@ -3755,6 +3796,7 @@ static bool zasm30_command(word cmd)
         b = create_bitmap_ex(8, vbound(w, 1, 4096), vbound(h, 1, 4096));
         if(b)
             clear_bitmap(b);
+        ri->d[3] = ref;
         return true;
     }
     case Z30C_BITMAPFREE:
@@ -3814,7 +3856,8 @@ static bool zasm30_command(word cmd)
         if(dst_rt == -1 || (dst_rt == -2 && zscriptDrawingRenderTarget->GetCurrentRenderTarget() < 0))
         {
             z30_queue_screen_blit(z30_bitmap(src_ref), SH::read_stack(SPR + 15) / 10000, sx, sy, sw, sh, dx, dy, dw, dh,
-                                  SH::read_stack(SPR + 2) / 10000, masked, SH::read_stack(SPR + 5) != 0);
+                                  SH::read_stack(SPR + 2) / 10000, masked, SH::read_stack(SPR + 5) / 10000,
+                                  SH::read_stack(SPR + 4) / 10000, SH::read_stack(SPR + 3) / 10000, SH::read_stack(SPR + 1) / 10000);
             return true;
         }
 
