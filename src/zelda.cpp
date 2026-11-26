@@ -5066,10 +5066,7 @@ int main(int argc, char* argv[])
             if(!skipcont&&!get_bit(quest_rules,qr_NOCONTINUE)) game_over(get_bit(quest_rules,qr_NOSAVE));
             
             if(q30_savemenu_take_pending_save())    // 2.55/3.0: a save menu's save as the game ended
-            {
-                q30_run_onsave();
-                save_game(false);
-            }
+                save_game(false);                   // (with the onSave script, as every save)
             
             skipcont = 0;
         }

@@ -610,19 +610,58 @@ static const Zasm30Internal *zasm30_iarr_of(long ptr)
     return zasm30_is_iarr_proxy(ptr) ? zasm30_internal(zasm30_iarr_ring[Z30_IARR_PROXY - ptr]) : NULL;
 }
 
-// The array as a whole (what ArrayH::getArray hands commands that read it all): a copy.
+// The array as a whole (what ArrayH::getArray hands commands that read or write it all): a copy,
+// written back when the command is done (zasm30_iarr_write_back), so a whole-array write
+// (ArrayCopy into Screen->D, a string or a file's bytes read into one) reaches the engine array as
+// upstream's ArrayManager::set does it, element by element through the register.
+static ZScriptArray zasm30_iarr_copies[Z30_IARR_RING];
+static std::vector<long> zasm30_iarr_before[Z30_IARR_RING];    // the elements as copied
+static long zasm30_iarr_copy_id[Z30_IARR_RING];                // whose copy is out (0 = none)
+static bool zasm30_iarr_out = false;
+
 static ZScriptArray &zasm30_iarr_copy(long ptr)
 {
-    static ZScriptArray copies[Z30_IARR_RING];
-    ZScriptArray &a = copies[Z30_IARR_PROXY - ptr];
+    const int k = Z30_IARR_PROXY - ptr;
+    ZScriptArray &a = zasm30_iarr_copies[k];
+    std::vector<long> &before = zasm30_iarr_before[k];
     const Zasm30Internal *ia = zasm30_iarr_of(ptr);
     const long size = ia ? zasm30_iarr_size(*ia) : 0;
     a.Resize(size);
+    before.resize(size);
 
     for(long n = 0; n < size; ++n)
-        a[n] = zasm30_iarr_access(*ia, n, false, 0);
+        before[n] = a[n] = zasm30_iarr_access(*ia, n, false, 0);
 
+    zasm30_iarr_copy_id[k] = ia ? zasm30_iarr_ring[k] : 0;
+    zasm30_iarr_out = zasm30_iarr_out || ia;
     return a;
+}
+
+// After every command: the elements a command changed in a copy go to the engine array.
+void zasm30_iarr_write_back()
+{
+    if(!zasm30_iarr_out)
+        return;
+
+    zasm30_iarr_out = false;
+
+    for(int k = 0; k < Z30_IARR_RING; ++k)
+    {
+        const long id = zasm30_iarr_copy_id[k];
+        zasm30_iarr_copy_id[k] = 0;
+        const Zasm30Internal *ia = id ? zasm30_internal(id) : NULL;
+
+        if(!ia)
+            continue;
+
+        const Zasm30Internal at = *ia;
+        const ZScriptArray &a = zasm30_iarr_copies[k];
+        const std::vector<long> &before = zasm30_iarr_before[k];
+
+        for(size_t n = 0; n < before.size() && n < a.Size(); ++n)
+            if(a[n] != before[n])
+                zasm30_iarr_access(at, (long)n, true, a[n]);
+    }
 }
 
 static long zasm30_iarr_get(long ptr, long index)

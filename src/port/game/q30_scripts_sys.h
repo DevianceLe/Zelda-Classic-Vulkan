@@ -2104,7 +2104,7 @@ static bool z30_misc_reg(const long arg, long &ret, const long value, const bool
     {
         const long id = zasm30_selected_ffc_id();
         const int i = id >= 0 ? (int)(id % Q30_MAXFFCS) : -1;
-        ret = -10000;
+        ret = 0;        // no FFC: upstream's ffc_get_register reads 0
         if(i < 0)
             return true;
         if(arg == Z30R_FFCINDEX)

@@ -213,21 +213,73 @@ static std::string z30_lower(std::string s)
     return s;
 }
 
-// Windows ignores a trailing dot or space and reserves device names whatever the extension.
-static bool z30_name_ok(const std::string &name)
+// A Windows device name (one part of a path): what comes before the first dot, less any spaces
+// before it, in any case ("nul.txt", "Com1.png", "aux .txt"). Upstream's parse_user_path
+// (dd83933b0) refuses these as a script file's name on every platform. With `windows`, also the
+// other names Windows takes for a device: COM and LPT with a superscript 1-3 (a cp1252 byte or
+// UTF-8) and the console's.
+static bool z30_device_name(const std::string &name, bool windows)
 {
     static const char reserved[] = " aux com1 com2 com3 com4 com5 com6 com7 com8 com9 con lpt1 lpt2 lpt3 lpt4 lpt5 lpt6 lpt7 lpt8 lpt9 nul prn ";
-
-    if(name[name.size() - 1] == '.' || name[name.size() - 1] == ' ')
-        return false;
-
-    // (the device name is what comes before the first dot, less any spaces before it: "aux .txt")
     std::string device = z30_lower(name.substr(0, name.find('.')));
 
     while(!device.empty() && device[device.size() - 1] == ' ')
         device.erase(device.size() - 1);
 
-    return device.empty() || std::string(reserved).find(" " + device + " ") == std::string::npos;
+    if(device.empty())
+        return false;
+
+    if(std::string(reserved).find(" " + device + " ") != std::string::npos)
+        return true;
+
+    if(!windows)
+        return false;
+
+    if(device == "conin$" || device == "conout$")
+        return true;
+
+    if(device.size() < 4 || (device.compare(0, 3, "com") != 0 && device.compare(0, 3, "lpt") != 0))
+        return false;
+
+    const std::string digit = device.substr(3);
+    return digit == "\xb9" || digit == "\xb2" || digit == "\xb3"
+           || digit == "\xc2\xb9" || digit == "\xc2\xb2" || digit == "\xc2\xb3";
+}
+
+// Windows: whether a path would reach a device (any part of it a device name). Every script file
+// operation asks first, so nothing a script names opens a device (a COM port, the printer), not
+// even to look at it (stat opens it there). Elsewhere these names are ordinary files.
+static bool z30_opens_device(const std::string &path)
+{
+#ifdef _WIN32
+    size_t start = 0;
+
+    while(start <= path.size())
+    {
+        size_t end = path.find_first_of("/\\", start);
+
+        if(end == std::string::npos)
+            end = path.size();
+
+        if(z30_device_name(path.substr(start, end - start), true))
+            return true;
+
+        start = end + 1;
+    }
+#else
+    (void)path;
+#endif
+    return false;
+}
+
+// A script file's own name (upstream parse_user_path, on every platform): no trailing dot or
+// space (Windows drops them), no device name.
+static bool z30_file_name_ok(const std::string &name)
+{
+    if(name.empty() || name[name.size() - 1] == '.' || name[name.size() - 1] == ' ')
+        return false;
+
+    return !z30_device_name(name, false);
 }
 
 // Scripts can't create programs. The list is upstream's, from fileinfo.com's executable types,
@@ -268,12 +320,7 @@ static bool z30_resolve_path(const std::string &user, bool is_file, std::string 
             parts.pop_back();
         }
         else if(!cur.empty() && cur != ".")
-        {
-            if(!z30_name_ok(cur))
-                return false;
-
             parts.push_back(cur);
-        }
 
         cur.clear();
     }
@@ -282,7 +329,7 @@ static bool z30_resolve_path(const std::string &user, bool is_file, std::string 
     {
         const char last = user.empty() ? '/' : user[user.size() - 1];
 
-        if(parts.empty() || last == '/' || last == '\\' || !z30_extension_ok(parts.back()))
+        if(parts.empty() || last == '/' || last == '\\' || !z30_extension_ok(parts.back()) || !z30_file_name_ok(parts.back()))
             return false;
     }
 
@@ -344,6 +391,9 @@ static bool z30_legacy_path(std::string user, std::string &out)
 
 static void z30_make_dirs_for(const std::string &file)
 {
+    if(z30_opens_device(file))
+        return;
+
     for(size_t n = file.find('/'); n != std::string::npos; n = file.find('/', n + 1))
     {
 #ifdef _WIN32
@@ -354,14 +404,15 @@ static void z30_make_dirs_for(const std::string &file)
     }
 }
 
+// upstream util::checkPath: a directory, or a regular file (a device is neither)
 static bool z30_path_is(const std::string &path, bool dir)
 {
     struct stat info;
 
-    if(stat(path.c_str(), &info) != 0)
+    if(z30_opens_device(path) || stat(path.c_str(), &info) != 0)
         return false;
 
-    return ((info.st_mode & S_IFMT) == S_IFDIR) == dir;
+    return (info.st_mode & S_IFMT) == (dir ? S_IFDIR : S_IFREG);
 }
 
 static Z30File *z30_file(long ref, bool need_open)
@@ -521,7 +572,7 @@ static void z30_file_open(long path_ptr, const char *mode)
     if(strchr(mode, 'w') || strchr(mode, 'a'))
         z30_make_dirs_for(path);
 
-    f->f = fopen(path.c_str(), mode);
+    f->f = z30_opens_device(path) ? NULL : fopen(path.c_str(), mode);
 
     if(f->f)
     {
@@ -1775,7 +1826,9 @@ static void z30_bitmap_file(bool write)
     }
 
     z30_make_dirs_for(path);
-    save_bitmap(path.c_str(), bmp, RAMpal);
+
+    if(!z30_opens_device(path))     // (upstream writes into the device, then says this)
+        save_bitmap(path.c_str(), bmp, RAMpal);
 
     if(!z30_path_is(path, false))
         Z_scripterrlog("Failed to create file '%s'\n", path.c_str());
@@ -3275,6 +3328,19 @@ static bool zasm30_command(word cmd)
 
     case Z30C_ARRAYCOPY:
     {
+        const long dp = zasm30_aptr(get_register(sarg1)), sp = zasm30_aptr(get_register(sarg2));
+
+        // an engine array (Screen->D, an npc's Misc[]): upstream's ArrayH::copyValues sets every
+        // element through ArrayManager, so each one goes through the register
+        if(zasm30_is_iarr_proxy(dp) || zasm30_is_iarr_proxy(sp))
+        {
+            const long dn = (long)ArrayH::getSize(dp), sn = (long)ArrayH::getSize(sp);
+
+            for(long n = 0; dn > 0 && sn > 0 && n < dn && n < sn; ++n)
+                ArrayH::setElement(dp, n, ArrayH::getElement(sp, n));
+            return true;
+        }
+
         ZScriptArray &dest = ArrayH::getArray(zasm30_aptr(get_register(sarg1)));
         ZScriptArray &src = ArrayH::getArray(zasm30_aptr(get_register(sarg2)));
 
@@ -5074,7 +5140,7 @@ static bool zasm30_command(word cmd)
         if(cmd == Z30C_FILESYSREMOVE)
         {
             z30_collect_open_files();
-            const bool ok = z30_resolve_path(user, true, path);
+            const bool ok = z30_resolve_path(user, true, path) && !z30_opens_device(path);
             set_register(sarg1, ok && !remove(path.c_str()) ? 10000 : 0);
         }
         else

@@ -3860,6 +3860,8 @@ void game_over(int type)
 
 void save_game(bool savepoint)
 {
+    q30_run_onsave();   // (2.55/3.0 quests: upstream's save_game runs the onSave script first)
+
     if(savepoint)
     {
         game->set_continue_scrn(homescr);

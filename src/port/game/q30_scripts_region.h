@@ -404,7 +404,7 @@ static bool zasm30_region_ffc_get(const long arg, long &ret)
 
     if(!in.ok)
     {
-        ret = -10000;   // its screen is gone: as a missing FFC
+        ret = 0;        // its screen is gone: as a missing FFC (upstream 3.0 ffc_get_register)
         return true;
     }
 

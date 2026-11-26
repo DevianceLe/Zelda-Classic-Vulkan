@@ -3724,6 +3724,10 @@ static long q30_link_zlong(fix f)
     return (long)floor(double(f) * 10000.0 + 0.5);
 }
 
+// What an invalid FFC's registers read: 0 in 2.55/3.0 quests (upstream 3.0's ffc_get_register),
+// -1 in 2.53 quests
+#define Z30_BAD_FFC_VALUE (zasm30_ffscript_version ? 0 : -10000)
+
 long get_register(const long arg)
 {
     long ret = 0;
@@ -3742,88 +3746,88 @@ long get_register(const long arg)
 ///----------------------------------------------------------------------------------------------------//
 //FFC Variables
     case DATA:
-	if(BC::checkFFC(ri->ffcref, "ffc->Data") != SH::_NoError) ret = -10000;
+	if(BC::checkFFC(ri->ffcref, "ffc->Data") != SH::_NoError) ret = Z30_BAD_FFC_VALUE;
         else ret = tmpscr->ffdata[ri->ffcref]*10000;
         break;
         
     case FFSCRIPT:
-	if(BC::checkFFC(ri->ffcref, "ffc->Script") != SH::_NoError) ret = -10000;
+	if(BC::checkFFC(ri->ffcref, "ffc->Script") != SH::_NoError) ret = Z30_BAD_FFC_VALUE;
         else ret = tmpscr->ffscript[ri->ffcref]*10000;
         break;
         
     case FCSET:
-	if(BC::checkFFC(ri->ffcref, "ffc->CSet") != SH::_NoError) ret = -10000;
+	if(BC::checkFFC(ri->ffcref, "ffc->CSet") != SH::_NoError) ret = Z30_BAD_FFC_VALUE;
         else ret = tmpscr->ffcset[ri->ffcref]*10000;
         break;
         
     case DELAY:
-	if(BC::checkFFC(ri->ffcref, "ffc->Delay") != SH::_NoError) ret = -10000;
+	if(BC::checkFFC(ri->ffcref, "ffc->Delay") != SH::_NoError) ret = Z30_BAD_FFC_VALUE;
         else ret = tmpscr->ffdelay[ri->ffcref]*10000;
         break;
         
     case FX:
-	if(BC::checkFFC(ri->ffcref, "ffc->X") != SH::_NoError) ret = -10000;
+	if(BC::checkFFC(ri->ffcref, "ffc->X") != SH::_NoError) ret = Z30_BAD_FFC_VALUE;
         else ret = tmpscr->ffx[ri->ffcref];
         break;
         
     case FY:
-	if(BC::checkFFC(ri->ffcref, "ffc->Y") != SH::_NoError) ret = -10000;
+	if(BC::checkFFC(ri->ffcref, "ffc->Y") != SH::_NoError) ret = Z30_BAD_FFC_VALUE;
         else ret = tmpscr->ffy[ri->ffcref];
         break;
         
     case XD:
-	if(BC::checkFFC(ri->ffcref, "ffc->Vx") != SH::_NoError) ret = -10000;
+	if(BC::checkFFC(ri->ffcref, "ffc->Vx") != SH::_NoError) ret = Z30_BAD_FFC_VALUE;
         else ret = tmpscr->ffxdelta[ri->ffcref];
         break;
         
     case YD:
-	if(BC::checkFFC(ri->ffcref, "ffc->Vy") != SH::_NoError) ret = -10000;
+	if(BC::checkFFC(ri->ffcref, "ffc->Vy") != SH::_NoError) ret = Z30_BAD_FFC_VALUE;
         else ret = tmpscr->ffydelta[ri->ffcref];
         break;
         
     case XD2:
-	if(BC::checkFFC(ri->ffcref, "ffc->Ax") != SH::_NoError) ret = -10000;
+	if(BC::checkFFC(ri->ffcref, "ffc->Ax") != SH::_NoError) ret = Z30_BAD_FFC_VALUE;
         else ret = tmpscr->ffxdelta2[ri->ffcref];
         break;
         
     case YD2:
-	if(BC::checkFFC(ri->ffcref, "ffc->Ay") != SH::_NoError) ret = -10000;
+	if(BC::checkFFC(ri->ffcref, "ffc->Ay") != SH::_NoError) ret = Z30_BAD_FFC_VALUE;
         else ret = tmpscr->ffydelta2[ri->ffcref];
         break;
         
     case FFFLAGSD:
-	if(BC::checkFFC(ri->ffcref, "ffc->Flags") != SH::_NoError) ret = -10000;
+	if(BC::checkFFC(ri->ffcref, "ffc->Flags") != SH::_NoError) ret = Z30_BAD_FFC_VALUE;
         else ret=((tmpscr->ffflags[ri->ffcref] >> (ri->d[0] / 10000))&1) ? 10000 : 0;
         break;
         
     case FFCWIDTH:
-	if(BC::checkFFC(ri->ffcref, "ffc->EffectWidth") != SH::_NoError) ret = -10000;
+	if(BC::checkFFC(ri->ffcref, "ffc->EffectWidth") != SH::_NoError) ret = Z30_BAD_FFC_VALUE;
         else ret=((tmpscr->ffwidth[ri->ffcref]&0x3F)+1)*10000;
         break;
         
     case FFCHEIGHT:
-	if(BC::checkFFC(ri->ffcref, "ffc->EffectHeight") != SH::_NoError) ret = -10000;
+	if(BC::checkFFC(ri->ffcref, "ffc->EffectHeight") != SH::_NoError) ret = Z30_BAD_FFC_VALUE;
         else ret=((tmpscr->ffheight[ri->ffcref]&0x3F)+1)*10000;
         break;
         
     case FFTWIDTH:
-	if(BC::checkFFC(ri->ffcref, "ffc->TileWidth") != SH::_NoError) ret = -10000;
+	if(BC::checkFFC(ri->ffcref, "ffc->TileWidth") != SH::_NoError) ret = Z30_BAD_FFC_VALUE;
         else ret=((tmpscr->ffwidth[ri->ffcref]>>6)+1)*10000;
         break;
         
     case FFTHEIGHT:
-	if(BC::checkFFC(ri->ffcref, "ffc->EffectHeight") != SH::_NoError) ret = -10000;
+	if(BC::checkFFC(ri->ffcref, "ffc->EffectHeight") != SH::_NoError) ret = Z30_BAD_FFC_VALUE;
         else ret=((tmpscr->ffheight[ri->ffcref]>>6)+1)*10000;
         break;
         
     case FFLINK:
-	if(BC::checkFFC(ri->ffcref, "ffc->Link") != SH::_NoError) ret = -10000;
+	if(BC::checkFFC(ri->ffcref, "ffc->Link") != SH::_NoError) ret = Z30_BAD_FFC_VALUE;
         else ret=(tmpscr->fflink[ri->ffcref])*10000;
         break;
         
     case FFMISCD:
     {
-	if(BC::checkFFC(ri->ffcref, "ffc->Misc") != SH::_NoError) ret = -10000;
+	if(BC::checkFFC(ri->ffcref, "ffc->Misc") != SH::_NoError) ret = Z30_BAD_FFC_VALUE;
 	else
 	{
 		int a = ri->d[0] / 10000;
@@ -3838,6 +3842,7 @@ long get_register(const long arg)
     
     case FFINITDD:
     {
+	// (-1 in 2.55/3.0 quests too: upstream reads InitD[] as an internal array, which gives -1 for no FFC)
 	if(BC::checkFFC(ri->ffcref, "ffc->InitD") != SH::_NoError) ret = -10000;
         else
 	{
@@ -12539,7 +12544,9 @@ int run_script(const byte type, const word script, const byte i)
                 zasm30_log_once("command", scommand);
             break;
         }
-               
+
+        zasm30_iarr_write_back();   // an engine array a command wrote as a whole (q30_scripts_arrays.h)
+
 #ifdef _SCRIPT_COUNTER
         end_time = script_counter;
         script_timer[*command] += end_time - start_time;
