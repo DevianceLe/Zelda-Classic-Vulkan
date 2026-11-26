@@ -3795,6 +3795,35 @@ static void q30_subscreen_item_draw(BITMAP *dest, int x, int y, int id)
     q30_sub_item_uid(Sitems.spr(found));
     Sitems.spr(found)->draw(dest);
 }
+
+// Upstream's SW_ItemSlot for the heart piece class (2.55/3.0 quests): the heart piece display
+// (iHCPiece, the pieces tile load_Sitems sets up) whenever the quest has a pieces tile, whatever
+// family the quest's own item iHCPiece has. 2.53's match by that item's family missed it where
+// it is a heart container (Stellar Seas). False for every other slot.
+static bool q30_heartpiece_slot(BITMAP *dest, int x, int y, const subscreen_object &o, miscQdata *misc)
+{
+    if(!q30_active() || o.d1 != itype_heartpiece || o.d8 > 0 || o.d10 > 0 || o.d9)
+        return false;
+
+    if(!misc->colors.HCpieces_tile)
+        return true;
+
+    for(int i = 0; i < Sitems.Count(); ++i)
+    {
+        if(Sitems.spr(i)->id == iHCPiece && Sitems.spr(i)->misc != -1)
+        {
+            Sitems.spr(i)->x = x;
+            Sitems.spr(i)->y = y;
+            sub_item_place(Sitems.spr(i));
+            q30_sub_item_frame(Sitems.spr(i));
+            q30_sub_item_uid(Sitems.spr(i));
+            Sitems.spr(i)->draw(dest);
+            break;
+        }
+    }
+
+    return true;
+}
 #endif
 
 int subscreen_color(miscQdata *misc, int c1, int c2)
@@ -4400,6 +4429,9 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
                             q30_subscreen_item_draw(dest, x, y, q30_id);
                         break;
                     }
+
+                    if(q30_heartpiece_slot(dest, x, y, css->objects[i], misc))
+                        break;
 
 #ifdef ZC_PLAYER_BUILD
                     // a bow-and-arrow or arrow slot: the arrow whatever the ammo, the bow over it
