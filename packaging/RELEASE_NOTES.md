@@ -1,3 +1,38 @@
+## What's new in 2.53.444.12
+
+**2.55.19 and the newest 3.0**
+
+- 2.55.19 quests: ZQuest saves them as 2.55.19, Save As now offers 2.55.19 as the newer 2.55 version, and the 2.55 ZScript compiler is at 2.55.19
+- Upstream's fixes up to 3.0 of November 24 and the 2.55.19 prerelease: reflecting a weapon at the hero's weapon limit, script drawing in old quests after a bitmap draw, characters outside ASCII in scripts, checks for damaged saves, Manhandla drawn on the right pixel when moving diagonally, and more
+- ARM builds compute exactly what x64 computes: dark room lights, the death screen's tint, Patra's rings, palette mixing and Distance() no longer come out a step off
+
+**New 3.0 features**
+
+- The Transform enemy defense, held shields, and weapons that imitate other weapons (a scripted bomb blast opens bomb doors)
+- 3.0's reworked big Patra, its conveyor modes, and the big enemy animation styles 2.55 added
+- 3.0's game over screen (CONTINUE / SAVE AND QUIT / QUIT WITHOUT SAVING) and save screen; a quest's own save menu can reload the last save in place
+- Scripted active subscreens, 3.0's counter gauges, the minimap's visited colours, and map charting per DMap with the large map's room square
+- Rotated, pivoted and flipped script blits to the screen, sprites with 32 Misc[] slots, and 3.0's object ids, internal arrays and reference counts
+
+**Playing as in 3.0**
+
+- The subscreen closes on the frame Start is pressed (before, the whole game ran a frame behind 3.0 after every subscreen), page slides draw both pages, buttons wait for a page slide to end, and hearts come back as soon as a screen opening ends
+- Saving and continuing work as in 3.0, the Init script runs at 3.0's moment, the start room is charted at game start, and test starts report Debug->Testing
+- Transparent dark rooms, torch circles, darkness over message boxes, "toggle darkness" triggers, the light wave, wavy screens with flash reduction, transparent combos and save point combos
+- Screen flags in 3.0's order (sideview jump scripts), broken early 2.55 scripts turned off as 3.0 does, screen and DMap gravity, water depth, and automatic combo triggers on every screen of a scrolling region
+- Old-style subscreens: the button items are chosen and kept apart, and the selector, counters and play time show as in 3.0
+
+**Mystical Harps**
+
+- More screens match 3.0: the mermaid area's turtle, the fish shop's wavy screen, overhead combos and fresh combo animations, and the sub-menu creature
+
+**Testing**
+
+- Every change is now built and tested on a group of five test machines. The whole PureZC collection, 842 quests, was toured screen by screen with no crash or hang.
+- A sweep of 442 spots in the 93 newer quests matches 3.0 at 364 (42 still differ, the rest only where the scene is random), and a deeper one plays 984 spots of 900 frames each.
+
+**Tested:** the 2.53 quests are unchanged (four re-saves byte for byte, and the recorded 1st Quest run, all 2,478 frames); the 93 newer quests open and re-save unchanged in ZQuest; their openings were compared with 3.0 after every change and none got worse; the feature suite matches 3.0 on every feature that isn't random.
+
 ## What's new in 2.53.444.11
 
 **3.0's script engine, nearly all of it**
@@ -252,15 +287,16 @@
 
 - **2.53 quests are unchanged:** the 1st, 2nd and 5th Quests and Dream's Realm re-save byte for byte as before, and a recorded 1st Quest run plays exactly the same on all 2,478 frames.
 - All 93 2.55 and 3.0 Nightly quests in the PureZC collection load, and ZQuest re-saves each of them unchanged. ZQuest opens and saves every quest in the collection that loads (836) and reloads the same data.
-- 2.55 and 3.0 Nightly features are compared with ZC 3.0's own player on the same input: the openings of the 93 newer quests after every change, Mystical Harps screen by screen, and the feature test suite in `tests/feature_suite` (all 29 of its features that aren't random exactly as 3.0, 7 more differing only where the scene is random; 929 of 939 3.0 script commands behaving as 3.0's).
+- 2.55 and 3.0 Nightly features are compared with ZC 3.0's own player on the same input: the openings of the 93 newer quests after every change, a sweep of 442 spots in those quests (364 match exactly, 42 still differ, the rest only where the scene is random) and a deeper one of 984 spots, Mystical Harps screen by screen, and the feature test suite in `tests/feature_suite` (all 31 of its features that aren't random exactly as 3.0, 7 more differing only where the scene is random; 933 of 939 3.0 script commands behaving as 3.0's).
+- The whole PureZC collection (842 quests) was toured screen by screen with this version's code: no crash and no hang.
 - Running without Vulkan was tried on Windows (32-bit and 64-bit, player and ZQuest), with Vulkan hidden from the game: both came up on Direct3D 11 with their menus. Software drawing works too. Linux, macOS and Android haven't been tried without Vulkan.
 - Every platform has been run on real hardware: Windows (32-bit, 64-bit and ARM64), Linux (x86_64 and ARM64), macOS (Apple Silicon and Intel) and the Nintendo Switch.
+- This version's changes for identical results on ARM were checked by reading the generated code; they haven't been run on ARM hardware yet.
 
 ## Still not working
 
-- 10 of 3.0's script values (how 3.0 numbers its sprites, and values from the machine's own settings or clock); no quest in the collection uses them
-- 3.0's reworked big Patra, and two conveyor modes (walking Link along, smart corners)
-- Mystical Harps: the map screen's scrolling sky band and a few small spots of one light-ray overlay
+- 6 of 3.0's script values (values from the machine's own settings or clock, a stack write past the stack's end, one line 3.0's own test run prints); no quest in the collection uses them
+- Copying a whole array into an engine array (such as ArrayCopy into Screen->D)
 - A save made with an older version for a 2.55 or 3.0 quest whose hearts aren't 16 HP keeps its old life amount; a new save is right
 - Android hasn't been tried with 2.55 or 3.0 Nightly quests
 
