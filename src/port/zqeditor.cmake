@@ -88,6 +88,7 @@ set(ZQEDITOR_SOURCES
 	# the build catalog: every ZC build File > New starts in and Save As saves as (zq_builds.h)
 	${ZCPORT_DIR}/zqeditor/zq_builds.cpp
 	${ZCPORT_DIR}/zqeditor/zq_builds_255.cpp
+	${ZCPORT_DIR}/zqeditor/zq_builds_192.cpp
 	# compiling 2.55 / 3.0 quests' ZScript with zscript255 / zscript30
 	${ZCPORT_DIR}/zqeditor/zq_compile.cpp
 	${ZCPORT_DIR}/zqeditor/zq_compile_dialog.cpp

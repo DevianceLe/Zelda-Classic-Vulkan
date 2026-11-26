@@ -24195,6 +24195,17 @@ int main(int argc,char **argv)
     {
         strcpy(filepath,get_config_string("zquest",last_quest_name,""));
 
+#ifdef ZC_ZQEDITOR
+        // -qst-new-build <name> <out.qst> (port/zqeditor/zq_builds_192.cpp)
+        {
+            extern int zq_builds_192_switches(int argc, char **argv);
+            int r = zq_builds_192_switches(argc, argv);
+
+            if(r >= 0)
+                exit(r);
+        }
+#endif
+
         // -resave in.qst out.qsu: load a quest, write it unencoded and exit
         // (compares what the Allegro and the port builds save).
         int resave_arg = used_switch(argc,argv,"-resave");
