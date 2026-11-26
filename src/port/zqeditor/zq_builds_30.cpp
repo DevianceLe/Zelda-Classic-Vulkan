@@ -152,12 +152,6 @@ int newest_format()
     return NFMT - 1;
 }
 
-long date_number(const char *date)
-{
-    // "2026-11-06" -> 20261106
-    return atol(date) * 10000 + atol(date + 5) * 100 + atol(date + 8);
-}
-
 std::string format_name(int f)
 {
     return std::string("3.0 Nightly ") + zq30_formats[f].date;
@@ -1776,23 +1770,6 @@ bool make_new_build(const zq_build &b)
     return zq30_new_quest(b, b.tag);
 }
 
-// the run of builds the quest's header names ("3.0.0-prerelease.N+..."), or -1
-int format_of_text(const std::string &text)
-{
-    const char *p = strstr(text.c_str(), "prerelease.");
-
-    if(!p)
-        return -1;
-
-    const int n = atoi(p + 11);
-
-    for(int f = 0; f < NFMT; ++f)
-        if(n >= zq30_formats[f].first_n && n <= zq30_formats[f].last_n && zq30_formats[f].first_n != 10000)
-            return f;
-
-    return -1;
-}
-
 // the run whose section versions are the quest's own (the newest such run), or the oldest run
 // that holds them all
 int format_of_parts()
@@ -1880,9 +1857,27 @@ const char *zq30_format_date(int fmt)
 }
 
 // The oldest run Save As and New are done for: every run from it to the newest has a way down for
-// each of its sections (checked: Save As and New, then opened again). Older runs are offered once
-// their sections' steps are written; -qst-save-as-build still tries them.
-const char *const OLDEST_OFFERED = "2025-02-18";
+// each of its sections (checked for all 89 runs, prerelease 1 on: Save As and New, each opened
+// again; with zq_builds_30_maps.cpp's map, DMap and palette steps).
+const char *const OLDEST_OFFERED = "2023-11-12";
+
+// Orders within the 3.0 builds (gen 0x300 only compares with itself): the prerelease number,
+// 1 to 239; our 3.0 Nightly (ef321f8, after 236) is 240. A catalog entry stands for its run of
+// builds and takes the run's last number, so a quest made in any build of the run is offered it;
+// the newest run is our 3.0 Nightly's.
+static const long ORDER_NIGHTLY = 240;
+
+static long run_order(int f)
+{
+    return f == newest_format() ? ORDER_NIGHTLY : (long)zq30_formats[f].last_n;
+}
+
+// The order of upstream's 3.0.0-prerelease.n (1 to 239; 240: our 3.0 Nightly), whether or not
+// the catalog lists its run: what the 3.0 interface profiles sort by.
+long zq30_order_of_prerelease(int n)
+{
+    return (long)n;
+}
 
 void zq_builds_30(std::vector<zq_build> &out)
 {
@@ -1893,7 +1888,7 @@ void zq_builds_30(std::vector<zq_build> &out)
 
         zq_build b;
         b.name = format_name(f);
-        b.order = date_number(zq30_formats[f].date);
+        b.order = run_order(f);
         b.gen = 0x300;
         b.tag = f;
         b.save_as = save_as_build;
@@ -1907,15 +1902,21 @@ long zq_made_order_30()
     if(zq_quest_file.zelda_version < 0x255 || q255_header_version[0] != 3)
         return -1;
 
-    int f = format_of_text(q255_header_version_text);
+    // the quest's own prerelease number, as its header names it ("3.0.0-prerelease.N+...")
+    const char *p = strstr(q255_header_version_text.c_str(), "prerelease.");
+    const int n = p ? atoi(p + 11) : 0;
 
-    if(f < 0)
-        f = format_of_parts();
+    if(n >= 1 && n < ORDER_NIGHTLY)
+        return zq30_order_of_prerelease(n);
+
+    // no number (our 3.0 Nightly's own saves, "3.0.0+..."): the run its section versions are,
+    // by its first number
+    int f = format_of_parts();
 
     if(f < 0)
         f = newest_format();
 
-    return date_number(zq30_formats[f].date);
+    return f == newest_format() ? ORDER_NIGHTLY : (long)zq30_formats[f].first_n;
 }
 
 // -qst-save-as-build "<name>" in.qst out.qst report.txt (tests): loads the quest and saves it as
