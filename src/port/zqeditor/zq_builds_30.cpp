@@ -53,6 +53,9 @@ extern ffscript *screenscripts[256];
 // zqw_combos.cpp
 bool zq30_combos_down(const std::vector<byte> &body, word from_v, word to_v, int weap_v, std::vector<byte> &out,
                       std::string &why);
+// q255_scripts.cpp
+bool q255_ffscript_meta_spans(const byte *data, size_t size, word v, std::vector<size_t> &meta_v_at,
+                              std::vector<std::pair<size_t, size_t> > &spans);
 // zq_builds_30_new.cpp
 bool zq30_new_quest(const zq_build &b, int fmt);
 bool zq30_new_from(int fmt, const char *version_name, int which, int ruleset, bool bugfix, bool zs_bugfix, std::string &why);
@@ -270,6 +273,152 @@ bool script_key(const std::string &k)
            k.compare(0, 3, "sc.") == 0 || k.find(".sc.") != std::string::npos || k.find(".inst") != std::string::npos;
 }
 
+// Script fields by their names before prerelease 205's script configs (one script, its run
+// arguments, its instance values in a group of their own: "sc.action.script"), as the older
+// records name them ("script", "initd0"). Pairs of the newer name's end and the older one's.
+static const char *const g_config_names[][2] = {
+    { "sc.action.script", "script" }, { "sc.pickup.script", "collect_script" }, { "sc.sprite.script", "sprite_script" },
+    { "sc.active.script", "script" }, { "sc.asub.script", "asub_script" }, { "sc.psub.script", "psub_script" },
+    { "sc.onmap.script", "onmap_script" }, { "sc.script", "script" } };
+
+bool ends_with(const std::string &s, const std::string &e)
+{
+    return s.size() >= e.size() && s.compare(s.size() - e.size(), e.size(), e) == 0;
+}
+
+void alias(Tape &t, const TapeField &f, const std::string &key)
+{
+    if(t.find(key.c_str()))
+        return;
+
+    TapeField x = f;
+    x.key = key;
+    t.f.push_back(x);
+}
+
+// newer: the tape holds the newer layout's fields and gets the older names beside them (or the
+// other way round)
+void add_config_aliases(Tape &t, bool newer)
+{
+    const size_t n = t.f.size();
+
+    for(size_t i = 0; i < n; ++i)
+    {
+        const TapeField f = t.f[i];
+        const std::string &k = f.key;
+
+        for(size_t q = 0; q < sizeof(g_config_names) / sizeof(g_config_names[0]); ++q)
+        {
+            const std::string a = newer ? g_config_names[q][0] : g_config_names[q][1];
+            const std::string b = newer ? g_config_names[q][1] : g_config_names[q][0];
+
+            if(k == a)
+                alias(t, f, b);
+        }
+
+        // run arguments: "sc.action.initd3" and "initd3", "sc.asub.initd3" and "sub_initd3",
+        // "sc.onmap.initd3" and "onmap_initd3"; inside a group (weapon data, FFCs):
+        // "wd.sc.initd3" and "wd.initd3", "ffc2.sc.script" and "ffc2.script"
+        static const char *const pre[][2] = { { "sc.action.", "" }, { "sc.active.", "" }, { "sc.asub.", "sub_" }, { "sc.psub.", "sub_" },
+                                              { "sc.onmap.", "onmap_" }, { "sc.", "" } };
+        const size_t d = k.rfind(".initd");
+        const size_t at = d == std::string::npos ? k.find("initd") : d + 1;
+
+        if(newer)
+        {
+            for(size_t q = 0; q < sizeof(pre) / sizeof(pre[0]); ++q)
+                if(k.compare(0, strlen(pre[q][0]), pre[q][0]) == 0 && k.compare(strlen(pre[q][0]), 5, "initd") == 0)
+                {
+                    alias(t, f, std::string(pre[q][1]) + k.substr(strlen(pre[q][0])));
+                    break;
+                }
+
+            const size_t sc = k.find(".sc.");
+
+            if(sc != std::string::npos && sc > 0 && k.compare(0, 3, "sc.") != 0)
+                alias(t, f, k.substr(0, sc) + "." + k.substr(sc + 4));
+        }
+        else
+        {
+            if(at == 0 || (at != std::string::npos && at > 0 && k[at - 1] == '_'))
+                for(size_t q = 0; q < sizeof(pre) / sizeof(pre[0]); ++q)
+                    if(k.compare(0, at, pre[q][1]) == 0 && strlen(pre[q][1]) == at)
+                        alias(t, f, std::string(pre[q][0]) + k.substr(at));
+
+            const size_t dot = k.find('.');
+
+            if(dot != std::string::npos && dot > 0 && (ends_with(k, ".script") || k.find(".initd") != std::string::npos) &&
+               k.compare(0, 3, "sc.") != 0 && k.find(".sc.") == std::string::npos)
+                alias(t, f, k.substr(0, dot) + ".sc." + k.substr(dot + 1));
+        }
+    }
+}
+
+// A script settings container of the init data (version 50 on) that holds nothing: its run
+// arguments all 0 and no instance values (global and hero scripts), or no instance values
+// (generic scripts).
+bool blank_config_blob(const std::string &key, const std::vector<byte> &b)
+{
+    size_t at = 0;
+    bool bad = false;
+
+    struct R
+    {
+        const std::vector<byte> &b;
+        size_t &at;
+        bool &bad;
+        uint64_t get(int n)
+        {
+            if(bad || at + n > b.size()) { bad = true; return 0; }
+            uint64_t v = 0;
+            for(int k = 0; k < n; ++k) v |= (uint64_t)b[at + k] << (8 * k);
+            at += n;
+            return v;
+        }
+    } r = { b, at, bad };
+
+    if(key == "global_scripts" || key == "hero_scripts")
+    {
+        const size_t n = (size_t)r.get(2);
+
+        for(size_t q = 0; q < n && !bad; ++q)
+        {
+            const size_t argc = (size_t)r.get(2);
+
+            for(size_t a = 0; a < argc && a < 8 && !bad; ++a)
+                if(r.get(4))
+                    return false;
+
+            if(r.get(2))
+                return false;
+        }
+
+        return !bad && at == b.size();
+    }
+
+    if(key == "gen_inst")
+    {
+        if(!r.get(2))
+            return !bad;
+
+        const bool pairs = r.get(1) != 0;
+        const size_t count = (size_t)r.get(2);
+
+        for(size_t q = 0; q < count && !bad; ++q)
+        {
+            if(pairs)
+                r.get(2);
+
+            if(r.get(4))
+                return false;
+        }
+
+        return !bad && at == b.size();
+    }
+
+    return false;
+}
+
 // One record (or whole section) at data[at...] of version from, laid out in version to. *end:
 // where it ended. weap_v: the build's weapon data version.
 bool rebuild(Schema schema, const std::vector<byte> &data, size_t at, int from, int to, int weap_v, size_t *end,
@@ -292,6 +441,8 @@ bool rebuild(Schema schema, const std::vector<byte> &data, size_t at, int from, 
             t.f[i].value = weap_v;
     }
 
+    add_config_aliases(t, true);
+
     if(!zqn255_tape_rebuild(schema, t, to, out))
         return false;
 
@@ -301,6 +452,8 @@ bool rebuild(Schema schema, const std::vector<byte> &data, size_t at, int from, 
 
     if(!schema(q, to) || q.bad)
         return false;
+
+    add_config_aliases(back, false);
 
     std::vector<byte> again;
 
@@ -325,10 +478,13 @@ bool rebuild(Schema schema, const std::vector<byte> &data, size_t at, int from, 
 
         if(!g || g->value != f.value || g->bytes != f.bytes)
         {
-            bool blank = f.value == 0;
+            bool blank = f.value == 0 || (ends_with(f.key, ".argc") && !g);
 
             for(size_t j = 0; j < f.bytes.size() && blank; ++j)
                 blank = f.bytes[j] == 0;
+
+            if(!blank && blank_config_blob(f.key, f.bytes))
+                blank = true;
 
             if(!blank)
                 lost = f.key;
@@ -631,13 +787,45 @@ bool down_section(Sec &s, const Zq30Format &F, std::string &why)
         put32(s.extra, (dword)F.v[S_COMPATRULE]);
     }
 
-    // the scripts' metadata is laid out as its version (the extra word) says: a build with an older
-    // layout needs the scripts' metadata laid out again
+    // the scripts' metadata is laid out as its version (the extra word) says: 7 to 6 leaves out
+    // each script's info and setup text (q255_ffscript_meta_spans finds them)
     if(s.id == ID_FFSCRIPT && s.extra.size() == 2 && le16(s.extra, 0) != F.v[S_METADATA])
     {
-        char b[96];
-        snprintf(b, sizeof(b), "its scripts' metadata layout %d to %d isn't written yet", (int)le16(s.extra, 0), F.v[S_METADATA]);
-        return refuse(why, s, F.v[k], b);
+        std::vector<size_t> meta_v_at;
+        std::vector<std::pair<size_t, size_t> > spans;
+
+        if(le16(s.extra, 0) != 7 || F.v[S_METADATA] != 6 ||
+           !q255_ffscript_meta_spans(s.data.empty() ? NULL : &s.data[0], s.data.size(), s.v, meta_v_at, spans))
+        {
+            char b[96];
+            snprintf(b, sizeof(b), "its scripts' metadata layout %d to %d isn't written yet", (int)le16(s.extra, 0),
+                     F.v[S_METADATA]);
+            return refuse(why, s, F.v[k], b);
+        }
+
+        std::vector<byte> out;
+        size_t from = 0, sp = 0, mv = 0;
+
+        for(; sp <= spans.size(); ++sp)
+        {
+            const size_t to_at = sp < spans.size() ? spans[sp].first : s.data.size();
+
+            for(; mv < meta_v_at.size() && meta_v_at[mv] + 2 <= to_at; ++mv)
+                if(meta_v_at[mv] >= from)
+                {
+                    // the bytes before it, then the meta's own layout version: 6
+                    out.insert(out.end(), s.data.begin() + from, s.data.begin() + meta_v_at[mv]);
+                    put16(out, 6);
+                    from = meta_v_at[mv] + 2;
+                }
+
+            out.insert(out.end(), s.data.begin() + from, s.data.begin() + to_at);
+            from = sp < spans.size() ? spans[sp].second : s.data.size();
+        }
+
+        s.data.swap(out);
+        s.extra.clear();
+        put16(s.extra, 6);
     }
 
     // a section the newest save wrote in an older format than the build's (3.0 writes scripts last
@@ -695,10 +883,53 @@ bool down_section(Sec &s, const Zq30Format &F, std::string &why)
 
         case S_ZINFO: ok = zinfo_down(s, to, why); if(!ok) return false; break;
 
+        case S_WEAPONS:
+        {
+            // 9 (pr.166) moved each sprite's name into its record as a counted string; 8 has a
+            // table of 64-byte names first, then the records (misc, CSets, frames, speed, type,
+            // script, tile: 11 bytes each); qst_weapons.cpp
+            if(s.v != 9 || to != 8 || s.data.size() < 2)
+                break;
+
+            const size_t count = le16(s.data, 0);
+            std::vector<byte> names, recs;
+            size_t at = 2;
+
+            for(size_t q = 0; q < count && at < s.data.size(); ++q)
+            {
+                const size_t n = s.data[at];
+
+                if(at + 1 + n + 11 > s.data.size())
+                    return refuse(why, s, to, "a weapon sprite doesn't read as its format says");
+
+                std::vector<byte> nm(64, 0);
+                memcpy(&nm[0], &s.data[at + 1], n < 63 ? n : 63);
+                names.insert(names.end(), nm.begin(), nm.end());
+                recs.insert(recs.end(), s.data.begin() + at + 1 + n, s.data.begin() + at + 1 + n + 11);
+                at += 1 + n + 11;
+            }
+
+            if(at != s.data.size() || recs.size() != count * 11)
+                return refuse(why, s, to, "it has bytes past its last weapon sprite");
+
+            std::vector<byte> out(s.data.begin(), s.data.begin() + 2);
+            out.insert(out.end(), names.begin(), names.end());
+            out.insert(out.end(), recs.begin(), recs.end());
+            s.data.swap(out);
+            ok = true;
+            break;
+        }
+
+        case S_TILES:
+            // 4 (pr.188) marks the format the .ztileset exports share; a quest's tiles read alike
+            // in 3 and 4 (qst_tiles.cpp: only "section_version > 2" decides)
+            ok = s.v == 4 && to == 3;
+            break;
+
         case S_FFSCRIPT:
             // a quest with no scripts, 31 to 30 with the metadata layout kept (7): its slots are
             // laid out alike (31 adds fields to exported variables only)
-            if(to == 30 && F.v[S_METADATA] == 7 && !quest_has_scripts())
+            if(to == 30 && F.v[S_METADATA] >= 6 && !quest_has_scripts())
                 ok = true;
             else
                 return refuse(why, s, to, "its scripts can't be written in that format yet");
@@ -1049,7 +1280,7 @@ const char *zq30_format_date(int fmt)
 // The oldest run Save As and New are done for: every run from it to the newest has a way down for
 // each of its sections (checked: Save As and New, then opened again). Older runs are offered once
 // their sections' steps are written; -qst-save-as-build still tries them.
-const char *const OLDEST_OFFERED = "2026-08-04";
+const char *const OLDEST_OFFERED = "2026-02-16";
 
 void zq_builds_30(std::vector<zq_build> &out)
 {

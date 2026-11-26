@@ -1,8 +1,9 @@
 // File > New in a 3.0 build (zq_builds_30.cpp): upstream's tileset wizard, as the 3.0 Nightly New
 // has it (zq_files.cpp, zq_new_quest.cpp), with the tileset that build's own File > New used:
 // Classic (resources/modules/classic/default.qst in that build) and, from prerelease 84 on,
-// Cambria (resources/tilesets/cambria.qst), shipped as templates\30\<git blob>.qst. Without a
-// build's own file, the 3.0 Nightly tilesets (templates\classic_3.0.qst, cambria.qst) stand in.
+// Cambria (resources/tilesets/cambria.qst), shipped as templates/30/<git blob>.qst, or under the
+// name templates/ ships the same file as (g_shipped). Without a build's own file, the 3.0 Nightly
+// tilesets (templates/classic_3.0.qst, cambria.qst) stand in.
 // The tileset is made a quest of that build by its Save As and opened from there; then the
 // wizard's rules, stored with that build's compat rule version.
 
@@ -89,6 +90,11 @@ DIALOG g_dlg[] =
     { NULL,                   0,      0,      0,      0,    0,                     0,                      0,    0,          0,           0,  NULL,                             NULL,   NULL  }
 };
 
+// Builds' tilesets that are files templates\ ships already (the same bytes): their names there.
+const char *const g_shipped[][2] = {
+    { "3e4a32f2c8", "classic_2.55.0.qst" }, { "2ff8058873", "classic_2.55.2.qst" }, { "4f906dbb85", "classic_2.55.6.qst" },
+    { "45978a13a4", "classic_3.0.qst" } };
+
 // the build's own tileset file, or the 3.0 Nightly one
 std::string tileset_file(int fmt, int which)
 {
@@ -96,6 +102,15 @@ std::string tileset_file(int fmt, int which)
 
     if(blob && *blob)
     {
+        for(size_t i = 0; i < sizeof(g_shipped) / sizeof(g_shipped[0]); ++i)
+            if(!strcmp(blob, g_shipped[i][0]))
+            {
+                std::string p = std::string("templates/") + g_shipped[i][1];
+
+                if(exists(p.c_str()))
+                    return p;
+            }
+
         std::string p = std::string("templates/30/") + blob + ".qst";
 
         if(exists(p.c_str()))

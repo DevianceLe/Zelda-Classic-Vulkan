@@ -36,6 +36,8 @@
 #include <new>
 #include <string>
 #include <string.h>
+#include <utility>
+#include <vector>
 
 #include "ffscript.h" // last: its register names are macros
 #include "q30_scripts.h"
@@ -218,8 +220,16 @@ static void skip_label_and_help(Q255Section &s, int count)
     }
 }
 
+// ZQuest's 3.0 builds (q255_ffscript_meta_spans): where each meta's meta_v word and its layout 7
+// fields (script info and setup) are, when set
+static std::vector<size_t> *g_meta_v_at = NULL;
+static std::vector<std::pair<size_t, size_t> > *g_meta7_spans = NULL;
+
 static int skip_meta(Q255Section &s, word meta)
 {
+    if(g_meta_v_at)
+        g_meta_v_at->push_back(s.pos + 2);
+
     s.skip(2 + 2);         // zasm_v, meta_v
     g_meta_ffscript_v = s.igetw();
     s.skip(1);             // script type
@@ -243,8 +253,12 @@ static int skip_meta(Q255Section &s, word meta)
 
         if(meta >= 7)
         {
+            const size_t at = s.pos;
             skip_wstr(s); // script info
             skip_wstr(s); // script setup
+
+            if(g_meta7_spans)
+                g_meta7_spans->push_back(std::make_pair(at, s.pos));
         }
 
         if(meta < 6)
@@ -942,6 +956,31 @@ static int find_meta_version(const Q255Section &s)
     }
 
     return -1;
+}
+
+// For ZQuest (zq_builds_30.cpp): the scripts section's data of version v and metadata layout 7,
+// walked as the loader reads it: where each script's meta_v word is and the spans its layout 7
+// fields take. False when it doesn't read to its end.
+bool q255_ffscript_meta_spans(const byte *data, size_t size, word v, std::vector<size_t> &meta_v_at,
+                              std::vector<std::pair<size_t, size_t> > &spans)
+{
+    if(v < 18 || v > 31)
+        return false;
+
+    Q255Section s;
+    s.data = data;
+    s.size = size;
+    s.pos = 0;
+    s.version = v;
+    s.keep = false;
+    meta_v_at.clear();
+    spans.clear();
+    g_meta_v_at = &meta_v_at;
+    g_meta7_spans = &spans;
+    const int ret = read_section(s, 7);
+    g_meta_v_at = NULL;
+    g_meta7_spans = NULL;
+    return ret == 0 && !s.failed && s.pos == s.size;
 }
 
 int q255_read_ffscript(Q255Section &s)

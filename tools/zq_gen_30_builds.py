@@ -18,7 +18,10 @@ import re
 import subprocess
 import sys
 
-NEWEST = "ef321f8"      # the commit the 3.0 Nightly writers follow (zq_writers.h)
+NEWEST = "ef321f8"
+# tilesets templates\ ships already under their own names (zq_builds_30_new.cpp's g_shipped)
+SHIPPED = {"3e4a32f2c8": "classic_2.55.0.qst", "2ff8058873": "classic_2.55.2.qst", "4f906dbb85": "classic_2.55.6.qst",
+           "45978a13a4": "classic_3.0.qst"}      # the commit the 3.0 Nightly writers follow (zq_writers.h)
 
 
 def git(repo, *args, data=None):
@@ -190,6 +193,8 @@ def main():
         import os
         os.makedirs(sys.argv[4], exist_ok=True)
         for b in blobs:
+            if b in SHIPPED:
+                continue
             with open(os.path.join(sys.argv[4], b + ".qst"), "wb") as f:
                 f.write(git(repo, "cat-file", "blob", b))
     print("%d builds, %d formats, %d tileset files" % (len(builds), len(groups), len(blobs)))
