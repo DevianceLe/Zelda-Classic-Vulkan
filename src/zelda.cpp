@@ -1965,7 +1965,12 @@ int init_game()
     }
     
     skip_keycheats:
-    
+
+    // ZC_TEST_START (test runs only) is upstream's test mode, which gives a 2.55/3.0 quest's
+    // game cheat level 4 (init_game: "Cheats enabled: Test Mode active"; Game->MaxCheat reads 4)
+    if(q30_active() && getenv("ZC_TEST_START") && *getenv("ZC_TEST_START"))
+        cheat=4;
+
     bool firstplay = (game->get_hasplayed() == 0);
     
     

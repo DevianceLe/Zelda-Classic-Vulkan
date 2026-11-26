@@ -34,6 +34,7 @@ void            q30_sfx_set_touched(int index); // zc_sys.cpp
 void            music_stop();
 void            playLevelMusic();
 void            jukebox(int index);
+bool            q30_music_opens_device(const char *filename);  // q30_scripts_cmds.h (Windows device names)
 
 namespace
 {
@@ -239,6 +240,12 @@ ZCMUSIC *load_for_quest(const char *filename)
 {
     if(!filename || !filename[0])
         return NULL;
+
+    if(q30_music_opens_device(filename))     // (a device: never looked up or opened)
+    {
+        al_trace("Enhanced music: the name '%s' is not allowed\n", filename);
+        return NULL;
+    }
 
     char exe_path[2048];
     get_executable_name(exe_path, sizeof(exe_path));

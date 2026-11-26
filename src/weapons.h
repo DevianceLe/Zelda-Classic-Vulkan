@@ -57,6 +57,7 @@ public:
     virtual bool animate(int index);
     bool animate_body(int index);   // (animate, without 2.55/3.0's extra death frame)
     bool q30_dying_frame;           // upstream's weapon_dying_frame (qr_WEAPONS_EXTRA_DEATH_FRAME)
+    int q30_ref_o_tile;             // upstream's ref_o_tile: LOADGFX's tile (a sideways weapon's o_tile moves; beam shards draw from this)
     virtual void onhit(bool clipped);
     virtual void onhit(bool clipped, int special, int linkdir);
     void q30_kill_special();            // 2.55/3.0 upstream kill_weapon_special

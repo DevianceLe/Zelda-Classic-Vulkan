@@ -265,6 +265,7 @@ int weapon::seekEnemy2(int j)
 weapon::weapon(weapon const & other):
     sprite(other),
     q30_dying_frame(other.q30_dying_frame),
+    q30_ref_o_tile(other.q30_ref_o_tile),
     power(other.power),
     type(other.type),
     dead(other.dead),
@@ -382,6 +383,7 @@ weapon::~weapon()
 weapon::weapon(fix X,fix Y,fix Z,int Id,int Type,int pow,int Dir, int Parentitem, int prntid, bool isDummy) : sprite(), parentid(prntid)
 {
     q30_dying_frame = false;
+    q30_ref_o_tile = 0;
     x=X;
     y=Y;
     z=Z;
@@ -1369,6 +1371,7 @@ void weapon::LOADGFX(int wpn)
     tile  = wpnsbuf[wid].tile;
     cs = wpnsbuf[wid].csets&15;
     o_tile = wpnsbuf[wid].tile;
+    q30_ref_o_tile = o_tile;
     o_cset = wpnsbuf[wid].csets;
     o_flip=(wpnsbuf[wid].misc>>2)&3;
     o_speed = wpnsbuf[wid].speed;
@@ -4139,14 +4142,21 @@ void weapon::draw(BITMAP *dest)
         int ofs=23-dead;
         int f = frame&3;
         int type2 = o_type;
+        // 2.55/3.0: the shards come from the sprite's own tile (upstream's ref_o_tile: a sideways
+        // beam's o_tile already moved on to its horizontal frames), type 3 always shows the
+        // next tile and type 4 is all four shards with type 3's flicker (upstream's animate_graphics)
+        const bool q30 = q30_active();
         //tile = o_tile+((frames?frames:1)*2);
-        update_weapon_frame(((frames?frames:1)*2),o_tile);
+        update_weapon_frame(((frames?frames:1)*2),q30 ? q30_ref_o_tile : o_tile);
         
         if(type2)
             cs = o_cset>>4;
             
-        if(type2==3 && (f&2))
+        if(q30 ? (type2==3 || (type2==4 && (f&2))) : (type2==3 && (f&2)))
             ++tile;
+
+        if(q30 && type2==4)
+            type2 = 0;
             
         if(!type2 || f==0 || (type2>1 && f==3)) overtile16(dest,tile,x-q30_draw_cam_x-2-ofs,y+playing_field_offset-q30_draw_cam_y-2-ofs-(z+zofs),cs,0);
         

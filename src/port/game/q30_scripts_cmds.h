@@ -272,6 +272,14 @@ static bool z30_opens_device(const std::string &path)
     return false;
 }
 
+// A music file a 2.55/3.0 quest names (a script's PlayEnhancedMusic and crossfades, music data,
+// a DMap's music a script set): the same check, so on Windows "COM1.ogg" never opens the port
+// (q30_audio.cpp's load_for_quest asks before it looks for the file).
+bool q30_music_opens_device(const char *filename)
+{
+    return filename && z30_opens_device(filename);
+}
+
 // A script file's own name (upstream parse_user_path, on every platform): no trailing dot or
 // space (Windows drops them), no device name.
 static bool z30_file_name_ok(const std::string &name)
