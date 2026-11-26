@@ -1709,6 +1709,44 @@ static void black_fade(int fadeamnt)
     refreshpal = true;
 }
 
+extern bool q30_subscr_clk_hold;    // subscr.cpp
+bool q30_active();
+
+// One frame of a screen opening or closing: the screen, then the passive subscreen once more. A 2.55/3.0
+// quest's frame shows draw_screen's picture alone, as upstream's does, so what goes over the passive
+// subscreen there (layer 7 script drawing, layer 7 FFCs, strings, darkness) stays over it. Its second
+// draw still happens, off screen and first, for what drawing does besides (the random numbers and the
+// items' animation it takes): the game and the subscreen draw_screen shows run on as before.
+static void q30_opening_frame()
+{
+    static BITMAP *offscreen = NULL;
+
+    if(q30_active())
+    {
+        if(!offscreen || offscreen->w != framebuf->w || offscreen->h != framebuf->h)
+        {
+            if(offscreen)
+                destroy_bitmap(offscreen);
+
+            offscreen = create_bitmap_ex(8, framebuf->w, framebuf->h);
+        }
+
+        if(offscreen)
+        {
+            q30_subscr_clk_hold = true;     // (drawn twice a frame: upstream's selector clock counts once)
+            put_passive_subscr(offscreen,&QMisc,0,passive_subscreen_offset,false,sspUP);
+            q30_subscr_clk_hold = false;
+            draw_screen(tmpscr);
+            return;
+        }
+    }
+
+    draw_screen(tmpscr);
+    q30_subscr_clk_hold = true;     // (drawn twice a frame: upstream's selector clock counts once)
+    put_passive_subscr(framebuf,&QMisc,0,passive_subscreen_offset,false,sspUP);
+    q30_subscr_clk_hold = false;
+}
+
 int choose_opening_shape()
 {
     // First, count how many bits are set (bit 4, bosFADEBLACK, only comes from a newer quest)
@@ -1794,10 +1832,7 @@ void close_black_opening(int x, int y, bool wait, int shape)
 
         for(int i=0; i<66; i++)
         {
-            draw_screen(tmpscr);
-            q30_subscr_clk_hold = true;     // (drawn twice a frame: upstream's selector clock counts once)
-            put_passive_subscr(framebuf,&QMisc,0,passive_subscreen_offset,false,sspUP);
-            q30_subscr_clk_hold = false;
+            q30_opening_frame();
             syskeys();
             advanceframe(true);
             
@@ -1840,10 +1875,7 @@ void open_black_opening(int x, int y, bool wait, int shape)
 
         for(int i=0; i<66; i++)
         {
-            draw_screen(tmpscr);
-            q30_subscr_clk_hold = true;     // (drawn twice a frame: upstream's selector clock counts once)
-            put_passive_subscr(framebuf,&QMisc,0,passive_subscreen_offset,false,sspUP);
-            q30_subscr_clk_hold = false;
+            q30_opening_frame();
             syskeys();
             advanceframe(true);
             
