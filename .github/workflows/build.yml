@@ -345,4 +345,11 @@ jobs:
           [ "$missing" = 0 ] || { echo "not publishing $tag"; exit 1; }
           echo "publishing: $(ls dist | tr '\n' ' ')"
           git archive --format=zip --prefix="ZC-$version-Vulkan-Source/" -o "dist/ZC-$version-Vulkan-Source.zip" HEAD
-          gh release create "$tag" dist/* --title "Zelda Classic $version Vulkan" --notes-file packaging/RELEASE_NOTES.md --target "$GITHUB_SHA"
+          # The release page gets this version's notes only: the top section of RELEASE_NOTES.md (the newest
+          # "## ..." heading up to the next version heading) and the closing sections from "## How far it's been
+          # tested" to the end. The older versions' sections stay in the file but not on the page.
+          notes="$RUNNER_TEMP/release_notes.md"
+          awk '/^## /{h++} h==1{print; next} /^## How far it.s been tested/{tail=1} tail{print}' packaging/RELEASE_NOTES.md > "$notes"
+          head -1 "$notes" | grep -q . || { echo "release notes came out empty"; exit 1; }
+          echo "release notes: $(head -1 "$notes")"
+          gh release create "$tag" dist/* --title "Zelda Classic $version Vulkan" --notes-file "$notes" --target "$GITHUB_SHA"
