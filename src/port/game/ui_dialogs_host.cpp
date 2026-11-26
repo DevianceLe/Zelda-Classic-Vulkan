@@ -62,6 +62,11 @@ int d_dummy_proc(int msg, DIALOG *d, int c);    // an invisible helper, in both 
 
 using namespace zcui_dlg;
 
+// ZQuest's interface profiles (zq_ui_profile.cpp): a menu's entries take their state from the
+// editor's own entries just before the menu is shown. NULL in zplayer.
+void (*zcport_menu_before_view)(MENU *menu) = NULL;
+
+
 namespace
 {
 
@@ -983,6 +988,8 @@ void build_view(State &st, DialogView &v)
             {
                 v.menu_obj = i;
                 v.popup = (kind == K_POPUP);
+                if(zcport_menu_before_view)
+                    zcport_menu_before_view((MENU *)d.dp);
                 add_menu(v, (MENU *)d.dp, 0);
                 int n = 0;
                 while(((MENU *)d.dp)[n].text)

@@ -78,6 +78,12 @@ float scale();
 void set_user_scale(float factor);
 float user_scale();
 
+/* The windows' look (an editor's interface profile): 0 the port's own flat dark look; 1 classic,
+ * square and framed, in the 13 jwin colours given (0xRRGGBB: box, light, medlt, meddark, dark,
+ * boxfg, titlel, titler, titlefg, textbg, textfg, selbg, selfg). Takes effect with the next UI
+ * frame. Thread-safe. */
+void set_look(int kind, const unsigned *colors13);
+
 /* While no session is open: stop this kind of input at the UI, so that the
  * game does not see it (an overlay such as a menu bar over a running editor).
  * Called from layers, every frame. */

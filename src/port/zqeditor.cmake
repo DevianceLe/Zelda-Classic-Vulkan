@@ -90,6 +90,8 @@ set(ZQEDITOR_SOURCES
 	${ZCPORT_DIR}/zqeditor/zq_builds.cpp
 	${ZCPORT_DIR}/zqeditor/zq_builds_255.cpp
 	${ZCPORT_DIR}/zqeditor/zq_builds_192.cpp
+	# the interface per build: the framework (zq_ui_profile.h); the generations' profiles below
+	${ZCPORT_DIR}/zqeditor/zq_ui_profile.cpp
 	# compiling 2.55 / 3.0 quests' ZScript with zscript255 / zscript30
 	${ZCPORT_DIR}/zqeditor/zq_compile.cpp
 	${ZCPORT_DIR}/zqeditor/zq_compile_dialog.cpp
@@ -150,6 +152,10 @@ if(BISON_FOUND AND FLEX_FOUND AND WANT_ZSCRIPT)
 	add_flex_bison_dependency(ZqeditorLexer ZqeditorParser)
 	list(APPEND ZQEDITOR_SOURCES ${BISON_ZqeditorParser_OUTPUTS} ${FLEX_ZqeditorLexer_OUTPUTS})
 endif()
+
+# every generation's interface profiles (zq_ui_profiles_<gen>.cpp: each registers its own)
+file(GLOB ZQ_UI_PROFILE_FILES CONFIGURE_DEPENDS ${ZCPORT_DIR}/zqeditor/zq_ui_profiles_*.cpp)
+list(APPEND ZQEDITOR_SOURCES ${ZQ_UI_PROFILE_FILES})
 
 add_executable(zqeditor WIN32 EXCLUDE_FROM_ALL ${ZQEDITOR_SOURCES})
 target_include_directories(zqeditor PRIVATE

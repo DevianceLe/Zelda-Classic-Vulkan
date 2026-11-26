@@ -543,6 +543,10 @@ fix LinkModifiedY()
     }
 }
 
+#ifdef ZC_ZQEDITOR
+#include "port/zqeditor/zq_ui_profile.h"     // the interface per build
+#endif
+
 static MENU import_menu[] =
 {
     { (char *)"&Map",                       onImport_Map,              NULL,                     0,            NULL   },
@@ -1093,6 +1097,12 @@ static MENU etc_menu[] =
     { (char *)"Save ZQuest Configuraton",          onSaveZQuestSettings,                NULL,                     0,            NULL   },
     { (char *)"Clear Quest Filepath",          onClearQuestFilepath,                NULL,                     0,            NULL   },
     { (char *)"&Take Snapshot\tZ",          onSnapshot,                NULL,                     0,            NULL   },
+#ifdef ZC_ZQEDITOR
+    // which build's interface is shown (port/zqeditor/zq_ui_profile.cpp); kept last, as the
+    // entries above are known by their places
+    { (char *)"",                           NULL,                      NULL,                     0,            NULL   },
+    { (char *)"&Interface...",              onInterfaceOptions,        NULL,                     0,            NULL   },
+#endif
     {  NULL,                                NULL,                      NULL,                     0,            NULL   }
 };
 
@@ -1105,6 +1115,9 @@ static MENU the_menu[] =
     { (char *)"&Tools",                     NULL, (MENU *) tool_menu,       0,            NULL   },
     { (char *)"&Screen",                    NULL, (MENU *) data_menu,       0,            NULL   },
     { (char *)"Et&c",                       NULL, (MENU *) etc_menu,        0,            NULL   },
+#ifdef ZC_ZQEDITOR
+    { (char *)"&Interface",                 NULL, (MENU *) zq_ui_quick_menu, 0,           NULL   },
+#endif
     {  NULL,                                NULL,                      NULL,                     0,            NULL   }
 };
 
@@ -1163,6 +1176,12 @@ int (*zq_audit_menu(const char *path, bool *disabled, std::vector<std::string> *
 }
 
 void zq_audit_poll();
+
+// The interface profiles (port/zqeditor/zq_ui_profile.cpp): today's menu bar, the bar shown.
+MENU *zq_ui_menu_253()
+{
+    return the_menu;
+}
 #endif
 
 void rebuild_trans_table();
@@ -1467,6 +1486,24 @@ static DIALOG dialogs[] =
     { d_keyboard_proc,   0,    0,    0,    0,    0,    0,    0,       0,       KEY_ENTER,      0, (void *) onEnter, NULL, NULL },
     { NULL,              0,    0,    0,    0,    0,    0,    0,       0,       0,              0,       NULL, NULL, NULL }
 };
+
+#ifdef ZC_ZQEDITOR
+// The interface profiles: the bar the editor's menu shows, and a full redraw after a switch.
+void zq_ui_set_menu_bar(MENU *bar)
+{
+    dialogs[0].dp = (void *)bar;
+}
+
+DIALOG *zq_ui_main_dialog()
+{
+    return dialogs;
+}
+
+void zq_ui_redraw()
+{
+    refresh(rALL);
+}
+#endif
 
 
 int onDecColour()
@@ -22905,6 +22942,9 @@ static void zq_apply_layout()
         layer_panel.w=-1;
         layer_panel.h=-1;
     }
+#ifdef ZC_ZQEDITOR
+    zq_ui_after_layout();       // the shown build's own panel places
+#endif
 }
 
 int main(int argc,char **argv)
@@ -24062,6 +24102,9 @@ int main(int argc,char **argv)
     gui_mg_color=jwin_pal[jcMEDDARK];
     
     jwin_set_colors(jwin_pal);
+#ifdef ZC_ZQEDITOR
+    zq_ui_capture_user_look();  // 2.53.1's interface shows these colours
+#endif
     set_palette(RAMpal);
     clear_to_color(screen,vc(0));
     
@@ -24834,6 +24877,9 @@ int main(int argc,char **argv)
     etc_menu[10].flags=commands[cmdChangeTrack].flags=D_DISABLED;
     
     fix_drawing_mode_menu();
+#ifdef ZC_ZQEDITOR
+    zq_ui_follow_quest();       // the interface of the open quest's build (or the one picked)
+#endif
     
     
 #ifdef _WIN32

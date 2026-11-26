@@ -40,6 +40,7 @@
 #include "port/game/quest_version.h"
 #include "port/zqeditor/zq_zinfo.h"
 #include "port/zqeditor/zq_builds.h"
+#include "port/zqeditor/zq_ui_profile.h"
 #endif
 
 #ifdef _MSC_VER
@@ -655,6 +656,7 @@ int onNew()
         if(b >= 0)
             builds[b].make_new(builds[b]);
 
+        zq_ui_follow_quest();       // the new quest's build's interface (port/zqeditor/zq_ui_profile.cpp)
         return D_O_K;
     }
 #endif
@@ -1178,6 +1180,14 @@ static int zq_pick_build_row(const char *title, const char *question, int dflt)
 
     int pick = zq_build_list_dlg[2].d1;
     return pick >= 0 && pick < (int)zq_build_rows.size() ? pick : -1;
+}
+
+// A list of rows to pick from in the same box (the interface profiles' Etc > Interface...): the row
+// picked, or -1 when cancelled.
+int zq_files_pick_row(const char *title, const char *question, const std::vector<std::string> &rows, int dflt)
+{
+    zq_build_rows = rows;
+    return zq_pick_build_row(title, question, dflt);
 }
 
 // Save As: -1 cancelled, 0 the quest's own version, k the build newer[k - 1].
@@ -1996,6 +2006,9 @@ int onOpen()
     onDrawingModeNormal();
     refresh(rALL);
     last_timed_save[0]=0;
+#ifdef ZC_ZQEDITOR
+    zq_ui_follow_quest();       // the opened quest's build's interface
+#endif
     return D_O_K;
 }
 
@@ -2037,6 +2050,9 @@ int onRevert()
     
     onDrawingModeNormal();
     last_timed_save[0]=0;
+#ifdef ZC_ZQEDITOR
+    zq_ui_follow_quest();
+#endif
     return D_O_K;
 }
 

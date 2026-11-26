@@ -63,6 +63,76 @@ ImVec4 rgb(unsigned c, float a = 1.0f)
     return ImVec4(((c >> 16) & 0xFF) / 255.0f, ((c >> 8) & 0xFF) / 255.0f, (c & 0xFF) / 255.0f, a);
 }
 
+// The look set_look() asked for (an editor's interface profile): 0 the flat dark one below,
+// 1 classic: square, framed, in the 13 jwin colours.
+std::mutex g_look_mutex;
+int g_look_kind = 0;
+unsigned g_look_colors[13];
+std::atomic<int> g_look_serial(0);
+int g_look_done = 0;
+
+// The classic look: jwin's roles (box, light, medlt, meddark, dark, boxfg, titlel, titler, titlefg,
+// textbg, textfg, selbg, selfg) on ImGui's colours, square corners, a frame on every control.
+void apply_classic(ImGuiStyle &s, const unsigned *j)
+{
+    s.WindowPadding = ImVec2(8, 6);
+    s.FramePadding = ImVec2(6, 3);
+    s.ItemSpacing = ImVec2(6, 5);
+    s.ItemInnerSpacing = ImVec2(5, 4);
+    s.WindowRounding = s.ChildRounding = s.FrameRounding = s.PopupRounding = 0;
+    s.ScrollbarRounding = s.GrabRounding = s.TabRounding = 0;
+    s.WindowBorderSize = s.PopupBorderSize = s.FrameBorderSize = s.ChildBorderSize = 1;
+    s.TabBorderSize = 1;
+    s.WindowTitleAlign = ImVec2(0.0f, 0.5f);
+
+    enum { BOX, LIGHT, MEDLT, MEDDARK, DARK, BOXFG, TITLEL, TITLER, TITLEFG, TEXTBG, TEXTFG, SELBG, SELFG };
+    ImVec4 *c = s.Colors;
+    c[ImGuiCol_Text]                 = rgb(j[BOXFG]);
+    c[ImGuiCol_TextDisabled]         = rgb(j[MEDDARK]);
+    c[ImGuiCol_WindowBg]             = rgb(j[BOX]);
+    c[ImGuiCol_ChildBg]              = rgb(j[BOX], 0.0f);
+    c[ImGuiCol_PopupBg]              = rgb(j[BOX]);
+    c[ImGuiCol_Border]               = rgb(j[DARK]);
+    c[ImGuiCol_BorderShadow]         = rgb(j[LIGHT], 0.0f);
+    c[ImGuiCol_FrameBg]              = rgb(j[TEXTBG]);
+    c[ImGuiCol_FrameBgHovered]       = rgb(j[TEXTBG]);
+    c[ImGuiCol_FrameBgActive]        = rgb(j[TEXTBG]);
+    // a title's text is the window's text colour: the gradient's lighter end keeps it readable
+    c[ImGuiCol_TitleBg]              = rgb(j[TITLER]);
+    c[ImGuiCol_TitleBgActive]        = rgb(j[TITLER]);
+    c[ImGuiCol_TitleBgCollapsed]     = rgb(j[TITLER]);
+    c[ImGuiCol_MenuBarBg]            = rgb(j[BOX]);
+    c[ImGuiCol_ScrollbarBg]          = rgb(j[MEDLT]);
+    c[ImGuiCol_ScrollbarGrab]        = rgb(j[MEDDARK]);
+    c[ImGuiCol_ScrollbarGrabHovered] = rgb(j[DARK]);
+    c[ImGuiCol_ScrollbarGrabActive]  = rgb(j[DARK]);
+    c[ImGuiCol_CheckMark]            = rgb(j[TEXTFG]);
+    c[ImGuiCol_SliderGrab]           = rgb(j[MEDDARK]);
+    c[ImGuiCol_SliderGrabActive]     = rgb(j[DARK]);
+    c[ImGuiCol_Button]               = rgb(j[BOX]);
+    c[ImGuiCol_ButtonHovered]        = rgb(j[MEDLT]);
+    c[ImGuiCol_ButtonActive]         = rgb(j[MEDDARK]);
+    c[ImGuiCol_Header]               = rgb(j[SELBG], 0.45f);
+    c[ImGuiCol_HeaderHovered]        = rgb(j[SELBG], 0.35f);
+    c[ImGuiCol_HeaderActive]         = rgb(j[SELBG], 0.55f);
+    c[ImGuiCol_Separator]            = rgb(j[MEDDARK]);
+    c[ImGuiCol_SeparatorHovered]     = rgb(j[DARK]);
+    c[ImGuiCol_SeparatorActive]      = rgb(j[DARK]);
+    c[ImGuiCol_ResizeGrip]           = rgb(j[MEDDARK], 0.3f);
+    c[ImGuiCol_ResizeGripHovered]    = rgb(j[MEDDARK], 0.6f);
+    c[ImGuiCol_ResizeGripActive]     = rgb(j[DARK]);
+    c[ImGuiCol_Tab]                  = rgb(j[MEDLT]);
+    c[ImGuiCol_TabHovered]           = rgb(j[LIGHT]);
+    c[ImGuiCol_TabSelected]          = rgb(j[BOX]);
+    c[ImGuiCol_TabSelectedOverline]  = rgb(j[TITLEL]);
+    c[ImGuiCol_TabDimmed]            = rgb(j[MEDLT]);
+    c[ImGuiCol_TabDimmedSelected]    = rgb(j[BOX]);
+    c[ImGuiCol_PlotHistogram]        = rgb(j[TITLEL]);
+    c[ImGuiCol_TextSelectedBg]       = rgb(j[SELBG], 0.40f);
+    c[ImGuiCol_NavCursor]            = rgb(j[TITLEL]);
+    c[ImGuiCol_ModalWindowDimBg]     = rgb(0x000000, 0.35f);
+}
+
 // A flat dark look: neutral greys, one blue accent, rounded corners.
 void apply_style(float scale)
 {
@@ -137,6 +207,13 @@ void apply_style(float scale)
     c[ImGuiCol_TextSelectedBg]       = rgb(0x3B82F6, 0.40f);
     c[ImGuiCol_NavCursor]            = accent_hover;
     c[ImGuiCol_ModalWindowDimBg]     = rgb(0x000000, 0.55f);
+
+    {
+        std::lock_guard<std::mutex> guard(g_look_mutex);
+        g_look_done = g_look_serial.load();
+        if(g_look_kind == 1)
+            apply_classic(s, g_look_colors);
+    }
 
     s.ScaleAllSizes(scale);
     s.FontSizeBase = 17.0f;
@@ -269,7 +346,7 @@ float window_scale(SDL_Window *w)
 void refresh_scale()
 {
     float s = window_scale(g_window) * g_user_scale.load();
-    if (s != g_scale.load())
+    if (s != g_scale.load() || g_look_serial.load() != g_look_done)
     {
         g_scale = s;
         apply_style(s);
@@ -417,6 +494,18 @@ bool available()
 float scale()
 {
     return g_scale.load();
+}
+
+void set_look(int kind, const unsigned *colors13)
+{
+    {
+        std::lock_guard<std::mutex> guard(g_look_mutex);
+        g_look_kind = (kind == 1 && colors13) ? 1 : 0;
+        for(int i = 0; i < 13; ++i)
+            g_look_colors[i] = colors13 ? colors13[i] : 0;
+    }
+    ++g_look_serial;
+    g_redraw = true;
 }
 
 void set_user_scale(float factor)
