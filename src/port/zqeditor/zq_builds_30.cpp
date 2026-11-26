@@ -35,6 +35,7 @@
 #include "zq_sections.h"
 #include "zq_writers.h"
 #include "zqn_255.h"
+#include "q255.h"
 #include "zq_tape.h"
 #include "zq_builds.h"
 
@@ -55,7 +56,27 @@ bool zq30_combos_down(const std::vector<byte> &body, word from_v, word to_v, int
                       std::string &why);
 // q255_scripts.cpp
 bool q255_ffscript_meta_spans(const byte *data, size_t size, word v, std::vector<size_t> &meta_v_at,
-                              std::vector<std::pair<size_t, size_t> > &spans, std::vector<std::pair<size_t, size_t> > *attrs);
+                              std::vector<std::pair<size_t, size_t> > &spans, std::vector<std::pair<size_t, size_t> > *attrs,
+                              std::vector<size_t> *arg3_at);
+// q255_*.cpp: the player's section readers, for the tests' walk check (ZQ30_WALK_CHECK)
+int q255_read_rules(Q255Section &s);
+int q255_read_strings(Q255Section &s);
+int q255_read_misc(Q255Section &s);
+int q255_read_combos(Q255Section &s);
+int q255_read_guys(Q255Section &s);
+int q255_read_initdata(Q255Section &s);
+int q255_read_linksprites(Q255Section &s);
+int q255_read_subscreens(Q255Section &s);
+int q255_read_items(Q255Section &s);
+int q255_read_maps(Q255Section &s);
+int q255_read_dmaps(Q255Section &s);
+int q255_read_csets(Q255Section &s);
+int q255_read_tiles(Q255Section &s);
+int q255_read_weapons(Q255Section &s);
+int q255_read_sfx(Q255Section &s);
+int q255_read_midis(Q255Section &s);
+int q255_read_ffscript(Q255Section &s);
+extern zquestheader header;
 // zq_builds_30_new.cpp
 bool zq30_new_quest(const zq_build &b, int fmt);
 bool zq30_new_from(int fmt, const char *version_name, int which, int ruleset, bool bugfix, bool zs_bugfix, std::string &why);
@@ -1002,6 +1023,57 @@ bool zinfo_down(Sec &s, int to, std::string &why)
     return true;
 }
 
+// ZQ30_WALK_CHECK=1 (tests only): each section laid out again is walked by the player's reader
+// of its version, reading nothing into the quest; what didn't read to its end is reported
+std::string g_walk_report;
+
+void walk_check(const Sec &s)
+{
+    const char *on = getenv("ZQ30_WALK_CHECK");
+
+    if(!on || *on != '1')
+        return;
+
+    typedef int (*Reader)(Q255Section &);
+    Reader r = NULL;
+
+    switch(section_index(s.id))
+    {
+    case S_RULES: r = q255_read_rules; break;
+    case S_STRINGS: r = q255_read_strings; break;
+    case S_MISC: r = q255_read_misc; break;
+    case S_COMBOS: r = q255_read_combos; break;
+    case S_GUYS: r = q255_read_guys; break;
+    case S_INITDATA: r = q255_read_initdata; break;
+    case S_LINKSPRITES: r = q255_read_linksprites; break;
+    case S_SUBSCREEN: r = q255_read_subscreens; break;
+    case S_ITEMS: r = q255_read_items; break;
+    case S_MAPS: r = q255_read_maps; break;
+    case S_DMAPS: r = q255_read_dmaps; break;
+    case S_CSETS: r = q255_read_csets; break;
+    case S_TILES: r = q255_read_tiles; break;
+    case S_WEAPONS: r = q255_read_weapons; break;
+    case S_SFX: r = q255_read_sfx; break;
+    case S_MIDIS: r = q255_read_midis; break;
+    case S_FFSCRIPT: r = q255_read_ffscript; break;
+    default: return;
+    }
+
+    Q255Section q;
+    q.data = s.data.empty() ? NULL : &s.data[0];
+    q.size = s.data.size();
+    q.pos = 0;
+    q.version = s.v;
+    q.cversion = s.cv;
+    q.keep = false;
+    q.header = &header;
+    const int ret = r(q);
+    char b[160];
+    snprintf(b, sizeof(b), "%s%s v%d: %s (%d of %d bytes)", g_walk_report.empty() ? "" : "; ", sec_name(s.id).c_str(),
+             (int)s.v, ret == 0 && !q.failed && q.pos == q.size ? "walks" : "DOESN'T WALK", (int)q.pos, (int)q.size);
+    g_walk_report += b;
+}
+
 bool quest_has_scripts()
 {
     if(zasm30_stream_len > 1)
@@ -1052,12 +1124,24 @@ bool down_section(Sec &s, const Zq30Format &F, std::string &why)
         std::vector<std::pair<size_t, size_t> > spans;
 
         std::vector<std::pair<size_t, size_t> > attrs;
+        std::vector<size_t> arg3_at;
         const int want = F.v[S_METADATA];
         const bool walked = le16(s.extra, 0) == 7 &&
-            q255_ffscript_meta_spans(s.data.empty() ? NULL : &s.data[0], s.data.size(), s.v, meta_v_at, spans, &attrs);
+            q255_ffscript_meta_spans(s.data.empty() ? NULL : &s.data[0], s.data.size(), s.v, meta_v_at, spans, &attrs, &arg3_at);
+
+        // before 24 (pr.21) commands have no third argument: it goes, when it is 0 (commands
+        // that use it came with 24)
+        if(walked && s.v >= 24 && s.v < 27 && F.v[k] < 24)
+            for(size_t i = 0; i < arg3_at.size(); ++i)
+            {
+                if(le32(s.data, arg3_at[i]))
+                    return refuse(why, s, F.v[k], "a script command uses a third argument, which that format has no room for");
+
+                spans.push_back(std::make_pair(arg3_at[i], arg3_at[i] + 4));
+            }
 
         // no script holds a meta at all: any layout reads the section alike
-        if(walked && meta_v_at.empty())
+        if(walked && meta_v_at.empty() && spans.empty())
         {
             s.extra.clear();
             put16(s.extra, (word)F.v[S_METADATA]);
@@ -1424,7 +1508,11 @@ bool down_section(Sec &s, const Zq30Format &F, std::string &why)
         case S_FFSCRIPT:
             // a quest with no scripts, 31 to 30 with the metadata layout kept (7): its slots are
             // laid out alike (31 adds fields to exported variables only)
-            if(to == 30 && F.v[S_METADATA] >= 6 && !quest_has_scripts())
+            // 26 down to 22 (pr.77, 45, 21, 12): the slots and the section around them alike, but
+            // for each command's third argument from 24 (left out with the metadata above)
+            if(s.v == 26 && to >= 22 && to < 26)
+                ok = true;
+            else if(to == 30 && F.v[S_METADATA] >= 6 && !quest_has_scripts())
                 ok = true;
             else
                 return refuse(why, s, to, "its scripts can't be written in that format yet");
@@ -1596,6 +1684,7 @@ int save_as_format(int fmt, const char *path, std::string &why)
 
     std::vector<Sec> kept;
     std::string fails;
+    g_walk_report.clear();
 
     for(size_t i = 0; i < q.secs.size(); ++i)
     {
@@ -1624,6 +1713,8 @@ int save_as_format(int fmt, const char *path, std::string &why)
 
         if(!down_section(s, F, w))
             fails += (fails.empty() ? "" : "; ") + w;
+        else
+            walk_check(s);
 
         kept.push_back(s);
     }
@@ -1867,6 +1958,10 @@ int zq_builds_30_cli(int argc, char **argv, int at)
         {
             fprintf(out, "new %s (%s): %s\nmade order %ld\n%s\n", argv[at + 2], atoi(argv[at + 3]) ? "Cambria" : "Classic",
                     ret == 0 ? "SAVED" : "NOT SAVED", zq_made_order_30(), why.c_str());
+
+            if(!g_walk_report.empty())
+                fprintf(out, "walk: %s\n", g_walk_report.c_str());
+
             fclose(out);
         }
 
@@ -1906,6 +2001,9 @@ int zq_builds_30_cli(int argc, char **argv, int at)
     {
         fprintf(out, "%s as %s: %s\nmade order %ld\n%s\n", argv[at + 2], argv[at + 1], ret == 0 ? "SAVED" : "NOT SAVED",
                 made, why.c_str());
+
+        if(!g_walk_report.empty())
+            fprintf(out, "walk: %s\n", g_walk_report.c_str());
         fclose(out);
     }
 

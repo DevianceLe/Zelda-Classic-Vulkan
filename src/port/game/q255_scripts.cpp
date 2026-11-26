@@ -225,6 +225,7 @@ static void skip_label_and_help(Q255Section &s, int count)
 static std::vector<size_t> *g_meta_v_at = NULL;
 static std::vector<std::pair<size_t, size_t> > *g_meta7_spans = NULL;
 static std::vector<std::pair<size_t, size_t> > *g_meta6_attrs = NULL;  // layout 6's attribute label list
+static std::vector<size_t> *g_arg3_at = NULL;   // each command's third argument (before version 27)
 
 static int skip_meta(Q255Section &s, word meta)
 {
@@ -656,7 +657,12 @@ static int read_one_script(Q255Section &s, word meta, ffscript **slot, int kind,
         s.skip(4 + 4); // arg1, arg2
 
         if(s.version >= 24)
+        {
+            if(g_arg3_at)
+                g_arg3_at->push_back(s.pos);
+
             s.skip(4); // arg3
+        }
 
         if(s.version >= 21)
             skip_or_keep_literal(s, NULL, false);
@@ -965,10 +971,11 @@ static int find_meta_version(const Q255Section &s)
 
 // For ZQuest (zq_builds_30.cpp): the scripts section's data of version v and metadata layout 7,
 // walked as the loader reads it: where each script's meta_v word is, the spans its layout 7
-// fields take and (attrs) the spans of its attribute label lists (layout 6 on). False when it
-// doesn't read to its end.
+// fields take, (attrs) the spans of its attribute label lists (layout 6 on) and (arg3_at) where
+// each command's third argument is (versions 24 to 26). False when it doesn't read to its end.
 bool q255_ffscript_meta_spans(const byte *data, size_t size, word v, std::vector<size_t> &meta_v_at,
-                              std::vector<std::pair<size_t, size_t> > &spans, std::vector<std::pair<size_t, size_t> > *attrs)
+                              std::vector<std::pair<size_t, size_t> > &spans, std::vector<std::pair<size_t, size_t> > *attrs,
+                              std::vector<size_t> *arg3_at)
 {
     if(v < 18 || v > 31)
         return false;
@@ -984,14 +991,19 @@ bool q255_ffscript_meta_spans(const byte *data, size_t size, word v, std::vector
     g_meta_v_at = &meta_v_at;
     g_meta7_spans = &spans;
     g_meta6_attrs = attrs;
+    g_arg3_at = arg3_at;
 
     if(attrs)
         attrs->clear();
+
+    if(arg3_at)
+        arg3_at->clear();
 
     const int ret = read_section(s, 7);
     g_meta_v_at = NULL;
     g_meta7_spans = NULL;
     g_meta6_attrs = NULL;
+    g_arg3_at = NULL;
     return ret == 0 && !s.failed && s.pos == s.size;
 }
 
