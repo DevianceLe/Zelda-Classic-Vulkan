@@ -216,6 +216,13 @@ bool q30_savemenu_take_pending_save()
     return was;
 }
 
+// Game->SaveAndQuit() / SaveAndContinue(): upstream (qSAVE / qSAVECONT) saves at the end of the game,
+// after the OnExit script, as a save menu's save with the game ending.
+void q30_save_at_game_end()
+{
+    z30_savemenu_pending_save = true;
+}
+
 static int z30_savemenu_run(const Q30SaveMenu &m, int cursor = -1, bool continue_point = false)
 {
     int clk = 0;

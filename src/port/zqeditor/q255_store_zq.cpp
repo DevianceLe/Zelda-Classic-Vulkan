@@ -761,3 +761,5 @@ void zasm30_set_screen_script(int index, word script, const long *initd)
 {
     put_ref(zq255.screen_scripts, index, script, initd);
 }
+
+void zasm30_set_screen_preload(int) {}     // (the player's store; ZQuest keeps the byte in zqn_255_maps.cpp)

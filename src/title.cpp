@@ -3488,18 +3488,37 @@ static void test_reload_from_disk()
 }
 
 extern bool game_reloading;
+static bool q30_standalone_quit_screen();
+static bool title_game_loaded = false;      // a game was started from here (upstream: a save is selected)
 
 void titlescreen(int lsave)
 {
     int q=Quit;
-    
+
     Quit=0;
     Playing=Paused=false;
-    
+
     if(q==qCONT)
     {
         cont_game();
         return;
+    }
+
+    // 2.55/3.0 in standalone mode (upstream 3.0): there is no file select screen to go back to,
+    // so a game quit from the continue screen, a save menu or a script asks whether to close the
+    // program or load the last save again. Dying without a continue screen loads it at once.
+    if(standalone_mode && q==qQUIT && title_game_loaded && q30_active())
+    {
+        const bool load_last = q30_standalone_quit_screen();
+
+        if(Quit)    // closed or reset while the screen was up
+            return;
+
+        if(!load_last)
+        {
+            Quit=qEXIT;
+            return;
+        }
     }
 
     // 2.55/3.0 Game->Reload(): the last save is loaded again in place (upstream's qRELOAD)
@@ -3613,6 +3632,7 @@ void titlescreen(int lsave)
     
     if(!Quit)
     {
+        title_game_loaded = true;
         init_game();
     }
 }
@@ -3807,7 +3827,7 @@ void game_over(int type)
     {
         if(pos)
         {
-            if(standalone_mode && !skip_title)
+            if(standalone_mode && !skip_title && !newer)    // (2.55/3.0: qQUIT, the standalone quit screen)
             {
 		memset(emulation_patches,0,sizeof(emulation_patches));
                 Quit=qRESET;
@@ -3856,6 +3876,78 @@ void game_over(int type)
             save_savedgames();
         }
     }
+}
+
+// Upstream 3.0's standalone quit screen (title.cpp standalone_quit_screen): QUIT TO DESKTOP / LOAD
+// LAST SAVE, styled as the continue screen (its first line's colours, background, cursor and sound).
+// True: load the last save.
+static bool q30_standalone_quit_screen()
+{
+    static const char *const rows[2] = { "QUIT TO DESKTOP", "LOAD LAST SAVE" };
+    const int num_rows = 2;
+    const int bg = q30_gameover_screen_setting(GOS_BG);
+
+    kill_sfx();
+    music_stop();
+    clear_to_color(screen,BLACK);
+    loadfullpal();
+
+    clear_to_color(framebuf,bg);
+
+    for(int i = 0; i < num_rows; ++i)
+        textout_ex(framebuf,zfont,rows[i],88,72+i*24,gos_colour(0,false),-1);
+
+    // the press that picked an option on the screen before isn't taken
+    load_control_state();
+    rSbtn();
+    rAbtn();
+
+    int pos = 0;
+    int f = -1;
+    bool done = false;
+
+    do
+    {
+        load_control_state();
+
+        if(f == -1)
+        {
+            if(rUp())
+            {
+                sfx(q30_gameover_screen_setting(GOS_SOUND));
+                pos = (pos + num_rows - 1) % num_rows;
+            }
+
+            if(rDown())
+            {
+                sfx(q30_gameover_screen_setting(GOS_SOUND));
+                pos = (pos + 1) % num_rows;
+            }
+
+            if(rSbtn() || rAbtn())
+                ++f;
+        }
+
+        if(f >= 0)      // the picked row flashes, as on the continue screen
+        {
+            if(++f == 65)
+                done = true;
+
+            if(!(f&3))
+                textout_ex(framebuf,zfont,rows[pos],88,72+pos*24,gos_colour(0,(f&4)!=0),-1);
+        }
+
+        rectfill(framebuf,72,72,79,79+(num_rows-1)*24,bg);
+        overtile8(framebuf,q30_gameover_screen_setting(GOS_TILE),72,72+pos*24,
+                  q30_gameover_screen_setting(GOS_CSET),q30_gameover_screen_setting(GOS_FLIP));
+        advanceframe(true);
+    }
+    while(!Quit && !done);
+
+    clear_bitmap(framebuf);
+    advanceframe(true);
+
+    return done && pos == 1;
 }
 
 void save_game(bool savepoint)

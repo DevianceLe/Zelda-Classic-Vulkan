@@ -277,6 +277,7 @@ static void store_pattern(mapscr *t, byte pattern)
 
 void zasm30_clear_screen_scripts();
 void zasm30_set_screen_script(int index, word script, const long *initd);
+void zasm30_set_screen_preload(int index);  // the player's store: the screen's script runs at screen load too
 
 static byte screen_sfx(Q255Section &s, byte mapscr::*field)
 {
@@ -308,6 +309,15 @@ static void keep_screen_script(Q255Section &s, word script, const long *initd)
 
     if(s.keep && g_screen_index >= 0 && any)
         zasm30_set_screen_script(g_screen_index, script, initd);
+}
+
+// preloadscript: "run script on screen init" (upstream's ffscript_engine(true) runs it at screen load)
+static void keep_screen_preload(Q255Section &s)
+{
+    const byte preload = s.getc();
+
+    if(s.keep && g_screen_index >= 0 && preload)
+        zasm30_set_screen_preload(g_screen_index);
 }
 
 // p_getvar(script_config): the script number, run_args as a counted array and
@@ -463,7 +473,7 @@ static void read_screen(Q255Section &s, mapscr *t)
     }
 
     if(s.version >= 21)
-        s.skip(1);      // preloadscript
+        keep_screen_preload(s);
 
     if(s.version >= 22)
         s.skip(2);      // hidelayers, hidescriptlayers
@@ -846,7 +856,7 @@ static void read_screen_new(Q255Section &s, mapscr *t, int screen, const word *a
         if(s.version < 41)
         {
             script = s.igetw();
-            s.skip(1);  // preloadscript
+            keep_screen_preload(s);
 
             for(int i = 0; i < 8; ++i)
                 initd[i] = s.igetl_s();
@@ -854,7 +864,7 @@ static void read_screen_new(Q255Section &s, mapscr *t, int screen, const word *a
         else
         {
             read_script_config(s, &script, initd);
-            s.skip(1);  // preloadscript
+            keep_screen_preload(s);
         }
 
         keep_screen_script(s, script, initd);

@@ -31,6 +31,7 @@ FFScript FFCore;
 #include "port/game/q30_scripts_defs.h"
 
 std::string z30_printf_text(const std::string &format, const std::vector<long> &args);   // below (ZC_SCRIPT_PRINTF)
+void q30_save_at_game_end();      // q30_scripts_sys.h: Game->SaveAndQuit/SaveAndContinue save after OnExit
 #include "port/game/q30_triggers.h"   // generic script events (ffscript_engine)
 
 extern word quest_header_zelda_version; //2.53 ONLY. In 2.55, we have an array for this in FFCore! -Z
@@ -11675,15 +11676,17 @@ int run_script(const byte type, const word script, const byte i)
             scommand = 0xFFFF;
             break;
 
+        // Game->SaveAndQuit() / SaveAndContinue(): the save waits for the end of the game, after
+        // the OnExit script (upstream's qSAVE / qSAVECONT, zelda.cpp).
         case Z30C_GAMESAVEQUIT:
-            save_game(false);
+            q30_save_at_game_end();
             Quit = qQUIT;
             skipcont = 1;
             scommand = 0xFFFF;
             break;
 
         case Z30C_GAMESAVECONTINUE:
-            save_game(false);
+            q30_save_at_game_end();
             Quit = qCONT;
             skipcont = 1;
             scommand = 0xFFFF;
@@ -12737,11 +12740,13 @@ struct Zasm30ScreenScript
 };
 
 static std::map<int, Zasm30ScreenScript> zasm30_screen_scripts;
+static std::set<int> zasm30_screen_preload;     // screens with "run script on screen init" (preloadscript)
 static int zasm30_screen_index = -1;
 
 void zasm30_clear_screen_scripts()
 {
     zasm30_screen_scripts.clear();
+    zasm30_screen_preload.clear();
     zasm30_screen_index = -1;
     zasm30_screen_done = true;
     zasm30_screen_waitdraw = false;
@@ -12812,6 +12817,19 @@ static void zasm30_run_screen_script_here(int)
     zasm30_run_screen_script();
 }
 
+void zasm30_set_screen_preload(int index)
+{
+    zasm30_screen_preload.insert(index);
+}
+
+// Upstream's ffscript_engine(true): a screen whose script runs on screen init runs it at the screen's
+// load too, before its preload FFC scripts (Pacman's menu reads the press of the game's first frame).
+static void zasm30_run_screen_preload(int)
+{
+    if(zasm30_screen_preload.count(currmap * MAPSCRS + currscr))
+        zasm30_run_screen_script();
+}
+
 int ffscript_engine(const bool preload)
 {
     if(preload)
@@ -12828,6 +12846,11 @@ int ffscript_engine(const bool preload)
 
         if(!q30_region_each_screen(Q30_EACH_SCREEN_SCRIPT, zasm30_run_screen_script_here, 0))
             zasm30_run_screen_script();
+    }
+    else if(!zasm30_screen_preload.empty())
+    {
+        if(!q30_region_each_screen(Q30_EACH_SCREEN_SCRIPT, zasm30_run_screen_preload, 0))
+            zasm30_run_screen_preload(0);
     }
 
     if(!q30_region_each_screen(preload ? Q30_EACH_FFC_PRELOAD : Q30_EACH_FFC_SCRIPTS, zasm30_run_ffc_scripts, preload))

@@ -9680,8 +9680,8 @@ void LinkClass::q30_stop_step(double d, bool horiz)
         y = fix(double(y) + found / 10000.0);
 }
 
-// upstream's onWater(true): the water Link stands in and would drown in (0 for none)
-int LinkClass::q30_drown_water()
+// upstream's onWater(drownonly): the water Link stands in (and would drown in) (0 for none)
+int LinkClass::q30_drown_water(bool drownonly)
 {
     if(action == inwind || ladderx || laddery || hoverclk || action == rafting || inlikelike || DRIEDLAKE || z != 0 || fall < 0)
         return 0;
@@ -9710,7 +9710,7 @@ int LinkClass::q30_drown_water()
             cid = MAPFFCOMBO(mx, my) ? MAPFFCOMBO(mx, my) : MAPCOMBO(mx, my);
     }
 
-    return cid > 0 && q30_ss_drowns(cid) ? cid : 0;
+    return cid > 0 && (!drownonly || q30_ss_drowns(cid)) ? cid : 0;
 }
 
 // q30_free_walk's step for upstream's moveheroOld (every walk but qr_NEW_HERO_MOVEMENT2's), which
@@ -14981,7 +14981,7 @@ void LinkClass::q30_keep_respawn_point()
     if(safe && isSideview() && !q30_sideview_solid(0, true, 0))    // in the air
         safe = false;
 
-    if(safe && iswater(MAPCOMBO(x+4,y+9)) && iswater(MAPCOMBO(x+4,y+14)) && iswater(MAPCOMBO(x+11,y+9)) && iswater(MAPCOMBO(x+11,y+14)))
+    if(safe && q30_drown_water(false))    // upstream's onWater(false): water on any layer as Link's drowning finds it (not under a bridge)
         safe = false;
 
     if(safe)

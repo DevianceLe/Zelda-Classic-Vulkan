@@ -250,7 +250,7 @@ class LinkClass : public sprite
     bool q30_walk_solid(double wx, double wy, int d2);
     bool q30_can_move(double dx, double dy);
     bool q30_move_xy(double dx, double dy, bool shove);
-    int q30_drown_water();
+    int q30_drown_water(bool drownonly = true);
     bool q30_drown_fall();
     void q30_stop_step(double d, bool horiz);
     bool q30_solid_coord(double tx, double ty, int sdir, int mdir, double earlyterm, double &out);
