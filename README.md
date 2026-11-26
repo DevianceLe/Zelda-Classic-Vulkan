@@ -3,14 +3,14 @@
 [![Build](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml/badge.svg)](https://github.com/DevianceLe/Zelda-Classic-Vulkan/actions/workflows/build.yml)
 
 > [!WARNING]
-> **Highly experimental.** This fork is a work in progress. Expect bugs and crashes, and back up your quests and save files before you use it. A quest saved as 2.55.19 or 3.0 Nightly can't be opened by older versions of Zelda Classic.
+> **Highly experimental.** This fork is a work in progress. Expect bugs and crashes, and back up your quests and save files before you use it. A quest saved in a newer build can't be opened by older versions of Zelda Classic.
 
 Zelda Classic is a game engine and quest editor for making and playing custom adventures in the style of the original *The Legend of Zelda*. This repository is a community fork of Zelda Classic 2.53, rebuilt to run on SDL3 and Vulkan.
 
 | Program | What it is | Runs on |
 |---|---|---|
 | `zplayer` | The game. Plays 2.53, 2.55 and 3.0 Nightly quests. | Windows 10/11 (32-bit, 64-bit, ARM64), Linux (64-bit x86_64, ARM64), macOS 11+ (Apple Silicon and Intel), Nintendo Switch (homebrew), Android 8.0+ (in progress) |
-| `zqeditor` | ZQuest, the quest editor. Opens quests of every version, saves each in its own version, and saves older quests as 2.55.19 or 3.0 Nightly. Compiles 2.55 and 3.0 Nightly quests' ZScript with those versions' own compilers (`zscript255`, `zscript30`). | Windows 10/11 (32-bit, 64-bit, ARM64), Linux (64-bit x86_64, ARM64), macOS 11+ (Apple Silicon and Intel) |
+| `zqeditor` | ZQuest, the quest editor. Opens quests of every version and saves each in the build it was made in or any newer one, from 1.90 to every 2.55 release and 3.0 prerelease; starts new quests in any build, and shows each build's own interface. Compiles 2.55 and 3.0 Nightly quests' ZScript with those versions' own compilers (`zscript255`, `zscript30`). | Windows 10/11 (32-bit, 64-bit, ARM64), Linux (64-bit x86_64, ARM64), macOS 11+ (Apple Silicon and Intel) |
 
 ## Screenshots
 
@@ -76,6 +76,8 @@ What that means in practice:
 - On 2.55 and 3.0 Nightly quests, also compared with 3.0: every script command the collection's quests use, save menus, the quest's own hearts and damage, sideview ladders, diving, 3.0's enemy death animations, scrolling regions placing every enemy by its own screen, and 3.0's extended view in tall regions
 - A feature test suite (`tests/feature_suite`) that checks the ported 2.55 and 3.0 features against 3.0 on the same input
 - Title screen choices: Original, Zelda Classic, Zelda Classic 2.50, ZQuest Classic (3.0's title) and Random
+- ZQuest's File > New and Save As offer every ZC build: 1.90, 1.92, 2.10.x, the 2.11 betas, 2.50.x, 2.53.x, all twenty 2.55 releases and every 3.0 prerelease. A quest saves in the build it was made in or any newer one, never an older one, and New starts from each build's own new quest and tilesets
+- ZQuest switches to the interface of the build a quest is for, on New and when a quest is opened: that build's menus, editor size and layout, colours, keys and dialogs. The Interface menu can match the quest's build, show the newest interface, or any newer build's
 - ZQuest on every quest version from 1.90 to 3.0: each editor works or says why the quest's version can't hold it and offers Save As; subscreen management and wizards, script values that follow slot changes, and `.zitem` / `.znpc` files for 2.55 and 3.0 quests
 - Older quests (1.90 to 2.50.1) keep more of how their own version played, from a survey of the original source branches
 - The player and ZQuest on real hardware on every platform: Windows (32-bit, 64-bit and ARM64), Linux (x86_64 and ARM64), macOS (Apple Silicon and Intel), and the player as Nintendo Switch homebrew
@@ -86,8 +88,7 @@ What that means in practice:
 
 **Still to do**
 
-- 6 of 3.0's script values still read differently, none of them used by a quest in the collection: values that come from the machine's own settings or clock, a stack write past the stack's end, and one line 3.0's own test run prints only because it stops in the middle of a wipe
-- Copying a whole array into an engine array (such as ArrayCopy into Screen->D) doesn't reach the engine array yet
+- 5 of 3.0's script values still read differently, none of them used by a quest in the collection: values that come from the machine's own settings or clock, a stack write past the stack's end, and one line 3.0's own test run prints only because it stops in the middle of a wipe
 
 The [compatibility page](COMPATIBILITY.md#what-still-doesnt-work) has the full list of what still doesn't work, including known bugs.
 
