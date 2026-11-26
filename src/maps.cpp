@@ -2294,6 +2294,15 @@ static void layer_overcombo(BITMAP *bmp, int x, int y, int cmbdat, int cset, int
         overcombotranslucent(bmp, x, y, cmbdat, cset, opacity);
 }
 
+// 2.55/3.0: a layer the screen has no map for, on which a script put a combo (upstream's
+// screen_combo_modify_postroutine makes it valid: q30_scripts_regs.h), is drawn as a layer.
+// (A layer without a map is zeroed when its screen loads, so never for 2.53 quests.)
+static bool q30_script_made_layer(int type, int tempscreen)
+{
+    const mapscr &l = (tempscreen == 2 ? tmpscr2 : tmpscr3)[type];
+    return (l.valid & mVALID) && !l.data.empty() && q30_active();
+}
+
 void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool scrolling, int tempscreen)
 {
     static int mf;
@@ -2388,7 +2397,7 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
     case 5:
         if(TransLayers || layer->layeropacity[type]==255)
         {
-            if(layer->layermap[type]>0)
+            if(layer->layermap[type]>0 || q30_script_made_layer(type, tempscreen))
             {
                 if(scrolling)
                 {
@@ -2472,7 +2481,7 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
     case 1:
         if(TransLayers || layer->layeropacity[type]==255)
         {
-            if(layer->layermap[type]>0)
+            if(layer->layermap[type]>0 || q30_script_made_layer(type, tempscreen))
             {
                 if(scrolling)
                 {
@@ -2636,7 +2645,7 @@ void do_scrolling_layer(BITMAP *bmp, int type, mapscr* layer, int x, int y, bool
     case 2:
         if(TransLayers || layer->layeropacity[type]==255)
         {
-            if(layer->layermap[type]>0)
+            if(layer->layermap[type]>0 || q30_script_made_layer(type, tempscreen))
             {
                 if(scrolling)
                 {

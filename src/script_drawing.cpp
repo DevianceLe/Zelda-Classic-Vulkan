@@ -1560,8 +1560,51 @@ void do_drawstringr(BITMAP *bmp, int i, int *sdci, int xoffset, int yoffset)
     do_drawstringr_text(bmp, str, sdci, xoffset, yoffset);
 }
 
+void textout_styled_aligned_ex(BITMAP *bmp, const FONT *f, const char *s, int x, int y, int textstyle, int alignment, int color, int shadow, int bg);
+
+// A 2.55/3.0 script's Screen->DrawString with a text style ([17] = 2: [10] style, [11] its colour),
+// as upstream's do_drawstringr2.
+static void do_drawstringr2_text(BITMAP *bmp, std::string *str, int *sdci, int xoffset, int yoffset)
+{
+    int x=sdci[2]/10000;
+    int y=sdci[3]/10000;
+    FONT* font=get_zc_font(sdci[4]/10000);
+    int color=sdci[5]/10000;
+    int bg_color=sdci[6]/10000; //-1 = transparent
+    int format_type=sdci[7]/10000;
+    int opacity=sdci[9]/10000;
+    int textstyle=sdci[10]/10000;
+    int shadow_color=sdci[11]/10000;
+
+    if(bg_color < -1) bg_color = -1;
+
+    if(opacity < 128)
+    {
+        int width=zc_min(text_length(font, str->c_str()), 512);
+        if(width < 1) return;
+        BITMAP *pbmp = create_sub_bitmap(prim_bmp, 0, 0, width, text_height(font));
+        clear_bitmap(pbmp);
+        textout_styled_aligned_ex(pbmp, font, str->c_str(), 0, 0, textstyle, 0, color, shadow_color, bg_color);
+        textout_ex(pbmp, font, str->c_str(), 0, 0, color, bg_color);
+        if(format_type == 2)   // right-sided text
+            x-=width;
+        else if(format_type == 1)   // centered text
+            x-=width/2;
+        draw_trans_sprite(bmp, pbmp, x+xoffset, y+yoffset);
+        destroy_bitmap(pbmp);
+    }
+    else
+        textout_styled_aligned_ex(bmp, font, str->c_str(), x+xoffset, y+yoffset, textstyle, format_type, color, shadow_color, bg_color);
+}
+
 void do_drawstringr_text(BITMAP *bmp, std::string *str, int *sdci, int xoffset, int yoffset)
 {
+    if(sdci[17] == 2)
+    {
+        do_drawstringr2_text(bmp, str, sdci, xoffset, yoffset);
+        return;
+    }
+
     int x=sdci[2]/10000;
     int y=sdci[3]/10000;
     FONT* font=get_zc_font(sdci[4]/10000);

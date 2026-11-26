@@ -1752,8 +1752,19 @@ int choose_opening_shape()
 
 extern bool q30_subscr_clk_hold;    // subscr.cpp
 
+// 2.55/3.0 (upstream's x -= viewport.x, y -= viewport.y): the wipe's centre is where the view
+// shows it: a 3.0 scrolling region's or a script-placed viewport's camera moves it (0, 0 for 2.53).
+static void q30_wipe_in_view(int &x, int &y)
+{
+    int camx, camy;
+    q30_region_camera(0, 0, &camx, &camy);
+    x -= camx;
+    y -= camy;
+}
+
 void close_black_opening(int x, int y, bool wait, int shape)
 {
+    q30_wipe_in_view(x, y);
     black_opening_shape=shape>-1 ? shape : choose_opening_shape();
     
     int w=256, h=zc_view_h;
@@ -1800,6 +1811,7 @@ void close_black_opening(int x, int y, bool wait, int shape)
 
 void open_black_opening(int x, int y, bool wait, int shape)
 {
+    q30_wipe_in_view(x, y);
     black_opening_shape=shape>-1 ? shape : choose_opening_shape();
     
     int w=256, h=zc_view_h;
@@ -3568,6 +3580,15 @@ void draw_fuzzy(int fuzz)
     }
 }
 
+// 2.55/3.0: the picture updatescr last showed (upstream's presentbuf), which the replay frame a game
+// ended by Game->End takes shows again (zelda.cpp's main loop)
+static BITMAP *q30_last_shown = NULL;
+void q30_capture_last_shown()
+{
+    if(q30_last_shown)
+        replay_capture_frame(q30_last_shown);
+}
+
 void updatescr(bool allowwavy)
 {
     static BITMAP *wavybuf = create_bitmap_ex(8,256,224);
@@ -3700,6 +3721,7 @@ void updatescr(bool allowwavy)
     //TODO: Optimize blit 'overcalls' -Gleeok
     BITMAP *source = nosubscr ? panorama : wavybuf;
     replay_capture_frame(source);
+    q30_last_shown = source;
     BITMAP *target = NULL;
     
     bool dontusetb = triplebuffer_not_available ||

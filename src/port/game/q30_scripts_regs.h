@@ -3485,6 +3485,11 @@ static bool zasm30_set_register_inner(const long arg, const long value)
             case Z30R_MAPDATACOMBOTD: q30_script_combo_set(m->data[n], 0, value / 10000); break;
             case Z30R_MAPDATACOMBOID: q30_script_combo_set(m->data[n], 1, value / 10000); break;
             }
+
+            // upstream's screen_combo_modify_postroutine (ComboD, ComboC): a combo put on a layer the
+            // current screen has no map for makes that layer valid, drawn and solid (maps.cpp)
+            if((arg == Z30R_MAPDATACOMBODD || arg == Z30R_MAPDATACOMBOCD) && m >= tmpscr2 && m < tmpscr2 + 6)
+                m->valid |= mVALID;
         }
         return true;
     }

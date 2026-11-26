@@ -11780,7 +11780,8 @@ int run_script(const byte type, const word script, const byte i)
             zasm255_sprintf(sarg1 / 10000);
             break;
 
-        // As DrawString, with two more arguments (the text shadow, not drawn here).
+        // As DrawString, with two more arguments: the text style (shadow / outline) and its colour,
+        // drawn as upstream's do_drawstringr2 ([17] = 2 marks them in [10] and [11]).
         case ZASM255_DRAWSTRINGR2:
         {
             if(q30_skip_script_draws)
@@ -11798,8 +11799,10 @@ int run_script(const byte type, const word script, const byte i)
             if(zasm30_trace_on) al_trace("q30: DRAWSTRINGR2 layer %ld font %ld color %ld\n", SH::read_stack(SPR + 10) / 10000, SH::read_stack(SPR + 7) / 10000, SH::read_stack(SPR + 6) / 10000);
             script_drawing_commands[j][18] = zscriptDrawingRenderTarget->GetCurrentRenderTarget();
 
-            for(int k = 1; k <= 9; k++)
+            for(int k = 1; k <= 11; k++)
                 script_drawing_commands[j][k] = SH::read_stack(SPR + (11 - k));
+
+            script_drawing_commands[j][17] = 2;
 
             string *str = script_drawing_commands.GetString();
             ArrayH::getString(zasm30_aptr(script_drawing_commands[j][8]), *str);

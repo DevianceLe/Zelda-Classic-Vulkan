@@ -5839,8 +5839,9 @@ void q30_standing_update(double x, double y, bool ground, bool sideview, fix *yo
 // scrolling region (q30_walk_cell_solid), which tests the same way.
 static bool cell_solid_on(const mapscr *s0, const mapscr *lay, int pos, int b)
 {
-    const mapscr *s1 = (s0->layermap[0] > 0 && !lay[0].data.empty()) ? &lay[0] : s0;
-    const mapscr *s2 = (s0->layermap[1] > 0 && !lay[1].data.empty()) ? &lay[1] : s0;
+    // (a layer is there when the screen has a map for it, or a script made it: upstream's valid layer)
+    const mapscr *s1 = ((s0->layermap[0] > 0 || (lay[0].valid & mVALID)) && !lay[0].data.empty()) ? &lay[0] : s0;
+    const mapscr *s2 = ((s0->layermap[1] > 0 || (lay[1].valid & mVALID)) && !lay[1].data.empty()) ? &lay[1] : s0;
     int c0 = s0->data[pos], c1 = s1->data[pos], c2 = s2->data[pos];
     int t0 = q30_combo_type(c0), t1 = q30_combo_type(c1), t2 = q30_combo_type(c2);
     int w0 = walk_byte(c0), w1 = walk_byte(c1), w2 = walk_byte(c2);

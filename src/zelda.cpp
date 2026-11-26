@@ -4060,6 +4060,8 @@ void tour_give_items()
     verifyBothWeapons();
 }
 
+void q30_capture_last_shown();     // zc_sys.cpp: the picture last shown, for a replay frame
+
 int main(int argc, char* argv[])
 {
     bool onlyInstance=true;
@@ -5099,6 +5101,14 @@ int main(int argc, char* argv[])
         kill_sfx();
         music_stop();
         clear_to_color(screen,BLACK);
+
+        // 2.55/3.0 (upstream's main loop polls the replay once more after a qQUIT, its snapshot
+        // the picture last shown): a game ended by Game->End takes one more replay frame
+        if(Quit == qQUIT && replay_active() && q30_active())
+        {
+            q30_capture_last_shown();
+            replay_frame_boundary();
+        }
     }
     
     // clean up
