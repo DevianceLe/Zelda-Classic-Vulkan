@@ -41,6 +41,11 @@ void zqn255_newest(dword id, int target, word *version, word *cversion);
 int zqn255_emit(PACKFILE *f, dword id, word version, word cversion, const std::vector<byte> &extra,
                 const std::vector<byte> &data);
 
+// A version 12 subscreen section's data (what follows its size) laid out as version to_version (8-11),
+// without the fields that version doesn't have (zqn_255_subscreens.cpp). False (why says) when it
+// isn't laid out as version 12's.
+bool zqn255_subscreens_as(std::vector<byte> &data, int to_version, std::string &why);
+
 // The quest rules (100 bytes) as the target holds them after loading the quest (zqn_255_rules).
 bool zqn255_rules_loaded(int target, std::vector<byte> &rules);
 

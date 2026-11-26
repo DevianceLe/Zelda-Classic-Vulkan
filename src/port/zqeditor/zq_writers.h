@@ -114,6 +114,19 @@ enum ZqNewerTarget
 
 const char *zq_newer_target_name(int target);      // "2.55.19", "3.0 Nightly"
 
+// The 2.55 release ZQ_NEWER_255 writes: 0 to 19 (2.55.0 to 2.55.19), 19 unless a Save As or New in
+// an older release set it for its save (zq_builds_255.cpp). A release writes its own patch number in
+// the header and its section versions (maps 29 before 2.55.2, enemies 47 before 2.55.4, subscreens 11
+// before 2.55.8; every other section is the same in all of them), and its loader makes only the load
+// fixes it has (the rules "older than 2.55.<k>" each release added, the cuttables' trigger fix from
+// 2.55.14, the Dig enemies' "ignore Kill All Enemies" from 2.55.4).
+int zq_newer_255_release();
+void zq_newer_set_255_release(int patch);
+
+// Whether the target's loader has readrules' "older than 2.55.<k>" fix (always for 3.0; for 2.55,
+// from the release that added it: 2.55.6's came in 2.55.10, the others in their own release).
+bool zq_newer_255_has_fix(int target, int k);
+
 // What a newer-version writer knows about the quest it converts. Upstream's loader converts an
 // old quest's data as it reads it, by the quest's header version and by each section's own
 // version; a writer that does the same conversion needs both.

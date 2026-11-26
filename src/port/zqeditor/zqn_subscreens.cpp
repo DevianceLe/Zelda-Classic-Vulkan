@@ -30,6 +30,7 @@
 #include "zqw_init.h"
 #include "zqn_subscreens.h"
 #include "zqn_out.h"
+#include "zqn_255.h"
 
 extern dmap *DMaps;
 extern zinitdata zinit;
@@ -1225,6 +1226,20 @@ int zqn_subscreens(PACKFILE *f, const ZqNewerContext &ctx)
 
     word version = ctx.target == ZQ_NEWER_30 ? 21 : 12;
     word cversion = ctx.target == ZQ_NEWER_30 ? 21 : 3;
+
+    // before 2.55.8: version 11, without the counters' colours when full
+    if(ctx.target == ZQ_NEWER_255 && zq_newer_255_release() < 8)
+    {
+        std::string why;
+
+        if(!zqn255_subscreens_as(body.b, 11, why))
+        {
+            set_error(why.c_str());
+            return 1;
+        }
+
+        version = 11;
+    }
     Buf head;
     head.w(version);
     head.w(cversion);

@@ -684,6 +684,13 @@ darknuts:
 
 // ---- upstream's init_guys and readguys' header fixes ---------------------------------------
 
+// The Dig enemies' "ignore Kill All Enemies" (guy_ignorekill) came in 2.55.4: an older release's loader
+// neither has the flag nor sets it.
+bool guy_ignorekill_known(const UCtx &c)
+{
+    return c.target == ZQ_NEWER_30 || zq_newer_255_release() >= 4;
+}
+
 void init_guys(std::vector<UGuy> &gs, const UCtx &c, int guyversion)
 {
     for(int i = 0; i < MAXGUYS; ++i)
@@ -721,7 +728,8 @@ void init_guys(std::vector<UGuy> &gs, const UCtx &c, int guyversion)
                     g.flags2 |= guy_transparent;
             }
 
-            if(i == eDIG1 || i == eDIG3)
+            // 2.55.4's flag; 2.55.0 to 2.55.3 have none
+            if((i == eDIG1 || i == eDIG3) && guy_ignorekill_known(c))
                 g.flags2 |= U_guy_ignorekill;
         }
 
@@ -1477,7 +1485,7 @@ void convert_old_record(UGuy &g, const UCtx &c, int i)
     if(g.family == eeWALK && m[8] == e9tPOLSVOICE)
         g.moveflags |= MF_CAN_WATERWALK;
 
-    if(g.family == eeDIG && m[9] != 1)
+    if(g.family == eeDIG && m[9] != 1 && guy_ignorekill_known(c))
         g.flags2 |= U_guy_ignorekill;
 
     if(!is30(c))
@@ -2099,7 +2107,7 @@ int zqn_guys(PACKFILE *f, const ZqNewerContext &ctx)
     bool fill = ctx.src_zelda_version < 0x250 || (ctx.src_zelda_version == 0x250 && ctx.src_build < 32);
     bool t30 = ctx.target == ZQ_NEWER_30;
     std::vector<byte> out;
-    put_le(out, t30 ? V_GUYS_30 : V_GUYS_255, 2);
+    put_le(out, t30 ? V_GUYS_30 : (zq_newer_255_release() >= 4 ? V_GUYS_255 : 47), 2);    // 47 before 2.55.4: the same data
     put_le(out, t30 ? V_GUYS_30 : CV_GUYS_255, 2);     // 3.0 writes the version again here
     put_le(out, 0, 4);
 
@@ -2633,7 +2641,7 @@ void convert_255_17_record(Tape &t, int v, int cv, int to, int to_cv)
         zqn255_tape_set(t, "spr_spawn", iwSpawn);
     }
 
-    if(v < 47 && to >= 47 && family == eeDIG && a9 != 1)
+    if(v < 47 && to >= 47 && family == eeDIG && a9 != 1 && zq_newer_255_release() >= 4)
         zqn255_tape_set(t, "flags2", (dword)t.get("flags2") | U_guy_ignorekill);
 }
 
@@ -2647,7 +2655,13 @@ int zqn255_17_guys(PACKFILE *f, const ZqNewerContext &ctx)
     int to = zq_newer_convert_to(&to_cv);
 
     if(!to)
+    {
+        // 2.55.18's, or 47 before 2.55.4 (the same data: a version 47 section is then laid out again)
         to = V_GUYS_255, to_cv = CV_GUYS_255;
+
+        if(zq_newer_255_release() < 4)
+            to = 47;
+    }
     else if(to <= ctx.src_version || to > V_GUYS_255)
         return ZQW_UNSUPPORTED;
 

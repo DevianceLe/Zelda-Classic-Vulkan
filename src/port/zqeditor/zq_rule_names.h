@@ -39,6 +39,10 @@ struct ZqRuleQuest
 // loads them: compatibility rules turned on for quests older than they are, and so on.
 void zq_rules_upstream(bool is30, unsigned char *rules, const ZqRuleQuest &q);
 
+// Whether the rules being worked out are a loader's that has readrules' "older than 2.55.<k>" fix: true
+// but while a quest is saved as a 2.55 release older than the one that added it (zq_builds_255.cpp).
+bool zq_rules_255_fix(int k);
+
 // The compat rule version the generation's own editor saves (every update above decided).
 unsigned long zq_rules_latest_compat(bool is30);
 

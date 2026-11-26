@@ -2330,6 +2330,19 @@ int zqn255_17_combos(PACKFILE *f, const ZqNewerContext &ctx)
         return 2;
 
     const bool edit_combo_0 = (rules[230 >> 3] >> (230 & 7)) & 1;     // qr_ALLOW_EDITING_COMBO_0
+
+    // The cuttables' trigger fix (CMBTYPEFX) for quests from before 2.55.14 came in 2.55.14: an older
+    // release's loader doesn't make it, so the combos are read as a 2.55.14 quest's would be.
+    struct NoCutFix
+    {
+        int patch;
+        NoCutFix() : patch(q255_header_version[2])
+        {
+            if(zq_newer_255_release() < 14 && q255_header_version[2] < 14)
+                q255_header_version[2] = 14;
+        }
+        ~NoCutFix() { q255_header_version[2] = patch; }
+    } no_cut_fix;
     Out blank_trigger;
     put_trigger(blank_trigger, 45, Q30Trigger());
 

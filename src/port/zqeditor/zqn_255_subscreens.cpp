@@ -831,6 +831,36 @@ struct TapeSetter
 };
 
 // The new format (versions 8-12) as 2.55.17 reads it, written as its version 12 (see the top).
+} // namespace
+
+// (zqn_255.h) A version 12 section's data laid out as an older version of the new format (8-11): the
+// fields that version doesn't have dropped (11: each counter's and button counter's colours when full).
+bool zqn255_subscreens_as(std::vector<byte> &data, int to_version, std::string &why)
+{
+    Tape t;
+    TapeParser p(data.empty() ? NULL : &data[0], data.size(), 0, &t);
+
+    if(!zq_tape_subscreens(p, 12) || p.bad || p.pos != data.size())
+    {
+        why = "its subscreens aren't laid out as version 12's";
+        return false;
+    }
+
+    std::vector<byte> out;
+
+    if(!zqn255_tape_rebuild(zq_tape_subscreens, t, to_version, out))
+    {
+        why = "its subscreens couldn't be laid out as an older version";
+        return false;
+    }
+
+    data.swap(out);
+    return true;
+}
+
+namespace
+{
+
 bool convert_new_255(const Bytes &data, int v, Held &h, std::string &why)
 {
     if(v < 8 || v > 12)
@@ -1218,22 +1248,33 @@ int write_subscreens_255(PACKFILE *f, const ZqNewerContext &ctx)
     }
 
     std::vector<byte> none;
-
-    if(!h.section.empty())
-        return zqn255_emit(f, ID_SUBSCREEN, 12, 3, none, h.section);
-
     Zqn255Out o;
 
-    for(int l = 0; l < 3; ++l)
+    if(!h.section.empty())
+        o.b = h.section;
+    else
     {
-        const size_t n = h.lists[l].size() & 0xFF;
-        o.c((int64_t)n);
+        for(int l = 0; l < 3; ++l)
+        {
+            const size_t n = h.lists[l].size() & 0xFF;
+            o.c((int64_t)n);
 
-        for(size_t q = 0; q < n; ++q)
-            o.put(h.lists[l][q]);
+            for(size_t q = 0; q < n; ++q)
+                o.put(h.lists[l][q]);
+        }
     }
 
-    return zqn255_emit(f, ID_SUBSCREEN, 12, 3, none, o.b);
+    // before 2.55.8: version 11, without the counters' colours when full
+    word sv = 12, scv = 3;
+    zqn255_newest(ID_SUBSCREEN, ZQ_NEWER_255, &sv, &scv);
+
+    if(sv != 12 && !zqn255_subscreens_as(o.b, sv, why))
+    {
+        zqw_last_error = why;
+        return 2;
+    }
+
+    return zqn255_emit(f, ID_SUBSCREEN, sv, scv, none, o.b);
 }
 
 ZqNewerRegistration g_reg_subscreens_255(ID_SUBSCREEN, write_subscreens_255, "2.55 subscreens as 2.55.18");

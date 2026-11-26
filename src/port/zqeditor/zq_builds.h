@@ -20,3 +20,4 @@ void zq_builds_30(std::vector<zq_build>& out);
 long zq_made_order_old();
 long zq_made_order_255();
 long zq_made_order_30();
+void zq_builds_192(std::vector<zq_build>& out);

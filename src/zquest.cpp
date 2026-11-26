@@ -24444,6 +24444,11 @@ int main(int argc,char **argv)
             int ret = load_quest(argv[newer_arg+1],true,true);
             std::string why;
             int target = atoi(argv[newer_arg+3]) == 30 ? ZQ_NEWER_30 : ZQ_NEWER_255;
+            // "255.<n>": as the 2.55 release 2.55.<n> (port/zqeditor/zq_builds_255.cpp)
+            const char *release = strchr(argv[newer_arg+3], '.');
+
+            if(target == ZQ_NEWER_255 && release)
+                zq_newer_set_255_release(atoi(release + 1));
 
             if(ret == qe_OK)
                 ret = zq_save_newer(argv[newer_arg+2], target, why);

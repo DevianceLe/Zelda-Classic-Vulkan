@@ -2460,7 +2460,8 @@ void write_screen(Out &o, const UScr &s, int j, int target, long music)
         }
     }
 
-    o.p32(0);           // the user's notes
+    if(v30 || zq_newer_255_release() >= 2)
+        o.p32(0);       // the user's notes (map version 30, from 2.55.2)
 
     // 3.0 writes a screen gravity when flags10 has either of its two low bits
     if(v30 && (s.flags[9] & 0x03))
@@ -2541,7 +2542,7 @@ int zqn_maps(PACKFILE *f, const ZqNewerContext &ctx)
     if(target == ZQ_NEWER_30)
         return put_section(f, ID_MAPS, 41, 41, o);
 
-    return put_section(f, ID_MAPS, 30, 9, o);
+    return put_section(f, ID_MAPS, zq_newer_255_release() >= 2 ? 30 : 29, 9, o);
 }
 
 ZqNewerRegistration g_reg_maps(ID_MAPS, zqn_maps, "maps for 2.55.18 and 3.0");

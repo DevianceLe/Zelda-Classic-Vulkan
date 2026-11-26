@@ -39,6 +39,7 @@
 #include "port/zqeditor/zq_exports.h"
 #include "port/game/quest_version.h"
 #include "port/zqeditor/zq_zinfo.h"
+#include "port/zqeditor/zq_builds.h"
 #endif
 
 #ifdef _MSC_VER
@@ -637,10 +638,7 @@ int PickRuleset()
 
 #ifdef ZC_ZQEDITOR
 // File > New asks which version of ZC the new quest is for (below, with the saving code).
-static int zq_pick_new_version();
-static bool zq_new_version_uses_template(int v);
-static void zq_new_quest_as(int v);
-static bool zq_new_from_tileset(int v);
+static int zq_pick_new_build(std::vector<zq_build> &builds);
 #endif
 
 int onNew()
@@ -649,22 +647,16 @@ int onNew()
         return D_O_K;
 
 #ifdef ZC_ZQEDITOR
-    int v = zq_pick_new_version();
-
-    if(v < 0)
-        return D_O_K;
-
-    // a version whose own ZQuest shipped a new-quest file starts from that file as it is
-    if(zq_new_version_uses_template(v))
+    // every build the catalog starts a new quest in (port/zqeditor/zq_builds.h)
     {
-        zq_new_quest_as(v);
+        std::vector<zq_build> builds;
+        int b = zq_pick_new_build(builds);
+
+        if(b >= 0)
+            builds[b].make_new(builds[b]);
+
         return D_O_K;
     }
-
-    // 2.55.19 and 3.0 Nightly: from a tileset, as their own ZQuest's File > New does (true: made
-    // or cancelled; false: not such a version, or no tileset files, so 2.53.1's new quest below)
-    if(zq_new_from_tileset(v))
-        return D_O_K;
 #endif
     /*
       int ret=ListQTs(false);
@@ -679,9 +671,6 @@ int onNew()
     if(RulesetDialog > 0)
         PickRuleset();
 
-#ifdef ZC_ZQEDITOR
-    zq_new_quest_as(v);
-#endif
     return D_O_K;
 }
 
@@ -1135,87 +1124,147 @@ static int zq_save_own(const char *path)
     return 1;
 }
 
-// The versions Save As offers: the quest's own, or newer ones (never an older one).
-enum { ZQV_CANCEL, ZQV_OWN, ZQV_253, ZQV_255, ZQV_30 };
+// ---- Save As: the quest's own build or a newer one (port/zqeditor/zq_builds.h) -------------------
 
-// Whether a quest was made in 2.55.18 or a later 2.55 release: "As 2.55.19" isn't offered for it.
-// 2.55.19 writes every section in 2.55.18's formats, so such a quest is already in them (a quest
-// made in 2.55.19 or later would only be marked as older), and its own version keeps it as made.
-// A quest made in 2.55.17 or before is offered it: its sections come up to 2.55.18's formats,
-// and the header says 2.55.19 saved it, as 2.55.19 itself does.
-static bool zq_made_in_255_release(const std::string &made, long patch)
+// zq_builds.cpp: the builds after the open quest's own, and every build File > New offers
+void zq_builds_for_save_as(std::vector<zq_build> &newer, std::string &own_name);
+long zq_builds_made(int *gen);
+void zq_builds_for_new(std::vector<zq_build> &out);
+
+static std::vector<std::string> zq_build_rows;
+
+static const char *zq_build_row_list(int index, int *list_size)
 {
-    if(made.compare(0, 5, "2.55.") != 0)
-        return false;
-
-    const char *p = made.c_str() + 5;
-    char *end = NULL;
-    long n = strtol(p, &end, 10);
-    return end != p && *end == 0 && n >= patch;
-}
-
-static int zq_choose_version()
-{
-    std::string made = zc_quest_built_with(header.zelda_version, header.build);
-    bool is253 = header.zelda_version == ZELDA_VERSION && header.build == VERSION_BUILD;
-    bool newer = zq255_quest_is_newer();
-    bool is30 = newer && made.compare(0, 2, "3.") == 0;
-    bool is25518 = newer && zq_made_in_255_release(made, 18);
-    std::vector<int> up;    // the newer versions on offer, oldest first
-
-    if(!newer && !is253)
-        up.push_back(ZQV_253);
-    if(!is30 && !is25518)
-        up.push_back(ZQV_255);
-    // a quest made in a 3.0 prerelease whose parts are older than 3.0 Nightly's: still newer
-    if(!is30 || zq_newer_upgrades(ZQ_NEWER_30))
-        up.push_back(ZQV_30);
-
-    if(up.empty())
-        return ZQV_OWN;
-
-    // a long version (a 3.0 prerelease's "3.0.0-prerelease.211+2026-08-09") would push the other
-    // buttons out of the dialog: the line above names it
-    std::string own = "As " + ((made.empty() || made.size() > 20) ? std::string("its own version") : made);
-    std::string line = "It was made in " + (made.empty() ? std::string("an unknown version") : made) + ".";
-    int c = jwin_alert3("Save Quest As", "Which version of ZC should this file be for?", line.c_str(), NULL,
-                        own.c_str(), "As a newer version", "Cancel", 0, 0, 0, lfont);
-
-    if(c == 1)
-        return ZQV_OWN;
-    if(c != 2)
-        return ZQV_CANCEL;
-
-    int pick = up[0];
-
-    if(up.size() > 1)
+    if(index < 0)
     {
-        const char *label[4] = { "", "", "As 2.53.1", "As 2.55.19" };
-        const char *b[3] = { NULL, NULL, NULL };
-
-        for(size_t i = 0; i < up.size(); ++i)
-            b[i] = up[i] == ZQV_30 ? "As 3.0 Nightly" : label[up[i] == ZQV_253 ? 2 : 3];
-
-        int d = up.size() == 3 ? jwin_alert3("Save Quest As", "Which newer version?", NULL, NULL, b[0], b[1], b[2], 0, 0, 0, lfont)
-                               : jwin_alert3("Save Quest As", "Which newer version?", NULL, NULL, b[0], b[1], "Cancel", 0, 0, 0, lfont);
-
-        if(d < 1 || d > (int)up.size())
-            return ZQV_CANCEL;
-
-        pick = up[d - 1];
+        *list_size = (int)zq_build_rows.size();
+        return NULL;
     }
 
-    if(pick == ZQV_255 || pick == ZQV_30)
+    return index < (int)zq_build_rows.size() ? zq_build_rows[index].c_str() : "";
+}
+
+static ListData zq_build_row_list_data(zq_build_row_list, &font);
+
+static DIALOG zq_build_list_dlg[] =
+{
+    // (dialog proc)     (x)   (y)   (w)   (h)   (fg)     (bg)    (key)    (flags)     (d1)           (d2)     (dp)
+    { jwin_win_proc,          0,      0,    220,    150,    vc(14),                vc(1),                  0,    D_EXIT,     0,           0, (void *) "Save Quest As",       NULL,   NULL  },
+    { jwin_text_proc,        12,     26,    196,      8,    vc(14),                vc(1),                  0,    0,          0,           0, (void *) "Which version of ZC should this file be for?", NULL, NULL },
+    { jwin_list_proc,        12,     40,    196,     68,    jwin_pal[jcBOXFG],     jwin_pal[jcLIGHT],      0,    D_EXIT,     0,           0, (void *) &zq_build_row_list_data, NULL, NULL },
+    { jwin_button_proc,      40,    118,     61,     21,    vc(14),                vc(1),                 13,    D_EXIT,     0,           0, (void *) "OK",                  NULL,   NULL  },
+    { jwin_button_proc,     120,    118,     61,     21,    vc(14),                vc(1),                 27,    D_EXIT,     0,           0, (void *) "Cancel",              NULL,   NULL  },
+    { d_timer_proc,           0,      0,      0,      0,    0,                     0,                      0,    0,          0,           0,  NULL,                             NULL,   NULL  },
+    { NULL,                   0,      0,      0,      0,    0,                     0,                      0,    0,          0,           0,  NULL,                             NULL,   NULL  }
+};
+
+// The rows in zq_build_rows; the row picked, or -1 when the user cancelled.
+static int zq_pick_build_row(const char *title, const char *question, int dflt)
+{
+    zq_build_list_dlg[0].dp = (void *)title;
+    zq_build_list_dlg[1].dp = (void *)question;
+    zq_build_list_dlg[0].dp2 = lfont;
+
+    // (large_dialog marks the dialog done; switching the layout puts it back as it was)
+    if(is_large)
+        large_dialog(zq_build_list_dlg);
+
+    zq_build_list_dlg[2].d1 = dflt;
+    zq_build_list_dlg[2].d2 = dflt > 6 ? dflt - 6 : 0;
+    int ret = zc_popup_dialog(zq_build_list_dlg, 2);
+
+    if(ret != 2 && ret != 3)
+        return -1;
+
+    int pick = zq_build_list_dlg[2].d1;
+    return pick >= 0 && pick < (int)zq_build_rows.size() ? pick : -1;
+}
+
+// Save As: -1 cancelled, 0 the quest's own version, k the build newer[k - 1].
+static int zq_choose_build(std::vector<zq_build> &newer)
+{
+    std::string own_name;
+    zq_builds_for_save_as(newer, own_name);
+
+    if(newer.empty())
+        return 0;
+
+    std::string made = zc_quest_built_with(header.zelda_version, header.build);
+
+    if(made.empty())
+        made = "an unknown version";
+
+    zq_build_rows.clear();
+    // a long version (a 3.0 prerelease's "3.0.0-prerelease.211+2026-08-09") stays readable cut short
+    std::string own = own_name.empty() ? made : own_name;
+
+    if(own.size() > 24)
+        own = own.substr(0, 24) + "...";
+
+    zq_build_rows.push_back(own + " (made in)");
+
+    for(size_t i = 0; i < newer.size(); ++i)
+        zq_build_rows.push_back(newer[i].name);
+
+    int pick = zq_pick_build_row("Save Quest As", "Which version of ZC should this file be for?", 0);
+
+    if(pick <= 0)
+        return pick;
+
+    // a newer generation's file isn't one the quest's own version opens
+    int gen = 0;
+    zq_builds_made(&gen);
+    const zq_build &b = newer[pick - 1];
+
+    if(b.gen > gen && b.gen >= 0x255)
     {
-        const char *t = pick == ZQV_255 ? "2.55.19" : "3.0 Nightly";
-        std::string q = std::string("Older versions of ZC can't open a ") + t + " quest file.";
-        std::string a = std::string("Save this quest as ") + t + "?";
+        std::string q = "Older versions of ZC can't open a " + b.name + " quest file.";
+        std::string a = "Save this quest as " + b.name + "?";
 
         if(jwin_alert("Save Quest As", q.c_str(), a.c_str(), NULL, "&Yes", "&No", 'y', 'n', lfont) != 1)
-            return ZQV_CANCEL;
+            return -1;
     }
 
     return pick;
+}
+
+// For the build catalog's entries (zq_builds.cpp, zq_builds_255.cpp): the open quest saved as 2.53.1
+// (ZQuest's own 2.53 save, when its tiles fit), and as a newer version (zq_save_newer). Each tells the
+// user why when nothing was saved.
+bool zq_files_save_253(const char *path)
+{
+    if(!zq_fits_253("saved as 2.53.1"))
+        return false;
+
+    char p[2048];
+    strncpy(p, path, sizeof(p) - 1);
+    p[sizeof(p) - 1] = 0;
+
+    if(save_quest(p, false))
+    {
+        char buf[1024], name[13];
+        extract_name(p, name, FILENAME8_3);
+        sprintf(buf, "Error saving %s", name);
+        jwin_alert("Error", buf, NULL, NULL, "O&K", NULL, 'k', 0, lfont);
+        return false;
+    }
+
+    zq_sections_forget();           // the file is a 2.53.1 quest now
+    return true;
+}
+
+bool zq_files_save_newer(const char *path, int target)
+{
+    std::string why;
+    int r = zq_save_newer(path, target, why);
+
+    if(r == 0)
+        return true;
+
+    // 8: parts newer than the target holds, which no converter will ever write older
+    std::string line1 = std::string("This quest can't be saved as ") + zq_newer_target_name(target) + (r == 8 ? "." : " yet.");
+    jwin_alert("ZQuest", line1.c_str(), why.c_str(), "Nothing was saved.", "O&K", NULL, 'k', 0, lfont);
+    return false;
 }
 
 // After saving as a newer version: opens that file as File > Open would, so what is edited from
@@ -1292,71 +1341,84 @@ static const ZqNewVersion zq_new_versions[] =
     { "2.50.1",                  "2.50.1",      ZQN_TEMPLATE, "templates/2.50.1.qst" },
     { "2.53.0",                  "2.53.0",      ZQN_253_0,    NULL },
     { "2.53.1 (this ZQuest's)",  "2.53.1",      ZQN_OWN253,   NULL },
-    { "2.55.19",                 "2.55.19",     ZQN_255,      NULL },
     { "3.0 Nightly",             "3.0 Nightly", ZQN_30,       NULL },
 };
 static const int zq_new_version_count = (int)(sizeof(zq_new_versions) / sizeof(zq_new_versions[0]));
 
-// The versions on offer (a template version only when its file is there), as indices above.
-static std::vector<int> zq_new_offered;
-
-static const char *zq_new_version_list(int index, int *list_size)
+// File > New: the build picked from the catalog's list (2.53.1 chosen first), or -1 when cancelled.
+static int zq_pick_new_build(std::vector<zq_build> &builds)
 {
-    if(index < 0)
-    {
-        *list_size = (int)zq_new_offered.size();
-        return NULL;
-    }
+    zq_builds_for_new(builds);
 
-    return index < (int)zq_new_offered.size() ? zq_new_versions[zq_new_offered[index]].label : "";
-}
-
-static ListData zq_new_version_list_data(zq_new_version_list, &font);
-
-static DIALOG zq_new_version_dlg[] =
-{
-    // (dialog proc)     (x)   (y)   (w)   (h)   (fg)     (bg)    (key)    (flags)     (d1)           (d2)     (dp)
-    { jwin_win_proc,          0,      0,    220,    150,    vc(14),                vc(1),                  0,    D_EXIT,     0,           0, (void *) "New Quest",           NULL,   NULL  },
-    { jwin_text_proc,        12,     26,    196,      8,    vc(14),                vc(1),                  0,    0,          0,           0, (void *) "Which version of ZC is this quest for?", NULL, NULL },
-    { jwin_list_proc,        12,     40,    196,     68,    jwin_pal[jcBOXFG],     jwin_pal[jcLIGHT],      0,    D_EXIT,     0,           0, (void *) &zq_new_version_list_data, NULL, NULL },
-    { jwin_button_proc,      40,    118,     61,     21,    vc(14),                vc(1),                 13,    D_EXIT,     0,           0, (void *) "OK",                  NULL,   NULL  },
-    { jwin_button_proc,     120,    118,     61,     21,    vc(14),                vc(1),                 27,    D_EXIT,     0,           0, (void *) "Cancel",              NULL,   NULL  },
-    { d_timer_proc,           0,      0,      0,      0,    0,                     0,                      0,    0,          0,           0,  NULL,                             NULL,   NULL  },
-    { NULL,                   0,      0,      0,      0,    0,                     0,                      0,    0,          0,           0,  NULL,                             NULL,   NULL  }
-};
-
-// An index into zq_new_versions, or -1 when the user cancelled.
-static int zq_pick_new_version()
-{
-    zq_new_offered.clear();
-    int dflt = 0;
-
-    for(int i = 0; i < zq_new_version_count; ++i)
-    {
-        if(zq_new_versions[i].kind == ZQN_TEMPLATE && !exists(zq_new_versions[i].file))
-            continue;
-
-        if(zq_new_versions[i].kind == ZQN_OWN253)
-            dflt = (int)zq_new_offered.size();
-
-        zq_new_offered.push_back(i);
-    }
-
-    zq_new_version_dlg[0].dp2 = lfont;
-
-    // (large_dialog marks the dialog done; switching the layout puts it back as it was)
-    if(is_large)
-        large_dialog(zq_new_version_dlg);
-
-    zq_new_version_dlg[2].d1 = dflt;
-    zq_new_version_dlg[2].d2 = 0;
-    int ret = zc_popup_dialog(zq_new_version_dlg, 2);
-
-    if(ret != 2 && ret != 3)
+    if(builds.empty())
         return -1;
 
-    int pick = zq_new_version_dlg[2].d1;
-    return pick >= 0 && pick < (int)zq_new_offered.size() ? zq_new_offered[pick] : -1;
+    zq_build_rows.clear();
+    int dflt = 0;
+
+    for(size_t i = 0; i < builds.size(); ++i)
+    {
+        std::string row = builds[i].name;
+
+        if(row == "2.53.1")
+        {
+            row += " (this ZQuest's)";
+            dflt = (int)i;
+        }
+
+        zq_build_rows.push_back(row);
+    }
+
+    return zq_pick_build_row("New Quest", "Which version of ZC is this quest for?", dflt);
+}
+
+static bool zq_new_version_uses_template(int v);
+static void zq_new_quest_as(int v);
+static bool zq_new_from_tileset(int v);
+
+static int zq_new_fixed_index(const char *version)
+{
+    for(int i = 0; i < zq_new_version_count; ++i)
+        if(!strcmp(zq_new_versions[i].name, version))
+            return i;
+
+    return -1;
+}
+
+// For the build catalog's stand-ins (zq_builds.cpp): File > New in one of the versions listed above,
+// as it was made before the catalog, and whether it is offered (a template version: its file is there).
+bool zq_files_new_fixed_offered(const char *version)
+{
+    const int v = zq_new_fixed_index(version);
+    return v >= 0 && (zq_new_versions[v].kind != ZQN_TEMPLATE || exists(zq_new_versions[v].file));
+}
+
+bool zq_files_new_fixed(const char *version)
+{
+    const int v = zq_new_fixed_index(version);
+
+    if(v < 0)
+        return false;
+
+    // a version whose own ZQuest shipped a new-quest file starts from that file as it is
+    if(zq_new_version_uses_template(v))
+    {
+        zq_new_quest_as(v);
+        return true;
+    }
+
+    // 3.0 Nightly: from a tileset, as its own ZQuest's File > New does (true: made or cancelled;
+    // false: no tileset files, so 2.53.1's new quest below)
+    if(zq_new_from_tileset(v))
+        return true;
+
+    NewQuestFile(0);
+
+    if(RulesetDialog > 0)
+        PickRuleset();
+
+    zq_new_quest_as(v);
+    return true;
 }
 
 static bool zq_new_version_uses_template(int v)
@@ -1465,21 +1527,26 @@ static void zq_new_quest_as(int v)
 // version and opened from there; 3.0 gets upstream's new-quest viewport deadzone of 32
 // (port/zqeditor/zq_new_quest.cpp).
 bool zq_new_quest_from_tileset(int ruleset, bool bugfix, bool zs_bugfix, std::string &why);
+bool zq_new_quest_255(int patch, int flow, int ruleset, bool bugfix, bool zs_bugfix, std::string &why);
 
+// the tilesets the New dialog offers: Cambria and Classic, or Classic alone (2.55.0 to 2.55.7, which
+// shipped no Cambria)
 static const char *zq_new_tileset_names[2] = { "Cambria (recommended)", "Classic" };
+static int zq_new_tileset_first = 0;
 
 static const char *zq_new_tileset_list(int index, int *list_size)
 {
+    const int n = 2 - zq_new_tileset_first;
+
     if(index < 0)
     {
-        *list_size = 2;
+        *list_size = n;
         return NULL;
     }
 
-    return index < 2 ? zq_new_tileset_names[index] : "";
+    return index < n ? zq_new_tileset_names[index + zq_new_tileset_first] : "";
 }
 
-// upstream's Pick Ruleset list, in its order (its ruleset numbers beside); first: none picked
 static const char *zq_new_ruleset_names[6] = { "The tileset's own", "Modern", "SNES (Enhanced)", "SNES (BS)", "Fixed NES",
                                                "Authentic NES" };
 static const int zq_new_ruleset_ids[6] = { 0, 5, 4, 3, 2, 1 };
@@ -1514,30 +1581,26 @@ static DIALOG zq_new_tileset_dlg[] =
     { NULL,                   0,      0,      0,      0,    0,                     0,                      0,    0,          0,           0,  NULL,                             NULL,   NULL  }
 };
 
-static bool zq_new_from_tileset(int v)
+// The New dialog and a new quest from a tileset, in the version named (3.0 Nightly, or a 2.55 release:
+// patch 0 to 19 and its File > New's flow, zq_builds_255_data.h; patch -1 for 3.0). cambria NULL: the
+// version shipped no Cambria. False when neither tileset file is there (nothing asked, nothing made).
+static bool zq_new_from_tileset_files(const char *name, bool is30, const char *cambria, const char *classic, int patch, int flow)
 {
-    if(v < 0 || v >= zq_new_version_count)
-        return false;
-
-    const ZqNewVersion &nv = zq_new_versions[v];
-
-    if(nv.kind != ZQN_255 && nv.kind != ZQN_30)
-        return false;
-
-    const bool is30 = nv.kind == ZQN_30;
-    const char *files[2] = { "templates/cambria.qst", is30 ? "templates/classic_3.0.qst" : "templates/classic_2.55.qst" };
+    const char *files[2] = { cambria, classic };
+    const bool have[2] = { cambria && exists(cambria), classic && exists(classic) };
 
     // without the tileset files: the 2.53.1 new quest saved as the version, as before
-    if(!exists(files[0]) && !exists(files[1]))
+    if(!have[0] && !have[1])
         return false;
 
+    zq_new_tileset_first = cambria ? 0 : 1;
     zq_new_tileset_dlg[0].dp2 = lfont;
 
     // (large_dialog marks the dialog done; switching the layout puts it back as it was)
     if(is_large)
         large_dialog(zq_new_tileset_dlg);
 
-    zq_new_tileset_dlg[2].d1 = exists(files[0]) ? 0 : 1;
+    zq_new_tileset_dlg[2].d1 = (cambria && !have[0]) ? 1 : 0;
     zq_new_tileset_dlg[2].d2 = 0;
     zq_new_tileset_dlg[6].d1 = 0;
     zq_new_tileset_dlg[3].flags |= D_SELECTED;
@@ -1546,15 +1609,18 @@ static bool zq_new_from_tileset(int v)
     if(zc_popup_dialog(zq_new_tileset_dlg, 7) != 7)
         return true;
 
-    const int pick = zq_new_tileset_dlg[2].d1 == 1 ? 1 : 0;
+    int pick = zq_new_tileset_first + (zq_new_tileset_dlg[2].d1 == 1 ? 1 : 0);
+
+    if(pick > 1)
+        pick = 1;
     const bool bugfix = (zq_new_tileset_dlg[3].flags & D_SELECTED) != 0;
     const bool zs_bugfix = (zq_new_tileset_dlg[4].flags & D_SELECTED) != 0;
     const int rs = zq_new_tileset_dlg[6].d1;
     const int ruleset = rs >= 0 && rs < 6 ? zq_new_ruleset_ids[rs] : 0;
 
-    if(!exists(files[pick]))
+    if(!have[pick])
     {
-        jwin_alert("ZQuest", "The tileset file isn't there:", files[pick], "Nothing was made.", "O&K", NULL, 'k', 0, lfont);
+        jwin_alert("ZQuest", "The tileset file isn't there:", files[pick] ? files[pick] : "", "Nothing was made.", "O&K", NULL, 'k', 0, lfont);
         return true;
     }
 
@@ -1579,7 +1645,7 @@ static bool zq_new_from_tileset(int v)
 
     if(zq_save_newer(path.c_str(), target, why) != 0)
     {
-        std::string line1 = std::string("The tileset couldn't be made a ") + nv.name + " quest:";
+        std::string line1 = std::string("The tileset couldn't be made a ") + name + " quest:";
         jwin_alert("ZQuest", line1.c_str(), why.c_str(), "The new quest is a 2.53.1 quest.", "O&K", NULL, 'k', 0, lfont);
         remove(path.c_str());
         NewQuestFile(0);
@@ -1598,15 +1664,77 @@ static bool zq_new_from_tileset(int v)
     set_questpwd("", false);
     header.dirty_password = false;
 
-    if(!zq_new_quest_from_tileset(ruleset, bugfix, zs_bugfix, why))
+    const bool rules_ok = patch >= 0 ? zq_new_quest_255(patch, flow, ruleset, bugfix, zs_bugfix, why)
+                                     : zq_new_quest_from_tileset(ruleset, bugfix, zs_bugfix, why);
+
+    if(!rules_ok)
         jwin_alert("ZQuest", "The new quest's rules couldn't be set:", why.c_str(), "It keeps the tileset's.", "O&K", NULL, 'k', 0, lfont);
 
     Map.setCurrMap(vbound(zinit.last_map, 0, map_count - 1));
     Map.setCurrScr(zinit.last_screen);
-    zq_new_untitled(nv.name);
+    zq_new_untitled(name);
     saved = false;          // as upstream: the new quest is unsaved
     return true;
 }
+
+static bool zq_new_from_tileset(int v)
+{
+    if(v < 0 || v >= zq_new_version_count)
+        return false;
+
+    const ZqNewVersion &nv = zq_new_versions[v];
+
+    if(nv.kind != ZQN_255 && nv.kind != ZQN_30)
+        return false;
+
+    const bool is30 = nv.kind == ZQN_30;
+    return zq_new_from_tileset_files(nv.name, is30, "templates/cambria.qst",
+                                     is30 ? "templates/classic_3.0.qst" : "templates/classic_2.55.qst", -1, 2);
+}
+
+// File > New in a 2.55 release (zq_builds_255.cpp): as that release's ZQuest makes a new quest, from
+// its tilesets (flow 0: Classic alone), the release's rules and its formats; without the tileset files,
+// ZQuest's new quest saved as that release.
+bool zq_files_new_255(int patch, int flow, const char *classic, const char *cambria)
+{
+    const int was = zq_newer_255_release();
+    zq_newer_set_255_release(patch);
+    char name[16];
+    snprintf(name, sizeof(name), "2.55.%d", patch);
+
+    if(!zq_new_from_tileset_files(name, false, flow == 0 ? NULL : cambria, classic, patch, flow))
+    {
+        NewQuestFile(0);
+
+        if(RulesetDialog > 0)
+            PickRuleset();
+
+        char tmp[64];
+        temp_name(tmp);
+        std::string path = std::string(tmp) + ".qst";
+        std::string why;
+
+        if(zq_save_newer(path.c_str(), ZQ_NEWER_255, why) != 0)
+        {
+            std::string line1 = std::string("The new quest couldn't be made for ") + name + ":";
+            jwin_alert("ZQuest", line1.c_str(), why.c_str(), "It is a 2.53.1 quest.", "O&K", NULL, 'k', 0, lfont);
+        }
+        else
+        {
+            zq_reopen(path.c_str());
+            Map.setCurrMap(0);
+            Map.setCurrScr(0);
+            zq_new_untitled(name);
+        }
+
+        remove(path.c_str());
+        remove(zq_zinfo_path(path.c_str()).c_str());
+    }
+
+    zq_newer_set_255_release(was);
+    return true;
+}
+
 #endif
 
 int onSave()
@@ -1709,34 +1837,31 @@ int onSaveAs()
     }
     
 #ifdef ZC_ZQEDITOR
-    // The version it was made in, or a newer one; never an older one.
+    // The build it was made in, or a newer one; never an older one (zq_builds.h).
     {
-        int v = zq_choose_version();
+        std::vector<zq_build> newer;
+        int v = zq_choose_build(newer);
 
-        if(v == ZQV_CANCEL)
+        if(v < 0)
             return D_O_K;
 
-        if(v == ZQV_255 || v == ZQV_30)
+        if(v > 0)
         {
-            int target = v == ZQV_255 ? ZQ_NEWER_255 : ZQ_NEWER_30;
-            std::string why;
-            int r = zq_save_newer(temppath, target, why);
+            const zq_build &b = newer[v - 1];
+            char p[2048];
+            strncpy(p, temppath, sizeof(p) - 1);
+            p[sizeof(p) - 1] = 0;
 
-            if(r != 0)
-            {
-                // 8: parts newer than the target holds, which no converter will ever write older
-                std::string line1 = std::string("This quest can't be saved as ") + zq_newer_target_name(target) + (r == 8 ? "." : " yet.");
-                jwin_alert("ZQuest", line1.c_str(), why.c_str(), "Nothing was saved.", "O&K", NULL, 'k', 0, lfont);
+            if(!b.save_as(b, p))
                 return D_O_K;
-            }
 
             // from now on the quest is that file, in that version
-            zq_reopen(temppath);
-            zq_saved_message(temppath, zq_newer_target_name(target));
+            zq_reopen(p);
+            zq_saved_message(p, b.name.c_str());
             return D_O_K;
         }
 
-        if(v == ZQV_OWN && zq_saves_own_format())
+        if(zq_saves_own_format())
         {
             int r = zq_save_own(temppath);
 

@@ -312,7 +312,8 @@ int zqn_header(PACKFILE *f, const ZqNewerContext &ctx)
     }
     else
     {
-        o.l(2); o.l(55); o.l(19); o.l(0);   // 2.55.19 (V_ZC_THIRD; its sections are 2.55.18's, which changed from 2.55.17's)
+        // the release written (V_ZC_THIRD): 2.55.19 unless an older release was picked (zq_builds_255.cpp)
+        o.l(2); o.l(55); o.l(zq_newer_255_release()); o.l(0);
         o.l(0); o.l(0); o.l(0); o.l(1);     // a release
     }
 

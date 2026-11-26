@@ -85,6 +85,9 @@ set(ZQEDITOR_SOURCES
 	${ZCPORT_DIR}/zqeditor/zq_new_quest.cpp
 	${ZCPORT_DIR}/zqeditor/zq_builds_30.cpp
 	${ZCPORT_DIR}/zqeditor/zq_builds_30_new.cpp
+	# the build catalog: every ZC build File > New starts in and Save As saves as (zq_builds.h)
+	${ZCPORT_DIR}/zqeditor/zq_builds.cpp
+	${ZCPORT_DIR}/zqeditor/zq_builds_255.cpp
 	# compiling 2.55 / 3.0 quests' ZScript with zscript255 / zscript30
 	${ZCPORT_DIR}/zqeditor/zq_compile.cpp
 	${ZCPORT_DIR}/zqeditor/zq_compile_dialog.cpp
@@ -157,6 +160,16 @@ target_include_directories(zqeditor PRIVATE
 target_compile_definitions(zqeditor PRIVATE ZCPORT_MAGIC_MAIN ZC_ZQEDITOR
 	"ZPLAYER_WINDOW_TITLE=\"ZQuest Vulkan 2.53.444.7\"")
 target_link_libraries(zqeditor PRIVATE zcport_sdl zcport zc_stb_vorbis zc_minimp3 zc_gme zc_dumb)
+# the build catalog's other generations: zq_builds.cpp's stand-ins give way once their files are there
+if(EXISTS ${ZCPORT_DIR}/zqeditor/zq_builds_old.cpp)
+	target_compile_definitions(zqeditor PRIVATE ZQ_HAVE_BUILDS_OLD)
+endif()
+if(EXISTS ${ZCPORT_DIR}/zqeditor/zq_builds_192.cpp)
+	target_compile_definitions(zqeditor PRIVATE ZQ_HAVE_BUILDS_192)
+endif()
+if(EXISTS ${ZCPORT_DIR}/zqeditor/zq_builds_30.cpp)
+	target_compile_definitions(zqeditor PRIVATE ZQ_HAVE_BUILDS_30)
+endif()
 if(WIN32)
 	target_link_libraries(zqeditor PRIVATE windowscodecs ole32)
 endif()

@@ -78,6 +78,20 @@ void zqn255_newest(dword id, int target, word *version, word *cversion)
 
         *version = target == ZQ_NEWER_30 ? g_newest[i].v30 : g_newest[i].v255;
         *cversion = target == ZQ_NEWER_30 ? g_newest[i].v30 : g_newest[i].cv255;
+
+        // the three sections whose versions changed during 2.55 (the cversions stayed)
+        if(target == ZQ_NEWER_255)
+        {
+            const int r = zq_newer_255_release();
+
+            if(id == ID_MAPS && r < 2)
+                *version = 29;      // 2.55.2 added the screens' notes
+            else if(id == ID_GUYS && r < 4)
+                *version = 47;      // 2.55.4: "ignore Kill All Enemies" (the same data)
+            else if(id == ID_SUBSCREEN && r < 8)
+                *version = 11;      // 2.55.8: the counters' colours when full
+        }
+
         return;
     }
 

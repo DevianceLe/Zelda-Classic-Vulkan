@@ -15,6 +15,7 @@
 #include "zq_writers.h"
 #include "zqn_qrs.h"
 #include "zqn_rules.h"
+#include "zq_rule_names.h"
 
 extern byte quest_rules[QUESTRULES_SIZE];
 extern zquestheader header;
@@ -342,7 +343,8 @@ void readrules_compat(Bits &q, byte *deprecated, bool t30, word zv, byte build, 
     if(zv <= 0x190 || (zv == 0x192 && !strncmp(title, "Zelda 3000", 10)))
         q.set(qr_COPIED_SWIM_SPRITES, 1);
 
-    if(zv <= 0x254 || (zv == 0x255 && build < 50))
+    // before 2.55.17 a 0x250 build 33 quest (2.53.0 or 2.53.1) was left out
+    if((zv <= 0x254 && !(!t30 && zv == 0x250 && build == 33 && zq_newer_255_release() < 17)) || (zv == 0x255 && build < 50))
         q.set(qr_OLD_SLASHNEXT_SECRETS, 1);
 
     if(zv < 0x211)
@@ -943,11 +945,13 @@ void readrules_compat(Bits &q, byte *deprecated, bool t30, word zv, byte build, 
     // all of them. 2.55.17 spares quests whose author is "zcdev" the first three; 3.0 leaves
     // the bottom 8 pixels to the check after loading and sets the 2.55.15 ones by compat rule.
     bool dev = !t30 && !strcmp(author, "zcdev");
+    // a 2.55 release has only the fixes made up to it (zq_newer_255_has_fix)
+    struct Fix { bool t30; bool operator()(int k) const { return t30 || zq_rules_255_fix(k); } } fix = { t30 };
 
-    if(hv.older_than(2, 55, 6) && !dev)
+    if(fix(6) && hv.older_than(2, 55, 6) && !dev)
         q.set(qr_ROPE_ENEMIES_SPEED_NOT_CONFIGURABLE, 1);
 
-    if(hv.older_than(2, 55, 9) && !dev)
+    if(fix(9) && hv.older_than(2, 55, 9) && !dev)
     {
         q.set(qr_NEWDARK_TRANS_STACKING, 1);
         q.set(qr_BROKEN_SCRIPTS_SCROLLING_HERO_POSITION, 1);
@@ -956,14 +960,14 @@ void readrules_compat(Bits &q, byte *deprecated, bool t30, word zv, byte build, 
             q.set(qr_HIDE_BOTTOM_8_PIXELS, 1);
     }
 
-    if(hv.older_than(2, 55, 10) && !dev)
+    if(fix(10) && hv.older_than(2, 55, 10) && !dev)
     {
         q.set(qr_BROKEN_SCRIPTS_BITMAP_DRAW_ORIGIN, 1);
         q.set(qr_LAYER6_STRINGS_OVER_SUBSCREEN, 1);
         q.set(qr_BROKEN_SCROLL_INSTEAD_OF_DROWN_FALL, 1);
     }
 
-    if(hv.older_than(2, 55, 11))
+    if(fix(11) && hv.older_than(2, 55, 11))
     {
         q.set(qr_BROKEN_BLOCKHOLE_PITFALLS, 1);
         q.set(qr_CUSTOM_WEAPON_BROKEN_SIZE, 1);
@@ -971,13 +975,13 @@ void readrules_compat(Bits &q, byte *deprecated, bool t30, word zv, byte build, 
         q.set(qr_OLD_PIT_SENSITIVITY, 1);
     }
 
-    if(hv.older_than(2, 55, 12))
+    if(fix(12) && hv.older_than(2, 55, 12))
     {
         q.set(qr_ACTIVE_SHIELD_PASSIVE_ROC_NO_SCRIPT, 1);
         q.set(qr_ACTIVE_SUB_IGNORE_8PX, 1);
     }
 
-    if(hv.older_than(2, 55, 13))
+    if(fix(13) && hv.older_than(2, 55, 13))
     {
         q.set(qr_DRAWCOMBO_IGNORES_FRAME, 1);
         q.set(qr_DRAWTILE_TALL_DRAWS_WRAP_POORLY, 1);
@@ -987,14 +991,14 @@ void readrules_compat(Bits &q, byte *deprecated, bool t30, word zv, byte build, 
         q.set(qr_BROKEN_SELF_TRIGGERING_TRIGGERS, 1);
     }
 
-    if(hv.older_than(2, 55, 14))
+    if(fix(14) && hv.older_than(2, 55, 14))
     {
         q.set(qr_BROKEN_0_DAMAGE_BRANG_HSHOT, 1);
         q.set(qr_BROKEN_SPINTILE_COMBO_CHANGE, 1);
         q.set(qr_LIGHT_RADIUS_IGNORE_HIT_OFFSETS, 1);
     }
 
-    if(hv.older_than(2, 55, 15))
+    if(fix(15) && hv.older_than(2, 55, 15))
     {
         q.set(qr_BROKEN_PUSHBLOCK_TRIGGER_GROUPS, 1);
         q.set(qr_BS_OW_IGNORES_MAP_ITEM, 1);
@@ -1011,7 +1015,7 @@ void readrules_compat(Bits &q, byte *deprecated, bool t30, word zv, byte build, 
         }
     }
 
-    if(hv.older_than(2, 55, 17))
+    if(fix(17) && hv.older_than(2, 55, 17))
         q.set(qr_BROKEN_FFC_WRAP_CHANGERS, 1);
 }
 

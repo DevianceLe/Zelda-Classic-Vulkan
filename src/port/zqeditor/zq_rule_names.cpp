@@ -2890,6 +2890,8 @@ struct Head
                                           compat((int)q.compat), s_version(q.s_version) {}
     int compare(int a, int b, int c) const
     {
+        // a 2.55 release older than the one that added this "older than 2.55.<c>" fix doesn't make it
+        if(a == 2 && b == 55 && !zq_rules_255_fix(c)) return 0;
         if(q.major != a) return q.major < a ? -1 : 1;
         if(q.minor != b) return q.minor < b ? -1 : 1;
         if(q.patch != c) return q.patch < c ? -1 : 1;

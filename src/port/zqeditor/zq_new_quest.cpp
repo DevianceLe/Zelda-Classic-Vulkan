@@ -25,6 +25,7 @@
 #include "zq_rule_names.h"
 #include "zq_tape.h"
 #include "zq_new_rulesets.h"
+#include "zq_builds_255_data.h"
 
 extern int q255_header_version[3];
 extern zquestheader header;
@@ -174,12 +175,79 @@ bool set_deadzone(int size, std::string &why)
     return out == rec || zq255_init_commit(out, why);
 }
 
+// A 2.55 release's own lists (zq_builds_255_data.h).
+Gen release_gen(int patch)
+{
+    const Zq255Release *rel = NULL;
+
+    for(int i = 0; i < zq255_release_count; ++i)
+        if(zq255_releases[i].patch == patch)
+            rel = &zq255_releases[i];
+
+    if(!rel)
+        return g255;
+
+    const Zq255RuleLists &l = zq255_rule_lists[rel->rules];
+    Gen g;
+    g.compat = l.compat;
+    g.zs_on = l.zs_on;
+    g.zs_off = l.zs_off;
+    g.keep = l.keep;
+    g.always = l.always;
+    g.sub_off = l.sub_off;
+    g.sub_on = l.sub_on;
+
+    for(int k = 0; k < 6; ++k)
+    {
+        g.rs[k] = l.rs[k];
+        g.rs_templates[k] = l.rs_templates[k];
+    }
+
+    g.margins = l.margins;
+    g.frame = l.frame;
+    g.brang = l.brang;
+    g.max = l.max;
+    return g;
+}
+
+const Zq255RuleLists *release_lists(int patch)
+{
+    for(int i = 0; i < zq255_release_count; ++i)
+        if(zq255_releases[i].patch == patch)
+            return &zq255_rule_lists[zq255_releases[i].rules];
+
+    return NULL;
+}
+
+bool new_quest_rules(const Gen &g, bool is30, int flow, const Zq255RuleLists *old_new, int ruleset, bool bugfix,
+                     bool zs_bugfix, std::string &why);
+
 } // namespace
 
 // After the tileset was opened as a quest of the new quest's version (2.55 or 3.0): its rules
 // with the bug fix templates and ruleset as picked (0: none, else upstream's ruleset number),
 // and 3.0's deadzone. why: what failed.
 bool zq_new_quest_from_tileset(int ruleset, bool bugfix, bool zs_bugfix, std::string &why)
+{
+    const bool is30 = q255_header_version[0] >= 3;
+    return new_quest_rules(is30 ? g30 : g255, is30, 2, NULL, ruleset, bugfix, zs_bugfix, why);
+}
+
+// The same for a quest of a 2.55 release, with that release's lists, as its File > New does it:
+// flow 2 (2.55.9 on) as above; flow 0 and 1 (2.55.0 to 2.55.8, onNew with NewQuestFile) the parser
+// rules and alwaysOnRules after the load, then the ruleset, the rule templates picked (the script bug
+// fixes) and the bug fix template last (zquest's auto_filenew_bugfixes, on by default).
+bool zq_new_quest_255(int patch, int flow, int ruleset, bool bugfix, bool zs_bugfix, std::string &why)
+{
+    return new_quest_rules(release_gen(patch), false, flow, flow < 2 ? release_lists(patch) : NULL, ruleset, bugfix,
+                           zs_bugfix, why);
+}
+
+namespace
+{
+
+bool new_quest_rules(const Gen &g, bool is30, int flow, const Zq255RuleLists *old_new, int ruleset, bool bugfix,
+                     bool zs_bugfix, std::string &why)
 {
     ZqRuleSection s;
 
@@ -189,8 +257,6 @@ bool zq_new_quest_from_tileset(int ruleset, bool bugfix, bool zs_bugfix, std::st
         return false;
     }
 
-    const bool is30 = q255_header_version[0] >= 3;
-    const Gen &g = is30 ? g30 : g255;
     byte r[RULE_BYTES];
     memcpy(r, s.rules, RULE_BYTES);
 
@@ -211,14 +277,34 @@ bool zq_new_quest_from_tileset(int ruleset, bool bugfix, bool zs_bugfix, std::st
     q.compat = s.compat;
     zq_rules_upstream(is30, r, q);
 
-    if(bugfix)
-        fix_compat(g, r);
+    if(flow < 2 && old_new)
+    {
+        // onNew of 2.55.0 to 2.55.8
+        put(r, old_new->short_circuit, true);
+        put(r, old_new->true_int, true);
+        put(r, old_new->animate_custom, false);
+        put_list(r, g.always, true);
 
-    if(zs_bugfix)
-        fix_zs_compat(g, r);
+        if(ruleset >= 1 && ruleset <= 5)
+            apply_ruleset(g, r, ruleset);
 
-    if(ruleset >= 1 && ruleset <= 5)
-        apply_ruleset(g, r, ruleset);
+        if(zs_bugfix)
+            fix_zs_compat(g, r);
+
+        if(bugfix)
+            fix_compat(g, r);
+    }
+    else
+    {
+        if(bugfix)
+            fix_compat(g, r);
+
+        if(zs_bugfix)
+            fix_zs_compat(g, r);
+
+        if(ruleset >= 1 && ruleset <= 5)
+            apply_ruleset(g, r, ruleset);
+    }
 
     memcpy(s.rules, r, RULE_BYTES);
 
@@ -234,3 +320,5 @@ bool zq_new_quest_from_tileset(int ruleset, bool bugfix, bool zs_bugfix, std::st
 
     return true;
 }
+
+} // namespace

@@ -1490,8 +1490,12 @@ void write_screen_255(Zqn255Out &o, const Scr &s, int j, bool old_ffcs)
         o.c(c.inita[1]);
     }
 
-    o.l((int64_t)s.notes.size());
-    o.put(s.notes.data(), s.notes.size());
+    // the screen's notes: map version 30, from 2.55.2 (write_maps_255 refuses notes before it)
+    if(zq_newer_255_release() >= 2)
+    {
+        o.l((int64_t)s.notes.size());
+        o.put(s.notes.data(), s.notes.size());
+    }
 }
 
 // readmaps / writemaps of 2.55.17, for map versions 18-30: per map a valid byte (whether any of
@@ -1553,6 +1557,9 @@ int write_maps_255(PACKFILE *f, const ZqNewerContext &ctx)
                 c.valid = 0;
 
             any_valid = any_valid || (c.valid & VALID);
+
+            if(!c.notes.empty() && zq_newer_255_release() < 2)
+                return refuse("a screen has notes, which 2.55.0 and 2.55.1 don't hold");
         }
 
         o.c(any_valid ? 1 : 0);
@@ -1571,7 +1578,9 @@ int write_maps_255(PACKFILE *f, const ZqNewerContext &ctx)
         return refuse("its maps aren't laid out as expected");
 
     std::vector<byte> none;
-    return zqn255_emit(f, ID_MAPS, 30, 9, none, o.b);
+    word mv = 30, mcv = 9;
+    zqn255_newest(ID_MAPS, ZQ_NEWER_255, &mv, &mcv);
+    return zqn255_emit(f, ID_MAPS, mv, mcv, none, o.b);
 }
 
 ZqNewerRegistration g_reg_maps_255(ID_MAPS, write_maps_255, "2.55 maps as 2.55.18");
