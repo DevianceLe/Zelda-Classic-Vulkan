@@ -38,6 +38,7 @@
 #include "port/zqeditor/zq_tile_refs.h"
 #include "port/zqeditor/zq_exports.h"
 #include "port/game/quest_version.h"
+#include "port/zqeditor/zq_zinfo.h"
 #endif
 
 #ifdef _MSC_VER
@@ -634,11 +635,31 @@ int PickRuleset()
     return D_O_K;
 }
 
+#ifdef ZC_ZQEDITOR
+// File > New asks which version of ZC the new quest is for (below, with the saving code).
+static int zq_pick_new_version();
+static bool zq_new_version_uses_template(int v);
+static void zq_new_quest_as(int v);
+#endif
+
 int onNew()
 {
     if(checksave()==0)
         return D_O_K;
-        
+
+#ifdef ZC_ZQEDITOR
+    int v = zq_pick_new_version();
+
+    if(v < 0)
+        return D_O_K;
+
+    // a version whose own ZQuest shipped a new-quest file starts from that file as it is
+    if(zq_new_version_uses_template(v))
+    {
+        zq_new_quest_as(v);
+        return D_O_K;
+    }
+#endif
     /*
       int ret=ListQTs(false);
       if (ret==-2)
@@ -648,10 +669,13 @@ int onNew()
     */
     int ret=0;
     NewQuestFile(ret);
-    
+
     if(RulesetDialog > 0)
         PickRuleset();
-        
+
+#ifdef ZC_ZQEDITOR
+    zq_new_quest_as(v);
+#endif
     return D_O_K;
 }
 
@@ -1228,6 +1252,199 @@ static void zq_saved_message(const char *path, const char *as)
     extract_name((char *)path, name, FILENAME8_3);
     snprintf(buf, sizeof(buf), "Saved %s as %s", name, as);
     jwin_alert("ZQuest", buf, NULL, NULL, "O&K", NULL, 'k', 0, lfont);
+}
+
+// ---- File > New in any version ZQuest saves in --------------------------------------------
+//
+// A new quest is made as that version's own ZQuest made one, and is from then on a quest made
+// in that version: Save keeps it in that version, Save As offers it or newer ones (never older).
+//   2.53.1       ZQuest's new quest (qst.dat's template, then the ruleset), as always
+//   2.53.0       the same quest, its header saying 2.53.0 (build 32) made it: 2.53.0 wrote every
+//                section in the formats 2.53.1 writes
+//   2.55.19, 3.0 Nightly
+//                ZQuest's new quest saved as that version (the header, version fields and every
+//                section in its newest formats, as Save As writes them) and opened from there
+//   template     the new-quest file that version's ZQuest shipped (its qst.dat's template, in
+//                that version's own formats), as it is: templates\<version>.qst beside the program
+enum { ZQN_OWN253, ZQN_253_0, ZQN_TEMPLATE, ZQN_255, ZQN_30 };
+
+struct ZqNewVersion
+{
+    const char *label;      // what the list shows
+    const char *name;       // the version, for messages
+    int kind;
+    const char *file;       // ZQN_TEMPLATE: the template's file
+};
+
+static const ZqNewVersion zq_new_versions[] =
+{
+    { "2.50.1",                  "2.50.1",      ZQN_TEMPLATE, "templates/2.50.1.qst" },
+    { "2.53.0",                  "2.53.0",      ZQN_253_0,    NULL },
+    { "2.53.1 (this ZQuest's)",  "2.53.1",      ZQN_OWN253,   NULL },
+    { "2.55.19",                 "2.55.19",     ZQN_255,      NULL },
+    { "3.0 Nightly",             "3.0 Nightly", ZQN_30,       NULL },
+};
+static const int zq_new_version_count = (int)(sizeof(zq_new_versions) / sizeof(zq_new_versions[0]));
+
+// The versions on offer (a template version only when its file is there), as indices above.
+static std::vector<int> zq_new_offered;
+
+static const char *zq_new_version_list(int index, int *list_size)
+{
+    if(index < 0)
+    {
+        *list_size = (int)zq_new_offered.size();
+        return NULL;
+    }
+
+    return index < (int)zq_new_offered.size() ? zq_new_versions[zq_new_offered[index]].label : "";
+}
+
+static ListData zq_new_version_list_data(zq_new_version_list, &font);
+
+static DIALOG zq_new_version_dlg[] =
+{
+    // (dialog proc)     (x)   (y)   (w)   (h)   (fg)     (bg)    (key)    (flags)     (d1)           (d2)     (dp)
+    { jwin_win_proc,          0,      0,    220,    150,    vc(14),                vc(1),                  0,    D_EXIT,     0,           0, (void *) "New Quest",           NULL,   NULL  },
+    { jwin_text_proc,        12,     26,    196,      8,    vc(14),                vc(1),                  0,    0,          0,           0, (void *) "Which version of ZC is this quest for?", NULL, NULL },
+    { jwin_list_proc,        12,     40,    196,     68,    jwin_pal[jcBOXFG],     jwin_pal[jcLIGHT],      0,    D_EXIT,     0,           0, (void *) &zq_new_version_list_data, NULL, NULL },
+    { jwin_button_proc,      40,    118,     61,     21,    vc(14),                vc(1),                 13,    D_EXIT,     0,           0, (void *) "OK",                  NULL,   NULL  },
+    { jwin_button_proc,     120,    118,     61,     21,    vc(14),                vc(1),                 27,    D_EXIT,     0,           0, (void *) "Cancel",              NULL,   NULL  },
+    { d_timer_proc,           0,      0,      0,      0,    0,                     0,                      0,    0,          0,           0,  NULL,                             NULL,   NULL  },
+    { NULL,                   0,      0,      0,      0,    0,                     0,                      0,    0,          0,           0,  NULL,                             NULL,   NULL  }
+};
+
+// An index into zq_new_versions, or -1 when the user cancelled.
+static int zq_pick_new_version()
+{
+    zq_new_offered.clear();
+    int dflt = 0;
+
+    for(int i = 0; i < zq_new_version_count; ++i)
+    {
+        if(zq_new_versions[i].kind == ZQN_TEMPLATE && !exists(zq_new_versions[i].file))
+            continue;
+
+        if(zq_new_versions[i].kind == ZQN_OWN253)
+            dflt = (int)zq_new_offered.size();
+
+        zq_new_offered.push_back(i);
+    }
+
+    static bool sized = false;
+    zq_new_version_dlg[0].dp2 = lfont;
+
+    if(is_large && !sized)
+    {
+        large_dialog(zq_new_version_dlg);
+        sized = true;
+    }
+
+    zq_new_version_dlg[2].d1 = dflt;
+    zq_new_version_dlg[2].d2 = 0;
+    int ret = zc_popup_dialog(zq_new_version_dlg, 2);
+
+    if(ret != 2 && ret != 3)
+        return -1;
+
+    int pick = zq_new_version_dlg[2].d1;
+    return pick >= 0 && pick < (int)zq_new_offered.size() ? zq_new_offered[pick] : -1;
+}
+
+static bool zq_new_version_uses_template(int v)
+{
+    return v >= 0 && v < zq_new_version_count && zq_new_versions[v].kind == ZQN_TEMPLATE;
+}
+
+// The quest just made is a new one: no file yet, so Save asks where (and in which version).
+static void zq_new_untitled(const char *version)
+{
+    memset(filepath, 0, 255);
+    first_save = false;
+    saved = true;
+    char buf[256];
+    snprintf(buf, sizeof(buf), ZQ_WINDOW_NAME " - Untitled Quest (ZC %s)", version);
+    set_window_title(buf);
+    refresh(rALL);
+    last_timed_save[0] = 0;
+}
+
+static void zq_new_quest_as(int v)
+{
+    if(v < 0 || v >= zq_new_version_count)
+        return;
+
+    const ZqNewVersion &nv = zq_new_versions[v];
+
+    switch(nv.kind)
+    {
+    case ZQN_OWN253:
+        return;
+
+    case ZQN_253_0:
+        if(!zq_new_quest_stamp(0x250, 32))
+            jwin_alert("ZQuest", "The new quest couldn't be made for 2.53.0.", "It is a 2.53.1 quest.", NULL, "O&K", NULL, 'k', 0, lfont);
+        else
+            zq_new_untitled(nv.name);
+
+        return;
+
+    case ZQN_TEMPLATE:
+    {
+        char p[2048];
+        strncpy(p, nv.file, sizeof(p) - 1);
+        p[sizeof(p) - 1] = 0;
+        int ret = load_quest(p, true, true);
+
+        if(ret != qe_OK)
+        {
+            jwin_alert("Error", "The new-quest file for this version couldn't be opened:", qst_error[ret], NULL, "O&K", NULL, 'k', 0, lfont);
+            NewQuestFile(0);
+            return;
+        }
+
+        setup_combo_animations();
+        setup_combo_animations2();
+        zinit.last_map = 0;
+        zinit.last_screen = 0;
+        Map.setCurrMap(0);
+        Map.setCurrScr(0);
+        Map.setCanPaste(false);
+        Map.setCanUndo(false);
+        rebuild_trans_table();
+        rebuild_string_list();
+        onDrawingModeNormal();
+        zq_new_untitled(nv.name);
+        return;
+    }
+
+    case ZQN_255:
+    case ZQN_30:
+    {
+        const int target = nv.kind == ZQN_255 ? ZQ_NEWER_255 : ZQ_NEWER_30;
+        char tmp[64];
+        temp_name(tmp);
+        std::string path = std::string(tmp) + ".qst";
+        std::string why;
+        int r = zq_save_newer(path.c_str(), target, why);
+
+        if(r != 0)
+        {
+            std::string line1 = std::string("The new quest couldn't be made for ") + nv.name + ":";
+            jwin_alert("ZQuest", line1.c_str(), why.c_str(), "It is a 2.53.1 quest.", "O&K", NULL, 'k', 0, lfont);
+            remove(path.c_str());
+            return;
+        }
+
+        zq_reopen(path.c_str());
+        remove(path.c_str());
+        remove(zq_zinfo_path(path.c_str()).c_str());
+        Map.setCurrMap(0);
+        Map.setCurrScr(0);
+        zq_new_untitled(nv.name);
+        return;
+    }
+    }
 }
 #endif
 

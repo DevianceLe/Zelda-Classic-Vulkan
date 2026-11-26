@@ -1387,12 +1387,48 @@ void draw_menu_bar(HostDialog &hd, bool top, bool input, bool frozen)
     {
         ImGuiViewport *vp = ImGui::GetMainViewport();
         float s = std::min(vp->Size.x / v.screen_w, vp->Size.y / v.screen_h);
-        // (with a limit: the small layout is scaled up a long way)
-        ImGui::PushFont(NULL, std::min(26.0f, std::max(13.0f, 12.0f * s)) / font_scale());
+        // (with a limit: the small layout is scaled up a long way), and never taller than the
+        // strip (16 of the screen's pixels above the map): a bar of the window's whole width and
+        // the UI font's height covered the top of the map, the drawing mode box and the combo
+        // panel's first line beside the menu
+        const float strip = 16.0f * s;
+        float px = std::min(26.0f, std::max(13.0f, 12.0f * s));
+        px = std::max(8.0f, std::min(px, strip - 2.0f));
+        ImGui::PushFont(NULL, px / font_scale());
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, 1.0f));
     }
     begin_inactive(!top, top && frozen);
-    if(ImGui::BeginMainMenuBar())
+    // compact: a bar only as wide as its menus, at the strip's place on the (centred) screen
+    bool bar_open = false;
+    if(compact)
+    {
+        ImGuiViewport *vp = ImGui::GetMainViewport();
+        const ImGuiStyle &st = ImGui::GetStyle();
+        float s = std::min(vp->Size.x / v.screen_w, vp->Size.y / v.screen_h);
+        float w = st.ItemSpacing.x * 2.0f;
+        for(int i = 0; i < v.menu_top && i < (int)v.menu.size(); ++i)
+            if(!v.menu[i].separator)
+                w += ImGui::CalcTextSize(v.menu[i].label.c_str(), NULL, true).x + st.ItemSpacing.x * 2.0f;
+        const float h = ImGui::GetFontSize() + st.FramePadding.y * 2.0f;
+        ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + floorf((vp->Size.x - v.screen_w * s) * 0.5f),
+                                       vp->Pos.y + floorf((vp->Size.y - v.screen_h * s) * 0.5f)));
+        ImGui::SetNextWindowSize(ImVec2(std::min(w, v.screen_w * s), h));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(1.0f, 1.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+        const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                                       ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_MenuBar |
+                                       ImGuiWindowFlags_NoNav;
+        bool shown = ImGui::Begin("##zceditormenubar", NULL, flags);
+        ImGui::PopStyleVar(4);
+        bar_open = shown && ImGui::BeginMenuBar();
+        if(!bar_open)
+            ImGui::End();
+    }
+    else
+        bar_open = ImGui::BeginMainMenuBar();
+    if(bar_open)
     {
         for(int i = 0; i < v.menu_top && i < (int)v.menu.size(); ++i)
         {
@@ -1424,7 +1460,13 @@ void draw_menu_bar(HostDialog &hd, bool top, bool input, bool frozen)
             }
             ImGui::PopID();
         }
-        ImGui::EndMainMenuBar();
+        if(compact)
+        {
+            ImGui::EndMenuBar();
+            ImGui::End();
+        }
+        else
+            ImGui::EndMainMenuBar();
     }
     end_inactive(!top, top && frozen);
     if(compact)

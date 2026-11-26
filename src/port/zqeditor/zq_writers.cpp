@@ -646,6 +646,49 @@ int zq_save_own_format_packed(const char *filename, bool pack, std::string &why)
     return r;
 }
 
+// File > New for a version that wrote every section as the open quest's file has it (2.53.0 for
+// ZQuest's 2.53.1 new quest): the header and the kept copy of the file say that version made it,
+// so it saves as that version from now on. False (nothing changed) when there's no header to mark.
+extern zquestheader header;
+
+bool zq_new_quest_stamp(word zelda_version, byte build)
+{
+    const size_t at_version = 43, at_build = 45;    // in the header part: id string, section, version, size, then these
+    ZqQuestPart *hp = NULL;
+
+    for(size_t i = 0; i < zq_quest_file.parts.size() && !hp; ++i)
+        if(zq_quest_file.parts[i].id == ID_HEADER)
+            hp = &zq_quest_file.parts[i];
+
+    if(!hp || hp->length < (int64_t)at_build + 1 || zq_quest_file.inexact)
+        return false;
+
+    std::vector<byte> b((size_t)hp->length);
+
+    if(!zq_part_read(*hp, 0, &b[0], b.size()))
+        return false;
+
+    b[at_version] = (byte)(zelda_version & 0xFF);
+    b[at_version + 1] = (byte)(zelda_version >> 8);
+    b[at_build] = build;
+    const word old_version = header.zelda_version;
+    const byte old_build = header.build;
+    header.zelda_version = zelda_version;
+    header.build = build;
+
+    if(!zq_part_rebase(ID_HEADER, b))
+    {
+        header.zelda_version = old_version;
+        header.build = old_build;
+        return false;
+    }
+
+    zq_quest_file.zelda_version = zelda_version;
+    zq_quest_file.build = build;
+    zq_sections_note_loaded();      // as if the file had been opened so
+    return true;
+}
+
 bool zq_changed_since_save()
 {
     std::vector<std::string> absent;

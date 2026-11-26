@@ -87,6 +87,11 @@ int zq_write_part(PACKFILE *f, const ZqQuestPart &p);
 // Returns 0 when it saved.
 int zq_save_own_format(const char *filename, bool encode, std::string &why);
 
+// File > New for a version that writes every section as the open quest's file has it (2.53.0 for
+// ZQuest's 2.53.1 new quest): the header and the kept copy say that version made the quest, so it
+// saves as that version from now on. False (nothing changed) when there's no header to mark.
+bool zq_new_quest_stamp(word zelda_version, byte build);
+
 // Which changed parts have no writer yet (empty: the quest can be saved in its own format).
 void zq_own_format_blockers(std::vector<std::string> &names);
 
