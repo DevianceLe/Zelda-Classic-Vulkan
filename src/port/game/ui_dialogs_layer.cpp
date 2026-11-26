@@ -1125,7 +1125,9 @@ void draw_window(HostDialog &hd, bool top, bool input, bool frozen)
     float dpi = zcui::scale();
 
     bool titled = v.has_window && !v.title.empty();
-    float title_h = titled ? ImGui::GetFontSize() + style.FramePadding.y * 2.0f : 0.0f;
+    const float ui_font = ImGui::GetFontSize();
+    float title_font = ui_font;
+    float title_h = titled ? title_font + style.FramePadding.y * 2.0f : 0.0f;
     float pad = 12.0f * dpi;
     float margin = 24.0f * dpi;
     float bw = (float)std::max(1, v.box_w), bh = (float)std::max(1, v.box_h);
@@ -1134,6 +1136,21 @@ void draw_window(HostDialog &hd, bool top, bool input, bool frozen)
                                            (vp->WorkSize.y - 2 * margin - 2 * pad - title_h) / bh));
     if(s < 0.6f)
         s = 0.6f;
+    // a window too small for the dialog at its size draws it smaller, and its title then takes a
+    // smaller font as well, so it isn't cut off (the editor at 320 x 240 with a UI scale of 150%)
+    if(titled)
+    {
+        const float win_w = bw * s + 2 * pad;
+        const float need = ImGui::CalcTextSize(v.title.c_str(), NULL, true).x + ui_font + style.FramePadding.x * 4.0f +
+                           style.ItemInnerSpacing.x;
+        if(need > win_w)
+        {
+            title_font = std::max(8.0f, ui_font * win_w / need);
+            title_h = title_font + style.FramePadding.y * 2.0f;
+            s = std::max(0.6f, std::min((v.text_scale > 1.0f ? 1.85f : 2.4f) * dpi, std::min((vp->WorkSize.x - 2 * margin - 2 * pad) / bw,
+                                                       (vp->WorkSize.y - 2 * margin - 2 * pad - title_h) / bh)));
+        }
+    }
 
     if(top && !g_dimmed)
     {
@@ -1157,6 +1174,9 @@ void draw_window(HostDialog &hd, bool top, bool input, bool frozen)
     bool open = true;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(pad, pad));
     std::string wid = window_id(hd, v.title);
+    const bool title_smaller = title_font < ui_font;
+    if(title_smaller)
+        ImGui::PushFont(NULL, title_font / font_scale());
     bool shown = ImGui::Begin(wid.c_str(), (v.closable && input) ? &open : NULL, flags);
     ImGui::PopStyleVar();
     if(shown)
@@ -1189,6 +1209,8 @@ void draw_window(HostDialog &hd, bool top, bool input, bool frozen)
         ImGui::PopFont();
     }
     ImGui::End();
+    if(title_smaller)
+        ImGui::PopFont();     // (pushed before Begin: the title bar's font)
 
     if(!open && input && v.win_obj >= 0)
     {
@@ -1370,6 +1392,17 @@ void draw_menu_items(HostDialog &hd, int first, int count, bool input)
     }
 }
 
+// The compact bar's width with the font and spacing pushed now: its top menus side by side.
+float compact_bar_width(const DialogView &v)
+{
+    const ImGuiStyle &st = ImGui::GetStyle();
+    float w = st.ItemSpacing.x * 2.0f;
+    for(int i = 0; i < v.menu_top && i < (int)v.menu.size(); ++i)
+        if(!v.menu[i].separator)
+            w += ImGui::CalcTextSize(v.menu[i].label.c_str(), NULL, true).x + st.ItemSpacing.x * 2.0f;
+    return w;
+}
+
 void draw_menu_bar(HostDialog &hd, bool top, bool input, bool frozen)
 {
     DialogView &v = hd.view;
@@ -1383,6 +1416,7 @@ void draw_menu_bar(HostDialog &hd, bool top, bool input, bool frozen)
 
     // the editor's bar fits the one-line strip its screen leaves for it
     bool compact = (v.overlay || v.text_scale > 1.0f) && v.screen_w > 0 && v.screen_h > 0;
+    bool tight = false;
     if(compact)
     {
         ImGuiViewport *vp = ImGui::GetMainViewport();
@@ -1396,6 +1430,20 @@ void draw_menu_bar(HostDialog &hd, bool top, bool input, bool frozen)
         px = std::max(8.0f, std::min(px, strip - 2.0f));
         ImGui::PushFont(NULL, px / font_scale());
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, 1.0f));
+        // and never wider than the screen: a smaller font, then less room between the menus
+        // (the small layout at 1x, 320 x 240, cut "Etc" off)
+        const float avail = v.screen_w * s;
+        while(compact_bar_width(v) > avail && px > 8.0f)
+        {
+            px = std::max(8.0f, px - 1.0f);
+            ImGui::PopFont();
+            ImGui::PushFont(NULL, px / font_scale());
+        }
+        if(compact_bar_width(v) > avail)
+        {
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x * 0.5f, ImGui::GetStyle().ItemSpacing.y));
+            tight = true;
+        }
     }
     begin_inactive(!top, top && frozen);
     // compact: a bar only as wide as its menus, at the strip's place on the (centred) screen
@@ -1405,10 +1453,7 @@ void draw_menu_bar(HostDialog &hd, bool top, bool input, bool frozen)
         ImGuiViewport *vp = ImGui::GetMainViewport();
         const ImGuiStyle &st = ImGui::GetStyle();
         float s = std::min(vp->Size.x / v.screen_w, vp->Size.y / v.screen_h);
-        float w = st.ItemSpacing.x * 2.0f;
-        for(int i = 0; i < v.menu_top && i < (int)v.menu.size(); ++i)
-            if(!v.menu[i].separator)
-                w += ImGui::CalcTextSize(v.menu[i].label.c_str(), NULL, true).x + st.ItemSpacing.x * 2.0f;
+        float w = compact_bar_width(v);
         const float h = ImGui::GetFontSize() + st.FramePadding.y * 2.0f;
         ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + floorf((vp->Size.x - v.screen_w * s) * 0.5f),
                                        vp->Pos.y + floorf((vp->Size.y - v.screen_h * s) * 0.5f)));
@@ -1471,7 +1516,7 @@ void draw_menu_bar(HostDialog &hd, bool top, bool input, bool frozen)
     end_inactive(!top, top && frozen);
     if(compact)
     {
-        ImGui::PopStyleVar();
+        ImGui::PopStyleVar(tight ? 2 : 1);
         ImGui::PopFont();
     }
     if(g_focus_menu > 0)

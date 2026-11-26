@@ -640,6 +640,7 @@ int PickRuleset()
 static int zq_pick_new_version();
 static bool zq_new_version_uses_template(int v);
 static void zq_new_quest_as(int v);
+static bool zq_new_from_tileset(int v);
 #endif
 
 int onNew()
@@ -659,6 +660,11 @@ int onNew()
         zq_new_quest_as(v);
         return D_O_K;
     }
+
+    // 2.55.19 and 3.0 Nightly: from a tileset, as their own ZQuest's File > New does (true: made
+    // or cancelled; false: not such a version, or no tileset files, so 2.53.1's new quest below)
+    if(zq_new_from_tileset(v))
+        return D_O_K;
 #endif
     /*
       int ret=ListQTs(false);
@@ -1262,10 +1268,14 @@ static void zq_saved_message(const char *path, const char *as)
 //   2.53.0       the same quest, its header saying 2.53.0 (build 32) made it: 2.53.0 wrote every
 //                section in the formats 2.53.1 writes
 //   2.55.19, 3.0 Nightly
-//                ZQuest's new quest saved as that version (the header, version fields and every
-//                section in its newest formats, as Save As writes them) and opened from there
+//                as their own ZQuest: a tileset (Cambria or Classic, templates\ beside the program)
+//                with the bug fix templates and a ruleset (zq_new_from_tileset, below); without
+//                those files, ZQuest's new quest saved as that version (the header, version fields
+//                and every section in its newest formats, as Save As writes them), opened from there
 //   template     the new-quest file that version's ZQuest shipped (its qst.dat's template, in
-//                that version's own formats), as it is: templates\<version>.qst beside the program
+//                that version's own formats), as it is: templates\<version>.qst beside the program.
+//                2.10 (2.10.1 to 2.10.3, build 1): qst.dat's DAT_NESQST, the quest 2.10's init_quest
+//                loads, every section at 2.10's own versions
 enum { ZQN_OWN253, ZQN_253_0, ZQN_TEMPLATE, ZQN_255, ZQN_30 };
 
 struct ZqNewVersion
@@ -1278,6 +1288,7 @@ struct ZqNewVersion
 
 static const ZqNewVersion zq_new_versions[] =
 {
+    { "2.10",                    "2.10",        ZQN_TEMPLATE, "templates/2.10.qst" },
     { "2.50.1",                  "2.50.1",      ZQN_TEMPLATE, "templates/2.50.1.qst" },
     { "2.53.0",                  "2.53.0",      ZQN_253_0,    NULL },
     { "2.53.1 (this ZQuest's)",  "2.53.1",      ZQN_OWN253,   NULL },
@@ -1331,14 +1342,11 @@ static int zq_pick_new_version()
         zq_new_offered.push_back(i);
     }
 
-    static bool sized = false;
     zq_new_version_dlg[0].dp2 = lfont;
 
-    if(is_large && !sized)
-    {
+    // (large_dialog marks the dialog done; switching the layout puts it back as it was)
+    if(is_large)
         large_dialog(zq_new_version_dlg);
-        sized = true;
-    }
 
     zq_new_version_dlg[2].d1 = dflt;
     zq_new_version_dlg[2].d2 = 0;
@@ -1445,6 +1453,159 @@ static void zq_new_quest_as(int v)
         return;
     }
     }
+}
+
+// ---- File > New for 2.55.19 and 3.0 Nightly: from a tileset ----------------------------------
+//
+// As upstream's own ZQuest (2.55.18 and 3.0 alike: its TilesetWizard and load_tileset): a tileset
+// (Cambria, its recommended one, or Classic, the files those versions ship; templates\ beside the
+// program), its header cleared, with the bug fix templates as ticked (both are by default, as
+// upstream's), and a ruleset if one is picked (upstream's Rulesets button; without one the
+// tileset's own rules stay, as upstream leaves them). The tileset is saved in the new quest's
+// version and opened from there; 3.0 gets upstream's new-quest viewport deadzone of 32
+// (port/zqeditor/zq_new_quest.cpp).
+bool zq_new_quest_from_tileset(int ruleset, bool bugfix, bool zs_bugfix, std::string &why);
+
+static const char *zq_new_tileset_names[2] = { "Cambria (recommended)", "Classic" };
+
+static const char *zq_new_tileset_list(int index, int *list_size)
+{
+    if(index < 0)
+    {
+        *list_size = 2;
+        return NULL;
+    }
+
+    return index < 2 ? zq_new_tileset_names[index] : "";
+}
+
+// upstream's Pick Ruleset list, in its order (its ruleset numbers beside); first: none picked
+static const char *zq_new_ruleset_names[6] = { "The tileset's own", "Modern", "SNES (Enhanced)", "SNES (BS)", "Fixed NES",
+                                               "Authentic NES" };
+static const int zq_new_ruleset_ids[6] = { 0, 5, 4, 3, 2, 1 };
+
+static const char *zq_new_ruleset_list(int index, int *list_size)
+{
+    if(index < 0)
+    {
+        *list_size = 6;
+        return NULL;
+    }
+
+    return index < 6 ? zq_new_ruleset_names[index] : "";
+}
+
+static ListData zq_new_tileset_list_data(zq_new_tileset_list, &font);
+static ListData zq_new_ruleset_list_data(zq_new_ruleset_list, &font);
+
+static DIALOG zq_new_tileset_dlg[] =
+{
+    // (dialog proc)     (x)   (y)   (w)   (h)   (fg)     (bg)    (key)    (flags)     (d1)           (d2)     (dp)
+    { jwin_win_proc,          0,      0,    240,    182,    vc(14),                vc(1),                  0,    D_EXIT,     0,           0, (void *) "New Quest: Choose a tileset", NULL, NULL },
+    { jwin_text_proc,        12,     26,    216,      8,    vc(14),                vc(1),                  0,    0,          0,           0, (void *) "The new quest starts from this tileset:", NULL, NULL },
+    { jwin_list_proc,        12,     38,    216,     36,    jwin_pal[jcBOXFG],     jwin_pal[jcLIGHT],      0,    0,          0,           0, (void *) &zq_new_tileset_list_data, NULL, NULL },
+    { jwin_check_proc,       12,     82,    150,      9,    vc(14),                vc(1),                  0,    D_SELECTED, 1,           0, (void *) "Apply bug fixes", NULL, NULL },
+    { jwin_check_proc,       12,     96,    150,      9,    vc(14),                vc(1),                  0,    D_SELECTED, 1,           0, (void *) "Apply script bug fixes", NULL, NULL },
+    { jwin_text_proc,        12,    116,     50,      8,    vc(14),                vc(1),                  0,    0,          0,           0, (void *) "Ruleset:", NULL, NULL },
+    { jwin_droplist_proc,    62,    112,    166,     16,    jwin_pal[jcTEXTFG],    jwin_pal[jcTEXTBG],     0,    0,          0,           0, (void *) &zq_new_ruleset_list_data, NULL, NULL },
+    { jwin_button_proc,      44,    148,     61,     21,    vc(14),                vc(1),                 13,    D_EXIT,     0,           0, (void *) "OK",                  NULL,   NULL  },
+    { jwin_button_proc,     134,    148,     61,     21,    vc(14),                vc(1),                 27,    D_EXIT,     0,           0, (void *) "Cancel",              NULL,   NULL  },
+    { d_timer_proc,           0,      0,      0,      0,    0,                     0,                      0,    0,          0,           0,  NULL,                             NULL,   NULL  },
+    { NULL,                   0,      0,      0,      0,    0,                     0,                      0,    0,          0,           0,  NULL,                             NULL,   NULL  }
+};
+
+static bool zq_new_from_tileset(int v)
+{
+    if(v < 0 || v >= zq_new_version_count)
+        return false;
+
+    const ZqNewVersion &nv = zq_new_versions[v];
+
+    if(nv.kind != ZQN_255 && nv.kind != ZQN_30)
+        return false;
+
+    const bool is30 = nv.kind == ZQN_30;
+    const char *files[2] = { "templates/cambria.qst", is30 ? "templates/classic_3.0.qst" : "templates/classic_2.55.qst" };
+
+    // without the tileset files: the 2.53.1 new quest saved as the version, as before
+    if(!exists(files[0]) && !exists(files[1]))
+        return false;
+
+    zq_new_tileset_dlg[0].dp2 = lfont;
+
+    // (large_dialog marks the dialog done; switching the layout puts it back as it was)
+    if(is_large)
+        large_dialog(zq_new_tileset_dlg);
+
+    zq_new_tileset_dlg[2].d1 = exists(files[0]) ? 0 : 1;
+    zq_new_tileset_dlg[2].d2 = 0;
+    zq_new_tileset_dlg[6].d1 = 0;
+    zq_new_tileset_dlg[3].flags |= D_SELECTED;
+    zq_new_tileset_dlg[4].flags |= D_SELECTED;
+
+    if(zc_popup_dialog(zq_new_tileset_dlg, 7) != 7)
+        return true;
+
+    const int pick = zq_new_tileset_dlg[2].d1 == 1 ? 1 : 0;
+    const bool bugfix = (zq_new_tileset_dlg[3].flags & D_SELECTED) != 0;
+    const bool zs_bugfix = (zq_new_tileset_dlg[4].flags & D_SELECTED) != 0;
+    const int rs = zq_new_tileset_dlg[6].d1;
+    const int ruleset = rs >= 0 && rs < 6 ? zq_new_ruleset_ids[rs] : 0;
+
+    if(!exists(files[pick]))
+    {
+        jwin_alert("ZQuest", "The tileset file isn't there:", files[pick], "Nothing was made.", "O&K", NULL, 'k', 0, lfont);
+        return true;
+    }
+
+    char p[2048];
+    strncpy(p, files[pick], sizeof(p) - 1);
+    p[sizeof(p) - 1] = 0;
+    int ret = load_quest(p, true, true);
+
+    if(ret != qe_OK)
+    {
+        jwin_alert("Error", "The tileset couldn't be opened:", qst_error[ret], "The new quest is a 2.53.1 quest.", "O&K", NULL, 'k', 0, lfont);
+        NewQuestFile(0);
+        return true;
+    }
+
+    // in the new quest's version (Cambria is a 2.55 quest), then opened from there
+    const int target = is30 ? ZQ_NEWER_30 : ZQ_NEWER_255;
+    char tmp[64];
+    temp_name(tmp);
+    std::string path = std::string(tmp) + ".qst";
+    std::string why;
+
+    if(zq_save_newer(path.c_str(), target, why) != 0)
+    {
+        std::string line1 = std::string("The tileset couldn't be made a ") + nv.name + " quest:";
+        jwin_alert("ZQuest", line1.c_str(), why.c_str(), "The new quest is a 2.53.1 quest.", "O&K", NULL, 'k', 0, lfont);
+        remove(path.c_str());
+        NewQuestFile(0);
+        return true;
+    }
+
+    zq_reopen(path.c_str());
+    remove(path.c_str());
+    remove(zq_zinfo_path(path.c_str()).c_str());
+
+    // TILESET_CLEARHEADER: no title, author, version, minimum version or password
+    memset(header.title, 0, sizeof(header.title));
+    memset(header.author, 0, sizeof(header.author));
+    memset(header.version, 0, sizeof(header.version));
+    memset(header.minver, 0, sizeof(header.minver));
+    set_questpwd("", false);
+    header.dirty_password = false;
+
+    if(!zq_new_quest_from_tileset(ruleset, bugfix, zs_bugfix, why))
+        jwin_alert("ZQuest", "The new quest's rules couldn't be set:", why.c_str(), "It keeps the tileset's.", "O&K", NULL, 'k', 0, lfont);
+
+    Map.setCurrMap(vbound(zinit.last_map, 0, map_count - 1));
+    Map.setCurrScr(zinit.last_screen);
+    zq_new_untitled(nv.name);
+    saved = false;          // as upstream: the new quest is unsaved
+    return true;
 }
 #endif
 

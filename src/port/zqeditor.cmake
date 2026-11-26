@@ -81,6 +81,7 @@ set(ZQEDITOR_SOURCES
 	${ZCPORT_DIR}/zqeditor/zq_record_editor.cpp
 	${ZCPORT_DIR}/zqeditor/zq_rule_names.cpp
 	${ZCPORT_DIR}/zqeditor/zq_rules_editor.cpp
+	${ZCPORT_DIR}/zqeditor/zq_new_quest.cpp
 	# compiling 2.55 / 3.0 quests' ZScript with zscript255 / zscript30
 	${ZCPORT_DIR}/zqeditor/zq_compile.cpp
 	${ZCPORT_DIR}/zqeditor/zq_compile_dialog.cpp
@@ -151,7 +152,7 @@ target_include_directories(zqeditor PRIVATE
 # The game's main() becomes zcport_game_main(); see src/port/entry/zplayer_main.cpp.
 # (On the target: a source file's properties would reach zplayer's copy too.)
 target_compile_definitions(zqeditor PRIVATE ZCPORT_MAGIC_MAIN ZC_ZQEDITOR
-	"ZPLAYER_WINDOW_TITLE=\"ZQuest Vulkan X.13-PRE\"")
+	"ZPLAYER_WINDOW_TITLE=\"ZQuest Vulkan 2.53.444.7\"")
 target_link_libraries(zqeditor PRIVATE zcport_sdl zcport zc_stb_vorbis zc_minimp3 zc_gme zc_dumb)
 if(WIN32)
 	target_link_libraries(zqeditor PRIVATE windowscodecs ole32)
