@@ -35,6 +35,44 @@ static inline int cs2_cset(int cset, int cofs)
 {
     return zc_cs2_cset ? zc_cs2_cset(cset, cofs & 15) : cset + cofs;
 }
+
+// 2.55/3.0 quests (the player sets these): upstream's quest rules by number, 3.0's combo delay and
+// CSet 2 flash duration (0 for a combo without them), and upstream's global frame counter; NULL in
+// ZQuest. They drive the combo animation and the CSet 2 flash below as upstream's newcombo does.
+bool (*zc_tiles_rule)(int id) = NULL;
+int (*zc_combo_delay)(int cid) = NULL;
+int (*zc_combo_cs2_flash)(int cid) = NULL;
+int (*zc_global_frame)() = NULL;
+
+extern bool tiles_newer_combo_flags;
+
+// 2.55/3.0: the frame each combo's animation shows (upstream's newcombo::cur_frame); it starts at 0
+// with the game and goes back to 0 whenever the animation restarts.
+static byte combo_cur_frame[MAXCOMBOS];
+
+// Whether combo cmbdat draws with its cset 2 (upstream's newcombo::using_cs2): it has corners and
+// an offset, and, in a 3.0 quest, its CSet 2 flash isn't in the half of its period that hides it.
+static bool combo_uses_cs2(const newcombo &c, int cmbdat)
+{
+    if(!(c.csets&0xF0) || !(c.csets&0x0F))
+        return false;
+
+    if(tiles_newer_combo_flags && zc_combo_cs2_flash && zc_global_frame)
+    {
+        if(int d = zc_combo_cs2_flash(cmbdat))
+        {
+            int g = zc_global_frame() % (d*2);
+
+            if(g < 0)
+                g += d*2;
+
+            if(g < d)
+                return false;
+        }
+    }
+
+    return true;
+}
 //extern byte *tilebuf;
 //BITMAP* tilebuf[NEWMAXTILES];
 tiledata *newtilebuf, *grabtilebuf;
@@ -162,6 +200,7 @@ word count_combos()
 
 void setup_combo_animations()
 {
+    memset(combo_cur_frame, 0, sizeof(combo_cur_frame));
     memset(animated_combo_table, 0, sizeof(animated_combo_table));
     memset(animated_combo_table4, 0, MAXCOMBOS*2*2);
     int y=0;
@@ -204,6 +243,138 @@ void setup_combo_animations2()
     animated_combos2=y;
 }
 
+// upstream's combo_end_check (core/combo.cpp): whether a 2.55/3.0 combo shows the last tile of its
+// animation. qr_BROKEN_ASKIP_Y_FRAMES (176) without qr_NEW_COMBO_ANIMATION (201) keeps 2.53's sum,
+// which miscounts "skip Y"; otherwise the frames are walked as the animation steps through them.
+static bool q30_combo_end_check(const newcombo &c, int o_tile)
+{
+    if(zc_tiles_rule(176) && !zc_tiles_rule(201))
+        return c.tile-(c.frames+((c.frames-1)*c.skipanim)+(c.skipanimy*TILES_PER_ROW)) >= o_tile-1;
+
+    int temp = o_tile;
+
+    for(int q = 1; q < c.frames; ++q)
+    {
+        int temp2 = temp;
+        temp += 1+c.skipanim;
+
+        if((temp/TILES_PER_ROW) != (temp2/TILES_PER_ROW))
+            temp += c.skipanimy*TILES_PER_ROW;
+
+        if(c.tile < temp)
+            return false;
+    }
+
+    return true;
+}
+
+// The tile of frame cur under qr_NEW_COMBO_ANIMATION (upstream's newcombo::animate).
+static int q30_combo_frame_tile(const newcombo &c, int o_tile, int cur)
+{
+    int tile = o_tile + ((1+c.skipanim)*cur);
+
+    if(int rowoffset = tile/TILES_PER_ROW - o_tile/TILES_PER_ROW)
+        tile += c.skipanimy * rowoffset * TILES_PER_ROW;
+
+    return tile;
+}
+
+// upstream's newcombo::animate for a 2.55/3.0 quest's combo cid, with its original tile o_tile and
+// clock clk (a byte upstream, so it wraps as one): a 3.0 combo waits its delay on frame 0 (on every
+// frame without the new animation rule, which leaves the frame number at 0); qr_NEW_COMBO_ANIMATION
+// picks the tile from the frame number, every frame.
+static void q30_animate_combo(int cid, int o_tile, word &clk)
+{
+    newcombo &c = combobuf[cid];
+    byte &cur = combo_cur_frame[cid];
+    const bool newanim = zc_tiles_rule(201);
+    const int delay = (cur || !zc_combo_delay) ? 0 : zc_combo_delay(cid);
+
+    if(clk >= c.speed + delay)
+    {
+        if(newanim)
+        {
+            if(++cur >= c.frames)
+            {
+                c.tile = o_tile;
+                cur = 0;
+            }
+            else
+                c.tile = q30_combo_frame_tile(c, o_tile, cur);
+        }
+        else if(q30_combo_end_check(c, o_tile))
+        {
+            c.tile = o_tile;
+            cur = 0;
+        }
+        else
+        {
+            int temp = c.tile;
+            c.tile += 1+c.skipanim;
+
+            if(temp/TILES_PER_ROW != c.tile/TILES_PER_ROW)
+                c.tile += TILES_PER_ROW*c.skipanimy;
+        }
+
+        clk = 0;
+    }
+    else
+    {
+        if(newanim)
+            c.tile = q30_combo_frame_tile(c, o_tile, cur);
+
+        clk = (byte)(clk+1);
+    }
+}
+
+// upstream's newcombo::should_cycle for a 2.55/3.0 quest's combo (maps.cpp's combo cycling): it has a
+// next combo, and it shows its last tile on a frame its animation steps.
+bool q30_combo_should_cycle(int cid)
+{
+    if(!zc_tiles_rule || cid < 0 || cid >= MAXCOMBOS)
+        return false;
+
+    const newcombo &c = combobuf[cid];
+
+    if(c.nextcombo == 0 && !(c.animflags & 0x10))   // AF_CYCLEUNDERCOMBO
+        return false;
+
+    // (a combo outside the animation tables keeps a clock of 0, as upstream's aclk does)
+    const bool fresh = (c.animflags & AF_FRESH) != 0;
+    const int pos = fresh ? animated_combo_table2[cid][0] : animated_combo_table[cid][0];
+    const bool in_table = fresh ? (pos < animated_combos2 && animated_combo_table24[pos][0] == cid)
+                                : (pos < animated_combos && animated_combo_table4[pos][0] == cid);
+    const word clk = !in_table ? 0 : fresh ? animated_combo_table24[pos][1] : animated_combo_table4[pos][1];
+    const int o_tile = fresh ? animated_combo_table2[cid][1] : animated_combo_table[cid][1];
+    const int delay = (combo_cur_frame[cid] || !zc_combo_delay) ? 0 : zc_combo_delay(cid);
+
+    if(clk < c.speed + delay)
+        return false;
+
+    return q30_combo_end_check(c, o_tile);
+}
+
+// upstream's newcombo::reset_animation for a 2.55/3.0 quest's combo (a cycle that restarts it).
+void q30_combo_reset_animation(int cid)
+{
+    if(cid < 0 || cid >= MAXCOMBOS)
+        return;
+
+    const bool fresh = (combobuf[cid].animflags & AF_FRESH) != 0;
+    const int pos = fresh ? animated_combo_table2[cid][0] : animated_combo_table[cid][0];
+
+    combobuf[cid].tile = fresh ? animated_combo_table2[cid][1] : animated_combo_table[cid][1];
+    combo_cur_frame[cid] = 0;
+
+    if(fresh)
+    {
+        if(pos < animated_combos2 && animated_combo_table24[pos][0] == cid)
+            animated_combo_table24[pos][1] = 0;
+    }
+    else if(pos < animated_combos && animated_combo_table4[pos][0] == cid)
+        animated_combo_table4[pos][1] = 0;
+}
+
 void reset_combo_animation(int c)
 {
     for(word x=0; x<animated_combos; ++x)
@@ -214,6 +385,7 @@ void reset_combo_animation(int c)
         {
             combobuf[y].tile=animated_combo_table[y][1];        //reset tile
             animated_combo_table4[x][1]=0;                        //reset clock
+            combo_cur_frame[y]=0;
             return;
         }
     }
@@ -229,6 +401,7 @@ void reset_combo_animation2(int c)
         {
             combobuf[y].tile=animated_combo_table2[y][1];        //reset tile
             animated_combo_table24[x][1]=0;                        //reset clock
+            combo_cur_frame[y]=0;
             return;
         }
     }
@@ -241,7 +414,10 @@ void reset_combo_animations()
         combobuf[animated_combo_table4[x][0]].tile=animated_combo_table[animated_combo_table4[x][0]][1];
 
         if(tiles_newer_combo_flags)     // 2.55/3.0 (upstream's newcombo::reset_animation): the clock too
+        {
             animated_combo_table4[x][1]=0;
+            combo_cur_frame[animated_combo_table4[x][0]]=0;
+        }
     }
 }
 
@@ -255,7 +431,10 @@ void reset_combo_animations2()
         // 2.55/3.0: a "fresh" combo's animation restarts with the screen, clock included
         // (upstream's newcombo::reset_animation); 2.53 kept the clock running
         if(tiles_newer_combo_flags)
+        {
             animated_combo_table24[x][1]=0;
+            combo_cur_frame[animated_combo_table24[x][0]]=0;
+        }
     }
 }
 
@@ -264,6 +443,24 @@ extern void update_combo_cycling();
 void animate_combos()
 {
     update_combo_cycling();
+
+    // 2.55/3.0: upstream's newcombo::animate, for both tables
+    if(tiles_newer_combo_flags && zc_tiles_rule)
+    {
+        for(word x=0; x<animated_combos; ++x)
+        {
+            int y=animated_combo_table4[x][0];
+            q30_animate_combo(y, animated_combo_table[y][1], animated_combo_table4[x][1]);
+        }
+
+        for(word x=0; x<animated_combos2; ++x)
+        {
+            int y=animated_combo_table24[x][0];
+            q30_animate_combo(y, animated_combo_table2[y][1], animated_combo_table24[x][1]);
+        }
+
+        return;
+    }
     
     for(word x=0; x<animated_combos; ++x)
     {
@@ -1637,7 +1834,7 @@ void putcombotranslucent(BITMAP* dest,int x,int y,int cmbdat,int cset,int opacit
     newcombo c = combobuf[cmbdat];
     int drawtile=combo_tile(c, x, y);
     
-    if(!(c.csets&0xF0) || !(c.csets&0x0F) || unsigned(drawtile) >= NEWMAXTILES || (newtilebuf[drawtile].format>tf4Bit))
+    if(!combo_uses_cs2(c, cmbdat) || unsigned(drawtile) >= NEWMAXTILES || (newtilebuf[drawtile].format>tf4Bit))
         puttiletranslucent16(dest,drawtile,x,y,cset,c.flip,opacity);
     else
     {
@@ -1678,7 +1875,7 @@ void overcomboblocktranslucent(BITMAP *dest, int x, int y, int cmbdat, int cset,
             if(tiletodraw%TILES_PER_ROW<woff) // Past the end?
                 tiletodraw+=TILES_PER_ROW*combobuf[cmbdat].skipanimy;
                 
-            if(!(c.csets&0xF0) || !(c.csets&0x0F) || unsigned(tiletodraw) >= NEWMAXTILES || (newtilebuf[tiletodraw].format>tf4Bit))
+            if(!combo_uses_cs2(c, cmbdat) || unsigned(tiletodraw) >= NEWMAXTILES || (newtilebuf[tiletodraw].format>tf4Bit))
                 overtiletranslucent16(dest,tiletodraw,x+16*woff,y+16*hoff,cset,c.flip,opacity);
             else
             {
@@ -2510,7 +2707,7 @@ void putcombo(BITMAP* dest,int x,int y,int cmbdat,int cset)
     newcombo c = combobuf[cmbdat];
     int drawtile=combo_tile(c, x, y);
     
-    if(!(c.csets&0xF0) || !(c.csets&0x0F) || unsigned(drawtile) >= NEWMAXTILES || (newtilebuf[drawtile].format>tf4Bit))
+    if(!combo_uses_cs2(c, cmbdat) || unsigned(drawtile) >= NEWMAXTILES || (newtilebuf[drawtile].format>tf4Bit))
         puttile16(dest,drawtile,x,y,cset,c.flip);
     //    puttile16(dest,c.drawtile,x,y,cset,c.flip);
     else
@@ -2535,7 +2732,7 @@ void oldputcombo(BITMAP* dest,int x,int y,int cmbdat,int cset)
     newcombo c = combobuf[cmbdat];
     int drawtile=combo_tile(c, x, y);
     
-    if(!(c.csets&0xF0) || !(c.csets&0x0F) || unsigned(drawtile) >= NEWMAXTILES || (newtilebuf[drawtile].format>tf4Bit))
+    if(!combo_uses_cs2(c, cmbdat) || unsigned(drawtile) >= NEWMAXTILES || (newtilebuf[drawtile].format>tf4Bit))
         oldputtile16(dest,drawtile,x,y,cset,c.flip);
     //    oldputtile16(dest,c.drawtile,x,y,cset,c.flip);
     else
@@ -2579,7 +2776,7 @@ void overcomboblock(BITMAP *dest, int x, int y, int cmbdat, int cset, int w, int
             if(tiletodraw%TILES_PER_ROW<woff) // Past the end?
                 tiletodraw+=TILES_PER_ROW*combobuf[cmbdat].skipanimy;
                 
-            if(!(c.csets&0xF0) || !(c.csets&0x0F) || unsigned(tiletodraw) >= NEWMAXTILES || (newtilebuf[tiletodraw].format>tf4Bit))
+            if(!combo_uses_cs2(c, cmbdat) || unsigned(tiletodraw) >= NEWMAXTILES || (newtilebuf[tiletodraw].format>tf4Bit))
                 overtile16(dest,tiletodraw,x+16*woff,y+16*hoff,cset,c.flip);
             else
             {

@@ -59,6 +59,11 @@ void q30_saved_portals_load(const std::vector<long> &kv);
 
 
 extern int (*zc_cs2_cset)(int cset, int cofs);     // tiles.cpp
+extern bool (*zc_tiles_rule)(int id);               // tiles.cpp: upstream's combo animation and
+extern int (*zc_combo_delay)(int cid);              // CSet 2 flash for 2.55/3.0 quests
+extern int (*zc_combo_cs2_flash)(int cid);
+extern int (*zc_global_frame)();
+extern int q30_game_frame_base;                     // zelda.cpp
 
 int q30_weapon_data_burn(long uid);         // q30_weapon_fx.h: the levels a weapon's flags burn with
 int q30_weapon_imitates(weapon *w);         // q30_weapon_fx.h: the weapon type it acts as (0 none)
@@ -101,6 +106,26 @@ void q30_combo_store(int id, Q30Combo *data)
     g_scripts_pending = true;
 }
 
+// For tiles.cpp's combo animation and drawing (2.55/3.0): 3.0's delay before a combo's first frame
+// and its CSet 2 flash duration (0 without them), and upstream's global_frame (it runs one behind
+// our frame counter and starts over with the game, as the wavy rooms count it in zc_sys.cpp).
+static int q30_combo_delay(int cid)
+{
+    const Q30Combo *c = q30_combo(cid);
+    return c ? c->delay : 0;
+}
+
+static int q30_combo_cs2_flash(int cid)
+{
+    const Q30Combo *c = q30_combo(cid);
+    return c ? c->cs2_flash_duration : 0;
+}
+
+static int q30_global_frame()
+{
+    return frame - q30_game_frame_base - 1;
+}
+
 // upstream's WRAP_CS2 for a 2.55/3.0 quest's combo cset 2 offset (tiles.cpp): signed, the cset
 // wrapping at 14, or at 16 under qr_OLDCS2; 2.53 quests: the plain sum
 static int q30_cs2_cset(int cset, int cofs)
@@ -120,6 +145,10 @@ void q30_set_quest_rules(const byte *rules, size_t bytes)
     memcpy(g_rules, rules, zc_min(bytes, sizeof(g_rules)));
     g_rules_known = true;
     zc_cs2_cset = q30_cs2_cset;
+    zc_tiles_rule = q30_quest_rule;
+    zc_combo_delay = q30_combo_delay;
+    zc_combo_cs2_flash = q30_combo_cs2_flash;
+    zc_global_frame = q30_global_frame;
 
     if(getenv("ZC_Q30_TRACE"))     // diagnostics: the upstream rule numbers the quest sets
     {
@@ -1382,6 +1411,29 @@ void q30_slope_push(int slot, int bx, int by, int bw, int bh, bool sideview, int
 
 void q30_trigger_stats()
 {
+    if(getenv("ZC_Q30_ANIMSTATS"))     // diagnostics: what of upstream's combo animation the quest uses
+    {
+        int delay = 0, flash = 0, skips = 0, anim = 0;
+
+        for(int i = 0; i < MAXCOMBOS; ++i)
+        {
+            if(combobuf[i].frames > 1)
+            {
+                ++anim;
+                skips += (combobuf[i].skipanim || combobuf[i].skipanimy) ? 1 : 0;
+            }
+
+            if(const Q30Combo *c = g_combos[i])
+            {
+                delay += (c->delay && combobuf[i].frames > 1) ? 1 : 0;
+                flash += (c->cs2_flash_duration && (combobuf[i].csets & 0xF0) && (combobuf[i].csets & 0x0F)) ? 1 : 0;
+            }
+        }
+
+        al_trace("q30 anim: rule201 %d rule176 %d animated %d skips %d delay %d cs2flash %d\n", get_bit(g_rules, 201) ? 1 : 0,
+                 get_bit(g_rules, 176) ? 1 : 0, anim, skips, delay, flash);
+    }
+
     if(!getenv("ZC_Q30_TRIGSTATS"))
         return;
 

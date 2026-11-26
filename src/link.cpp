@@ -2138,9 +2138,17 @@ attack:
             }
         }
         
+        // 2.55/3.0 (upstream's FIXED_Z3_ANIMATION): with a Zelda 3 animation style the stab and slash
+        // tiles step through their frames with the attack clock, unless qr_BROKEN_Z3_ANIMATION (314,
+        // which upstream sets for quests from before compat rule version 15)
+        extern dword q255_compat_rule_version;
+        const bool fixed_z3 = q30_active() && (zinit.linkanimationstyle==las_zelda3 || zinit.linkanimationstyle==las_zelda3slow)
+                              && !q30_quest_rule(314) && q255_compat_rule_version >= 15;
+
         if(attackclk<7
                 || (attack==wSword &&
-                    (attackclk<(game->get_canslash()?15:13) || (charging>0 && attackclk!=SWORDCHARGEFRAME)))
+                    (attackclk<(game->get_canslash()?15:13) || (fixed_z3 && attackclk<(game->get_canslash()?16:12))
+                     || (charging>0 && attackclk!=SWORDCHARGEFRAME)))
                 || ((attack==wWand || attack==wFire || attack==wCByrna) && attackclk<13)
                 || (attack==wHammer && attackclk<=30)
                 || (attack==Q30W_BUGNET && attackclk<24))
@@ -2148,6 +2156,12 @@ attack:
             if(!invisible)
             {
                 linktile(&tile, &flip, &extend, ls_stab, dir, zinit.linkanimationstyle);
+
+                if(fixed_z3)
+                {
+                    if(attackclk >= 2) tile += (extend==2?2:1);
+                    if(attackclk >= 13) tile += (extend==2?2:1);
+                }
 
                 // 2.55/3.0 bug net (without qr_OLD_BUG_NET): a slash at one end of the swing and
                 // a reverse slash at the other, the way round its flag 2 and the direction say
@@ -2161,9 +2175,16 @@ attack:
                         linktile(&tile, &flip, &extend, ls_slash, dir, zinit.linkanimationstyle);
                 }
                 
-                if((game->get_canslash() && (attack==wSword || attack==wWand || attack==wFire || attack==wCByrna)) && itemsbuf[itemid].flags&ITEM_FLAG4 && (attackclk<7))
+                if((game->get_canslash() && (attack==wSword || attack==wWand || attack==wFire || attack==wCByrna)) && itemsbuf[itemid].flags&ITEM_FLAG4 && (attackclk<7 || (fixed_z3 && attackclk<16)))
                 {
                     linktile(&tile, &flip, &extend, ls_slash, dir, zinit.linkanimationstyle);
+
+                    if(fixed_z3)
+                    {
+                        if(attackclk >= 7) tile += (extend==2?2:1);
+                        if(attackclk >= 11) tile += (extend==2?2:1);
+                        if(attackclk >= 14) tile += (extend==2?2:1);
+                    }
                 }
                 
                 if((attack==wHammer) && (attackclk<13))

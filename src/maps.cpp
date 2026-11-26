@@ -565,6 +565,22 @@ static int newcset2[176];
 static bool restartanim[MAXCOMBOS];
 static bool restartanim2[MAXCOMBOS];
 static void update_screen_combo_cycling(int);
+bool q30_combo_should_cycle(int cid);       // tiles.cpp (2.55/3.0: upstream's newcombo::should_cycle)
+void q30_combo_reset_animation(int cid);    // (and newcombo::reset_animation)
+
+// 2.55/3.0 (upstream's update_combo_cycling): a combo with AF_CYCLEUNDERCOMBO (0x10) cycles to the
+// screen's under combo and cset, one with AF_CYCLENOCSET (0x04) keeps its cset (-1)
+static void q30_cycle_target(const mapscr *scr, int x, int &data, int &cset)
+{
+    const bool under = (combobuf[x].animflags & 0x10) != 0;
+
+    data = under ? scr->undercombo : combobuf[x].nextcombo;
+
+    if(combobuf[x].animflags & 0x04)
+        cset = -1;
+    else
+        cset = under ? scr->undercset : combobuf[x].nextcset;
+}
 
 void update_combo_cycling()
 {
@@ -593,6 +609,13 @@ void update_combo_cycling()
 
     for(int i=0; i<MAXCOMBOS; i++)
     {
+        if(tiles_newer_combo_flags && (restartanim[i] || restartanim2[i]))
+        {
+            q30_combo_reset_animation(i);   // (2.55/3.0: frame and clock of its own table)
+            restartanim[i]=restartanim2[i]=false;
+            continue;
+        }
+
         if(restartanim[i])
         {
             combobuf[i].tile = animated_combo_table[i][1];
@@ -625,12 +648,13 @@ static void update_screen_combo_cycling(int)
         if(combobuf[x].animflags & AF_FRESH) continue;
         
         //time to restart
-        if((animated_combo_table4[y][1]>=combobuf[x].speed) &&
+        if(tiles_newer_combo_flags ? q30_combo_should_cycle(x) : ((animated_combo_table4[y][1]>=combobuf[x].speed) &&
                 (combobuf[x].tile-combobuf[x].frames>=animated_combo_table[x][1]-1) &&
-                (combobuf[x].nextcombo!=0))
+                (combobuf[x].nextcombo!=0)))
         {
             newdata[i]=combobuf[x].nextcombo;
             newcset[i]=combobuf[x].nextcset;
+            if(tiles_newer_combo_flags) q30_cycle_target(tmpscr, x, newdata[i], newcset[i]);
             int c=newdata[i];
             
             if(combobuf[c].animflags & AF_CYCLE)
@@ -648,12 +672,13 @@ static void update_screen_combo_cycling(int)
         if(!(combobuf[x].animflags & AF_FRESH)) continue;
         
         //time to restart
-        if((animated_combo_table24[y][1]>=combobuf[x].speed) &&
+        if(tiles_newer_combo_flags ? q30_combo_should_cycle(x) : ((animated_combo_table24[y][1]>=combobuf[x].speed) &&
                 (combobuf[x].tile-combobuf[x].frames>=animated_combo_table2[x][1]-1) &&
-                (combobuf[x].nextcombo!=0))
+                (combobuf[x].nextcombo!=0)))
         {
             newdata[i]=combobuf[x].nextcombo;
             newcset[i]=combobuf[x].nextcset;
+            if(tiles_newer_combo_flags) q30_cycle_target(tmpscr, x, newdata[i], newcset[i]);
             int c=newdata[i];
             
             if(combobuf[c].animflags & AF_CYCLE)
@@ -670,7 +695,8 @@ static void update_screen_combo_cycling(int)
             
         screen_combo_modify_preroutine(tmpscr,i);
         tmpscr->data[i]=newdata[i];
-        tmpscr->cset[i]=newcset[i];
+        if(newcset[i]>-1)       // (2.55/3.0: -1 keeps the cset, AF_CYCLENOCSET)
+            tmpscr->cset[i]=newcset[i];
         screen_combo_modify_postroutine(tmpscr,i);
         
         newdata[i]=-1;
@@ -685,12 +711,13 @@ static void update_screen_combo_cycling(int)
         if(combobuf[x].animflags & AF_FRESH) continue;
         
         //time to restart
-        if((animated_combo_table4[y][1]>=combobuf[x].speed) &&
+        if(tiles_newer_combo_flags ? q30_combo_should_cycle(x) : ((animated_combo_table4[y][1]>=combobuf[x].speed) &&
                 (combobuf[x].tile-combobuf[x].frames>=animated_combo_table[x][1]-1) &&
-                (combobuf[x].nextcombo!=0))
+                (combobuf[x].nextcombo!=0)))
         {
             newdata[i]=combobuf[x].nextcombo;
             newcset[i]=combobuf[x].nextcset;
+            if(tiles_newer_combo_flags) q30_cycle_target(tmpscr, x, newdata[i], newcset[i]);
             int c=newdata[i];
             
             if(combobuf[c].animflags & AF_CYCLE)
@@ -708,12 +735,13 @@ static void update_screen_combo_cycling(int)
         if(!(combobuf[x].animflags & AF_FRESH)) continue;
         
         //time to restart
-        if((animated_combo_table24[y][1]>=combobuf[x].speed) &&
+        if(tiles_newer_combo_flags ? q30_combo_should_cycle(x) : ((animated_combo_table24[y][1]>=combobuf[x].speed) &&
                 (combobuf[x].tile-combobuf[x].frames>=animated_combo_table2[x][1]-1) &&
-                (combobuf[x].nextcombo!=0))
+                (combobuf[x].nextcombo!=0)))
         {
             newdata[i]=combobuf[x].nextcombo;
             newcset[i]=combobuf[x].nextcset;
+            if(tiles_newer_combo_flags) q30_cycle_target(tmpscr, x, newdata[i], newcset[i]);
             int c=newdata[i];
             
             if(combobuf[c].animflags & AF_CYCLE)
@@ -729,7 +757,8 @@ static void update_screen_combo_cycling(int)
             continue;
             
         tmpscr->ffdata[i]=newdata[i];
-        tmpscr->ffcset[i]=newcset[i];
+        if(newcset[i]>-1)
+            tmpscr->ffcset[i]=newcset[i];
         
         newdata[i]=-1;
         newcset[i]=-1;
@@ -749,12 +778,13 @@ static void update_screen_combo_cycling(int)
                 if(combobuf[x].animflags & AF_FRESH) continue;
                 
                 //time to restart
-                if((animated_combo_table4[y][1]>=combobuf[x].speed) &&
+                if(tiles_newer_combo_flags ? q30_combo_should_cycle(x) : ((animated_combo_table4[y][1]>=combobuf[x].speed) &&
                         (combobuf[x].tile-combobuf[x].frames>=animated_combo_table[x][1]-1) &&
-                        (combobuf[x].nextcombo!=0))
+                        (combobuf[x].nextcombo!=0)))
                 {
                     newdata[i]=combobuf[x].nextcombo;
                     newcset[i]=combobuf[x].nextcset;
+                    if(tiles_newer_combo_flags) q30_cycle_target((tmpscr2+j), x, newdata[i], newcset[i]);
                     int c=newdata[i];
                     
                     if(combobuf[c].animflags & AF_CYCLE)
@@ -772,12 +802,13 @@ static void update_screen_combo_cycling(int)
                 if(!(combobuf[x].animflags & AF_FRESH)) continue;
                 
                 //time to restart
-                if((animated_combo_table24[y][1]>=combobuf[x].speed) &&
+                if(tiles_newer_combo_flags ? q30_combo_should_cycle(x) : ((animated_combo_table24[y][1]>=combobuf[x].speed) &&
                         (combobuf[x].tile-combobuf[x].frames>=animated_combo_table2[x][1]-1) &&
-                        (combobuf[x].nextcombo!=0))
+                        (combobuf[x].nextcombo!=0)))
                 {
                     newdata2[i]=combobuf[x].nextcombo;
                     newcset2[i]=combobuf[x].nextcset;
+                    if(tiles_newer_combo_flags) q30_cycle_target((tmpscr2+j), x, newdata2[i], newcset2[i]);
                     int c=newdata2[i];
                     int cs=newcset2[i];
                     
@@ -800,7 +831,8 @@ static void update_screen_combo_cycling(int)
                 {
                     screen_combo_modify_preroutine(tmpscr2+j,i);
                     (tmpscr2+j)->data[i]=newdata[i];
-                    (tmpscr2+j)->cset[i]=newcset[i];
+                    if(newcset[i]>-1)
+                        (tmpscr2+j)->cset[i]=newcset[i];
                     screen_combo_modify_postroutine(tmpscr2+j,i);
                     
                     newdata[i]=-1;
@@ -810,7 +842,8 @@ static void update_screen_combo_cycling(int)
                 if(newdata2[i]!=-1)
                 {
                     (tmpscr2+j)->data[i]=newdata2[i];
-                    (tmpscr2+j)->cset[i]=newcset2[i];
+                    if(newcset2[i]>-1)
+                        (tmpscr2+j)->cset[i]=newcset2[i];
                     newdata2[i]=-1;
                     newcset2[i]=-1;
                 }
