@@ -222,7 +222,7 @@ int write_strings(PACKFILE *f, const ZqNewerContext &ctx)
         o.c(G("margin_top", 8));
         o.c(G("margin_bottom", 0));
         o.c(G("margin_left", 8));
-        o.c(G("margin_right", 8));
+        o.c(G("margin_right", (t30 || zq_newer_255_release() >= 3) ? 8 : 0));    // init_msgstr's: 0 before 2.55.3
         o.l(G("portrait_tile", 0));
         o.c(G("portrait_cset", 0));
         o.c(G("portrait_x", 0));

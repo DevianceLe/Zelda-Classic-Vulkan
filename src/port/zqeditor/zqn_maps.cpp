@@ -400,8 +400,8 @@ void read_screen(In &in, word hv, byte hb, word ver, int target, bool nofairyfir
         {
             e = in.g8();
 
-            // 76 is the highest enemy 1.90 could set; upstream clears anything past it
-            if(hv <= 0x190 && e > 76)
+            // 76 is the highest enemy 1.90 could set; upstream clears anything past it (from 2.55.11)
+            if(hv <= 0x190 && e > 76 && zq_newer_255_release() >= 11)
                 e = 0;
         }
         else

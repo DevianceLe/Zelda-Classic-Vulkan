@@ -274,10 +274,10 @@ void put_string(Buf &o, const MsgStr &m, int target)
     o.c(m.vspace);
     // 3.0 clears two flags older versions defined but never used
     o.c(v30 ? (m.stringflags & ~0x0C) : m.stringflags);
-    o.c(8);                     // margins: up, down, left, right
+    o.c(8);                     // margins: up, down, left, right (the right one 0 before 2.55.3)
     o.c(0);
     o.c(8);
-    o.c(8);
+    o.c(v30 || zq_newer_255_release() >= 3 ? 8 : 0);
     o.l(0);                     // portrait: tile, cset, x, y, width, height
     o.c(0);
     o.c(0);

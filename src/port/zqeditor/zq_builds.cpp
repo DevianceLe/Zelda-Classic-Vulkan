@@ -1,9 +1,11 @@
 // The build catalog (zq_builds.h): every ZC build ZQuest can start a new quest in or save a quest as,
 // gathered from the three generations' lists and sorted oldest first.
 //
-// Save As offers the build the open quest was made in (the first generation whose made_order isn't
-// -1 says which) and every build of its generation or a newer one released on or after it: never an
-// older one. File > New offers every build that has a make_new.
+// Builds compare by generation first, then by order within it: every 3.0 build is newer than every 2.55
+// one (the 2.55 line kept releasing alongside 3.0), every 2.55 one newer than every 2.53.1-and-older
+// one. Save As offers the build the open quest was made in (the first generation whose made_order isn't
+// -1 says which) and every build after it: never an older one (a writer that can't hold the quest
+// refuses with its reason). File > New offers every build that has a make_new.
 //
 // Written for the port (no jwin or Allegro code).
 
@@ -24,7 +26,7 @@ namespace
 
 bool by_order(const zq_build &a, const zq_build &b)
 {
-    return a.order < b.order;
+    return a.gen != b.gen ? a.gen < b.gen : a.order < b.order;
 }
 
 std::vector<zq_build> gather()
@@ -110,12 +112,9 @@ void zq_builds_for_save_as(std::vector<zq_build> &newer, std::string &own_name)
             continue;
         }
 
-        // never older: an older generation, or a build released before the quest's own
-        if(!b.save_as || b.gen < gen || (made != -1 && b.order < made))
-            continue;
-
-        // with no build known for the quest, only newer generations than its header's
-        if(made == -1 && b.gen == gen)
+        // never older: an older generation, or one of its own generation before the quest's build (with
+        // no build known for the quest, only newer generations than its header's)
+        if(!b.save_as || b.gen < gen || (b.gen == gen && (made == -1 || b.order < made)))
             continue;
 
         // one row a name

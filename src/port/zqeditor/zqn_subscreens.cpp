@@ -923,7 +923,8 @@ void from_old_groups(const std::vector<OldGroup> &groups, Lists &l)
         }
     }
 
-    if(!has_old || fallback_type < 0)
+    // the DMaps' fix-up came in 2.55.16: before it they keep their numbers
+    if(!has_old || fallback_type < 0 || zq_newer_255_release() < 16)
         return;
 
     int fallback[2] = { -1, -1 };

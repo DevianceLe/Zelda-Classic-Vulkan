@@ -437,6 +437,8 @@ void guy_update_weaponspecialsfx(UGuy &g)
 
 // ---- upstream's update_guy_1 (November 2009) ----------------------------------------------
 
+bool guy_bkshield_cleared(const UCtx &c);
+
 void update_guy_1(UGuy &g, const UCtx &c)
 {
     bool doesntcount = false;
@@ -519,9 +521,13 @@ darknuts:
 
             g.flags |= inv_front;
 
-            // upstream also takes a breakable shield away when the rule is off; 2.53 only adds it
+            // upstream also takes a breakable shield away when the rule is off (from 2.55.7); 2.53
+            // and 2.55.0 to 2.55.6 only add it
             if(!c.dep_brkblshlds)
-                g.flags &= ~guy_bkshield;
+            {
+                if(guy_bkshield_cleared(c))
+                    g.flags &= ~guy_bkshield;
+            }
             else
                 g.flags |= guy_bkshield;
 
@@ -684,6 +690,13 @@ darknuts:
 
 // ---- upstream's init_guys and readguys' header fixes ---------------------------------------
 
+// init_guys and the Darknuts' load fix take a breakable shield away when qr_BRKBLSHLDS_DEP is off
+// from 2.55.7 on; before, they only gave it when the rule was on.
+bool guy_bkshield_cleared(const UCtx &c)
+{
+    return c.target == ZQ_NEWER_30 || zq_newer_255_release() >= 7;
+}
+
 // The Dig enemies' "ignore Kill All Enemies" (guy_ignorekill) came in 2.55.4: an older release's loader
 // neither has the flag nor sets it.
 bool guy_ignorekill_known(const UCtx &c)
@@ -745,7 +758,10 @@ void init_guys(std::vector<UGuy> &gs, const UCtx &c, int guyversion)
                 g.s_tile = 860;
 
             if(!c.dep_brkblshlds)
-                g.flags &= ~guy_bkshield;
+            {
+                if(guy_bkshield_cleared(c))
+                    g.flags &= ~guy_bkshield;
+            }
             else
                 g.flags |= guy_bkshield;
         }
