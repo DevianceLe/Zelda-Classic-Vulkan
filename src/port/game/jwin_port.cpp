@@ -530,6 +530,8 @@ void alert_object(DIALOG &d, DIALOG_PROC proc, int flags, int key, const char *t
 // Up to three lines and three buttons (missing ones are NULL); c1..c3 are
 // the buttons' keyboard shortcuts. Returns 1, 2 or 3 for the button chosen;
 // Escape or the window's close button answer 3.
+char jwin_last_alert[512] = "";
+
 int jwin_alert3(const char *title, const char *s1, const char *s2, const char *s3, const char *b1, const char *b2, const char *b3, int c1, int c2, int c3, FONT *title_font)
 {
     (void)title_font;
@@ -548,6 +550,9 @@ int jwin_alert3(const char *title, const char *s1, const char *s2, const char *s
     alert_object(g_alert[A_B3], jwin_button_proc, D_EXIT | (b3 ? 0 : D_HIDDEN), c3, b3);
     memset(&g_alert[A_COUNT], 0, sizeof(DIALOG));
 
+    // the last alert's text, for test reports (zq_builds_old.cpp's switches)
+    snprintf(jwin_last_alert, sizeof(jwin_last_alert), "%s: %s %s %s", title ? title : "", s1 ? s1 : "", s2 ? s2 : "",
+             s3 ? s3 : "");
     clear_keybuf();
     int c = do_dialog(g_alert, A_B1);
     position_mouse_z(0);

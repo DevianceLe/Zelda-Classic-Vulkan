@@ -806,10 +806,18 @@ long zq_made_order_old()
 // ZQ_BUILD_TEST_EDIT=1: before the save, combo 1 on screen 0's first cell of map 0 (a small edit).
 // Each writes one report line: what was done, SAVED or NOT SAVED, the saved file's header.
 
+extern char jwin_last_alert[512];                       // jwin_port.cpp: the last alert, for reports
 std::vector<zq_build> zq_builds_all();                  // zq_builds.cpp: every generation
 
 namespace
 {
+
+// Why a save or New didn't happen: this file's own message, else the last alert another
+// generation's code showed.
+std::string why_text()
+{
+    return g_last_error.empty() ? std::string(jwin_last_alert) : g_last_error;
+}
 
 // The build of that name; with several of one name (Save As and New entries from different files),
 // the one with the callback the switch needs (want_new: make_new, else save_as).
@@ -894,7 +902,7 @@ int zq_builds_old_switches(int argc, char **argv)
 
             test_edit();
             bool ok = b->save_as(*b, argv[i + 3]);
-            report(argv[i + 4], line + (ok ? "SAVED; now " + header_text() : "NOT SAVED, " + g_last_error));
+            report(argv[i + 4], line + (ok ? "SAVED; now " + header_text() : "NOT SAVED, " + why_text()));
             return ok ? 0 : 3;
         }
 
@@ -915,14 +923,23 @@ int zq_builds_old_switches(int argc, char **argv)
 
             if(!b->make_new(*b))
             {
-                report(argv[i + 3], line + "NOT MADE, " + g_last_error);
+                report(argv[i + 3], line + "NOT MADE, " + why_text());
                 return 3;
             }
 
             line += "made " + header_text() + "; ";
             test_edit();
-            bool ok = b->save_as(*b, argv[i + 2]);
-            report(argv[i + 3], line + (ok ? "SAVED; now " + header_text() : "NOT SAVED, " + g_last_error));
+            // a New-only entry (zq_builds_192.cpp) saves through the Save As entry of the same name
+            const zq_build *s = b->save_as ? b : find_build(all, argv[i + 1], false);
+
+            if(!s || !s->save_as)
+            {
+                report(argv[i + 3], line + "NOT SAVED, no Save As for it");
+                return 3;
+            }
+
+            bool ok = s->save_as(*s, argv[i + 2]);
+            report(argv[i + 3], line + (ok ? "SAVED; now " + header_text() : "NOT SAVED, " + why_text()));
             return ok ? 0 : 3;
         }
 

@@ -749,6 +749,25 @@ extern "C" int update_dialog(DIALOG_PLAYER *player)
    DIALOG_PLAYER *p = player;
    DIALOG *dialog = p->dialog;
 
+   // Test runs (ZQ_HEADLESS_DIALOGS=1): every dialog ends at once on its default exit, the focus
+   // object if it exits, else its first exit object after the window, as if Enter were pressed.
+   static int headless = -1;
+   if (headless < 0) {
+      const char *e = std::getenv("ZQ_HEADLESS_DIALOGS");
+      headless = e && *e == '1';
+   }
+   if (headless) {
+      int pick = -1;
+      if (p->focus_obj > 0 && (dialog[p->focus_obj].flags & D_EXIT))
+         pick = p->focus_obj;
+      for (int i = 1; pick < 0 && dialog[i].proc; ++i)
+         if ((dialog[i].flags & D_EXIT) && !(dialog[i].flags & (D_HIDDEN | D_DISABLED)))
+            pick = i;
+      p->obj = pick;
+      p->res |= D_CLOSE;
+      return FALSE;
+   }
+
    if (pl->host)
       return pl->host->update(pl->host_state, p);
 
