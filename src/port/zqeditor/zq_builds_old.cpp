@@ -11,9 +11,11 @@
 //     the target's own loader conversions apply on top when the file is opened.
 //   - 2.10.1 to 2.10.3 from 2.10.0 (the same section versions): the own-version save with the
 //     header's build set to 1.
-//   Anything else (a 1.9x quest as 2.10 or 2.11, a 2.10 quest as 2.11) isn't written yet: the
-//   writers re-encode a part only in the version it was loaded in, and nothing gives them a part
-//   at the target's versions to start from. save_as says so and saves nothing.
+//   - 2.10.x and 2.11 Beta 6 from an older quest (1.9x, or 2.10 as 2.11 Beta 6): written as that
+//     build's own ZQuest wrote an older quest it had opened, over that build's new-quest file
+//     (save_over_skeleton, below).
+//   2.11 Beta 18 from an older quest isn't written yet: nothing gives the writers a part at beta
+//   18's versions to start from. save_as says so and saves nothing.
 //   After a save the quest open is the saved file (reopened when its build changed): its path,
 //   title and saved state are set. The caller shows the "Saved" message; save_as shows why when it
 //   fails (only the message: nothing is changed).
@@ -68,12 +70,17 @@
 #include "zq_tile_refs.h"
 #include "zq_zinfo.h"
 #include "zq_builds_old_table.h"
+#include "md5.h"
 
 extern zquestheader header;
 extern zinitdata zinit;
 extern bool zq_batch_load;
 extern bool skip_quest_password;
 extern std::vector<mapscr> TheMaps;
+extern miscQdata misc;
+extern char qst_header_password_text[30];  // qst.cpp: an old header's password as text
+int loadquest(const char *filename, zquestheader *Header, miscQdata *Misc, zctune *tunes, bool show_progress,
+              bool compressed, bool encrypted, bool keepall, byte *skip_flags);     // qst.cpp
 
 namespace
 {
@@ -414,6 +421,141 @@ bool save_restamped(const OldBuild &t, const char *path)
     return reopen(path, false);
 }
 
+// The quest's password as text, when ZQuest has it: typed since the load, or read from an old
+// header that keeps it (checked against the hash, so it is this quest's).
+bool password_text(char out[30])
+{
+    const char *text = header.dirty_password ? header.password : qst_header_password_text;
+    char t[30];
+    memcpy(t, text, sizeof(t));
+    t[29] = 0;
+    cvs_MD5Context ctx;
+    unsigned char md5[16];
+    cvs_MD5Init(&ctx);
+    cvs_MD5Update(&ctx, (const unsigned char *)t, (unsigned)strlen(t));
+    cvs_MD5Final(md5, &ctx);
+
+    if(memcmp(md5, header.pwd_hash, 16))
+        return false;
+
+    memcpy(out, t, 30);
+    return true;
+}
+
+// A target whose sections are at versions the quest's file doesn't have (2.10.x or 2.11 Beta 6 from
+// an older quest), written as that build's own ZQuest wrote an older quest it had opened: the
+// build's new-quest file is the skeleton, every section of it at the build's versions. ZQuest opens
+// it (marked as the build's when it is an earlier build's file), so its copy of the file and the
+// writers' notes of what was loaded are the skeleton's; the quest's data is read over it with the
+// loader alone, from ZQuest's 2.53 save of it (which holds all of it), so the copy and the notes stay
+// the skeleton's; then every part goes through its writer with every record encoded from ZQuest's
+// data. What the build's format can't hold as ZQuest has it is written as that build had it, and its
+// loader makes the rest on load (zqw_lenient): a rule whose stored bit its loader turns into other
+// data is stored as the quest has it; 2.10's and 2.11 beta 6's enemy sections hold only the built-in
+// enemies. Old headers keep the password as text, which ZQuest has when the quest's own header kept
+// it or it was typed. If the save fails, the quest comes back from its own-version save made first,
+// under its own name, its changes not saved.
+bool save_over_skeleton(const OldBuild &t, const char *path)
+{
+    std::string why;
+    const std::string line1 = std::string("This quest can't be saved as ") + t.name + ":";
+
+    if(!t.tpl || !exists(t.tpl))
+        return fail(line1, std::string("the new-quest file it starts from, ") + (t.tpl ? t.tpl : "") + ", is missing.");
+
+    if(!zq_tiles_fit_253(why))
+        return fail(line1, why + ".");
+
+    char pwd[30];
+
+    if(!password_text(pwd))
+        return fail(line1, "its header keeps the password as text, and ZQuest doesn't have it. Set the password again (Quest > Password), then save.");
+
+    const std::string own = temp_qst(), full = temp_qst();
+    const std::string was_path = filepath;
+    const zquestheader quest_header = header;
+
+    // 1. to come back to
+    if(zq_save_own_format(own.c_str(), true, why))
+    {
+        remove_temp(own);
+        return fail(line1, why);
+    }
+
+    // 2. all of its data
+    {
+        int ret = save_unencoded_quest(full.c_str(), false);
+        box_end(false);
+        header = quest_header;
+
+        if(ret)
+        {
+            remove_temp(own);
+            remove(full.c_str());
+            return fail(line1, "the 2.53 save it starts from failed.");
+        }
+    }
+
+    // 3. the skeleton, as the target's build
+    char p[2048];
+    strncpy(p, t.tpl, sizeof(p) - 1);
+    p[sizeof(p) - 1] = 0;
+    bool ok = load_quest(p, true, true) == qe_OK;
+
+    if(ok && (header.zelda_version != t.zv || header.build != t.build))
+        ok = zq_new_quest_stamp(t.zv, t.build);
+
+    // 4. the quest's data over it; its header, as the target's build
+    if(ok)
+    {
+        byte skip_flags[4] = { 0, 0, 0, 0 };
+        char id[sizeof(header.id_str)];
+        memcpy(id, header.id_str, sizeof(id));
+        strncpy(p, full.c_str(), sizeof(p) - 1);
+        p[sizeof(p) - 1] = 0;
+        ok = loadquest(p, &header, &misc, customtunes, false, false, false, true, skip_flags) == qe_OK;
+        header = quest_header;
+        memcpy(header.id_str, id, sizeof(id));
+        header.zelda_version = t.zv;
+        header.build = t.build;
+        memcpy(header.password, pwd, sizeof(pwd));
+        header.dirty_password = true;
+
+        if(!ok)
+            why = "its data couldn't be read back.";
+    }
+
+    // 5. every part, every record
+    if(ok)
+    {
+        zqw_force_serialize = true;
+        zqw_lenient = true;
+        ok = zq_save_own_format_ex(path, true, true, why) == 0;
+        zqw_force_serialize = false;
+        zqw_lenient = false;
+    }
+
+    remove(full.c_str());
+
+    if(!ok)
+    {
+        strncpy(p, own.c_str(), sizeof(p) - 1);
+        p[sizeof(p) - 1] = 0;
+        load_quest(p, true, true);
+        remove_temp(own);
+        strcpy(filepath, was_path.c_str());
+
+        if(filepath[0])
+            zq_set_quest_title(filepath);
+
+        saved = false;
+        return fail(line1, why);
+    }
+
+    remove_temp(own);
+    return reopen(path, false);
+}
+
 bool save_own(const OldBuild *t, const std::string &name, const char *path)
 {
     if(t && t->zv == 0x250 && t->build == VERSION_BUILD)
@@ -481,8 +623,11 @@ bool save_as_old(const zq_build &b, const char *path)
     if(zv == t.zv && qb < t.build && row && parts_at(*row))
         return save_restamped(t, path);
 
+    if(t.new_kind == N_TEMPLATE && t.zv < 0x250)
+        return save_over_skeleton(t, path);
+
     return fail(std::string("A quest made in ") + dynamic_name(zv, qb) + " can't be saved as " + t.name + " yet.",
-                "ZQuest can write it in its own version, or as 2.50.0 or newer.");
+                "ZQuest can write it in its own version, or as 2.50.0 or newer.");     // (2.11 Beta 18)
 }
 
 // ---- File > New ------------------------------------------------------------------------------

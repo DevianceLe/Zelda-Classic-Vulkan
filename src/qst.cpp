@@ -2015,11 +2015,19 @@ int (*q255_sections_hook)(PACKFILE *f, zquestheader *header, miscQdata *misc, zc
 // than 1.93, which has no sections. Nothing else changes when it's set.
 void (*qst_section_hook)(PACKFILE *f, dword id, bool start) = NULL;
 
+// An old header's password as text (1.9x, and 1.93 to 2.11 headers before version 3 keep it, not
+// only its hash), for ZQuest's Save As an older build's file (port/zqeditor/zq_builds_old.cpp).
+char qst_header_password_text[30] = "";
+
 int readheader(PACKFILE *f, zquestheader *Header, bool keepdata)
 {
     int dummy;
     zquestheader tempheader;
     memcpy(&tempheader, Header, sizeof(tempheader));
+
+    if(keepdata)
+        qst_header_password_text[0] = 0;
+
     char dummybuf[80];
     byte temp_map_count;
     byte temp_midi_flags[MIDIFLAGS_SIZE];
@@ -2163,6 +2171,10 @@ int readheader(PACKFILE *f, zquestheader *Header, bool keepdata)
         }
         
         get_questpwd(temp_pwd, temp_pwdkey, temp_pwd2);
+
+        if(keepdata)
+            memcpy(qst_header_password_text, temp_pwd2, sizeof(qst_header_password_text));
+
         cvs_MD5Init(&ctx);
         cvs_MD5Update(&ctx, (const unsigned char*)temp_pwd2, (unsigned)strlen(temp_pwd2));
         cvs_MD5Final(tempheader.pwd_hash, &ctx);
@@ -2349,6 +2361,10 @@ int readheader(PACKFILE *f, zquestheader *Header, bool keepdata)
             }
             
             get_questpwd(temp_pwd, temp_pwdkey, temp_pwd2);
+
+            if(keepdata)
+                memcpy(qst_header_password_text, temp_pwd2, sizeof(qst_header_password_text));
+
             cvs_MD5Init(&ctx);
             cvs_MD5Update(&ctx, (const unsigned char*)temp_pwd2, (unsigned)strlen(temp_pwd2));
             cvs_MD5Final(tempheader.pwd_hash, &ctx);

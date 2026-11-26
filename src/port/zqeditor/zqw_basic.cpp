@@ -731,7 +731,8 @@ int write_rules_old(PACKFILE *f, const std::vector<byte> &b)
         if(!why && bit_of(was, bit) != bit_of(g_loaded.rules, bit))
             why = "the load sets it from other data";
 
-        if(why)
+        // (zqw_lenient: the stored bit as ZQuest has the rule; that build's loader makes the rest)
+        if(why && !zqw_lenient)
         {
             ret = refuse("Rule %d can't be changed in this quest's version: %s.", bit, why);
             break;
@@ -764,11 +765,11 @@ int write_rules_old(PACKFILE *f, const std::vector<byte> &b)
             }
         }
 
-        if(!found)
+        if(!found && !zqw_lenient)
             ret = refuse("Rule %d can't be changed in this quest's version: the loader sets it.", bit);
     }
 
-    if(!ret)
+    if(!ret && !zqw_lenient)
     {
         byte check[QUESTRULES_SIZE];
         read_rules_old(stored, v, cv, check);

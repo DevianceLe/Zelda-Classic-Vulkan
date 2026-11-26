@@ -429,7 +429,8 @@ int finish(PACKFILE *f, const ZqPartContext &ctx, Src &s, const Head &h, Patch &
         return BAD_PART;
     }
 
-    if(p.cant)
+    // (zqw_lenient: as that build's ZQuest, what its format holds; its loader makes the rest)
+    if(p.cant && !zqw_lenient)
         return cant_hold(zq_part_name(*ctx.part), p.what);
 
     p.copy(s.left());       // nothing the reader reads should be left, but keep it if there is
@@ -895,10 +896,11 @@ void bytes_u8(Patch &p, const byte *cur, const byte *snap, int n)
         p.u8(cur[i], snap[i]);
 }
 
-// Fields a version doesn't have: they must still be as the load left them.
+// Fields a version doesn't have: they must still be as the load left them (zqw_lenient: as that
+// build's ZQuest, which had no such field; its loader makes it).
 void not_held(Patch &p, bool same, const char *what)
 {
-    if(!same)
+    if(!same && !zqw_lenient)
         p.fail(what);
 }
 

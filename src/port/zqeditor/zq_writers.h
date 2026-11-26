@@ -75,6 +75,12 @@ void zq_hash_add(uint64_t *h, const void *data, size_t n);   // FNV-1a, as the f
 // instead of copying unchanged records: -qst-roundtrip-check uses it to test that code.
 extern bool zqw_force_serialize;
 
+// Saving as another build's file the way that build's own ZQuest did when it opened an older quest
+// (zq_builds_old.cpp): when true, what the target's format can't hold as ZQuest has it is written as
+// that build had it, from the file the save starts from (the build's new-quest file), and its loader
+// makes the rest of it on load, instead of the save stopping. Only that save sets it.
+extern bool zqw_lenient;
+
 // The part's section version and cversion, from its kept bytes. False for raw parts.
 bool zq_part_versions(const ZqQuestPart &p, word *version, word *cversion);
 

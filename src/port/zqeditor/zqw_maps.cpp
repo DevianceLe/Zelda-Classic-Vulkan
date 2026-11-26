@@ -831,6 +831,8 @@ int write_dmaps(PACKFILE *f, const ZqPartContext &ctx)
 
         if(ok && !exact_differs(ID_DMAPS, i, unchanged, rec.b, orig, start, in.pos))
             o.pn(&rec.b[0], rec.b.size());
+        else if(zqw_lenient && !rec.b.empty())
+            o.pn(&rec.b[0], rec.b.size());          // as that build's ZQuest: its loader converts it
         else if(refuse(ID_DMAPS, i, unchanged, "can't be held in this version"))
             return ERR_CANT_HOLD;
         else
@@ -1385,6 +1387,8 @@ int write_maps(PACKFILE *f, const ZqPartContext &ctx)
 
             if(ok && !exact_differs(ID_MAPS, (int)index, unchanged, rec.b, orig, start, pos))
                 o.pn(&rec.b[0], rec.b.size());
+            else if(zqw_lenient && !rec.b.empty())
+                o.pn(&rec.b[0], rec.b.size());      // as that build's ZQuest: its loader converts it
             else if(refuse(ID_MAPS, (int)index, unchanged, "can't be held in this version"))
                 return ERR_CANT_HOLD;
             else

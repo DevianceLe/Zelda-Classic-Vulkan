@@ -87,6 +87,7 @@ const PACKFILE_VTABLE g_vector_vtable = { dc_fclose, dc_getc, dc_ungetc, dc_frea
 
 namespace { std::vector<dword> &every_save_ids(); }
 bool zqw_force_serialize = false;
+bool zqw_lenient = false;
 std::string zqw_last_error;
 
 namespace

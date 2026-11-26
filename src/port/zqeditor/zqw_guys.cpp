@@ -244,7 +244,8 @@ int encode_guys_bare(const ZqPartContext &ctx, const std::vector<byte> &orig, st
     if(orig.size() != 8)
         return ERR_PARSE;
 
-    for(int i = 0; i < MAXGUYS; ++i)
+    // (zqw_lenient: as that build's ZQuest, which had only its built-in enemies)
+    for(int i = 0; i < MAXGUYS && !zqw_lenient; ++i)
         if(guy_changed(i))
         {
             zqw_ig_refuse("Enemies, section version %d: enemy %d (%s) was changed; this version only has the built-in enemies.\n", ctx.version, i, guy_string[i]);

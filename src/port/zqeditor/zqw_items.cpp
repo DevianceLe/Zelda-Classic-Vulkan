@@ -431,7 +431,8 @@ int encode_items_old(const ZqPartContext &ctx, std::vector<byte> &out)
             note("items v%d: item %d (%s) can't be held: %s\n", L.version, i, item_string[i], why);
         }
 
-        if(bad)
+        // (zqw_lenient: as that build's ZQuest, the item as its format holds it; its loader makes the rest)
+        if(bad && !zqw_lenient)
             return ERR_CANT_HOLD;
 
         if(!retry)
