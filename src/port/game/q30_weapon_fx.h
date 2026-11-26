@@ -308,7 +308,7 @@ void q30_weapon_fall(weapon *w)
 
     if(st.move_flags & Z30MV_OBEYS_GRAV)
     {
-        if(tmpscr->flags7 & fSIDEVIEW)
+        if(q30_sideview_gravity(tmpscr))
         {
             const bool hardcoded = q30_quest_rule(579);     // qr_WEAPONS_HARDCODED_SIDEVIEW_HITBOX
             const bool on_solid = hardcoded ? _walkflag(int(w->x), int(w->y) + 16, 0) : z30_wsv_solid(w);
@@ -457,7 +457,7 @@ static int z30_wfall_new(weapon *w, bool water)
 {
     const int endx = zc_max(w->hxsz - 2, 1), endy = zc_max(w->hysz - 2, 1);
     const int startx = zc_min(2, endx - 1);
-    const int starty = (tmpscr->flags7 & fSIDEVIEW) ? zc_min(endy / 2 + 2, endy - 1) : zc_min(2, endy - 1);
+    const int starty = (q30_sideview_gravity(tmpscr)) ? zc_min(endy / 2 + 2, endy - 1) : zc_min(2, endy - 1);
     int ret = 0;
 
     for(int dx = startx; dx < endx; ++dx)

@@ -1670,7 +1670,7 @@ bool weapon::animate_body(int)
     case wBait:
     case ewFlame:
     case ewFireTrail:
-        if(tmpscr->flags7&fSIDEVIEW)
+        if(q30_sideview_gravity(tmpscr))
         {
             if(!_walkflag(x,y+16,0))
             {
@@ -2307,14 +2307,14 @@ bool weapon::animate_body(int)
                         
                     for(int ty=-f2; ty<=f2; ty+=32)
                     {
-                        findentrance(x+tx,y+ty+(tmpscr->flags7&fSIDEVIEW?2:-3),mfBOMB,true);
+                        findentrance(x+tx,y+ty+(q30_sideview_gravity(tmpscr)?2:-3),mfBOMB,true);
                         
                         if(id==wSBomb || id==wLitSBomb)
                         {
-                            findentrance(x+tx,y+ty+(tmpscr->flags7&fSIDEVIEW?2:-3),mfSBOMB,true);
+                            findentrance(x+tx,y+ty+(q30_sideview_gravity(tmpscr)?2:-3),mfSBOMB,true);
                         }
                         
-                        findentrance(x+tx,y+ty+(tmpscr->flags7&fSIDEVIEW?2:-3),mfSTRIKE,true);
+                        findentrance(x+tx,y+ty+(q30_sideview_gravity(tmpscr)?2:-3),mfSTRIKE,true);
                     }
                 }
             }

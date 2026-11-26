@@ -8,6 +8,29 @@
 #include "q30.h"
 
 extern word quest_header_zelda_version;
+extern int currdmap;
+
+// Each DMap's own sideview setting (DMAP v10+), which flips its screens' sideview flag.
+static bool g_dmap_sideview[MAXDMAPS];
+
+void q30_set_dmap_sideview(int dmap, bool on)
+{
+    if(dmap < 0)
+        memset(g_dmap_sideview, 0, sizeof(g_dmap_sideview));
+    else if(dmap < MAXDMAPS)
+        g_dmap_sideview[dmap] = on;
+}
+
+bool q30_dmap_sideview(int dmap)
+{
+    return quest_header_zelda_version >= 0x255 && dmap >= 0 && dmap < MAXDMAPS && g_dmap_sideview[dmap];
+}
+
+// upstream's isSideViewGravity: the screen's sideview flag, flipped on a sideview DMap
+bool q30_sideview_gravity(const mapscr *scr)
+{
+    return ((scr->flags7 & fSIDEVIEW) != 0) != q30_dmap_sideview(currdmap);
+}
 
 namespace
 {

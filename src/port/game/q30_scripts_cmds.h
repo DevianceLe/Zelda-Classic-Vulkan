@@ -2789,7 +2789,7 @@ static bool z30_npc_can_step(enemy *e, double dx, double dy, int special)
     if(dx == 0 && dy == 0)
         return true;
 
-    if(dy < 0 && canfall(e->id) && (tmpscr->flags7 & fSIDEVIEW))
+    if(dy < 0 && canfall(e->id) && (q30_sideview_gravity(tmpscr)))
         return false;
 
     if(dx != 0 && dy != 0)
@@ -2880,7 +2880,7 @@ static bool z30_npc_move_axis(enemy *e, double d, bool horizontal, int special, 
 
 static bool z30_npc_movexy(enemy *e, double dx, double dy, int special, bool earlyret)
 {
-    if(dy < 0 && canfall(e->id) && (tmpscr->flags7 & fSIDEVIEW))
+    if(dy < 0 && canfall(e->id) && (q30_sideview_gravity(tmpscr)))
         dy = 0;
 
     bool ret = true;

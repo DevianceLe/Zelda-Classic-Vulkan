@@ -87,7 +87,7 @@ static bool q30_enemy_on_slope(fix ex, fix ey)
 
 // If an enemy is this far out of the playing field, just remove it.
 // (In a 3.0 scrolling region the playing field is the region: q30_region_bounds.)
-#define OUTOFBOUNDS q30_out_of_bounds(int(x), int(y), (tmpscr->flags7&fSIDEVIEW && canfall(id)) != 0)
+#define OUTOFBOUNDS q30_out_of_bounds(int(x), int(y), (q30_sideview_gravity(tmpscr) && canfall(id)) != 0)
 
 static bool q30_out_of_bounds(int x, int y, bool falls)
 {
@@ -353,7 +353,7 @@ bool groundblocked(int dx, int dy)
            // Check for ladder-only combos which aren't dried water
            (combo_class_buf[COMBOTYPE(dx,dy)].ladder_pass&1 && !iswater_type(COMBOTYPE(dx,dy))) ||
            // Check for drownable water
-           (get_bit(quest_rules,qr_DROWN) && !(tmpscr->flags7&fSIDEVIEW) && (iswater(MAPCOMBO(dx,dy))));
+           (get_bit(quest_rules,qr_DROWN) && !(q30_sideview_gravity(tmpscr)) && (iswater(MAPCOMBO(dx,dy))));
 }
 
 // Returns true iff enemy is floating and blocked by a combo type or flag.
@@ -411,7 +411,7 @@ bool m_walkflag(int dx,int dy,int special, int x=-1000, int y=-1000)
     }
     
     dx&=(special==spw_halfstep)?(~7):(~15);
-    dy&=(special==spw_halfstep || tmpscr->flags7&fSIDEVIEW)?(~7):(~15);
+    dy&=(special==spw_halfstep || q30_sideview_gravity(tmpscr))?(~7):(~15);
     
     if(special==spw_water)
         return (water_walkflag(dx,dy+8,1) || water_walkflag(dx+8,dy+8,1));
@@ -458,7 +458,7 @@ bool enemy::m_walkflag(int dx,int dy,int special, int x, int y)
         return false;
 
     dx&=(special==spw_halfstep)?(~7):(~15);
-    dy&=(special==spw_halfstep || tmpscr->flags7&fSIDEVIEW)?(~7):(~15);
+    dy&=(special==spw_halfstep || q30_sideview_gravity(tmpscr))?(~7):(~15);
     return q30_pitfall_at(dx,dy+8) || q30_pitfall_at(dx+8,dy+8);
 }
 
@@ -502,7 +502,7 @@ enemy::enemy(fix X,fix Y,int Id,int Clk) : sprite()
     ceiling=false;
     fading = misc = clk2 = clk3 = stunclk = hclk = sclk = superman = 0;
     grumble = movestatus = posframe = timer = ox = oy = 0;
-    yofs = playing_field_offset - ((tmpscr->flags7&fSIDEVIEW) ? 0 : 2);
+    yofs = playing_field_offset - ((q30_sideview_gravity(tmpscr)) ? 0 : 2);
     did_armos=true;
     script_spawned=false;
     
@@ -925,7 +925,7 @@ static int q30_enemy_fall_hook(sprite_list *list, int index, int phase)
 
     if(phase == 1)  // after its move: over a pit?
     {
-        if(it != g_q30_falls.end() || e->dying || e->hp <= 0 || e->q30_fall_blocked() || e->superman || (tmpscr->flags7 & fSIDEVIEW)
+        if(it != g_q30_falls.end() || e->dying || e->hp <= 0 || e->q30_fall_blocked() || e->superman || (q30_sideview_gravity(tmpscr))
            || !(q30_npc_moveflags(e) & 0x02) || !((e->z <= 0 && !isflier(e->id)) || (isflier(e->id) && e->stunclk)))
             return 0;
 
@@ -1070,7 +1070,7 @@ bool enemy::animate(int index)
     //fall down (2.55/3.0: upstream's enemycanfall(id) || moveflags obeys gravity, at the screen's gravity)
     if((q30_active() ? q30_enemy_obeys_gravity(this) : canfall(id)) && fading != fade_flicker && clk>=0)
     {
-        if(q30_active() && !(tmpscr->flags7&fSIDEVIEW))
+        if(q30_active() && !(q30_sideview_gravity(tmpscr)))
         {
             const int grav = q30_link_gravity(), termv = q30_link_terminalv();
 
@@ -1088,7 +1088,7 @@ bool enemy::animate(int index)
                     fall = 0;
             }
         }
-        else if(tmpscr->flags7&fSIDEVIEW)
+        else if(q30_sideview_gravity(tmpscr))
         {
             if(!ON_SIDEPLATFORM)
             {
@@ -1253,7 +1253,7 @@ void enemy::death_sfx()
 
 void enemy::move(fix dx,fix dy)
 {
-    if(!watch && (!(tmpscr->flags7&fSIDEVIEW) || ON_SIDEPLATFORM || !canfall(id)))
+    if(!watch && (!(q30_sideview_gravity(tmpscr)) || ON_SIDEPLATFORM || !canfall(id)))
     {
         x+=dx;
         y+=dy;
@@ -1262,7 +1262,7 @@ void enemy::move(fix dx,fix dy)
 
 void enemy::move(fix s)
 {
-    if(!watch && (!(tmpscr->flags7&fSIDEVIEW) || ON_SIDEPLATFORM || !canfall(id)))
+    if(!watch && (!(q30_sideview_gravity(tmpscr)) || ON_SIDEPLATFORM || !canfall(id)))
         sprite::move(s);
 }
 
@@ -2640,7 +2640,7 @@ static bool q30_enemy_can_fall(int id)
 
 void enemy::drawshadow(BITMAP *dest, bool translucent)
 {
-    if(dont_draw() || tmpscr->flags7&fSIDEVIEW)
+    if(dont_draw() || q30_sideview_gravity(tmpscr))
     {
         return;
     }
@@ -2753,7 +2753,7 @@ void enemy::fix_coords(bool bound)
     {
         x=(fix)(q30_tile16(int(x))+((int(x)&8)?16:0));
         
-        if(tmpscr->flags7&fSIDEVIEW)
+        if(q30_sideview_gravity(tmpscr))
             y=(fix)(q30_tile8(int(y))+((int(y)&4)?8:0));
         else
             y=(fix)(q30_tile16(int(y))+((int(y)&8)?16:0));
@@ -2790,7 +2790,7 @@ bool enemy::q30_canmove(int ndir,fix s,int special,int dx1,int dy1,int dx2,int d
     const int xo = (q30_sizeflags & 0x020) ? hxofs : 0, yo = (q30_sizeflags & 0x040) ? hyofs : 0;
     const int w = zc_max(offgrid ? 0 : 16, (q30_sizeflags & 0x004) ? hxsz : 16);
     const int h = zc_max(offgrid ? 0 : 16, (q30_sizeflags & 0x008) ? hysz : 16);
-    const int sv = (tmpscr->flags7&fSIDEVIEW) ? 7 : 0;     // (upstream: the side probes start at the top row)
+    const int sv = (q30_sideview_gravity(tmpscr)) ? 7 : 0;     // (upstream: the side probes start at the top row)
     const int ex = int(x) + xo, ey = int(y) + yo;
     s += 0.5;
 
@@ -2826,14 +2826,14 @@ bool enemy::q30_canmove(int ndir,fix s,int special,int dx1,int dy1,int dx2,int d
     {
     case 8:
     case up:
-        if(canfall(id) && tmpscr->flags7&fSIDEVIEW)
+        if(canfall(id) && q30_sideview_gravity(tmpscr))
             return false;
 
         return b.row(up_y, (special==spw_clipbottomright)?spw_none:special);
 
     case 12:
     case down:
-        if(canfall(id) && tmpscr->flags7&fSIDEVIEW)
+        if(canfall(id) && q30_sideview_gravity(tmpscr))
             return false;
 
         return b.row(down_y, special, zc_max(h-16, 0));
@@ -2893,7 +2893,7 @@ bool enemy::canmove(int ndir,fix s,int special,int dx1,int dy1,int dx2,int dy2)
     {
     case 8:
     case up:
-        if(canfall(id) && tmpscr->flags7&fSIDEVIEW)
+        if(canfall(id) && q30_sideview_gravity(tmpscr))
             return false;
             
         dy = dy1-s;
@@ -2903,7 +2903,7 @@ bool enemy::canmove(int ndir,fix s,int special,int dx1,int dy1,int dx2,int dy2)
         
     case 12:
     case down:
-        if(canfall(id) && tmpscr->flags7&fSIDEVIEW)
+        if(canfall(id) && q30_sideview_gravity(tmpscr))
             return false;
             
         dy = dy2+s;
@@ -2913,7 +2913,7 @@ bool enemy::canmove(int ndir,fix s,int special,int dx1,int dy1,int dx2,int dy2)
     case 14:
     case left:
         dx = dx1-s;
-        sv = ((tmpscr->flags7&fSIDEVIEW)?7:(q30_active()?0:8));   // (2.55/3.0: upstream probes the top row)
+        sv = ((q30_sideview_gravity(tmpscr))?7:(q30_active()?0:8));   // (2.55/3.0: upstream probes the top row)
         special = (special==spw_clipbottomright||special==spw_clipright)?spw_none:special;
         ok = !m_walkflag(x+dx,y+sv,special, x, y) && !flyerblocked(x+dx,y+8, special);
         break;
@@ -2921,7 +2921,7 @@ bool enemy::canmove(int ndir,fix s,int special,int dx1,int dy1,int dx2,int dy2)
     case 10:
     case right:
         dx = dx2+s;
-        sv = ((tmpscr->flags7&fSIDEVIEW)?7:(q30_active()?0:8));   // (2.55/3.0: upstream probes the top row)
+        sv = ((q30_sideview_gravity(tmpscr))?7:(q30_active()?0:8));   // (2.55/3.0: upstream probes the top row)
         ok = !m_walkflag(x+dx,y+sv,special, x, y) && !flyerblocked(x+dx,y+8, special);
         break;
         
@@ -3087,7 +3087,7 @@ void enemy::newdir_8(int newrate,int newhoming,int special,int dx1,int dy1,int d
                 goto ok;
         }
         
-        ndir = (tmpscr->flags7&fSIDEVIEW) ? (rand()&1 ? left : right) : -1;  // Sideview enemies get trapped if their dir becomes -1
+        ndir = (q30_sideview_gravity(tmpscr)) ? (rand()&1 ? left : right) : -1;  // Sideview enemies get trapped if their dir becomes -1
     }
     
 ok:
@@ -3406,7 +3406,7 @@ void enemy::newdir(int newrate,int newhoming,int special)
                 goto ok;
         }
         
-        ndir = (tmpscr->flags7&fSIDEVIEW) ? (rand()&1 ? left : right) : -1; // Sideview enemies get trapped if their dir becomes -1
+        ndir = (q30_sideview_gravity(tmpscr)) ? (rand()&1 ? left : right) : -1; // Sideview enemies get trapped if their dir becomes -1
     }
     
 ok:
@@ -5915,7 +5915,7 @@ bool ePeahat::animate(int index)
     if(!watch)
         floater_walk(misc?rate:0,      hrate, dstep/100.0,dstep/1000.0, 10,  80, 16);
     
-    if(get_bit(quest_rules,qr_ENEMIESZAXIS) && !(tmpscr->flags7&fSIDEVIEW))
+    if(get_bit(quest_rules,qr_ENEMIESZAXIS) && !(q30_sideview_gravity(tmpscr)))
     {
         z=int(step*1.1/(fix)((dstep/1000.0)*1.1));
     }
@@ -7918,7 +7918,7 @@ bool eStalfos::animate(int index)
                 }
                 
                 //if not in midair, and Link's swinging sword is nearby, jump.
-                /*if (dmisc9==e9tZ3STALFOS && z==0 && (!(tmpscr->flags7&fSIDEVIEW) || !_walkflag(x,y+16,0))
+                /*if (dmisc9==e9tZ3STALFOS && z==0 && (!(q30_sideview_gravity(tmpscr)) || !_walkflag(x,y+16,0))
                   && Link.getAttackClk()==5 && Link.getAttack()==wSword && distance(x,y,Link.getX(),Link.getY())<32)
                     {
                       facelink(false);
@@ -8362,7 +8362,7 @@ void eStalfos::vire_hop()
         
         //z=0;
         //if we're not in the middle of a jump or if we can't complete the current jump in the current direction
-        if(clk2<=0 || !canmove(dir,(fix)1,spw_floater) || (tmpscr->flags7&fSIDEVIEW && ON_SIDEPLATFORM))
+        if(clk2<=0 || !canmove(dir,(fix)1,spw_floater) || (q30_sideview_gravity(tmpscr) && ON_SIDEPLATFORM))
             newdir(rate,homing,dmisc9==e9tPOLSVOICE ? spw_floater : spw_none);
             
         if(clk2<=0)
@@ -8393,7 +8393,7 @@ void eStalfos::vire_hop()
     {
         int h = fixtoi(fixsin(itofix(clk2*128*step/(16*jump_width)))*jump_height);
         
-        if(get_bit(quest_rules,qr_ENEMIESZAXIS) && !(tmpscr->flags7&fSIDEVIEW))
+        if(get_bit(quest_rules,qr_ENEMIESZAXIS) && !(q30_sideview_gravity(tmpscr)))
         {
             z=h;
         }
@@ -8550,7 +8550,7 @@ bool eKeese::animate(int index)
         }
     }
     // Keese Tribbles stay on the ground, so there's no problem when they transform.
-    else if(get_bit(quest_rules,qr_ENEMIESZAXIS) && !(tmpscr->flags7&fSIDEVIEW))
+    else if(get_bit(quest_rules,qr_ENEMIESZAXIS) && !(q30_sideview_gravity(tmpscr)))
     {
         z=int(step/(dstep/100.0));
         // Some variance in keese flight heights when away from Link
@@ -13642,8 +13642,8 @@ void loaditem()
                 hasitem=4; // Will be set to 2 by roaming_item
             else
                 items.add(new item((fix)tmpscr->itemx,
-                                   (tmpscr->flags7&fITEMFALLS && tmpscr->flags7&fSIDEVIEW) ? (fix)-170 : (fix)tmpscr->itemy+(get_bit(quest_rules, qr_NOITEMOFFSET)?0:1),
-                                   (tmpscr->flags7&fITEMFALLS && !(tmpscr->flags7&fSIDEVIEW)) ? (fix)170 : (fix)0,
+                                   (tmpscr->flags7&fITEMFALLS && q30_sideview_gravity(tmpscr)) ? (fix)-170 : (fix)tmpscr->itemy+(get_bit(quest_rules, qr_NOITEMOFFSET)?0:1),
+                                   (tmpscr->flags7&fITEMFALLS && !(q30_sideview_gravity(tmpscr))) ? (fix)170 : (fix)0,
                                    Item,ipONETIME+ipBIGRANGE+((itemsbuf[Item].family==itype_triforcepiece ||
                                            (tmpscr->flags3&fHOLDITEM)) ? ipHOLDUP : 0) | q30_item_secret_flag(),0));
         }
@@ -13657,8 +13657,8 @@ void loaditem()
             
             if(Item)
                 items.add(new item((fix)tmpscr->itemx,
-                                   (tmpscr->flags7&fITEMFALLS && tmpscr->flags7&fSIDEVIEW) ? (fix)-170 : (fix)tmpscr->itemy+(get_bit(quest_rules, qr_NOITEMOFFSET)?0:1),
-                                   (tmpscr->flags7&fITEMFALLS && !(tmpscr->flags7&fSIDEVIEW)) ? (fix)170 : (fix)0,
+                                   (tmpscr->flags7&fITEMFALLS && q30_sideview_gravity(tmpscr)) ? (fix)-170 : (fix)tmpscr->itemy+(get_bit(quest_rules, qr_NOITEMOFFSET)?0:1),
+                                   (tmpscr->flags7&fITEMFALLS && !(q30_sideview_gravity(tmpscr))) ? (fix)170 : (fix)0,
                                    Item,(ipONETIME2|ipBIGRANGE|ipHOLDUP) | q30_item_secret_flag(),0));
         }
     }
@@ -14377,8 +14377,8 @@ void loadenemies()
                     else
                     {
                         addenemy(sx,
-                                 (is_ceiling_pattern(tmpscr->pattern) && tmpscr->flags7&fSIDEVIEW) ? -(150+50*guycnt) : sy,
-                                 (is_ceiling_pattern(tmpscr->pattern) && !(tmpscr->flags7&fSIDEVIEW)) ? 150+50*guycnt : 0,tmpscr->enemy[i],-15);
+                                 (is_ceiling_pattern(tmpscr->pattern) && q30_sideview_gravity(tmpscr)) ? -(150+50*guycnt) : sy,
+                                 (is_ceiling_pattern(tmpscr->pattern) && !(q30_sideview_gravity(tmpscr))) ? 150+50*guycnt : 0,tmpscr->enemy[i],-15);
                                  
                         if(countguy(tmpscr->enemy[i]))
                             ++guycnt;
@@ -14391,7 +14391,7 @@ void loadenemies()
         }
         
         // Next: enemy pattern
-        if((tmpscr->pattern==pRANDOM || tmpscr->pattern==pCEILING) && !(tmpscr->flags7&fSIDEVIEW))
+        if((tmpscr->pattern==pRANDOM || tmpscr->pattern==pCEILING) && !(q30_sideview_gravity(tmpscr)))
         {
             do
             {
@@ -14446,8 +14446,8 @@ void loadenemies()
                 ++loadcnt;
             else
             {
-                addenemy(x,(is_ceiling_pattern(tmpscr->pattern) && tmpscr->flags7&fSIDEVIEW) ? -(150+50*guycnt) : y,
-                         (is_ceiling_pattern(tmpscr->pattern) && !(tmpscr->flags7&fSIDEVIEW)) ? 150+50*guycnt : 0,tmpscr->enemy[i],c);
+                addenemy(x,(is_ceiling_pattern(tmpscr->pattern) && q30_sideview_gravity(tmpscr)) ? -(150+50*guycnt) : y,
+                         (is_ceiling_pattern(tmpscr->pattern) && !(q30_sideview_gravity(tmpscr))) ? 150+50*guycnt : 0,tmpscr->enemy[i],c);
                          
                 if(countguy(tmpscr->enemy[i]))
                     ++guycnt;

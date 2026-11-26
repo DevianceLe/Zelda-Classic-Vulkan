@@ -149,7 +149,7 @@ int select_dropitem(int item_set, int x, int y)
 
 bool is_side_view()
 {
-    return (tmpscr->flags7&fSIDEVIEW)!=0;
+    return (q30_sideview_gravity(tmpscr))!=0;
 }
 /*** end of sprite.cc ***/
 

@@ -109,6 +109,10 @@ void set_debug(bool d);
 void Z_eventlog(const char *format, ...);
 void Z_scripterrlog(const char * const format, ...);
 
+// q30_core.cpp: upstream's isSideViewGravity, the screen's sideview flag flipped on a 2.55/3.0
+// DMap set to sideview (2.53 quests: the screen's flag alone)
+bool q30_sideview_gravity(const mapscr *scr);
+
 // zelda.cc
 void addLwpn(int x,int y,int z,int id,int type,int power,int dir, int parentid);
 void ALLOFF(bool messagesToo = true, bool decorationsToo = true);

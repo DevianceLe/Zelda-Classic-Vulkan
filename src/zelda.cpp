@@ -3017,7 +3017,7 @@ void do_magic_casting()
             for(int flamecounter=((-1)*(flamemax/2))+1; flamecounter<=((flamemax/2)+1); flamecounter++)
             {
                 Lwpns.add(new weapon((fix)LinkX(),(fix)LinkY(),(fix)LinkZ(),wFire,3,itemsbuf[magicitem].power*zc_hero_dmgmult(),
-                                     (tmpscr->flags7&fSIDEVIEW) ? (flamecounter<flamemax ? left : right) : 0, magicitem, Link.getUID()));
+                                     (q30_sideview_gravity(tmpscr)) ? (flamecounter<flamemax ? left : right) : 0, magicitem, Link.getUID()));
                 weapon *w = (weapon*)(Lwpns.spr(Lwpns.Count()-1));
                 w->step=(itemsbuf[magicitem].misc2/100.0);
                 w->angular=true;

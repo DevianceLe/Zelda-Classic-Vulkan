@@ -1395,7 +1395,15 @@ static void read_dmap(Q255Section &s, dmap &d, int index)
     d.flags = s.igetl_s();
 
     if(s.version >= 10)
-        s.skip(1);      // sideview
+    {
+        const int sideview = s.getc();      // the DMap's sideview, which flips its screens' flag
+#ifdef ZC_PLAYER_BUILD
+        if(keep && !s.failed)
+            q30_set_dmap_sideview(index, sideview != 0);
+#else
+        (void)sideview;
+#endif
+    }
 
     if(s.version >= 27)
     {
@@ -1575,6 +1583,7 @@ int q255_read_dmaps(Q255Section &s)
         g_dmap_extras.clear();
 #ifdef ZC_PLAYER_BUILD
         q30_set_dmap_gravity(-1, 0, 0);
+        q30_set_dmap_sideview(-1, false);
 #endif
 
         for(int i = 0; i < MAXDMAPS; ++i)

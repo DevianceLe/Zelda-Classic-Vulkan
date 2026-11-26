@@ -1456,7 +1456,7 @@ int placeenemy(int i);
 static void z30d_spawn_enemy(int &pos, int clk, int &fastguys, int i, int &guycnt, int &loadcnt)
 {
     const int id = tmpscr->enemy[i];
-    const bool ceiling = is_ceiling_pattern(tmpscr->pattern), sideview = (tmpscr->flags7 & fSIDEVIEW) != 0;
+    const bool ceiling = is_ceiling_pattern(tmpscr->pattern), sideview = (q30_sideview_gravity(tmpscr)) != 0;
     int x = 0, y = 0, t = -1;
     bool placed = false;
 

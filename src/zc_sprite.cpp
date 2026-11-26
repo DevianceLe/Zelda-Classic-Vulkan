@@ -151,7 +151,7 @@ int q30_get_conveyor(int x, int y, bool check_rates)
 // (uses_sideview_platforms: items, unless qr_ITEMS_IGNORE_SIDEVIEW_PLATFORMS; on a tile's edge only)
 static bool q30_conveyor_sv_solid(sprite *s, bool hardcoded, bool is_item)
 {
-    if(!(tmpscr->flags7 & fSIDEVIEW))
+    if(!(q30_sideview_gravity(tmpscr)))
         return false;
 
     const int lx = hardcoded ? int(s->x) : int(s->x) + s->hxofs;

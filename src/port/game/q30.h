@@ -65,6 +65,10 @@ void q30_set_dmap_floor(int dmap, int floor);     // upstream's dmap floor (0 wh
 int q30_dmap_floor(int dmap);
 void q30_set_dmap_mirror(int dmap, int mirror);   // upstream's mirrorDMap (-1 when not given)
 int q30_dmap_mirror(int dmap);
+// A DMap's own sideview setting (DMAP v10+; dmap -1 clears all), which flips the sideview flag
+// of its screens (upstream's isSideViewGravity: q30_sideview_gravity, declared in zelda.h).
+void q30_set_dmap_sideview(int dmap, bool on);
+bool q30_dmap_sideview(int dmap);
 const char *q30_dmap_title(int dmap);   // NULL when the quest gave none
 long q30_dmap_intro_string(int dmap);
 

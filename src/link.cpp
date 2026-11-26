@@ -115,7 +115,7 @@ static inline bool q30_hero_walkflag(fix fx, fix fy, int cnt)
 
 static inline bool isSideview()
 {
-    return (tmpscr->flags7&fSIDEVIEW)!=0 && !ignoreSideview;
+    return q30_sideview_gravity(tmpscr) && !ignoreSideview;
 }
 
 // 2.55/3.0: a tall grass or shallow water combo names the sprite drawn over Link's feet
@@ -5112,6 +5112,13 @@ bool LinkClass::animate(int)
            && !q30_on_svladder)     // (2.55/3.0: or on a sideview ladder)
         {
             int ydiff = fall/(spins && fall<0 ? 200:100);
+
+            if(q30_active())    // (upstream: int() of a zfix, the nearest pixel, halves away from 0)
+            {
+                const double fd = double(fall) / (spins && fall<0 ? 200 : 100);
+                ydiff = (int)(fd < 0 ? ceil(fd - 0.5) : floor(fd + 0.5));
+            }
+
             falling_oldy = y; // Stomp Boots-related variable
             y+=ydiff;
             hs_starty+=ydiff;
@@ -9405,6 +9412,10 @@ static inline int q30_round(double v)
     return (int)(v + (v < 0 ? -0.00001 : 0.00001));
 }
 
+// q30_step_blocked asks q30_walk_solid for upstream's moveheroOld walkflag, whose blocked top of a
+// guy's room and NES dungeon top differ from scr_walkflag's (movehero / movexy)
+static bool q30_old_walkflag = false;
+
 static bool q30_ffc_solid_at(int wx, int wy, int cnt);     // (with LinkClass::walkflag)
 
 bool LinkClass::q30_walk_solid(double wx, double wy, int d2)
@@ -9417,7 +9428,7 @@ bool LinkClass::q30_walk_solid(double wx, double wy, int d2)
     int ix = q30_round(wx), iy = q30_round(wy);
 
     // (a 3.0 scrolling region: upstream's y is the region's, so only its top row of screens is blocked)
-    if(blockpath && iy + q30_region_offset_y() < 80)
+    if(blockpath && iy + q30_region_offset_y() < (q30_old_walkflag && !bigHitbox ? 88 : 80))
         return true;
 
     if(blockmoving && mblock2.hit(ix, iy, 0, 1, 1, 1))
@@ -9428,7 +9439,7 @@ bool LinkClass::q30_walk_solid(double wx, double wy, int d2)
 
     bool freeform = get_bit(quest_rules, qr_FREEFORM) != 0;
 
-    if(isdungeon() && currscr < 128 && iy < 40 && (x <= 112 || x >= 128 || _walkflag(120, 24, 2)) && !freeform)
+    if(isdungeon() && currscr < 128 && iy < (q30_old_walkflag && bigHitbox ? 32 : 40) && (x <= 112 || x >= 128 || _walkflag(120, 24, 2)) && !freeform)
         return true;
 
     bool solid = _walkflag(ix, iy, 1);
@@ -9667,6 +9678,50 @@ void LinkClass::q30_stop_step(double d, bool horiz)
         y = fix(double(y) + found / 10000.0);
 }
 
+// upstream's onWater(true): the water Link stands in and would drown in (0 for none)
+int LinkClass::q30_drown_water()
+{
+    if(action == inwind || ladderx || laddery || hoverclk || action == rafting || inlikelike || DRIEDLAKE || z != 0 || fall < 0)
+        return 0;
+
+    // (whole pixels as zfix's getInt: the nearest, halves away from 0)
+    auto px_int = [](double v) { return (int)(v < 0 ? ceil(v - 0.5) : floor(v + 0.5)); };
+    const int x1 = px_int(double(x) + 4), x2 = px_int(double(x) + 11);
+    const int y1 = px_int(double(y) + 9), y2 = px_int(double(y) + 14);
+    const int mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+    int cid = 0;
+
+    if(q30_quest_rule(217))     // qr_SMARTER_WATER
+    {
+        if(q30_ss_water(x1, y1) && q30_ss_water(x1, y2) && q30_ss_water(x2, y1) && q30_ss_water(x2, y2))
+            cid = q30_ss_water(mx, my);
+    }
+    else
+    {
+        const int px[5] = { x1, x1, x2, x2, mx }, py[5] = { y1, y2, y1, y2, my };
+        bool all = true;
+
+        for(int i = 0; i < 5 && all; ++i)
+            all = combo_class_buf[MAPFFCOMBO(px[i], py[i]) ? FFCOMBOTYPE(px[i], py[i]) : COMBOTYPE(px[i], py[i])].water != 0;
+
+        if(all)
+            cid = MAPFFCOMBO(mx, my) ? MAPFFCOMBO(mx, my) : MAPCOMBO(mx, my);
+    }
+
+    return cid > 0 && q30_ss_drowns(cid) ? cid : 0;
+}
+
+// q30_free_walk's step for upstream's moveheroOld (every walk but qr_NEW_HERO_MOVEMENT2's), which
+// moves Link itself, not through movexy
+static bool q30_old_walk_step = false;
+
+// upstream's movexy check_drown_fall: off a ladder, on water Link would drown in or fully over
+// pits
+bool LinkClass::q30_drown_fall()
+{
+    return !q30_old_walk_step && !ladderx && !laddery && (q30_pit_fully_over() || q30_drown_water() > 0);
+}
+
 bool LinkClass::q30_move_xy(double dx, double dy, bool shove)
 {
     bool ret = true;
@@ -9707,6 +9762,9 @@ bool LinkClass::q30_move_xy(double dx, double dy, bool shove)
                 ret = false;
             }
         }
+
+        if(q30_drown_fall())
+            return false;
     }
 
     const double shove_offset = q30_hero_shove / 10000.0;     // (Hero->ShoveOffset, upstream's 6.5 to start)
@@ -9768,6 +9826,9 @@ bool LinkClass::q30_move_xy(double dx, double dy, bool shove)
 
                     if(shoved && q30_can_move(dx, 0))
                     {
+                        if(q30_drown_fall())
+                            return false;
+
                         x = fix(double(x) + dx);
                         stopped = false;
                     }
@@ -9781,6 +9842,11 @@ bool LinkClass::q30_move_xy(double dx, double dy, bool shove)
             }
         }
     }
+
+    // upstream's check_drown_fall: on water he would drown in, or fully over pits, Link takes no
+    // step down or up (only across), and the drowning or the fall comes next
+    if(q30_drown_fall())
+        return false;
 
     if(dy != 0)
     {
@@ -9836,6 +9902,9 @@ bool LinkClass::q30_move_xy(double dx, double dy, bool shove)
 
                     if(shoved && q30_can_move(0, dy))
                     {
+                        if(q30_drown_fall())
+                            return false;
+
                         y = fix(double(y) + dy);
                         stopped = false;
                     }
@@ -9865,6 +9934,13 @@ static inline double q30_walk_px(double v)
 
 bool LinkClass::q30_step_blocked(int d, double s, int cd, double cs)
 {
+    struct OldWalkflag      // (upstream's walkflag for this check)
+    {
+        const bool was;
+        OldWalkflag() : was(q30_old_walkflag) { q30_old_walkflag = q30_active(); }
+        ~OldWalkflag() { q30_old_walkflag = was; }
+    } old_walkflag;
+
     const double bx = double(x), by = double(y), top = by + (bigHitbox ? 0 : 8);
     double hx = d == left ? -s : d == right ? s : 0, hy = d == up ? -s : d == down ? s : 0;
 
@@ -10044,13 +10120,16 @@ void LinkClass::q30_free_walk(int push)
     // step checks here don't see what upstream's do (the z3 raft scene walks on as before).
     const bool q30_old_diag = diagonalMovement && new_movement && !q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2) && !q30_region_on();
     bool q30_old_blocked = false;
+    bool q30_old_unwalkable = false;    // (moveOld2: no step along movedir then, only the shift)
 
     if(new_movement && !q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2))
     {
         const double movepix = q30_shield_step((q30_steprate + q30_step_boost) / 100.0);
         const bool walkable = !sv_block && q30_fit_step(movedir, q30_hero_newstep, -1, 0);
         still = !walkable;
+
         q30_old_blocked = !walkable && q30_old_diag && !sv_block;
+        q30_old_unwalkable = !walkable;
 
         if(shiftdir >= 0 && diagonalMovement)
         {
@@ -10083,6 +10162,16 @@ void LinkClass::q30_free_walk(int push)
     default: dx = diag; break;
     }
 
+    // (upstream's moveOld2 takes the step along movedir only while moveheroOld found it walkable;
+    // its walkflag can block where movexy's scr_walkflag wouldn't, e.g. a guy's room's top)
+    if(q30_old_unwalkable && q30_active())
+    {
+        if(movedir == up || movedir == down)
+            dy = 0;
+        else
+            dx = 0;
+    }
+
     if(movedir == up || movedir == down)
     {
         if(shiftdir == left) dx = -side;
@@ -10113,7 +10202,35 @@ void LinkClass::q30_free_walk(int push)
     if(charging != 0 && attack == wHammer)
         return;
 
-    const bool moved = q30_move_xy(dx, dy, !q30_old_diag);
+    static FILE *walk_dbg = getenv("ZC_WALK_DEBUG") ? fopen(getenv("ZC_WALK_DEBUG"), "w") : NULL;  // diagnostics
+
+    if(walk_dbg)
+    {
+        const int py = movedir == up ? int(y) + 7 : movedir == down ? int(y) + 17 : int(y) + 8;
+        const int px = movedir == left ? int(x) - 2 : movedir == right ? int(x) + 17 : int(x);
+        fprintf(walk_dbg, "%d dir %d dx %.4f dy %.4f at %.4f,%.4f walkable %d gridlock %d diag %d drown %d oldwarp %d nhm2 %d smarter %d action %d | %d,%d:", frame, movedir, dx, dy, double(x), double(y), still ? 0 : 1,
+                q30_no_gridlock() ? 0 : 1, diagonalMovement ? 1 : 0, get_bit(quest_rules, qr_DROWN) ? 1 : 0, get_bit(quest_rules, qr_OLDSTYLEWARP) ? 1 : 0,
+                q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2) ? 1 : 0, q30_quest_rule(217) ? 1 : 0, int(action), px, py);
+
+        for(int i = 0; i < 3; ++i)
+        {
+            const int qx = (movedir == up || movedir == down) ? px + i * 8 - (i == 2 ? 1 : 0) : px, qy = (movedir == up || movedir == down) ? py : py + i * 4;
+
+            if(qx >= 0 && qx < 256 && qy >= 0 && qy < 176)
+            {
+                const int cid = MAPCOMBO(qx, qy);
+                const Q30Combo *qc = q30_combo(cid);
+                fprintf(walk_dbg, " [%d,%d cid %d type %d walk %x usr %lx wf %d]", qx, qy, cid, combobuf[cid].type, qc ? qc->walk : combobuf[cid].walk,
+                        qc ? (unsigned long)qc->usrflags : 0UL, _walkflag(qx, qy, 1) ? 1 : 0);
+            }
+        }
+
+        fprintf(walk_dbg, " items ladder %d flippers %d\n", current_item(itype_ladder), current_item(itype_flippers));
+        fflush(walk_dbg);
+    }
+    q30_old_walk_step = !q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2);
+    const bool moved = q30_move_xy(dx, dy, !q30_old_diag) && !(q30_old_unwalkable && q30_active());   // (moveheroOld: !walkable)
+    q30_old_walk_step = false;
 
     // upstream keeps Link's position in 1/10000 pixels (zfix); a 2.55 step doesn't fit 1/65536
     // pixels, so put him back on that grid each step, or the error grows until a position
@@ -13859,15 +13976,28 @@ void LinkClass::checkspecial2(int *ls)
     if(warp210 && !on_warp210 && !toogam)
         warpy=255;
 
-    if(get_bit(quest_rules,qr_OLDSTYLEWARP) && !diagonalMovement)
+    if(q30_active())
+    {
+        // (upstream: not with qr_DISABLE_4WAY_GRIDLOCK either, nor while a fairy circle heals;
+        // whole pixels as zfix's getInt, the nearest)
+        if(get_bit(quest_rules,qr_OLDSTYLEWARP) && !(diagonalMovement || q30_no_gridlock()) && !fairyclk)
+        {
+            if(q30_ss_int(double(y))&7)
+                return;
+
+            if(q30_ss_int(double(x))&7)
+                return;
+        }
+    }
+    else if(get_bit(quest_rules,qr_OLDSTYLEWARP) && !diagonalMovement)
     {
         if(int(y)&7)
             return;
-            
+
         if(int(x)&7)
             return;
     }
-    
+
     if(toogam) return;
     
     bool didstrig = false;
@@ -14456,14 +14586,19 @@ void LinkClass::checkspecial2(int *ls)
     // * Not swimming,
     // * Not swallowed,
     // * Not a dried lake.
-    if(water && (get_bit(quest_rules,qr_DROWN) || q30_can_side_swim()) && z==0  && fall>=0 && !ladderx && !hoverclk && action!=rafting && !isSwimming() && !inlikelike && !DRIEDLAKE)
+    // (2.55/3.0, upstream: a swimming Link drowns too, in water his flippers aren't good for or
+    // without them, e.g. one put to swimming by a warp into water)
+    if(water && (get_bit(quest_rules,qr_DROWN) || q30_can_side_swim()) && z==0  && fall>=0 && !ladderx && !hoverclk && action!=rafting
+       && (q30_active() || !isSwimming()) && !inlikelike && !DRIEDLAKE)
     {
         // (2.55/3.0 sideview swimming: upstream's drown_check, by the water Link is in)
         if(q30_active() ? q30_ss_drowns(q30_water_cid) : !current_item(itype_flippers))
         {
             Drown();
+            return;
         }
-        else
+
+        if(!isSwimming())   // (2.55/3.0: one swimming already, in water he can swim, goes on)
         {
             q30_set_swim();
 
@@ -14471,9 +14606,8 @@ void LinkClass::checkspecial2(int *ls)
                 attackclk = charging = spins = 0;
 
             landswim=0;
+            return;
         }
-        
-        return;
     }
     
     if(type==cSTEP)
@@ -14917,7 +15051,7 @@ bool LinkClass::dowarp(int type, int index)
     int wrindex = 0;
     //int lastent_org = lastentrance;
     //int lastdmap_org = lastentrance_dmap;
-    bool wasSideview = (tmpscr[t].flags7 & fSIDEVIEW)!=0 && !ignoreSideview;
+    bool wasSideview = q30_sideview_gravity(&tmpscr[t]) && !ignoreSideview;     // (with its DMap's sideview, as upstream)
     
     // Drawing commands probably shouldn't carry over...
     script_drawing_commands.Clear();
@@ -15772,8 +15906,13 @@ bool LinkClass::dowarp(int type, int index)
     }
     
     // But keep him swimming if he ought to be!
-    if(action!=rafting && iswater(MAPCOMBO(x,y+8)) && (_walkflag(x,y+8,0) || get_bit(quest_rules,qr_DROWN))
-            && (current_item(itype_flippers)) && (action!=inwind))
+    // (2.55/3.0, upstream: the water under his feet, flippers or not; without them he drowns
+    // once off the arrival square)
+    const int q30_wy = int(y) + (bigHitbox ? 8 : 12);
+
+    if(q30_active() ? (action!=rafting && action!=inwind && q30_ss_water(int(x), q30_wy) && (_walkflag(int(x),q30_wy,0) || get_bit(quest_rules,qr_DROWN)))
+                    : (action!=rafting && iswater(MAPCOMBO(x,y+8)) && (_walkflag(x,y+8,0) || get_bit(quest_rules,qr_DROWN))
+                       && (current_item(itype_flippers)) && (action!=inwind)))
     {
         hopclk=0xFF;
         q30_set_swim();

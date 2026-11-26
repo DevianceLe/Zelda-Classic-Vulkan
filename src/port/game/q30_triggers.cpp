@@ -5934,7 +5934,7 @@ bool q30_combo_standable(int combo)
 // _walkflag's two-cell test, with bridges and solid water.
 bool q30_walkflag(int x, int y, int cnt)
 {
-    if(cnt == 0 && (tmpscr[0].flags7 & fSIDEVIEW) && q30_sideview_platform_at(x, y))
+    if(cnt == 0 && q30_sideview_gravity(&tmpscr[0]) && q30_sideview_platform_at(x, y))
         return true;
 
 int bx = (x >> 4) + (y & 0xF0);
@@ -7012,7 +7012,7 @@ static void imitated_wpn_triggers(weapon *w, int imitated, int bx, int by)
         break;
 
     case wBomb: case wSBomb:
-        findentrance(bx + w->txsz, by + Link.tysz + ((tmpscr->flags7 & fSIDEVIEW) ? 2 : -3), imitated == wBomb ? mfBOMB : mfSBOMB, true);
+        findentrance(bx + w->txsz, by + Link.tysz + (q30_sideview_gravity(tmpscr) ? 2 : -3), imitated == wBomb ? mfBOMB : mfSBOMB, true);
 
         if(w->id != wBomb && w->id != wSBomb)
             bombdoor(bx, by);
@@ -7602,7 +7602,7 @@ static int pit_at(fix x, int dx, fix y, int dy)
 static bool can_pitfall()
 {
     int act = Link.getAction();
-    return !(((tmpscr[0].flags7 & fSIDEVIEW) && !ignoreSideview) || act == rafting || act == drowning || Link.getZ() > (fix)0 || Link.getFall() < (fix)0
+    return !((q30_sideview_gravity(&tmpscr[0]) && !ignoreSideview) || act == rafting || act == drowning || Link.getZ() > (fix)0 || Link.getFall() < (fix)0
              || Link.getHoverClk() || Link.getEaten() || Link.getInWallm() || pull_link || toogam
              || Link.getLadderX() || Link.getLadderY() || msgstr);
 }
@@ -7769,6 +7769,12 @@ static int pit_check_slide()
 
 // 2.55/3.0 quests, before Link moves (upstream's HeroClass::pitslide): he falls into the pit he
 // is over, or the pits under a part of him pull him in. True when he can't move this frame.
+// upstream's check_pitslide() == -2: Link fully over pits (his movexy takes no step on then)
+bool q30_pit_fully_over()
+{
+    return q30_active() && pit_check_slide() == -2;
+}
+
 bool q30_pit_slide()
 {
     if(!q30_active())

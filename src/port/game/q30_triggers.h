@@ -603,6 +603,7 @@ bool q30_lift_anim(int *clk, int *tclk);
 bool q30_pit_falling();
 // Before Link moves (upstream's pitslide): the fall into a pit, or its pull; true when he can't move.
 bool q30_pit_slide();
+bool q30_pit_fully_over();      // upstream's check_pitslide() == -2
 // Whether the drowning under Link is in lava (the water combo's flag 1: upstream's Drown(1)).
 bool q30_lava_drowning();
 // 2.55/3.0 hero sprite sets the player draws (q255_init.cpp): tile/flip/extend per direction.

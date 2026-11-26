@@ -2449,7 +2449,7 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     case Z30R_DMAPDATAID: ret = Z30_REF(DMAPDATA) * 10000; return true;
     case Z30R_DMAPDATACONTINUE: ret = (unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS ? DMaps[Z30_REF(DMAPDATA)].cont : 0) * 10000; return true;
     case Z30R_DMAPDATAOFFSET: ret = (unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS ? DMaps[Z30_REF(DMAPDATA)].xoff : 0) * 10000; return true;
-    case Z30R_DMAPDATASIDEVIEW: ret = zasm30_store_get(arg, Z30_REF(DMAPDATA), 0) ? 10000 : 0; return true;
+    case Z30R_DMAPDATASIDEVIEW: ret = q30_dmap_sideview(Z30_REF(DMAPDATA)) ? 10000 : 0; return true;
     case Z30R_DMAPDATAMAP: ret = (unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS ? DMaps[Z30_REF(DMAPDATA)].map + 1 : 0) * 10000; return true;
     case Z30R_DMAPDATALEVEL: ret = (unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS ? DMaps[Z30_REF(DMAPDATA)].level : 0) * 10000; return true;
     case Z30R_DMAPDATACOMPASS: ret = (unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS ? DMaps[Z30_REF(DMAPDATA)].compass : 0) * 10000; return true;
@@ -3529,7 +3529,7 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     // dmapdata->
     case Z30R_DMAPDATACONTINUE: if(unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS) DMaps[Z30_REF(DMAPDATA)].cont = (byte)(value / 10000); return true;
     case Z30R_DMAPDATAOFFSET: if(unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS) DMaps[Z30_REF(DMAPDATA)].xoff = (char)(value / 10000); return true;
-    case Z30R_DMAPDATASIDEVIEW: zasm30_store_set(arg, Z30_REF(DMAPDATA), 0, value ? 1 : 0); return true;
+    case Z30R_DMAPDATASIDEVIEW: if(unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS) q30_set_dmap_sideview(Z30_REF(DMAPDATA), value != 0); return true;
     case Z30R_DMAPDATAMAP: if(unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS) DMaps[Z30_REF(DMAPDATA)].map = vbound(value / 10000 - 1, 0, map_count - 1); return true;
     case Z30R_DMAPDATALEVEL: if(unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS) DMaps[Z30_REF(DMAPDATA)].level = (word)(value / 10000); return true;
     case Z30R_DMAPDATACOMPASS: if(unsigned(Z30_REF(DMAPDATA)) < MAXDMAPS) DMaps[Z30_REF(DMAPDATA)].compass = (byte)(value / 10000); return true;
