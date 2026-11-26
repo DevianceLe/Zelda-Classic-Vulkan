@@ -11760,6 +11760,15 @@ static void mirror_warp(int dmap, int scr, int effect, int sound)
     Link.dowarp(1, 0);
 }
 
+// upstream's go_respawn_point (link.cpp's drowning end, 2.55/3.0 with the newer respawn points):
+// FFCore.warp_player(wtIWARP, respawn_dmap, respawn_scr - xoff, -1, -1, 0, 0, NOSTEPFORWARD, -1)
+// back to a respawn point on another screen, Link already at its position
+void q30_respawn_warp(int dmap, int scr)
+{
+    if(dmap >= 0 && dmap < MAXDMAPS)
+        mirror_warp(dmap, scr, 0, 0);
+}
+
 // upstream mirrorBonk: true where Link can't stand after a mirror warp (solid, deep water, a pit)
 static bool mirror_bonk()
 {

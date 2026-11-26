@@ -1781,6 +1781,11 @@ int init_game()
 
     sprite::q30_uids_start(q30_active(), &Link);    // 2.55/3.0: upstream's sprite uid numbering
 
+    // 2.55/3.0: upstream's init_game_vars sets Playing before the first screen loads, so the play
+    // time also counts the frames before the opening (the fade into a dark start room)
+    if(q30_active())
+        Playing=true;
+
     // 2.55/3.0 quests: "editor only" combos aren't drawn, "transparent" ones are see-through
     // on layers (tiles.cpp). 2.53 quests draw every combo as they always have.
     tiles_newer_combo_flags = quest_header_zelda_version >= 0x255;
@@ -2607,6 +2612,8 @@ int init_game()
 int cont_game()
 {
     q30_game_frame_base=frame;  // (upstream's init_game_vars(true) resets its global frame counter)
+    if(q30_active())
+        Playing=true;           // (and sets Playing: the continue's fade counts in the play time)
     q30_light_wave_clk=0;
     q30_clear_game_suspend();   // (upstream's FFCore.init(true))
     q30_run_continue();
@@ -3717,6 +3724,9 @@ void game_loop()
                 // updatescr draws it again on top while it's active, as upstream
                 q30_msg_run();
                 msgpos = msg_active ? 1 : 0;
+                
+                if(q30_reset_game_frame)    // (a string's warp: upstream continues its game loop)
+                    return;
             }
             else
             {

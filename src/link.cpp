@@ -33,6 +33,7 @@
 #include "mem_debug.h"
 #include "zscriptversion.h"
 #include "zc_sys.h"
+#include "replay.h"   // replay_active(): in a 2.55/3.0 replay the whistle waits out its sound's length
 #include "port/game/q30_triggers.h"
 #include "port/game/q30_regions.h"
 #include "port/game/q30_scripts.h"
@@ -64,6 +65,17 @@ extern int draw_screen_clip_rect_y2;
 //extern bool draw_screen_clip_rect_show_link;
 extern bool global_wait;
 extern bool q30_reset_game_frame;   // zelda.cpp: a 2.55/3.0 scroll ended, the next frame starts at once
+
+// 2.55/3.0 with the newer respawn points: the DMap and screen of the respawn point (entry_x,
+// entry_y), upstream's respawn_dmap / respawn_scr. A scroll onto unsafe ground keeps the point
+// on the screen Link came from, and a drowning or a fall warps him back to it (go_respawn_point).
+static int q30_respawn_dmap = -1, q30_respawn_scr = -1;
+static void q30_respawn_here()
+{
+    q30_respawn_dmap = currdmap;
+    q30_respawn_scr = currscr;
+}
+void q30_respawn_warp(int dmap, int scr);   // q30_triggers.cpp
 
 int link_count = -1;
 int link_animation_speed = 1; //lower is faster animation
@@ -1613,6 +1625,7 @@ void LinkClass::init()
     ffpit = false;
     entry_x=x;
     entry_y=y;
+    q30_respawn_here();
     falling_oldy = y;
     magiccastclk=0;
     magicitem = nayruitem = -1;
@@ -5630,6 +5643,12 @@ bool LinkClass::animate(int)
                 hclk=48;
                 game->set_life(zc_max(game->get_life()-(zc_hp_per_heart()/4),0));
             }
+            
+            // 2.55/3.0 with the newer respawn points: upstream's go_respawn_point warps to the
+            // point's own screen when it is on another one (an instant warp keeping Link there)
+            if(!q30_warped && q30_new_respawn_points() && q30_respawn_dmap >= 0
+               && (q30_respawn_dmap != currdmap || q30_respawn_scr != currscr))
+                q30_respawn_warp(q30_respawn_dmap, q30_respawn_scr - DMaps[q30_respawn_dmap].xoff);
         }
         
         break;
@@ -5720,6 +5739,7 @@ bool LinkClass::animate(int)
                 dontdraw=false;
                 entry_x=x;
                 entry_y=y;
+                q30_respawn_here();
             }
         }
         /*
@@ -6383,7 +6403,11 @@ bool LinkClass::startwpn(int itemid)
         else
             --blowcnt;
             
-        while(sfx_allocated(itemsbuf[itemid].usesound))
+        // 2.55/3.0 in a replay: no sound plays, so the wait is the sound's length in frames, as in
+        // upstream's replays (hero.cpp: frames_to_wait = sound.get_len_frames())
+        const int q30_whistle_frames = (q30_active() && replay_active()) ? q30_sfx_len_frames(itemsbuf[itemid].usesound) : -1;
+        
+        for(int q30_n = 0; q30_whistle_frames >= 0 ? q30_n < q30_whistle_frames : sfx_allocated(itemsbuf[itemid].usesound); ++q30_n)
         {
             advanceframe(true);
             
@@ -14842,6 +14866,7 @@ void LinkClass::q30_keep_respawn_point()
     {
         entry_x = x;
         entry_y = y;
+        q30_respawn_here();
     }
 
     x = oldx;
@@ -14868,6 +14893,7 @@ void LinkClass::setEntryPoints(int x2, int y2)
 
 entry_x=warpx=x2;
     entry_y=warpy=y2;
+    q30_respawn_here();
 }
 
 const char *roomtype_string[rMAX] =
@@ -15330,7 +15356,7 @@ bool LinkClass::dowarp(int type, int index)
 	    //If Link does not have a map, and warps somewhere where he does, then the map still briefly shows. 
 	update_subscreens(wdmap);
 	    
-	if ( has_item(itype_map, dlevel) ) 
+	if ( has_item(itype_map, dlevel) && !q30_active() )   // (2.55/3.0: upstream dropped this hack)
 	{
 		//Blank the map during an intra-dmap scrolling warp. 
 		dlevel = -1; //a hack for the minimap. This works!! -Z
@@ -15883,6 +15909,12 @@ bool LinkClass::dowarp(int type, int index)
                         
     eventlog_mapflags();
     q30_try_sv_ladder();        // (2.55/3.0: onto a sideview ladder he came in at)
+    
+    // 2.55/3.0: upstream's dowarp ends with GAMEFLAG_RESET_GAME_LOOP unless qr_SCROLLWARP_NO_RESET_FRAME
+    // (on before compat rules 44), as the scroll's end does: the game loop starts the next frame at once
+    if(q30_active() && !q30_compat_rule(412))
+        q30_reset_game_frame = true;
+        
     return true;
 }
 
@@ -17680,6 +17712,15 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
     int no_move = 0;
     bool end_frames = false;
     
+    // 2.55/3.0: upstream's scroll loop runs on the destination DMap (cur_dmap = new_dmap), so the
+    // HUD shows the new DMap's title and map from the scroll's first frame; the old DMap comes
+    // back after the loop until the scroll's end switches for good
+    const int q30_scroll_old_dmap = currdmap;
+    const bool q30_scroll_new_dmap = q30_active() && destdmap >= 0;
+    
+    if(q30_scroll_new_dmap)
+        currdmap = destdmap;
+    
     // (a 3.0 scroll may go on after the scroll to line the camera up: q30_scroll_align_pending)
     for(word i = 0; (cx >= 0 && delay != 0) || q30_scroll_align_pending(); i++, cx--) //Go!
     {
@@ -18044,6 +18085,9 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
         advanceframe(true);
     }//end main scrolling loop (2 spaces tab width makes me sad =( )
     
+    if(q30_scroll_new_dmap)
+        currdmap = q30_scroll_old_dmap;
+    
     // (2.55/3.0 up/down: Link on the new screen's edge, upstream's new_hero_y; the scroll may end a
     // step short after the field offset changed first)
     if(q30_scroll_link_edge(scrolldir))
@@ -18086,8 +18130,15 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
         z = 0;
     }
     
-    entry_x = x;
-    entry_y = y;
+    // 2.55/3.0 with the newer respawn points: upstream's set_respawn_point(false) keeps the
+    // point only on safe ground; otherwise it stays where it was, on the screen he came from
+    if(q30_new_respawn_points())
+        q30_keep_respawn_point();
+    else
+    {
+        entry_x = x;
+        entry_y = y;
+    }
     q30_try_sv_ladder();        // (2.55/3.0: onto a sideview ladder he scrolled in on)
     warpx   = -1;
     warpy   = -1;
@@ -22523,6 +22574,7 @@ void LinkClass::q30_region_handoff(int ndx, int ndy)
         did_secret = false;
     entry_x = x;
     entry_y = y;
+    q30_respawn_here();
     warpx = warpy = -1;
 
     naturaldark = ((TheMaps[currmap * MAPSCRS + currscr].flags & fDARK) != 0);

@@ -182,6 +182,7 @@ void sfx_cleanup();
 bool sfx_init(int index);
 void sfx(int index,int pan,bool loop, bool restart = true);
 bool sfx_allocated(int index);
+int  q30_sfx_len_frames(int index);   // 2.55/3.0: a sound's length in frames (upstream's get_len_frames)
 void cont_sfx(int index);
 void stop_sfx(int index);
 void adjust_sfx(int index,int pan,bool loop);

@@ -10006,6 +10006,29 @@ bool sfx_allocated(int index)
     return (index>0 && index<Q30_MAX_SFX && sfx_voice[index]!=-1);
 }
 
+// 2.55/3.0: how many frames a sound lasts, as upstream's SampleBase::get_len_frames (60 * length
+// / frequency) of the sample sfx_init would play. Upstream's replays wait that long where a sound
+// is waited for (the whistle), since no sound plays in them.
+int q30_sfx_len_frames(int index)
+{
+    if(index<=0 || index>=Q30_MAX_SFX)
+        return 0;
+
+    const SAMPLE *spl = NULL;
+
+    if(index>=WAV_COUNT || q30_sfx_is_ogg(index))
+        spl = q30_sfx_sample(index);
+    else if(sfxdat)
+        spl = (const SAMPLE*)sfxdata[index<Z35 ? index : Z35].dat;
+    else
+        spl = &customsfxdata[index];
+
+    if(spl==NULL || spl->freq<=0)
+        return 0;
+
+    return int(60.0 * double(spl->len) / double(spl->freq));
+}
+
 // start it (in loop mode) if it's not already playing,
 // otherwise adjust it to play in loop mode -DD
 void cont_sfx(int index)
