@@ -305,6 +305,25 @@ static byte q30_layer_grid[2][22];
 // shallow: shallow water counts too (upstream's ShallowCheck: the combo type, or water with its flag 4).
 static bool q30_ignore_dive_under = false;  // (the water as it would be with Link at the surface)
 static bool q30_water_nohero = false;       // (a sprite's water: upstream's iswaterex with hero false)
+static bool q30_water_ffc = false;          // (FFCs count, as in upstream's ripple checks: q30_ripple_water)
+
+// 2.55/3.0: upstream's getFFCAt, the first FFC at x, y with a combo that is neither a changer
+// nor ethereal (ffcIsAt); -1 for none
+static int q30_ffc_index_at(int x, int y)
+{
+    for(int i = 0; i < tmpscr->ffc_count(); ++i)
+    {
+        if(tmpscr->ffdata[i] <= 0 || (tmpscr->ffflags[i] & (ffCHANGER | ffETHEREAL)))
+            continue;
+
+        const int fx = q30_ffc_px(tmpscr->ffx[i]), fy = q30_ffc_px(tmpscr->ffy[i]);
+
+        if(x >= fx && x <= fx + (tmpscr->ffwidth[i] & 63) && y >= fy && y <= fy + (tmpscr->ffheight[i] & 63))
+            return i;
+    }
+
+    return -1;
+}
 
 static int q30_ss_water_layer(int layer, int x, int y, bool shallow)   // layer -1: the screen; 0 and 1: layers 1 and 2
 {
@@ -340,6 +359,33 @@ static int q30_ss_water_layer(int layer, int x, int y, bool shallow)   // layer 
         }
     }
 
+    if(q30_water_ffc)   // (upstream: an FFC there that isn't water is land; the first water one is the water)
+    {
+        int water = -1;
+
+        for(int i = 0; i < tmpscr->ffc_count(); ++i)
+        {
+            if(tmpscr->ffdata[i] <= 0 || (tmpscr->ffflags[i] & (ffCHANGER | ffETHEREAL)))
+                continue;
+
+            const int fx = q30_ffc_px(tmpscr->ffx[i]), fy = q30_ffc_px(tmpscr->ffy[i]);
+
+            if(x < fx || x > fx + (tmpscr->ffwidth[i] & 63) || y < fy || y > fy + (tmpscr->ffheight[i] & 63))
+                continue;
+
+            const int t = combobuf[tmpscr->ffdata[i]].type;
+
+            if(!combo_class_buf[t].water && !(shallow && t == cSHALLOWWATER))
+                return 0;
+
+            if(water < 0)
+                water = i;
+        }
+
+        if(water >= 0)
+            return tmpscr->ffdata[water];
+    }
+
     const int cid = MAPCOMBO2(layer, x, y);
     const Q30Combo *c = q30_combo(cid);
 
@@ -354,9 +400,10 @@ static int q30_ss_water(int x, int y, bool shallow = false)
     x = vbound(x, 0, 255);
     y = vbound(y, 0, 175);
 
-    if(!q30_quest_rule(217))    // without qr_SMARTER_WATER: the screen's combo alone
+    if(!q30_quest_rule(217))    // without qr_SMARTER_WATER: the screen's combo alone (an FFC's there, for q30_water_ffc: FFORCOMBO)
     {
-        const int cid = MAPCOMBO(x, y), b = ((x & 8) ? 2 : 0) + ((y & 8) ? 1 : 0);
+        const int ffc = q30_water_ffc ? q30_ffc_index_at(x, y) : -1;
+        const int cid = ffc >= 0 ? int(tmpscr->ffdata[ffc]) : MAPCOMBO(x, y), b = ((x & 8) ? 2 : 0) + ((y & 8) ? 1 : 0);
         const Q30Combo *c = q30_combo(cid);
         const int walk = c ? c->walk : (combobuf[cid].walk | 0xF0);
 
@@ -391,6 +438,35 @@ int q30_water_at(int x, int y)
     return cid;
 }
 
+// Upstream's ripple checks under qr_SHALLOW_SENSITIVE (hero.cpp, dRipples::animate): a corner of
+// Link is in water as iswaterex_z3(FFORCOMBO(x, y), ..., ShallowCheck) finds it, with FFCs and
+// hero false
+static bool q30_ripple_corner(int x, int y)
+{
+    q30_water_ffc = q30_water_nohero = true;
+    const int cid = q30_ss_water(x, y, true);
+    q30_water_ffc = q30_water_nohero = false;
+    return cid != 0;
+}
+
+// and the water the ripples come from (at x+7, y+12): only where the FFC or screen combo there
+// is not combo 0 (upstream's layer-0 combined handle), then the water as Link asks it
+static int q30_ripple_water(int x, int y)
+{
+    x = vbound(x, 0, 255);
+    y = vbound(y, 0, 175);
+
+    const int ffc = q30_ffc_index_at(x, y);
+
+    if(!(ffc >= 0 ? int(tmpscr->ffdata[ffc]) : MAPCOMBO(x, y)))
+        return 0;
+
+    q30_water_ffc = true;
+    const int cid = q30_ss_water(x, y, true);
+    q30_water_ffc = false;
+    return cid;
+}
+
 // dRipples::animate under qr_SHALLOW_SENSITIVE (2.55/3.0): 1 when the ripples go, 0 while they
 // stay, -1 for the 2.53 rule. They stay while Link stands in water and (as upstream) through a
 // drowning in lava or in a sideview screen, but not through a plain one, nor a swim.
@@ -406,7 +482,7 @@ int q30_ripples_gone()
        || (act == drowning && !q30_ss_drown && !q30_lava_drowning()))
         return 1;
 
-    return (q30_ss_water(lx+11,ly+15,true) && q30_ss_water(lx+4,ly+15,true) && q30_ss_water(lx+11,ly+9,true) && q30_ss_water(lx+4,ly+9,true)) ? 0 : 1;
+    return (q30_ripple_corner(lx+11,ly+15) && q30_ripple_corner(lx+4,ly+15) && q30_ripple_corner(lx+11,ly+9) && q30_ripple_corner(lx+4,ly+9)) ? 0 : 1;
 }
 
 // upstream's drown_check: in the water combo cid Link drowns without flippers, with flippers
@@ -2402,6 +2478,14 @@ attack:
         // Keep this consistent with checkspecial2, line 7800-ish...
         bool inwater = iswater(MAPCOMBO(x+4,y+9))  && iswater(MAPCOMBO(x+4,y+15)) &&  iswater(MAPCOMBO(x+11,y+9)) && iswater(MAPCOMBO(x+11,y+15));
         
+        if(q30_active())    // 2.55/3.0: upstream's iswaterex_z3 at y+9 and y+14 (water on layers 1 and 2, bridges, ...)
+        {
+            const int wx = int(x), wy = int(y);
+            q30_water_nohero = true;
+            inwater = q30_ss_water(wx+4,wy+9) && q30_ss_water(wx+4,wy+14) && q30_ss_water(wx+11,wy+9) && q30_ss_water(wx+11,wy+14);
+            q30_water_nohero = false;
+        }
+
         int jumping2 = int(jumping*(q30_link_gravity()/16.0));
         
         //if (jumping!=0) al_trace("%d %d %f %d\n",jumping,q30_link_gravity(),q30_link_gravity()/16.0,jumping2);
@@ -4978,11 +5062,18 @@ bool LinkClass::animate(int)
     if(q30_quest_rule(Q30_QR_SHALLOW_SENSITIVE))
     {
         // 2.55/3.0 (qr_SHALLOW_SENSITIVE): ripples wherever Link stands in water, shallow or deep
-        if(action!=swimming && action!=isdiving && action!=drowning && action!=rafting && action!=inwind && !q30_is_side_swim()
+        // (upstream: FFCs over the water count, and the water at Link's middle is asked only
+        // where the FFC or screen combo there is not combo 0; q30_ripple_water)
+        if(z==0 && action!=swimming && action!=isdiving && action!=drowning && action!=rafting && action!=inwind && !q30_is_side_swim()
            && !(ladderx+laddery) && !pull_link && !toogam
-           && q30_ss_water(x+11,y+15,true) && q30_ss_water(x+4,y+15,true) && q30_ss_water(x+11,y+9,true) && q30_ss_water(x+4,y+9,true)
-           && q30_ss_water(int(x)+7,int(y)+12,true) && decorations.idCount(dRIPPLES)==0)
-            decorations.add(new dRipples(x, y, dRIPPLES, 0, q30_deco_sprite(int(x)+7, int(y)+12, false, true)));   // (the water's own sprite, as upstream)
+           && q30_ripple_corner(x+11,y+15) && q30_ripple_corner(x+4,y+15) && q30_ripple_corner(x+11,y+9) && q30_ripple_corner(x+4,y+9))
+        {
+            const int waterid = q30_ripple_water(int(x)+7, int(y)+12);
+            const Q30Combo *wc = waterid ? q30_combo(waterid) : NULL;
+
+            if(waterid && decorations.idCount(dRIPPLES)==0)
+                decorations.add(new dRipples(x, y, dRIPPLES, 0, wc ? int(wc->attributes[8 + 6] / 10000) : 0));   // (the water's own sprite, as upstream)
+        }
     }
     else if((COMBOTYPE(x,y+15)==cSHALLOWWATER)&&(COMBOTYPE(x+15,y+15)==cSHALLOWWATER) && z==0)
     {

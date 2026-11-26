@@ -2772,6 +2772,14 @@ bool enemy::q30_offgrid()
     return x && (x->editorflags & 0x4000);
 }
 
+// 2.55/3.0: the enemy editor's flag 5 for the old bosses (upstream's ENEMY_FLAG5): Aquamentus,
+// Gohma, Moldorm, Lanmola and Gleeok stay where the screen places them, not at their fixed spot
+static bool q30_eflag5(int id)
+{
+    const Q30GuyData *g = q30_active() ? q30_guy_data(id & 0xFFF) : NULL;
+    return g && (g->editorflags & 0x10);
+}
+
 // returns true if next step is ok, false if there is something there
 // 2.55/3.0 (upstream's canmove): an enemy with the size tab's hit size or offset looks at every
 // 16 pixels across its hit box (and its last pixel), from its hit offset; an off-grid one at
@@ -9437,6 +9445,12 @@ eAquamentus::eAquamentus(fix X,fix Y,int Id,int Clk) : enemy((fix)176,(fix)64,Id
         x=64;
     }
     
+    if(q30_eflag5(Id))      // (2.55/3.0: where the screen places it)
+    {
+        x=X;
+        y=Y;
+    }
+
     //nets+5940;
     if(get_bit(quest_rules,qr_NEWENEMYTILES))
     {
@@ -9615,6 +9629,12 @@ eGohma::eGohma(fix X,fix Y,int Id,int Clk) : enemy((fix)128,(fix)48,Id,0)
     Y=Y;
     Clk=Clk;
     
+    if(q30_eflag5(Id))      // (2.55/3.0: where the screen places it)
+    {
+        x=X;
+        y=Y;
+    }
+
     hxofs=-16;
     hxsz=48;
     clk4=0;
@@ -10341,8 +10361,11 @@ void getBigTri(int id2)
 
 eMoldorm::eMoldorm(fix X,fix Y,int Id,int Clk) : enemy(X,Y,Id,Clk)
 {
-    x=128;
-    y=48;
+    if(!q30_eflag5(Id))     // (2.55/3.0 flag 5: where the screen places it)
+    {
+        x=128;
+        y=48;
+    }
     dir=(rand()&7)+8;
     superman=1;
     fading=fade_invisible;
@@ -10470,8 +10493,11 @@ bool eMoldorm::animate(int index)
 
 esMoldorm::esMoldorm(fix X,fix Y,int Id,int Clk) : enemy(X,Y,Id,Clk)
 {
-    x=128;
-    y=48;
+    if(!q30_eflag5(Id))     // (2.55/3.0 flag 5: where the screen places it)
+    {
+        x=128;
+        y=48;
+    }
     yofs=playing_field_offset;
     hyofs=4;
     hxsz=hysz=8;
@@ -10605,8 +10631,11 @@ void esMoldorm::draw(BITMAP *dest)
 
 eLanmola::eLanmola(fix X,fix Y,int Id,int Clk) : eBaseLanmola(X,Y,Id,Clk)
 {
-    x=64;
-    y=80;
+    if(!q30_eflag5(Id))     // (2.55/3.0 flag 5: where the screen places it)
+    {
+        x=64;
+        y=80;
+    }
     dir=up;
     superman=1;
     fading=fade_invisible;
@@ -10721,8 +10750,11 @@ bool eLanmola::animate(int index)
 
 esLanmola::esLanmola(fix X,fix Y,int Id,int Clk) : eBaseLanmola(X,Y,Id,Clk)
 {
-    x=64;
-    y=80;
+    if(!q30_eflag5(Id))     // (2.55/3.0 flag 5: where the screen places it)
+    {
+        x=64;
+        y=80;
+    }
     hxofs=1000;
     hxsz=8;
     mainguy=false;
@@ -11318,8 +11350,14 @@ void esManhandla::draw(BITMAP *dest)
     enemy::draw(dest);
 }
 
-eGleeok::eGleeok(fix,fix,int Id,int Clk) : enemy((fix)120,(fix)48,Id,Clk)
+eGleeok::eGleeok(fix X,fix Y,int Id,int Clk) : enemy((fix)120,(fix)48,Id,Clk)
 {
+    if(q30_eflag5(Id))      // (2.55/3.0: where the screen places it; flag 6 half a tile right)
+    {
+        const Q30GuyData *g = q30_guy_data(Id & 0xFFF);
+        x = (g->editorflags & 0x20) ? X+8 : X;
+        y = Y;
+    }
     hzsz = 32; // can't be jumped.
     flameclk=0;
     misc=clk;                                                 // total head count
