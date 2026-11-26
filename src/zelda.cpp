@@ -810,6 +810,8 @@ bool q30_show_bottom_8px();     // q30_triggers.cpp
 void q30_reset_subscr_speed();  // zc_subscr.cpp
 bool q30_msg_more_icon(int str, int *x, int *y, int *sprite);  // q30_core.cpp (q30.h)
 void q30_reset_step_statics();                             // link.cpp
+bool q30_game_suspended(long type);                         // Game->Suspend[] (q30_scripts_regs.h)
+void q30_clear_game_suspend();
 std::vector<long> q30_take_hi_counters(bool firstplay);    // q30_triggers.cpp
 void q30_put_hi_counters(const std::vector<long> &v);
 std::vector<long> q30_take_hi_items(bool firstplay);        // q30_triggers.cpp
@@ -1688,6 +1690,7 @@ static void test_save_reload_tick()
 int init_game()
 {
     q30_clear_engine();
+    q30_clear_game_suspend();   // (upstream's FFCore.init)
     {
         void q30_install_enemy_fall_hook();     // guys.cpp: 2.55/3.0 enemies falling into pits
         q30_install_enemy_fall_hook();
@@ -2605,6 +2608,7 @@ int cont_game()
 {
     q30_game_frame_base=frame;  // (upstream's init_game_vars(true) resets its global frame counter)
     q30_light_wave_clk=0;
+    q30_clear_game_suspend();   // (upstream's FFCore.init(true))
     q30_run_continue();
     q30_bunny_reset();      // 2.55/3.0: as upstream's HeroClass::init on a continue
 
@@ -3581,7 +3585,9 @@ void game_loop()
         q30_gen_timing(Z30T_POST_EWPN_SCRIPT);
         checklink = true;
         
-        for(int i = 0; i < (gofast ? 8 : 1); i++)
+        // 2.55/3.0: Game->Suspend[susptHERO] holds Link and the camera that follows him back
+        const bool q30_hero_held = q30_game_suspended(5);
+        for(int i = 0; i < (q30_hero_held ? 0 : gofast ? 8 : 1); i++)
         {
             if(Link.animate(0))
             {
@@ -3600,7 +3606,8 @@ void game_loop()
                 break;
         }
 
-        q30_region_tick_camera();   // 2.55/3.0: a scrolling region's camera follows Link (nothing for 2.53)
+        if(!q30_hero_held)
+            q30_region_tick_camera();   // 2.55/3.0: a scrolling region's camera follows Link (nothing for 2.53)
 
         if(q30_reset_game_frame)    // (2.55/3.0: a scroll ended; the caller starts the next frame at once)
             return;

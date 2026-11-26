@@ -9907,11 +9907,19 @@ void LinkClass::q30_free_walk(int push)
                           && (movedir == up || movedir == down) && !q30_on_svladder && !(ladderx && laddery && ladderdir == up)
                           && !q30_is_side_swim();
 
+    // upstream's moveheroOld with diagonal movement (moveOld2): blocked the way Link faces, he is
+    // shoved round a corner by moveheroOld's own rule below, not movehero's shove (only
+    // qr_NEW_HERO_MOVEMENT2's walk has that). Not yet inside a 3.0 scrolling region, where the
+    // step checks here don't see what upstream's do (the z3 raft scene walks on as before).
+    const bool q30_old_diag = diagonalMovement && new_movement && !q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2) && !q30_region_on();
+    bool q30_old_blocked = false;
+
     if(new_movement && !q30_quest_rule(Q30_QR_NEW_HERO_MOVEMENT2))
     {
         const double movepix = q30_shield_step((q30_steprate + q30_step_boost) / 100.0);
         const bool walkable = !sv_block && q30_fit_step(movedir, q30_hero_newstep, -1, 0);
         still = !walkable;
+        q30_old_blocked = !walkable && q30_old_diag && !sv_block;
 
         if(shiftdir >= 0 && diagonalMovement)
         {
@@ -9974,7 +9982,7 @@ void LinkClass::q30_free_walk(int push)
     if(charging != 0 && attack == wHammer)
         return;
 
-    const bool moved = q30_move_xy(dx, dy, true);
+    const bool moved = q30_move_xy(dx, dy, !q30_old_diag);
 
     // upstream keeps Link's position in 1/10000 pixels (zfix); a 2.55 step doesn't fit 1/65536
     // pixels, so put him back on that grid each step, or the error grows until a position
@@ -9994,10 +10002,12 @@ void LinkClass::q30_free_walk(int push)
         return;
     }
 
-    if(moved)
+    if(q30_old_blocked && !moved)
+        q30_side_swim_blocked(movedir, push, shiftdir == -1);  // (moveheroOld's corner-shove, else a push)
+    else if(moved)
         return;
-
-    pushing = push + 1;
+    else
+        pushing = push + 1;
 
     // Blocked: let 2.53's walkflag start a hop into water or put the ladder down.
     int top = int(y) + (bigHitbox ? 0 : 8);
@@ -10312,12 +10322,12 @@ void LinkClass::q30_side_swim_blocked(int d, int push, bool shove)
 
         if(!_walkflag(px, iy + top, 1) && !_walkflag(px, iy + v2, 1) && _walkflag(px, iy + 15, 1))
         {
-            if(no_damage || !checkdamagecombos(px, iy + (sensitive ? 15 : v2)))
+            if(no_damage || !checkdamagecombos(px, iy + (sensitive ? 15 : 11)))
                 y = iy - 1;
         }
         else if(_walkflag(px, iy + top, 1) && !_walkflag(px, iy + v2 - 1, 1) && !_walkflag(px, iy + 15, 1))
         {
-            if(no_damage || !checkdamagecombos(px, iy + (sensitive ? top : v2 - 1)))
+            if(no_damage || !checkdamagecombos(px, iy + top + (sensitive ? 0 : 4)))
                 y = iy + 1;
         }
         else

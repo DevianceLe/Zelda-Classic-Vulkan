@@ -42,6 +42,26 @@ static void zasm30_store_set(long reg, long ref, long idx, long value)
     zasm30_store[std::make_pair(std::make_pair(reg, ref), idx)] = value;
 }
 
+// Game->Suspend[] (upstream's FFCore.system_suspend[susptLAST], cleared by FFScript::init as a
+// game starts or continues). game_loop holds Link back under susptHERO (5); scripts read the rest.
+static bool z30_system_suspend[68];
+
+bool q30_game_suspended(long type)
+{
+    return type >= 0 && type < 68 && z30_system_suspend[type];
+}
+
+void q30_set_game_suspend(long type, bool on)
+{
+    if(type >= 0 && type < 68)
+        z30_system_suspend[type] = on;
+}
+
+void q30_clear_game_suspend()
+{
+    memset(z30_system_suspend, 0, sizeof(z30_system_suspend));
+}
+
 void zasm30_log_once(const char *kind, long id)
 {
     static std::set<long> seen;
@@ -2532,7 +2552,7 @@ static bool zasm30_get_register_inner(const long arg, long &ret)
     }
     // Game->Scrolling[]: the running scroll (q30_regions.h); DIR is -1 while none runs
     case Z30R_GAMESCROLLING: ret = q30_scroll_data(Z30_INDEX) * 10000; return true;
-    case Z30R_GAMESUSPEND: ret = zasm30_store_get(arg, 0, Z30_INDEX) * 10000; return true;
+    case Z30R_GAMESUSPEND: ret = q30_game_suspended(Z30_INDEX) ? 10000 : 0; return true;
     case Z30R_GAMEEVENTDATA:    // the event being thrown (q30_throw_generic_event)
         ret = (Z30_INDEX >= 0 && Z30_INDEX < (long)zasm30_event_data.size()) ? zasm30_event_data[Z30_INDEX] : 0;
         return true;
@@ -3646,7 +3666,7 @@ static bool zasm30_set_register_inner(const long arg, const long value)
     }
     case Z30R_GAMESCROLLING: return true;
     case Z30R_GAMEBOTTLEST: q30_set_bottle_slot(Z30_INDEX, vbound(value / 10000, 0, 64)); return true;
-    case Z30R_GAMESUSPEND:
+    case Z30R_GAMESUSPEND: q30_set_game_suspend(Z30_INDEX, value != 0); return true;     // (a bool array: not /10000)
     case Z30R_MUSICUPDATECOND:
         zasm30_store_set(arg, 0, Z30_INDEX, value / 10000);
         return true;
