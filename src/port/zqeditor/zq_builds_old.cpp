@@ -806,16 +806,28 @@ long zq_made_order_old()
 // ZQ_BUILD_TEST_EDIT=1: before the save, combo 1 on screen 0's first cell of map 0 (a small edit).
 // Each writes one report line: what was done, SAVED or NOT SAVED, the saved file's header.
 
+std::vector<zq_build> zq_builds_all();                  // zq_builds.cpp: every generation
+
 namespace
 {
 
-const zq_build *find_build(std::vector<zq_build> &all, const char *name)
+// The build of that name; with several of one name (Save As and New entries from different files),
+// the one with the callback the switch needs (want_new: make_new, else save_as).
+const zq_build *find_build(std::vector<zq_build> &all, const char *name, bool want_new = false)
 {
+    const zq_build *first = NULL;
+
     for(size_t i = 0; i < all.size(); ++i)
         if(all[i].name == name)
-            return &all[i];
+        {
+            if(want_new ? all[i].make_new != NULL : all[i].save_as != NULL)
+                return &all[i];
 
-    return NULL;
+            if(!first)
+                first = &all[i];
+        }
+
+    return first;
 }
 
 void test_edit()
@@ -871,7 +883,7 @@ int zq_builds_old_switches(int argc, char **argv)
 
             line += "made " + header_text() + "; ";
             std::vector<zq_build> all;
-            zq_builds_old(all);
+            all = zq_builds_all();
             const zq_build *b = find_build(all, argv[i + 2]);
 
             if(!b)
@@ -891,8 +903,8 @@ int zq_builds_old_switches(int argc, char **argv)
             skip_quest_password = true;
             zq_batch_load = true;
             std::vector<zq_build> all;
-            zq_builds_old(all);
-            const zq_build *b = find_build(all, argv[i + 1]);
+            all = zq_builds_all();
+            const zq_build *b = find_build(all, argv[i + 1], true);
             std::string line = std::string("new ") + argv[i + 1] + ": ";
 
             if(!b || !b->make_new)
@@ -917,7 +929,7 @@ int zq_builds_old_switches(int argc, char **argv)
         if(a == "-qst-build-list" && i + 1 < argc)
         {
             std::vector<zq_build> all;
-            zq_builds_old(all);
+            all = zq_builds_all();
 
             for(size_t k = 0; k < all.size(); ++k)
             {

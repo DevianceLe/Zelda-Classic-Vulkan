@@ -62,6 +62,13 @@ int header_gen()
 
 } // namespace
 
+// Every build of every generation, sorted (the test switches in zq_builds_old.cpp use it).
+std::vector<zq_build> zq_builds_all()
+{
+    return gather();
+}
+
+
 // The open quest's build: its order (-1 when no generation claims it) and generation.
 long zq_builds_made(int *gen)
 {
