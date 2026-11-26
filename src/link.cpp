@@ -63,6 +63,7 @@ extern int draw_screen_clip_rect_y1;
 extern int draw_screen_clip_rect_y2;
 //extern bool draw_screen_clip_rect_show_link;
 extern bool global_wait;
+extern bool q30_reset_game_frame;   // zelda.cpp: a 2.55/3.0 scroll ended, the next frame starts at once
 
 int link_count = -1;
 int link_animation_speed = 1; //lower is faster animation
@@ -18076,6 +18077,12 @@ fade((specialcave > 0) ? (specialcave >= GUYCAVE) ? 10 : 11 : currcset, true, fa
     loadside = scrolldir^1;
     eventlog_mapflags();
     decorations.animate(); //continue to animate tall grass during scrolling
+
+    // 2.55/3.0: upstream's scrollscr ends with GAMEFLAG_RESET_GAME_LOOP unless
+    // qr_SCROLLWARP_NO_RESET_FRAME (on before compat rules 44): the game loop starts the next frame
+    // at once (game_loop), so Link takes his next step a frame sooner than 2.53's leftover frame
+    if(q30_active() && !q30_compat_rule(412))
+        q30_reset_game_frame = true;
 }
 
 // Where the sprite with this uid is in the list now: at `index` still, elsewhere, or gone (-1).

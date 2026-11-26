@@ -1625,6 +1625,10 @@ void init_dmap()
 static bool q30_global_first_frame = false;
 extern bool q30_skip_script_draws;   // ffscript.cpp: no new script drawing under a freezing message
 
+// 2.55/3.0: a scroll just ended (LinkClass::scrollscr): the game loop starts the next frame at once,
+// with no frame for the rest of this one (upstream's GAMEFLAG_RESET_GAME_LOOP)
+bool q30_reset_game_frame = false;
+
 // 2.55/3.0 quests: upstream's get_continue_life, with the quest's HP per heart; never 0. (The
 // continue hearts are kept in hearts here: the init data's HP over its HP per heart.)
 static int q30_continue_life()
@@ -3589,11 +3593,18 @@ void game_loop()
                 
                 return;
             }
-            
+
             checklink=false;
+
+            if(q30_reset_game_frame)
+                break;
         }
 
         q30_region_tick_camera();   // 2.55/3.0: a scrolling region's camera follows Link (nothing for 2.53)
+
+        if(q30_reset_game_frame)    // (2.55/3.0: a scroll ended; the caller starts the next frame at once)
+            return;
+
         q30_gen_timing(Z30T_POST_PLAYER_ANIMATE);
 	Link.cleanupByrna();
 
@@ -3804,8 +3815,12 @@ void game_loop()
         
         // Other effects in zc_sys.cpp
     }
-    
+
     //  putpixel(framebuf, walkflagx, walkflagy+playing_field_offset, vc(int(rand()%16)));
+
+    // (a scroll begun after Link's turn, by a later script, gets no new frame: upstream clears the
+    // flag when its next frame starts)
+    q30_reset_game_frame = false;
 }
 
 int get_currdmap()
@@ -4992,6 +5007,13 @@ int main(int argc, char* argv[])
 #endif
             replay_tour_tick();
             game_loop();
+
+            if(q30_reset_game_frame)    // 2.55/3.0: a scroll ended: the next frame now (upstream's continue)
+            {
+                q30_reset_game_frame = false;
+                continue;
+            }
+
             advanceframe(true);
             test_save_reload_tick();
         }

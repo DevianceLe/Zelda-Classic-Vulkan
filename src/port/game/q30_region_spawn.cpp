@@ -589,10 +589,13 @@ void q30_test_keys(bool *control_state)
 // ZC_REGION_SPRLOG=file (tests): once a frame, Link's place and the viewport in region pixels,
 // then every enemy (G), item (I) and enemy weapon (E): id, region x, y, z, direction, the screen it
 // belongs to and whether it is suspended (*). ZC_REGION_SPRLOG_FLOOR adds an enemy's floor and clock.
+// While the screen scrolls Link's place stays the one from before the scroll, as in upstream's replay
+// log (replay.cpp do_recording_poll: no "h" step while screenscrolling), which the sweeps compare it with.
 void q30_region_sprlog()
 {
     static const char *path = getenv("ZC_REGION_SPRLOG");
     static FILE *f = path ? fopen(path, "w") : NULL;
+    static int hx = 0, hy = 0;
 
     if(!f || !Playing)
         return;
@@ -600,7 +603,14 @@ void q30_region_sprlog()
     int vx = 0, vy = 0;
     q30_region_viewport(&vx, &vy);
     const int ox = q30_region_offset_x(), oy = q30_region_offset_y();
-    fprintf(f, "%d scr %02X hero %d %d view %d %d", frame, currscr, int(Link.getX()) + ox, int(Link.getY()) + oy, vx, vy);
+
+    if(!screenscrolling)
+    {
+        hx = int(Link.getX()) + ox;
+        hy = int(Link.getY()) + oy;
+    }
+
+    fprintf(f, "%d scr %02X hero %d %d view %d %d", frame, currscr, hx, hy, vx, vy);
     sprite_list *lists[LOGGED] = { &guys, &Ewpns, &items };
     static const char tag[LOGGED] = { 'G', 'E', 'I' };
 

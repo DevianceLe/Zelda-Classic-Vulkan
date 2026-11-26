@@ -2587,6 +2587,21 @@ void draw_block_flip(BITMAP *dest,int x,int y,int tile,int cset,int w,int h,int 
     }
 }
 
+#ifdef ZC_PLAYER_BUILD
+// 2.55/3.0 quests: the minimap's screens as upstream has them. Its home_screen is set as a screen loads
+// (maps.cpp loadscr), so from the start of a scroll it is the new screen (our homescr changes when the
+// scroll ends); the hero's dot goes on Hero.current_screen, on home_screen in a cave (SW_MMap::draw).
+static int q30_mmap_home()
+{
+    return (screenscrolling && get_currscr() < 0x80) ? get_currscr() : get_homescr();
+}
+
+static int q30_mmap_hero()
+{
+    return get_currscr() < 0x80 ? get_currscr() : q30_mmap_home();
+}
+#endif
+
 void drawdmap(BITMAP *dest, miscQdata *misc, int x, int y, bool showmap, int showlink, int showcompass, int linkcolor, int lccolor, int dccolor)
 {
     zcolors c=misc->colors;
@@ -2675,6 +2690,24 @@ void drawdmap(BITMAP *dest, miscQdata *misc, int x, int y, bool showmap, int sho
     {
         if(show_subscreen_dmap_dots && linkcolor != 255)
         {
+#ifdef ZC_PLAYER_BUILD
+            // 2.55/3.0: upstream's SW_MMap::draw, the dot on the screen the hero is on (none in a
+            // passageway)
+            if(q30_sub_newer())
+            {
+                const int screen = q30_mmap_hero();
+
+                if(get_currscr() == 0x81 && Link.getSpecialCave() == PASSAGEWAY)
+                    return;
+
+                if(type==dmOVERW)
+                    putdot(dest,((screen&15)<<2)+x+9,((screen&0xF0)>>2)+y+8,linkcolor);
+                else if(type==dmBSOVERW || ((type==dmDNGN || type==dmCAVE) && screen<128))
+                    putdot(dest,(((screen&15)-DMaps[get_currdmap()].xoff)<<3)+x+10,((screen&0xF0)>>2)+y+8,linkcolor);
+
+                return;
+            }
+#endif
             if(type==dmOVERW)
             {
                 putdot(dest,((get_homescr()&15)<<2)+x+9,((get_homescr()&0xF0)>>2)+y+8,linkcolor);
@@ -4311,11 +4344,13 @@ void show_custom_subscreen(BITMAP *dest, miscQdata *misc, subscreen_group *css, 
                 const bool q30_rooms = q30_sub_newer() && css->objects[i].d1 != 0;
                 if(q30_rooms)
                     q30_draw_minimap_rooms(dest, misc, css, i, x, y);
+                const int mark_scr = q30_sub_newer() ? q30_mmap_home() : get_homescr();
 #else
                 const bool q30_rooms = false;
+                const int mark_scr = get_homescr();
 #endif
                 //drawdmap(dest, misc, x, y, showmap,                 showlink,           showcompass,        linkcolor,                                                                 lccolor,                                                                   dccolor)
-                drawdmap(dest, misc, x, y, css->objects[i].d1 != 0 && !q30_rooms, css->objects[i].d2 && !(TheMaps[(DMaps[get_currdmap()].map*MAPSCRS)+get_homescr()].flags7&fNOLINKMARK),
+                drawdmap(dest, misc, x, y, css->objects[i].d1 != 0 && !q30_rooms, css->objects[i].d2 && !(TheMaps[(DMaps[get_currdmap()].map*MAPSCRS)+mark_scr].flags7&fNOLINKMARK),
                          css->objects[i].d3 && !(DMaps[get_currdmap()].flags&dmfNOCOMPASS), subscreen_color(misc, css->objects[i].colortype1, css->objects[i].color1), subscreen_color(misc, css->objects[i].colortype2, css->objects[i].color2), subscreen_color(misc, css->objects[i].colortype3, css->objects[i].color3));
             }
             break;
