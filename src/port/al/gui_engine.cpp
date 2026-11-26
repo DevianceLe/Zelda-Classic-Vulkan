@@ -23,6 +23,9 @@
 #include <cstring>
 #include <new>
 
+// ZQuest's interface profiles' key filter (defined below, with the dialog watch)
+extern "C" { extern int (*zcport_key_filter)(DIALOG *dialog, int ascii, int scancode); }
+
 using namespace zcport_gui;
 
 // ---------------------------------------------------------------------------
@@ -550,6 +553,15 @@ namespace
       DIALOG *dialog = p->dialog;
       int combo = (scancode << 8) | ((ascii <= 255) ? ascii : '^');
 
+      if (zcport_key_filter) {
+         int r = zcport_key_filter(dialog, ascii, scancode);
+         if (r >= 0) {
+            if (r != D_O_K)
+               p->res |= r;
+            return true;
+         }
+      }
+
       // 1. the object with the focus
       if (p->focus_obj >= 0) {
          int r = tell(p, p->focus_obj, MSG_CHAR, combo);
@@ -648,6 +660,13 @@ extern "C" int zcport_gui_host_owns(const DIALOG *d)
 // A test driver's view of the dialogs (zqeditor's menu audit, zq_audit.cpp): called when a
 // dialog starts (1) and after it has ended (0). NULL unless a driver set it.
 extern "C" { void (*zcport_dialog_watch)(DIALOG *dialog, int opened) = NULL; }
+// ZQuest's interface profiles (zq_ui_dialogs.cpp): a dialog laid out as the shown build's when it
+// starts (1), put back after it has ended (0). NULL in zplayer.
+extern "C" { void (*zcport_dialog_layout)(DIALOG *dialog, int opened) = NULL; }
+
+// ZQuest's interface profiles (zq_ui_profile.cpp): a build's own keys, before the dialog's objects
+// see the key: -1 when it isn't one of them, else what its action answered. NULL in zplayer.
+extern "C" { int (*zcport_key_filter)(DIALOG *dialog, int ascii, int scancode) = NULL; }
 
 extern "C" DIALOG_PLAYER *init_dialog(DIALOG *dialog, int focus_obj)
 {
@@ -676,6 +695,9 @@ extern "C" DIALOG_PLAYER *init_dialog(DIALOG *dialog, int focus_obj)
    pl->click_state = CLICK_EXPIRED;
 
    link_player(pl);
+
+   if (zcport_dialog_layout)
+      zcport_dialog_layout(dialog, 1);
 
    if (zcport_dialog_watch)
       zcport_dialog_watch(dialog, 1);
@@ -880,6 +902,9 @@ extern "C" int shutdown_dialog(DIALOG_PLAYER *player)
 
    if (zcport_dialog_watch)
       zcport_dialog_watch(dialog, 0);
+
+   if (zcport_dialog_layout)
+      zcport_dialog_layout(dialog, 0);
 
    return obj;
 }

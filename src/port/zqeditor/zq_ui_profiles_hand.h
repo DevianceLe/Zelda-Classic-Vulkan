@@ -459,13 +459,52 @@ const zq_ui_look look_30_239 =
     1, 0
 };
 
-// 3.0's screen is 912x684 with its own panels: until its layout table comes, the Large layout
-const zq_ui_layout layout_30_239 = { "3.0 Nightly 2026-11-06", 1, 0, 0, NULL, 0 };
+// 3.0's Large screen is 912x684 (LARGE_W, LARGE_H). Until zqui30's table gives 3.0's own panel places:
+// the Large layout with the combo column at the right edge and as tall as the extra height allows, two
+// combo lists (as 3.0's Compact mode) and 3.0's 16-px layer panel.
+const zq_ui_rect rects_30_239[] =
+{
+    { "combolist_window", -1, 688, 0, 224, 548 },
+    { "combo_preview", -1, 760, ZQ_UI_KEEP, ZQ_UI_KEEP, ZQ_UI_KEEP },
+    { "combolist", 0, 696, ZQ_UI_KEEP, ZQ_UI_KEEP, 29 },
+    { "combolist", 1, 768, ZQ_UI_KEEP, ZQ_UI_KEEP, 29 },
+    { "combolist", 2, 840, ZQ_UI_KEEP, ZQ_UI_KEEP, 29 },
+    { "comboaliaslist", 0, 696, ZQ_UI_KEEP, ZQ_UI_KEEP, 24 },
+    { "comboaliaslist", 1, 768, ZQ_UI_KEEP, ZQ_UI_KEEP, 24 },
+    { "comboaliaslist", 2, 840, ZQ_UI_KEEP, ZQ_UI_KEEP, 24 },
+    { "comboalias_preview", 0, 696, 464, ZQ_UI_KEEP, ZQ_UI_KEEP },
+    { "comboalias_preview", 1, 768, 464, ZQ_UI_KEEP, ZQ_UI_KEEP },
+    { "comboalias_preview", 2, 840, 464, ZQ_UI_KEEP, ZQ_UI_KEEP },
+    { "combolistscrollers", 0, 717, ZQ_UI_KEEP, ZQ_UI_KEEP, ZQ_UI_KEEP },
+    { "combolistscrollers", 1, 789, ZQ_UI_KEEP, ZQ_UI_KEEP, ZQ_UI_KEEP },
+    { "combolistscrollers", 2, 861, ZQ_UI_KEEP, ZQ_UI_KEEP, ZQ_UI_KEEP },
+    { "favorites_window", -1, 688, 548, 224, 136 },
+    { "favorites_list", -1, 696, 564, 13, 7 },
+    { "combocolumns", -1, ZQ_UI_KEEP, ZQ_UI_KEEP, 2, 16 },
+    { "layer_panel", -1, ZQ_UI_KEEP, ZQ_UI_KEEP, ZQ_UI_KEEP, 16 },
+    { "panel", -1, ZQ_UI_KEEP, 468, ZQ_UI_KEEP, ZQ_UI_KEEP },
+    { "minimap", -1, ZQ_UI_KEEP, 472, ZQ_UI_KEEP, ZQ_UI_KEEP },
+    { "commands_window", -1, 384, 468, 304, 216 },
+    { "commands_list", -1, 392, 488, ZQ_UI_KEEP, ZQ_UI_KEEP },
+};
+
+const zq_ui_layout layout_30_239 = { "3.0 Nightly 2026-11-06", 1, 912, 684, rects_30_239,
+                                     (int)(sizeof(rects_30_239) / sizeof(rects_30_239[0])) };
+
+// a few of 3.0's default hotkeys (zqui30's table will have them all)
+const zq_ui_key keys_30_239[] =
+{
+    { "S", "Quest/Strings" },
+    { "R", "Screen/Room Type" },
+    { "Ctrl+S", "File/Save" },
+    { "Ctrl+Z", "Edit/Undo" },
+    { "Ctrl+Y", "" },
+};
 
 const zq_ui_profile profile_30_239 =
 {
     "3.0 Nightly 2026-11-06", 0x300, menu_30_239, (int)(sizeof(menu_30_239) / sizeof(menu_30_239[0])),
-    &layout_30_239, &look_30_239, NULL, 0
+    &layout_30_239, &look_30_239, NULL, 0, 0, keys_30_239, (int)(sizeof(keys_30_239) / sizeof(keys_30_239[0]))
 };
 
 } // namespace zq_ui_hand

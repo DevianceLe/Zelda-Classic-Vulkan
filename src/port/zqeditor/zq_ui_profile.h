@@ -46,7 +46,12 @@ struct zq_ui_rect
     const char *what;       // "panel", "minimap", "combolist", "comboaliaslist", "comboalias_preview",
                             // "combolistscrollers", "combo_preview", "combolist_window", "map_page_bar",
                             // "favorites_window", "favorites_list", "commands_window", "commands_list",
-                            // "layer_panel"
+                            // "layer_panel" (its buttons, group names and dividers follow its height:
+                            // under 40 px only the buttons, centred);
+                            // "mapscreen": x, y where the map is drawn, w its scale (2 or 3), h 1 to show
+                            // its edges, 0 not;
+                            // "combocolumns": w how many combo lists show (1 to 3), h a combo's size in
+                            // them (16; 32 not drawn yet)
     int index;              // the array element; -1: every one (panel[0..8], combolist[0..2], ...)
     int x, y, w, h;         // ZQ_UI_KEEP: that value as the mode has it
 };
@@ -55,7 +60,8 @@ struct zq_ui_layout
 {
     const char *name;
     int large;              // 1: the Large layout (800x600), 0: Small (320x240), -1: the user's choice
-    int screen_w, screen_h; // 0: the mode's own (other sizes: reserved, not applied yet)
+    int screen_w, screen_h; // 0: the mode's own; else the editor's screen size (3.0: 912x684), the mode's
+                            // places then moved by the rects (being made real in the framework's next batch)
     const zq_ui_rect *rects;
     int rect_count;
 };
@@ -80,6 +86,16 @@ struct zq_ui_dialog
     const char *json;       // the build's dialog (zquiinv's JSON), or NULL
 };
 
+struct zq_ui_key
+{
+    const char *key;        // "S", "Ctrl+S", "Ctrl+Shift+Z", "Alt+F4", "F5", "Del", "PgUp", "Home", "End",
+                            // "Ins", "Esc", "Enter", "Space", "Tab", "Up", "Down", "Left", "Right", "0".."9",
+                            // "Minus", "Equals", "Comma", "Period", "Slash": modifiers (Ctrl, Shift, Alt) and
+                            // the key joined by '+'; a binding without a modifier is not taken with one held
+    const char *action;     // as a menu row's; "": the key does nothing under this profile
+    int needs;              // as a menu row's
+};
+
 struct zq_ui_profile
 {
     const char *build;      // the catalog's build name as File > New lists it ("2.10.3", "2.11 Beta 6",
@@ -97,6 +113,8 @@ struct zq_ui_profile
                             // catalog's scale within gen (a build the catalog lists only as part of a
                             // run, as "3.0.0-prerelease.N" with zq30_order_of_prerelease(N), or a beta
                             // it doesn't list); used before any name lookup
+    const zq_ui_key *keys;  // NULL: no key table; the keys the table doesn't name keep today's binding
+    int key_count;          // (F-keys and Del: the menu rows' shortcut texts, unless the table names them)
 };
 
 // Registering (from a generation's own file, before main(): see zq_ui_profiles_README.txt). The
@@ -120,10 +138,12 @@ MENU *zq_ui_menu_253();                 // today's menu bar (the_menu)
 void zq_ui_set_menu_bar(MENU *bar);     // what the editor's menu bar shows
 DIALOG *zq_ui_main_dialog();            // the editor's main dialog (its menu bar, its shortcut keys)
 void zq_switch_layout(bool large);
+void zq_switch_layout_to(bool large, bool force);     // force: also when the mode stays (a new screen size)
 
 // zq_ui_profile.cpp
 void zq_ui_follow_quest();              // after New, Open, Revert and the start: the profile to show
-void zq_ui_after_layout();              // zq_apply_layout's end: the profile's panel places
+void zq_ui_after_layout();              // zq_apply_layout's end: the profile's screen size, panel places
+void zq_ui_screen_size(bool large, int *w, int *h);   // the screen size the shown profile has for the mode
 void zq_ui_capture_user_look();         // main(), once the user's colours are set
 const char *zq_ui_profile_name();       // the build whose interface is shown
 int onInterfaceOptions();               // Etc > Interface...

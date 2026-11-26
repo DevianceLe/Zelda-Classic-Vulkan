@@ -244,6 +244,13 @@ size_and_pos commands_window;
 size_and_pos commands_list;
 size_and_pos layer_panel;
 
+// The layer panel's buttons: 16 px below its top in a panel 40 px high (2.53's), centred in a lower one.
+extern int layerpanel_buttonheight;
+static int layer_panel_button_y()
+{
+    return layer_panel.h >= 40 ? layer_panel.y+16 : layer_panel.y+(layer_panel.h-layerpanel_buttonheight)/2;
+}
+
 size_and_pos tooltip_box;
 size_and_pos tooltip_trigger;
 
@@ -258,6 +265,13 @@ int favorite_comboaliases[MAXFAVORITECOMBOALIASES];
 int favorite_commands[MAXFAVORITECOMMANDS];
 
 int mapscreen_x, mapscreen_y, mapscreensize, showedges, showallpanels;
+// How many of the Large layout's combo lists show (a build's interface may show fewer: 3.0's Compact
+// mode has 2); the Small layout shows one.
+int zq_combo_columns = 3;
+static inline bool combo_list_shown(int j)
+{
+    return j==0 || (is_large && j < zq_combo_columns);
+}
 int mouse_scroll_h;
 
 
@@ -4971,7 +4985,7 @@ void refresh(int flags)
             
             for(int j=0; j<3; ++j)
             {
-                if(j==0||is_large)
+                if(combo_list_shown(j))
                 {
                     for(int i=0; i<(combolist[j].w*combolist[j].h); i++)
                     {
@@ -5023,7 +5037,7 @@ void refresh(int flags)
             
             for(int j=0; j<3; ++j)
             {
-                if(j==0||is_large)
+                if(combo_list_shown(j))
                 {
                     for(int i=0; i<(comboaliaslist[j].w*comboaliaslist[j].h); i++)
                     {
@@ -5318,29 +5332,36 @@ void refresh(int flags)
             }
             
             int rx = (i * (layerpanel_buttonwidth+23)) + layer_panel.x+6;
-            int ry = layer_panel.y+16;
+            int ry = layer_panel_button_y();
             draw_text_button(menu1, rx,ry, layerpanel_buttonwidth, layerpanel_buttonheight, tbuf,vc(1),vc(14), CurrentLayer==i? D_SELECTED : (!Map.CurrScr()->layermap[i-1] && i>0) ? D_DISABLED : 0,true);
             draw_checkbox(menu1,rx+layerpanel_buttonwidth+4,ry+2,vc(1),vc(14), LayerMaskInt[i]!=0);
             
             // Draw the group divider
             if(i==3 || i==5)
             {
-                _allegro_vline(menu1, rx-4, layer_panel.y+3, layer_panel.y+36, jwin_pal[jcLIGHT]);
-                _allegro_vline(menu1, rx-5, layer_panel.y+3, layer_panel.y+36, jwin_pal[jcMEDDARK]);
+                _allegro_vline(menu1, rx-4, layer_panel.y+3, layer_panel.y+layer_panel.h-4, jwin_pal[jcLIGHT]);
+                _allegro_vline(menu1, rx-5, layer_panel.y+3, layer_panel.y+layer_panel.h-4, jwin_pal[jcMEDDARK]);
             }
         }
         
-        if(groundlayers)
+        // (a panel too low for the group names shows only the buttons)
+        if(layer_panel.h < 40)
+            ;
+        else if(groundlayers)
             textprintf_ex(menu1,font,layer_panel.x+60,layer_panel.y+4,jwin_pal[jcBOXFG],-1,"Ground (Walkable) Layers");
         else
             textprintf_disabled(menu1,font,layer_panel.x+60,layer_panel.y+4,jwin_pal[jcLIGHT],jwin_pal[jcMEDDARK],"Ground (Walkable) Layers");
             
-        if(overheadlayers)
+        if(layer_panel.h < 40)
+            ;
+        else if(overheadlayers)
             textprintf_ex(menu1,font,layer_panel.x+268,layer_panel.y+4,jwin_pal[jcBOXFG],-1,"Overhead Layers (Ground)");
         else
             textprintf_disabled(menu1,font,layer_panel.x+268,layer_panel.y+4,jwin_pal[jcLIGHT],jwin_pal[jcMEDDARK],"Overhead Layers (Ground)");
             
-        if(flyinglayers)
+        if(layer_panel.h < 40)
+            ;
+        else if(flyinglayers)
             textprintf_ex(menu1,font,layer_panel.x+434,layer_panel.y+4,jwin_pal[jcBOXFG],-1,"Overhead Layers (Flying)");
         else
             textprintf_disabled(menu1,font,layer_panel.x+434,layer_panel.y+4,jwin_pal[jcLIGHT],jwin_pal[jcMEDDARK],"Overhead Layers (Flying)");
@@ -8223,7 +8244,7 @@ void domouse()
     {
         for(int j=0; j<3; ++j)
         {
-            if(j==0||is_large)
+            if(combo_list_shown(j))
             {
                 if(isinRect(x,y,combolist[j].x,combolist[j].y,combolist[j].x+(combolist[j].w*16)-1,combolist[j].y+(combolist[j].h*16)-1))
                 {
@@ -8246,7 +8267,7 @@ void domouse()
     {
         for(int j=0; j<3; ++j)
         {
-            if(j==0||is_large)
+            if(combo_list_shown(j))
             {
                 if(isinRect(x,y,comboaliaslist[j].x,comboaliaslist[j].y,comboaliaslist[j].x+(comboaliaslist[j].w*16)-1,comboaliaslist[j].y+(comboaliaslist[j].h*16)-1))
                 {
@@ -8662,7 +8683,7 @@ void domouse()
             
             for(int j=0; j<3; ++j)
             {
-                if(j==0||is_large)
+                if(combo_list_shown(j))
                 {
                     if(isinRect(x,y,combolist[j].x,combolist[j].y,combolist[j].x+(combolist[j].w*16)-1,combolist[j].y+(combolist[j].h*16)-1))
                     {
@@ -8675,7 +8696,7 @@ void domouse()
         {
             for(int j=0; j<3; ++j)
             {
-                if(j==0||is_large)
+                if(combo_list_shown(j))
                 {
                     if(isinRect(x,y,comboaliaslist[j].x,comboaliaslist[j].y,comboaliaslist[j].x+(comboaliaslist[j].w*16)-1,comboaliaslist[j].y+(comboaliaslist[j].h*16)-1))
                     {
@@ -8826,7 +8847,7 @@ void domouse()
             for(int i=0; i<=6; ++i)
             {
                 int rx = (i * (layerpanel_buttonwidth+23)) + layer_panel.x+6;
-                int ry = layer_panel.y+16;
+                int ry = layer_panel_button_y();
                 
                 if((i==0 || Map.CurrScr()->layermap[i-1]) && isinRect(x,y,rx,ry,rx+layerpanel_buttonwidth-1,ry+layerpanel_buttonheight-1))
                 {
@@ -9132,7 +9153,7 @@ void domouse()
         
         for(int j=0; j<3; ++j)
         {
-            if(j==0||is_large)
+            if(combo_list_shown(j))
             {
                 if(!alias_list_mode())
                 {
@@ -9353,7 +9374,7 @@ void domouse()
                 z*=combolist[j].h;
             }
             
-            if(j==0||is_large)
+            if(combo_list_shown(j))
             {
                 if(!alias_list_mode())
                 {
@@ -25721,11 +25742,21 @@ finished:
 // screen into it.
 void zq_switch_layout(bool large)
 {
-    if(large==is_large)
+    zq_switch_layout_to(large, false);
+}
+
+// The same, also when the mode stays (force): the shown build's interface may have its own screen size
+// for the mode (port/zqeditor/zq_ui_profile.cpp: 3.0's Large screen is 912x684).
+void zq_switch_layout_to(bool large, bool force)
+{
+    if(large==is_large && !force)
         return;
 
     int new_w = large ? 800 : 320;
     int new_h = large ? 600 : 240;
+#ifdef ZC_ZQEDITOR
+    zq_ui_screen_size(large, &new_w, &new_h);
+#endif
     int mode = isFullScreen() ? GFX_AUTODETECT_FULLSCREEN : GFX_AUTODETECT_WINDOWED;
 
     zplayer_video_pin_window();
@@ -25778,6 +25809,7 @@ void zq_switch_layout(bool large)
     destroy_bitmap(old_buffer);
     screen = create_bitmap_ex(8,zq_screen_w,zq_screen_h);
     scrtmp = screen;
+    clear_bitmap(screen);       // nothing of the old layout stays
 
     BITMAP **sized[] = { &screen2, &tmp_scr, &menu1, &menu3 };
 
@@ -25785,6 +25817,7 @@ void zq_switch_layout(bool large)
     {
         destroy_bitmap(*sized[i]);
         *sized[i] = create_bitmap_ex(8,zq_screen_w,zq_screen_h);
+        clear_bitmap(*sized[i]);
     }
 
     clear_bitmap(menu1);

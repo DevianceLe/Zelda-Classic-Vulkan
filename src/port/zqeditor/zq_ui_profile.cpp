@@ -7,6 +7,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 #include <algorithm>
 #include <list>
 #include <map>
@@ -23,11 +24,16 @@
 extern PALETTE RAMpal;
 extern int jwin_pal[jcMAX];
 extern int UseSmall;
+extern int mapscreen_x, mapscreen_y, mapscreensize, showedges;
+extern int zq_combo_columns, current_combolist, current_comboalist;
+extern int command_buttonwidth, command_buttonheight;
+extern int zq_screen_w, zq_screen_h;
 extern bool is_large;
 extern size_and_pos minimap, map_page_bar[9], combolist[3], combolistscrollers[3], comboaliaslist[3],
     comboalias_preview[3], combo_preview, combolist_window, panel[9], favorites_window, favorites_list,
     commands_window, commands_list, layer_panel;
 extern void (*zcport_menu_before_view)(MENU *menu);     // port/game/ui_dialogs_host.cpp
+extern "C" { extern int (*zcport_key_filter)(DIALOG *dialog, int ascii, int scancode); }   // port/al/gui_engine.cpp
 
 long zq_builds_made(int *gen);                          // zq_builds.cpp
 int zq_files_pick_row(const char *title, const char *question, const std::vector<std::string> &rows, int dflt);
@@ -563,6 +569,170 @@ void bind_keys(const zq_ui_profile *p, Bar *bar)
     }
 }
 
+// ---- the profile's key table (letters and modifiers): checked before the editor's own keys ------------
+
+struct KeyBinding
+{
+    int scancode;
+    int mods;           // KB_CTRL_FLAG | KB_SHIFT_FLAG | KB_ALT_FLAG
+    int (*proc)();      // NULL: the key does nothing
+    int needs;
+};
+
+std::vector<KeyBinding> g_key_table;
+
+// "Ctrl+Shift+Z" -> scancode and modifiers; false when the name isn't known
+bool parse_key(const char *name, int &scancode, int &mods)
+{
+    std::string n(name ? name : "");
+    mods = 0;
+    size_t plus;
+
+    while((plus = n.find('+')) != std::string::npos && plus + 1 < n.size())
+    {
+        std::string m = n.substr(0, plus);
+
+        for(size_t i = 0; i < m.size(); ++i)
+            m[i] = (char)tolower((unsigned char)m[i]);
+
+        if(m == "ctrl" || m == "control")
+            mods |= KB_CTRL_FLAG;
+        else if(m == "shift")
+            mods |= KB_SHIFT_FLAG;
+        else if(m == "alt")
+            mods |= KB_ALT_FLAG;
+        else
+            return false;
+
+        n = n.substr(plus + 1);
+    }
+
+    if(n.size() == 1 && isalpha((unsigned char)n[0]))
+    {
+        scancode = KEY_A + (toupper((unsigned char)n[0]) - 'A');
+        return true;
+    }
+
+    if(n.size() == 1 && isdigit((unsigned char)n[0]))
+    {
+        scancode = KEY_0 + (n[0] - '0');
+        return true;
+    }
+
+    int f = 0;
+
+    if(n.size() >= 2 && (n[0] == 'F' || n[0] == 'f') && sscanf(n.c_str() + 1, "%d", &f) == 1 && f >= 1 && f <= 12)
+    {
+        scancode = KEY_F1 + f - 1;
+        return true;
+    }
+
+    static const struct { const char *name; int sc; } named[] =
+    {
+        { "del", KEY_DEL }, { "delete", KEY_DEL }, { "ins", KEY_INSERT }, { "insert", KEY_INSERT },
+        { "home", KEY_HOME }, { "end", KEY_END }, { "pgup", KEY_PGUP }, { "pgdn", KEY_PGDN },
+        { "pageup", KEY_PGUP }, { "pagedown", KEY_PGDN }, { "esc", KEY_ESC }, { "escape", KEY_ESC },
+        { "enter", KEY_ENTER }, { "space", KEY_SPACE }, { "tab", KEY_TAB }, { "up", KEY_UP },
+        { "down", KEY_DOWN }, { "left", KEY_LEFT }, { "right", KEY_RIGHT }, { "minus", KEY_MINUS },
+        { "equals", KEY_EQUALS }, { "comma", KEY_COMMA }, { "period", KEY_STOP }, { "slash", KEY_SLASH },
+    };
+    std::string low(n);
+
+    for(size_t i = 0; i < low.size(); ++i)
+        low[i] = (char)tolower((unsigned char)low[i]);
+
+    for(size_t i = 0; i < sizeof(named) / sizeof(named[0]); ++i)
+        if(low == named[i].name)
+        {
+            scancode = named[i].sc;
+            return true;
+        }
+
+    return false;
+}
+
+// an action name's procedure and needs (NULL: none here)
+int (*action_proc(const char *action, int &needs))()
+{
+    needs = 0;
+
+    if(!action || !action[0])
+        return NULL;
+
+    if(action[0] == '@')
+    {
+        std::map<std::string, Extra>::iterator e = extras().find(action);
+
+        if(e == extras().end())
+            return NULL;
+
+        needs = e->second.needs;
+        return e->second.proc;
+    }
+
+    if(g_paths.empty())
+        walk(zq_ui_menu_253(), "");
+
+    std::map<std::string, MENU *>::iterator e = g_paths.find(action);
+
+    if(e == g_paths.end())
+        return NULL;
+
+    needs = path_needs(action);
+    return e->second->proc;
+}
+
+void load_key_table(const zq_ui_profile *p)
+{
+    g_key_table.clear();
+
+    for(int i = 0; p->keys && i < p->key_count; ++i)
+    {
+        KeyBinding k;
+
+        if(!parse_key(p->keys[i].key, k.scancode, k.mods))
+        {
+            al_trace("zq_ui: %s: no key %s\n", p->build, p->keys[i].key ? p->keys[i].key : "");
+            continue;
+        }
+
+        int needs = 0;
+        k.proc = action_proc(p->keys[i].action, needs);
+        k.needs = (std::max)(needs, p->keys[i].needs);
+
+        if(!k.proc && p->keys[i].action && p->keys[i].action[0])
+            al_trace("zq_ui: %s: key %s: no action %s\n", p->build, p->keys[i].key, p->keys[i].action);
+
+        g_key_table.push_back(k);
+    }
+}
+
+// the dialog manager's key filter: -1 when the key isn't the table's, else what its action answered
+int key_filter(DIALOG *dialog, int ascii, int scancode)
+{
+    (void)ascii;
+
+    if(g_key_table.empty() || dialog != zq_ui_main_dialog())
+        return -1;
+
+    const int mods = key_shifts & (KB_CTRL_FLAG | KB_SHIFT_FLAG | KB_ALT_FLAG);
+
+    for(size_t i = 0; i < g_key_table.size(); ++i)
+    {
+        const KeyBinding &k = g_key_table[i];
+
+        if(k.scancode != scancode || k.mods != mods)
+            continue;
+
+        if(!k.proc || (k.needs && g_quest_gen < k.needs))
+            return D_O_K;
+
+        return k.proc();
+    }
+
+    return -1;
+}
+
 // ---- applying a profile -------------------------------------------------------------------------------
 
 // what the user set: their colours (Options' colour set) and the windows' own look
@@ -643,6 +813,7 @@ struct Rects
     size_and_pos minimap, map_page_bar[9], combolist[3], combolistscrollers[3], comboaliaslist[3],
         comboalias_preview[3], combo_preview, combolist_window, panel[9], favorites_window, favorites_list,
         commands_window, commands_list, layer_panel;
+    int mapscreen_x, mapscreen_y, mapscreensize, showedges, combo_columns;
 } g_base;
 
 bool g_base_taken = false;
@@ -663,6 +834,11 @@ void take_base()
     memcpy(g_base.comboaliaslist, comboaliaslist, sizeof(comboaliaslist));
     memcpy(g_base.comboalias_preview, comboalias_preview, sizeof(comboalias_preview));
     memcpy(g_base.panel, panel, sizeof(panel));
+    g_base.mapscreen_x = mapscreen_x;
+    g_base.mapscreen_y = mapscreen_y;
+    g_base.mapscreensize = mapscreensize;
+    g_base.showedges = showedges;
+    g_base.combo_columns = 3;
     g_base_taken = true;
 }
 
@@ -685,6 +861,11 @@ void restore_base()
     memcpy(comboaliaslist, g_base.comboaliaslist, sizeof(comboaliaslist));
     memcpy(comboalias_preview, g_base.comboalias_preview, sizeof(comboalias_preview));
     memcpy(panel, g_base.panel, sizeof(panel));
+    mapscreen_x = g_base.mapscreen_x;
+    mapscreen_y = g_base.mapscreen_y;
+    mapscreensize = g_base.mapscreensize;
+    showedges = g_base.showedges;
+    zq_combo_columns = g_base.combo_columns;
 }
 
 size_and_pos *rect_array(const char *what, int *count)
@@ -719,6 +900,25 @@ void move_rects(const zq_ui_layout *l)
     for(int i = 0; i < l->rect_count; ++i)
     {
         const zq_ui_rect &r = l->rects[i];
+
+        // the map: where it is drawn, at which scale (2 or 3), with or without its edges
+        if(r.what && !strcmp(r.what, "mapscreen"))
+        {
+            if(r.x != ZQ_UI_KEEP) mapscreen_x = r.x;
+            if(r.y != ZQ_UI_KEEP) mapscreen_y = r.y;
+            if(r.w != ZQ_UI_KEEP && r.w >= 1 && r.w <= 3) mapscreensize = r.w;
+            if(r.h != ZQ_UI_KEEP) showedges = r.h ? 1 : 0;
+            continue;
+        }
+
+        // the combo lists: how many show (1 to 3); a combo's size there (only 16 px so far)
+        if(r.what && !strcmp(r.what, "combocolumns"))
+        {
+            if(r.w != ZQ_UI_KEEP && r.w >= 1 && r.w <= 3) zq_combo_columns = r.w;
+            if(r.h != ZQ_UI_KEEP && r.h != 16) al_trace("zq_ui: combos of %d px in the lists aren't drawn yet (16 px)\n", r.h);
+            continue;
+        }
+
         int n = 0;
         size_and_pos *a = rect_array(r.what ? r.what : "", &n);
 
@@ -735,9 +935,89 @@ void move_rects(const zq_ui_layout *l)
     }
 }
 
+// Every panel inside the screen: a profile's places made for another screen size (a 912-px wide one
+// shown on 800 px) would otherwise be drawn past the bitmap's edge. A panel is moved in, then cut to
+// the screen if it is still bigger.
+void keep_on_screen()
+{
+    struct { size_and_pos *a; int n; int ux, uy; const char *name; } all[] =
+    {
+        { panel, 9, 1, 1, "panel" }, { map_page_bar, 9, 1, 1, "map_page_bar" }, { combolist, 3, 16, 16, "combolist" },
+        { combolistscrollers, 3, 1, 1, "combolistscrollers" }, { comboaliaslist, 3, 16, 16, "comboaliaslist" },
+        { comboalias_preview, 3, 1, 1, "comboalias_preview" }, { &minimap, 1, 1, 1, "minimap" },
+        { &combo_preview, 1, 1, 1, "combo_preview" }, { &combolist_window, 1, 1, 1, "combolist_window" },
+        { &favorites_window, 1, 1, 1, "favorites_window" }, { &favorites_list, 1, 16, 16, "favorites_list" },
+        { &commands_window, 1, 1, 1, "commands_window" },
+        { &commands_list, 1, command_buttonwidth, command_buttonheight, "commands_list" },
+        { &layer_panel, 1, 1, 1, "layer_panel" },
+    };
+
+    // only a profile's own places (today's layouts are left exactly as they are)
+    const zq_ui_layout *l = g_shown ? g_shown->p->layout : NULL;
+
+    if(!l || !l->rects || l->rect_count <= 0)
+        return;
+
+    for(size_t k = 0; k < sizeof(all) / sizeof(all[0]); ++k)
+        for(int i = 0; i < all[k].n; ++i)
+        {
+            size_and_pos &r = all[k].a[i];
+
+            // the Small layout uses one of each and none of the Large layout's own panels
+            if(!is_large && (i > 0 || all[k].a == map_page_bar || all[k].a == &favorites_window ||
+                             all[k].a == &favorites_list || all[k].a == &commands_window ||
+                             all[k].a == &commands_list || all[k].a == &layer_panel || all[k].a == &combolist_window))
+                continue;
+
+            if(r.x < 0 || r.y < 0 || r.w <= 0 || r.h <= 0)
+                continue;       // not used in this layout
+
+            const int ux = all[k].ux, uy = all[k].uy;
+            int w = r.w * ux, h = r.h * uy;
+            bool moved = false;
+
+            if(r.x + w > zq_screen_w)
+            {
+                r.x = (std::max)(0, zq_screen_w - w);
+                moved = true;
+            }
+
+            if(r.y + h > zq_screen_h)
+            {
+                r.y = (std::max)(0, zq_screen_h - h);
+                moved = true;
+            }
+
+            if(r.x + r.w * ux > zq_screen_w)
+                r.w = (zq_screen_w - r.x) / ux;
+
+            if(r.y + r.h * uy > zq_screen_h)
+                r.h = (zq_screen_h - r.y) / uy;
+
+            if(moved)
+                al_trace("zq_ui: %s: %s[%d] past the %dx%d screen, moved in\n", g_shown ? g_shown->p->build : "",
+                         all[k].name, i, zq_screen_w, zq_screen_h);
+        }
+}
+
 const zq_ui_layout *shown_layout()
 {
     return g_shown ? g_shown->p->layout : NULL;
+}
+
+// the screen size a layout gives the mode (false: the mode's own)
+bool layout_size(const zq_ui_layout *l, bool large, int &w, int &h)
+{
+    if(!l || l->screen_w <= 0 || l->screen_h <= 0)
+        return false;
+
+    // a layout's size is its own mode's (the user's choice of the other mode keeps that mode's size)
+    if(l->large >= 0 && (l->large != 0) != large)
+        return false;
+
+    w = l->screen_w;
+    h = l->screen_h;
+    return true;
 }
 
 void show(const Known *k)
@@ -746,6 +1026,7 @@ void show(const Known *k)
         return;
 
     const bool same = k == g_shown;
+    const zq_ui_layout *old_layout = g_shown ? g_shown->p->layout : NULL;
     g_shown = k;
     const zq_ui_profile *p = k->p;
 
@@ -762,14 +1043,18 @@ void show(const Known *k)
     }
 
     bind_keys(p, g_bar);
+    load_key_table(p);
 
     // the layout: the mode (the user's own choice stays theirs), then the panels' places
     const bool user_large = UseSmall == 0;
     const bool large = (!p->layout || p->layout->large < 0) ? user_large : p->layout->large != 0;
 
-    if(large != is_large)
+    int sw = large ? 800 : 320, sh = large ? 600 : 240;
+    layout_size(p->layout, large, sw, sh);
+
+    if(large != is_large || sw != zq_screen_w || sh != zq_screen_h || p->layout != old_layout)
     {
-        zq_switch_layout(large);        // it calls zq_ui_after_layout
+        zq_switch_layout_to(large, true);       // it calls zq_ui_after_layout
         UseSmall = user_large ? 0 : 1;
     }
     else
@@ -831,6 +1116,7 @@ struct Start
     Start()
     {
         zcport_menu_before_view = before_view;
+        zcport_key_filter = key_filter;
     }
 } g_start;
 
@@ -865,8 +1151,29 @@ void zq_ui_follow_quest()
 
 void zq_ui_after_layout()
 {
+    int w = 0, h = 0;
+
+    if(layout_size(shown_layout(), is_large, w, h))
+    {
+        zq_screen_w = w;
+        zq_screen_h = h;
+    }
+
+    zq_combo_columns = 3;       // the layout's own count: a profile's rects may lower it
     take_base();
     move_rects(shown_layout());
+    keep_on_screen();
+
+    if(current_combolist >= zq_combo_columns)
+        current_combolist = 0;
+
+    if(current_comboalist >= zq_combo_columns)
+        current_comboalist = 0;
+}
+
+void zq_ui_screen_size(bool large, int *w, int *h)
+{
+    layout_size(shown_layout(), large, *w, *h);
 }
 
 void zq_ui_capture_user_look()

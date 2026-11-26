@@ -92,6 +92,7 @@ set(ZQEDITOR_SOURCES
 	${ZCPORT_DIR}/zqeditor/zq_builds_192.cpp
 	# the interface per build: the framework (zq_ui_profile.h); the generations' profiles below
 	${ZCPORT_DIR}/zqeditor/zq_ui_profile.cpp
+	${ZCPORT_DIR}/zqeditor/zq_ui_dialogs.cpp
 	# compiling 2.55 / 3.0 quests' ZScript with zscript255 / zscript30
 	${ZCPORT_DIR}/zqeditor/zq_compile.cpp
 	${ZCPORT_DIR}/zqeditor/zq_compile_dialog.cpp

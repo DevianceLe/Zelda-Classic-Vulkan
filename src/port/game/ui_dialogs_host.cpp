@@ -65,6 +65,7 @@ using namespace zcui_dlg;
 // ZQuest's interface profiles (zq_ui_profile.cpp): a menu's entries take their state from the
 // editor's own entries just before the menu is shown. NULL in zplayer.
 void (*zcport_menu_before_view)(MENU *menu) = NULL;
+extern "C" { extern int (*zcport_key_filter)(DIALOG *dialog, int ascii, int scancode); }
 
 
 namespace
@@ -486,6 +487,18 @@ void handle_key(State &st, int ascii, int scancode, int focus)
     DIALOG *dlg = st.dialog;
     int combo = (scancode << 8) | ((ascii <= 255) ? ascii : '^');
     dlg_log("  dialog %d key ascii %d scancode %d focus %d", st.hd->id, ascii, scancode, focus);
+
+    // ZQuest's interface profiles: a build's own keys (gui_engine.cpp)
+    if(zcport_key_filter)
+    {
+        int r = zcport_key_filter(dlg, ascii, scancode);
+        if(r >= 0)
+        {
+            if(r != D_O_K)
+                st.player->res |= r;
+            return;
+        }
+    }
 
     if(focus >= 0 && focus < st.count && usable(dlg[focus]))
     {
