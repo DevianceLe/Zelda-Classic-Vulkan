@@ -826,7 +826,8 @@ int write_dmaps_255(PACKFILE *f, const ZqNewerContext &ctx)
 
         // 2.55.18's loader, for damaged quests (2.55.17 kept these as read): a DMap on map 255 or
         // on a map the quest doesn't have goes to map 0, and a level or level palette past the
-        // last one (512) becomes 0
+        // last one (512) becomes 0 (older releases keep them as read)
+        if(zq_newer_255_release() >= 18)
         {
             if(t.get("map") >= 255 || t.get("map") >= map_count)
                 zqn255_tape_set(t, "map", 0);

@@ -969,9 +969,14 @@ void readrules_compat(Bits &q, byte *deprecated, bool t30, word zv, byte build, 
 
     if(fix(11) && hv.older_than(2, 55, 11))
     {
-        q.set(qr_BROKEN_BLOCKHOLE_PITFALLS, 1);
-        q.set(qr_CUSTOM_WEAPON_BROKEN_SIZE, 1);
-        q.set(qr_OLD_SPRITE_FALL_DROWN, 1);
+        // 2.55.11 alone spared "zcdev" quests these three
+        if(!(dev && zq_newer_255_release() == 11))
+        {
+            q.set(qr_BROKEN_BLOCKHOLE_PITFALLS, 1);
+            q.set(qr_CUSTOM_WEAPON_BROKEN_SIZE, 1);
+            q.set(qr_OLD_SPRITE_FALL_DROWN, 1);
+        }
+
         q.set(qr_OLD_PIT_SENSITIVITY, 1);
     }
 

@@ -1792,8 +1792,8 @@ bool final_dmaps(const ZqNewerContext &ctx, std::vector<UDmap> &out, int *file_c
     // 2.55.18's loader, for damaged quests (2.55.17 and 3.0 Nightly keep these as read): a DMap
     // on map 255 goes to map 0, a level or level palette past the last one (512) becomes 0
     // (readdmaps), and once the maps are read too, a DMap on a map the quest doesn't have goes to
-    // map 0 (loadquest).
-    if(ctx.target == ZQ_NEWER_255)
+    // map 0 (loadquest). Before 2.55.18 they stay as read.
+    if(ctx.target == ZQ_NEWER_255 && zq_newer_255_release() >= 18)
     {
         const int maps = map_count < MAXMAPS2 ? map_count : MAXMAPS2;
 
@@ -2107,8 +2107,8 @@ bool final_screens(const ZqNewerContext &ctx, std::vector<UScr> &out, std::vecto
 
     // 2.55.18's loader, for damaged quests (2.55.17 and 3.0 Nightly keep these as read): a warp
     // to a DMap past the last one (512) goes to DMap 0, enemy 512 is no enemy (readmapscreen),
-    // and a layer on a screen past the last map's is no layer (readmaps).
-    if(ctx.target == ZQ_NEWER_255)
+    // and a layer on a screen past the last map's is no layer (readmaps). Before 2.55.18 they stay.
+    if(ctx.target == ZQ_NEWER_255 && zq_newer_255_release() >= 18)
         for(size_t idx = 0; idx < out.size(); ++idx)
         {
             UScr &s = out[idx];

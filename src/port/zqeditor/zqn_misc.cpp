@@ -333,7 +333,8 @@ void body(Buf &o, int target)
 
     // 2.55.18's loader, for damaged quests (2.55.17 and 3.0 Nightly keep these as read): a ring
     // entry on a DMap past the last one (512) goes to DMap 0, and a ring holds nine warps at most
-    if(target == ZQ_NEWER_255)
+    // (before 2.55.18 they stay as read)
+    if(target == ZQ_NEWER_255 && zq_newer_255_release() >= 18)
         for(int i = 0; i < NUM_RINGS; ++i)
         {
             for(int j = 0; j < 9; ++j)

@@ -1045,8 +1045,8 @@ bool read_script_255(Zqn255In &r, int v, word zv, Script255 *sc)
     sc->end = r.pos;
     sc->count = num == 0 ? 1 : count;
 
-    // disabled: no commands, so the writer gives it the terminator alone
-    if(jumps && (lowest < 0 || highest >= sc->count))
+    // disabled: no commands, so the writer gives it the terminator alone (2.55.18's loader on; 3.0's too)
+    if(jumps && (lowest < 0 || highest >= sc->count) && zq_newer_255_release() >= 18)
     {
         sc->end = sc->at;
         sc->count = 1;

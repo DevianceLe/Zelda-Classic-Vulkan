@@ -216,7 +216,7 @@ int write_misc(PACKFILE *f, const ZqNewerContext &ctx)
             word d = r.u16();
 
             // 2.55.18's loader: only a damaged quest has a DMap past the last one (512)
-            if(ctx.target == ZQ_NEWER_255 && d >= 512)
+            if(ctx.target == ZQ_NEWER_255 && zq_newer_255_release() >= 18 && d >= 512)
                 d = 0;
 
             if(keep)
@@ -234,7 +234,7 @@ int write_misc(PACKFILE *f, const ZqNewerContext &ctx)
         byte size = r.u8();
 
         // 2.55.18's loader: a ring holds at most nine warps
-        if(ctx.target == ZQ_NEWER_255 && size > 9)
+        if(ctx.target == ZQ_NEWER_255 && zq_newer_255_release() >= 18 && size > 9)
             size = 9;
 
         if(keep)

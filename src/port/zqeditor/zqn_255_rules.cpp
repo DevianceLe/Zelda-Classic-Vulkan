@@ -43,7 +43,8 @@ namespace
 enum
 {
     QR_CONTFULL_DEP = 20, QR_FLUCTUATING_ENEMY_JUMP = 316, QR_SPRITE_JUMP_IS_TRUNCATED = 317,
-    QR_BUGGY_BUGGY_SLASH_TRIGGERS = 318, QR_HIDE_BOTTOM_8_PIXELS = 482
+    QR_BUGGY_BUGGY_SLASH_TRIGGERS = 318, QR_HIDE_BOTTOM_8_PIXELS = 482, QR_BROKEN_BLOCKHOLE_PITFALLS = 459,
+    QR_CUSTOM_WEAPON_BROKEN_SIZE = 460, QR_OLD_SPRITE_FALL_DROWN = 462
 };
 
 void set_rule(std::vector<byte> &r, int n, bool on)
@@ -161,7 +162,18 @@ int upstream_rules(const ZqNewerContext &ctx, Zqn255Section &s, std::vector<byte
     q.s_version = s.version;
     q.compat = s.extra.size() == 4 ? (unsigned long)(s.extra[0] | (s.extra[1] << 8) | (s.extra[2] << 16) | ((unsigned long)s.extra[3] << 24)) : 0;
     rules.assign(s.data.begin(), s.data.begin() + 100);
+    const std::vector<byte> before = rules;
     zq_rules_upstream(t30, &rules[0], q);
+
+    // 2.55.11 alone spared "zcdev" quests the first three rules of its "older than 2.55.11" fix
+    // (the rules lists are 2.55.18's, which apply them to every quest)
+    if(!t30 && zq_newer_255_release() == 11 && !strcmp(author, "zcdev"))
+    {
+        const int spared[3] = { QR_BROKEN_BLOCKHOLE_PITFALLS, QR_CUSTOM_WEAPON_BROKEN_SIZE, QR_OLD_SPRITE_FALL_DROWN };
+
+        for(int k = 0; k < 3; ++k)
+            set_rule(rules, spared[k], rule(before, spared[k]));
+    }
 
     // what the script reader (readffscript) and the combo reader set
     const int ffsc = part_version(ID_FFSCRIPT), cmbo = part_version(ID_COMBOS);

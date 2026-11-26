@@ -359,7 +359,7 @@ struct Zq255Release
     int v_maps, v_guys, v_subscreen;
     const char *classic;    // its Classic tileset, as shipped in templates
     const char *cambria;    // its Cambria tileset (NULL before 2.55.8)
-    bool own_cambria;       // false: an older Cambria, not on hand; the newest stands in
+    bool own_cambria;       // its own Cambria (all of them, since the older LFS files were fetched)
     int new_flow;
     int rules;              // its zq255_rule_lists entry
 };
@@ -374,11 +374,11 @@ static const Zq255Release zq255_releases[] =
     { "2.55.5", 5, 20240804L, 30, 48, 11, "templates/classic_2.55.2.qst", NULL, true, 0, 0 },
     { "2.55.6", 6, 20240908L, 30, 48, 11, "templates/classic_2.55.6.qst", NULL, true, 0, 0 },
     { "2.55.7", 7, 20241018L, 30, 48, 11, "templates/classic_2.55.6.qst", NULL, true, 0, 0 },
-    { "2.55.8", 8, 20241227L, 30, 48, 12, "templates/classic_2.55.6.qst", "templates/cambria.qst", false, 1, 0 },
-    { "2.55.9", 9, 20250312L, 30, 48, 12, "templates/classic_2.55.6.qst", "templates/cambria.qst", false, 2, 1 },
-    { "2.55.10", 10, 20250717L, 30, 48, 12, "templates/classic_2.55.6.qst", "templates/cambria.qst", false, 2, 2 },
-    { "2.55.11", 11, 20251007L, 30, 48, 12, "templates/classic_2.55.6.qst", "templates/cambria.qst", false, 2, 3 },
-    { "2.55.12", 12, 20251224L, 30, 48, 12, "templates/classic_2.55.6.qst", "templates/cambria.qst", false, 2, 4 },
+    { "2.55.8", 8, 20241227L, 30, 48, 12, "templates/classic_2.55.6.qst", "templates/cambria_2.55.8.qst", true, 1, 0 },
+    { "2.55.9", 9, 20250312L, 30, 48, 12, "templates/classic_2.55.6.qst", "templates/cambria_2.55.8.qst", true, 2, 1 },
+    { "2.55.10", 10, 20250717L, 30, 48, 12, "templates/classic_2.55.6.qst", "templates/cambria_2.55.10.qst", true, 2, 2 },
+    { "2.55.11", 11, 20251007L, 30, 48, 12, "templates/classic_2.55.6.qst", "templates/cambria_2.55.10.qst", true, 2, 3 },
+    { "2.55.12", 12, 20251224L, 30, 48, 12, "templates/classic_2.55.6.qst", "templates/cambria_2.55.10.qst", true, 2, 4 },
     { "2.55.13", 13, 20260316L, 30, 48, 12, "templates/classic_2.55.qst", "templates/cambria.qst", true, 2, 5 },
     { "2.55.14", 14, 20260425L, 30, 48, 12, "templates/classic_2.55.qst", "templates/cambria.qst", true, 2, 6 },
     { "2.55.15", 15, 20260707L, 30, 48, 12, "templates/classic_2.55.qst", "templates/cambria.qst", true, 2, 7 },
