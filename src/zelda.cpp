@@ -5032,6 +5032,16 @@ int main(int argc, char* argv[])
         titlescreen(load_save);
         
         load_save=0;
+
+        // 2.55/3.0: every game start, a continue included, restarts each animated combo from its
+        // first tile (upstream's setup_combo_animations calls reset_animation); 2.53 keeps the
+        // tile it was on
+        if(tiles_newer_combo_flags)
+        {
+            reset_combo_animations();
+            reset_combo_animations2();
+        }
+
         setup_combo_animations();
         setup_combo_animations2();
         
