@@ -45,8 +45,6 @@ The final run was stopped before its last 11 quests. Their results are from the 
 - Quests made in ZC 1.00 and 1.50 can't be opened. None are in this collection.
 - 6 of 3.0's script values still read differently, none of them used by a quest in this collection: values that come from the machine's own settings or clock, a stack write past the stack's end, and one line 3.0's own test run prints only because it stops in the middle of a wipe.
 - Copying a whole array into an engine array (such as ArrayCopy into Screen->D) doesn't reach the engine array.
-- Shields held up to block, and script weapons that imitate other weapons (such as a script blast opening bomb doors).
-- A script's rotated or flipped blit to the screen is drawn without the rotation or flip.
 
 **Built, but tried in only a few quests**
 
@@ -63,7 +61,8 @@ The final run was stopped before its last 11 quests. Their results are from the 
 - 3.0 messages (scrolling text, portraits, shadows, icons, control codes) and the fonts 2.55 and 3.0 added: tried in Tranquil Expression and Mystical Harps.
 - Push blocks falling into pits: tried in Colossal Tower.
 - The Transform enemy defense: tried in The Rosemaster (its Gibdos match 3.0) and in upstream's own test scene.
-- 3.0's game over screen (CONTINUE / SAVE AND QUIT / QUIT WITHOUT SAVING): its frames match 3.0 in three quests, each choice played through.
+- 3.0's game over screen (CONTINUE / SAVE AND QUIT / QUIT WITHOUT SAVING): its frames match 3.0 in three quests, each choice played through. 3.0's save screen (save points, ShowSaveScreen) has 3.0's look but hasn't been compared with 3.0 on screen.
+- Held shields and weapons that imitate other weapons: a held buckler in Novel Ruins Gaiden matches 3.0, and upstream's own test of a scripted bomb blast opening a bomb door passes. Shield cooldowns and sword, wand or hammer imitators cutting combos aren't built yet.
 - 3.0's map charting (visited screens kept per DMap, the large map's room square, a scrolling region's rooms joined on the map): Tales of Zelsteria's large map matches 3.0, also after saving and reloading. The 3.0 minimap's visited-room colours aren't built yet.
 - The big-enemy animation styles 2.55 added: 13 quests in this collection use them; Spell of Mudora's 2nd quest was compared with 3.0.
 - Save menus (a quest's own game over and F6 menus): Mystical Harps' and OOT1986's menus load as in 3.0, and a game over menu and an F6 menu were seen opening in this player; they haven't been compared with 3.0's on screen.
